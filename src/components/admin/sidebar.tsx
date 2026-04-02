@@ -12,6 +12,7 @@ type NavItem = {
 const navigation: NavItem[] = [
   { label: "Дашборд", href: "/admin/dashboard", icon: "📊" },
   { label: "Беседки", href: "/admin/gazebos", icon: "🏕" },
+  { label: "PS Park", href: "/admin/ps-park", icon: "🎮" },
   { label: "Модули", href: "/admin/modules", icon: "📦" },
   { label: "Пользователи", href: "/admin/users", icon: "👥" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍" },
