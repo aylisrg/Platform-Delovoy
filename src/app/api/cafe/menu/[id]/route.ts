@@ -9,7 +9,7 @@ import {
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
 import { logAudit } from "@/lib/logger";
-import { getMenuItem, createMenuItem, updateMenuItem } from "@/modules/cafe/service";
+import { getMenuItem, updateMenuItem } from "@/modules/cafe/service";
 import { updateMenuItemSchema } from "@/modules/cafe/validation";
 
 /**

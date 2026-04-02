@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getMenu, getMenuCategories } from "@/modules/cafe/service";
 import { MenuList } from "@/components/public/cafe/menu-list";
 
@@ -14,9 +15,9 @@ export default async function CafePage() {
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-6xl mx-auto px-4 py-8">
           <nav className="mb-4">
-            <a href="/" className="text-sm text-blue-600 hover:underline">
+            <Link href="/" className="text-sm text-blue-600 hover:underline">
               ← Главная
-            </a>
+            </Link>
           </nav>
           <h1 className="text-3xl font-bold text-zinc-900">Кафе</h1>
           <p className="mt-2 text-zinc-600">

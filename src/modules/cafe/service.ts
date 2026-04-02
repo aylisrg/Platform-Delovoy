@@ -71,7 +71,7 @@ export async function updateMenuItem(id: string, input: UpdateMenuItemInput) {
 // === ORDERS ===
 
 export async function createOrder(userId: string, input: CreateOrderInput) {
-  const { items, deliveryTo, comment } = input;
+  const { items, deliveryTo } = input;
 
   // Fetch menu items to calculate prices
   const menuItemIds = items.map((i) => i.menuItemId);

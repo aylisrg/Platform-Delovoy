@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -77,9 +78,9 @@ export default async function DashboardPage() {
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-4xl mx-auto px-4 py-8">
           <nav className="mb-4">
-            <a href="/" className="text-sm text-blue-600 hover:underline">
+            <Link href="/" className="text-sm text-blue-600 hover:underline">
               ← Главная
-            </a>
+            </Link>
           </nav>
           <h1 className="text-3xl font-bold text-zinc-900">Личный кабинет</h1>
           <p className="mt-2 text-zinc-600">

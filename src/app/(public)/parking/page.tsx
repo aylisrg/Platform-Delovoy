@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getParkingInfo } from "@/modules/parking/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +11,9 @@ export default function ParkingPage() {
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-4xl mx-auto px-4 py-8">
           <nav className="mb-4">
-            <a href="/" className="text-sm text-blue-600 hover:underline">
+            <Link href="/" className="text-sm text-blue-600 hover:underline">
               ← Главная
-            </a>
+            </Link>
           </nav>
           <h1 className="text-3xl font-bold text-zinc-900">Парковка</h1>
           <p className="mt-2 text-zinc-600">
