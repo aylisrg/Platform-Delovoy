@@ -1,13 +1,16 @@
 /**
- * Telegram Alert Bot for Platform Delovoy.
+ * Telegram Bot for Platform Delovoy.
  *
- * Sends alerts to the admin Telegram group when critical events occur.
- * Can be run as a standalone process or imported as a module.
+ * Dual-purpose:
+ * 1. Alert bot — sends system alerts to admin group
+ * 2. User bot — booking flow for gazebos (and future modules)
  *
  * Usage:
- *   npx tsx bot/index.ts          — run standalone
- *   import { sendAlert } from './bot'  — use as module
+ *   npx tsx bot/index.ts    — run the bot
  */
+
+import { Bot } from "grammy";
+import { registerGazeboHandlers } from "./handlers/gazebos";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -23,6 +26,7 @@ const LEVEL_EMOJI: Record<AlertLevel, string> = {
 
 /**
  * Send an alert message to the admin Telegram group.
+ * Can be imported by other modules without starting the bot.
  */
 export async function sendAlert(
   level: AlertLevel,
@@ -68,10 +72,53 @@ export async function sendAlert(
   }
 }
 
-// If run directly, send a test alert
-if (require.main === module) {
-  sendAlert("INFO", "system", "Bot started — test alert").then((sent) => {
-    console.log(sent ? "Test alert sent" : "Test alert failed (check env vars)");
-    process.exit(0);
+/**
+ * Start the bot in long-polling mode.
+ */
+async function startBot() {
+  if (!BOT_TOKEN) {
+    console.error("[Bot] TELEGRAM_BOT_TOKEN is required");
+    process.exit(1);
+  }
+
+  const bot = new Bot(BOT_TOKEN);
+
+  // Start command
+  bot.command("start", async (ctx) => {
+    await ctx.reply(
+      "👋 Добро пожаловать в бот бизнес-парка *Деловой*\\!\n\n" +
+        "Доступные команды:\n" +
+        "/gazebos — Забронировать беседку\n" +
+        "/help — Помощь",
+      { parse_mode: "MarkdownV2" }
+    );
   });
+
+  // Help command
+  bot.command("help", async (ctx) => {
+    await ctx.reply(
+      "🔹 /gazebos — Посмотреть беседки и забронировать\n" +
+        "🔹 /start — Начать сначала\n\n" +
+        "По вопросам обращайтесь к администратору парка."
+    );
+  });
+
+  // Register module handlers
+  registerGazeboHandlers(bot);
+
+  // Error handler
+  bot.catch((err) => {
+    console.error("[Bot] Error:", err);
+  });
+
+  // Start
+  console.log("[Bot] Starting...");
+  await bot.start({
+    onStart: () => console.log("[Bot] Running"),
+  });
+}
+
+// Run bot if executed directly
+if (require.main === module) {
+  startBot();
 }
