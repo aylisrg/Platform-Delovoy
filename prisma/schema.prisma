@@ -6,3 +6,248 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// === USERS & AUTH ===
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  phone     String?  @unique
+  name      String?
+  role      Role     @default(USER)
+  telegramId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  moduleAssignments ModuleAssignment[]
+  bookings          Booking[]
+  orders            Order[]
+  auditLogs         AuditLog[]
+}
+
+enum Role {
+  SUPERADMIN
+  MANAGER
+  USER
+}
+
+// === MODULE SYSTEM ===
+
+model Module {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments ModuleAssignment[]
+}
+
+model ModuleAssignment {
+  id       String @id @default(cuid())
+  userId   String
+  moduleId String
+  user     User   @relation(fields: [userId], references: [id])
+  module   Module @relation(fields: [moduleId], references: [id])
+
+  @@unique([userId, moduleId])
+}
+
+// === BOOKING (общая для беседок, PS Park) ===
+
+model Booking {
+  id         String        @id @default(cuid())
+  moduleSlug String
+  resourceId String
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+  date       DateTime
+  startTime  DateTime
+  endTime    DateTime
+  status     BookingStatus @default(PENDING)
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([moduleSlug, date])
+  @@index([userId])
+  @@index([resourceId])
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+// === BOOKABLE RESOURCES (беседки, столы PS) ===
+
+model Resource {
+  id           String   @id @default(cuid())
+  moduleSlug   String
+  name         String
+  description  String?
+  capacity     Int?
+  pricePerHour Decimal?
+  isActive     Boolean  @default(true)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([moduleSlug])
+}
+
+// === ORDERS (кафе) ===
+
+model Order {
+  id          String      @id @default(cuid())
+  moduleSlug  String
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  status      OrderStatus @default(NEW)
+  totalAmount Decimal
+  deliveryTo  String?
+  items       OrderItem[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([moduleSlug, status])
+}
+
+enum OrderStatus {
+  NEW
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id])
+  menuItemId String
+  quantity   Int
+  price      Decimal
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  moduleSlug  String   @default("cafe")
+  category    String
+  name        String
+  description String?
+  price       Decimal
+  imageUrl    String?
+  isAvailable Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([moduleSlug, category])
+}
+
+// === B2B: RENTAL ===
+
+model Tenant {
+  id          String   @id @default(cuid())
+  companyName String
+  contactName String
+  email       String?
+  phone       String?
+  inn         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contracts RentalContract[]
+}
+
+model Office {
+  id            String       @id @default(cuid())
+  number        String       @unique
+  floor         Int
+  area          Decimal
+  pricePerMonth Decimal
+  status        OfficeStatus @default(AVAILABLE)
+  metadata      Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  contracts RentalContract[]
+}
+
+enum OfficeStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+model RentalContract {
+  id          String         @id @default(cuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  officeId    String
+  office      Office         @relation(fields: [officeId], references: [id])
+  startDate   DateTime
+  endDate     DateTime
+  monthlyRate Decimal
+  deposit     Decimal?
+  status      ContractStatus @default(ACTIVE)
+  documentUrl String?
+  notes       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@index([officeId])
+  @@index([status, endDate])
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  TERMINATED
+}
+
+// === MONITORING ===
+
+model SystemEvent {
+  id        String     @id @default(cuid())
+  level     EventLevel
+  source    String
+  message   String
+  metadata  Json?
+  createdAt DateTime   @default(now())
+
+  @@index([level, createdAt])
+  @@index([source])
+}
+
+enum EventLevel {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
