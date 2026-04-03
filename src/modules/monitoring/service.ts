@@ -54,16 +54,25 @@ export async function getRecentAuditLogs(options?: {
   userId?: string;
   entity?: string;
   limit?: number;
+  offset?: number;
 }) {
-  const { userId, entity, limit = 50 } = options ?? {};
+  const { userId, entity, limit = 50, offset = 0 } = options ?? {};
 
-  return prisma.auditLog.findMany({
-    where: {
-      ...(userId && { userId }),
-      ...(entity && { entity }),
-    },
-    include: { user: { select: { name: true, email: true } } },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
+  const where = {
+    ...(userId && { userId }),
+    ...(entity && { entity }),
+  };
+
+  const [logs, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where,
+      include: { user: { select: { name: true, email: true } } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.auditLog.count({ where }),
+  ]);
+
+  return { logs, total };
 }

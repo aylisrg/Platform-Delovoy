@@ -105,7 +105,8 @@ describe("createPSBookingSchema", () => {
   });
 
   it("rejects missing resourceId", () => {
-    const { resourceId, ...rest } = validInput;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { resourceId: _resourceId, ...rest } = validInput;
     const result = createPSBookingSchema.safeParse(rest);
     expect(result.success).toBe(false);
   });

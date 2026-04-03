@@ -23,7 +23,6 @@ import {
   updateBookingStatus,
   cancelBooking,
   getAvailability,
-  PSBookingError,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
 
@@ -68,9 +67,9 @@ beforeEach(() => {
 
 describe("createBooking", () => {
   it("creates booking successfully when table is available", async () => {
-    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as any);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as any);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
 
     const result = await createBooking("user-1", validBookingInput);
 
@@ -97,7 +96,7 @@ describe("createBooking", () => {
 
   it("throws CAPACITY_EXCEEDED when playerCount exceeds table capacity", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(
-      mockTable({ capacity: 2 }) as any
+      mockTable({ capacity: 2 }) as never
     );
 
     await expect(
@@ -106,7 +105,7 @@ describe("createBooking", () => {
   });
 
   it("throws DATE_IN_PAST for a past date", async () => {
-    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as any);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
 
     await expect(
       createBooking("user-1", { ...validBookingInput, date: PAST_DATE })
@@ -114,8 +113,8 @@ describe("createBooking", () => {
   });
 
   it("throws BOOKING_CONFLICT when slot is already taken", async () => {
-    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as any);
-    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as any);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as never);
 
     await expect(createBooking("user-1", validBookingInput)).rejects.toMatchObject({
       code: "BOOKING_CONFLICT",
@@ -123,9 +122,9 @@ describe("createBooking", () => {
   });
 
   it("stores playerCount and comment in metadata", async () => {
-    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as any);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as any);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
 
     await createBooking("user-1", {
       ...validBookingInput,
@@ -148,10 +147,10 @@ describe("createBooking", () => {
 describe("updateBookingStatus", () => {
   it("transitions PENDING → CONFIRMED", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ status: "PENDING" }) as any
+      mockBooking({ status: "PENDING" }) as never
     );
     vi.mocked(prisma.booking.update).mockResolvedValue(
-      mockBooking({ status: "CONFIRMED" }) as any
+      mockBooking({ status: "CONFIRMED" }) as never
     );
 
     await updateBookingStatus("booking-1", "CONFIRMED");
@@ -162,10 +161,10 @@ describe("updateBookingStatus", () => {
 
   it("transitions CONFIRMED → COMPLETED", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ status: "CONFIRMED" }) as any
+      mockBooking({ status: "CONFIRMED" }) as never
     );
     vi.mocked(prisma.booking.update).mockResolvedValue(
-      mockBooking({ status: "COMPLETED" }) as any
+      mockBooking({ status: "COMPLETED" }) as never
     );
 
     await updateBookingStatus("booking-1", "COMPLETED");
@@ -176,7 +175,7 @@ describe("updateBookingStatus", () => {
 
   it("throws INVALID_STATUS_TRANSITION for CANCELLED → CONFIRMED", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ status: "CANCELLED" }) as any
+      mockBooking({ status: "CANCELLED" }) as never
     );
 
     await expect(updateBookingStatus("booking-1", "CONFIRMED")).rejects.toMatchObject({
@@ -198,10 +197,10 @@ describe("updateBookingStatus", () => {
 describe("cancelBooking", () => {
   it("cancels booking by its owner", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ userId: "user-1", status: "PENDING" }) as any
+      mockBooking({ userId: "user-1", status: "PENDING" }) as never
     );
     vi.mocked(prisma.booking.update).mockResolvedValue(
-      mockBooking({ status: "CANCELLED" }) as any
+      mockBooking({ status: "CANCELLED" }) as never
     );
 
     await cancelBooking("booking-1", "user-1");
@@ -212,7 +211,7 @@ describe("cancelBooking", () => {
 
   it("throws FORBIDDEN for non-owner", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ userId: "user-1", status: "PENDING" }) as any
+      mockBooking({ userId: "user-1", status: "PENDING" }) as never
     );
 
     await expect(cancelBooking("booking-1", "other-user")).rejects.toMatchObject({
@@ -222,7 +221,7 @@ describe("cancelBooking", () => {
 
   it("throws INVALID_STATUS_TRANSITION for COMPLETED booking", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ userId: "user-1", status: "COMPLETED" }) as any
+      mockBooking({ userId: "user-1", status: "COMPLETED" }) as never
     );
 
     await expect(cancelBooking("booking-1", "user-1")).rejects.toMatchObject({
@@ -243,7 +242,7 @@ describe("cancelBooking", () => {
 
 describe("getAvailability", () => {
   it("returns 13 slots per table (10:00–23:00)", async () => {
-    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as any);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);
@@ -253,7 +252,7 @@ describe("getAvailability", () => {
   });
 
   it("marks all slots available when no bookings exist", async () => {
-    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as any);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);
@@ -261,14 +260,14 @@ describe("getAvailability", () => {
   });
 
   it("marks slot as unavailable when overlapping booking exists", async () => {
-    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as any);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       mockBooking({
         startTime: new Date(`${FUTURE_DATE}T12:00:00`),
         endTime: new Date(`${FUTURE_DATE}T13:00:00`),
         status: "PENDING",
       }),
-    ] as any);
+    ] as never);
 
     const result = await getAvailability(FUTURE_DATE);
     const slot12 = result[0].slots.find((s) => s.startTime === "12:00");
@@ -276,7 +275,7 @@ describe("getAvailability", () => {
   });
 
   it("returns correct slot labels (first: 10:00, last: 22:00)", async () => {
-    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as any);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);

@@ -68,21 +68,21 @@ describe("hasModuleAccess", () => {
   });
 
   it("returns true for SUPERADMIN without checking assignments", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
     const result = await hasModuleAccess("admin-id", "cafe");
     expect(result).toBe(true);
     expect(prisma.moduleAssignment.findFirst).not.toHaveBeenCalled();
   });
 
   it("returns true for MANAGER with matching assignment", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as any);
-    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "assign-1" } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "assign-1" } as never);
     const result = await hasModuleAccess("manager-id", "cafe");
     expect(result).toBe(true);
   });
 
   it("returns false for MANAGER without assignment", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
     vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue(null);
     const result = await hasModuleAccess("manager-id", "ps-park");
     expect(result).toBe(false);
@@ -97,22 +97,22 @@ describe("getUserModules", () => {
   });
 
   it("returns all active module slugs for SUPERADMIN", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
     vi.mocked(prisma.module.findMany).mockResolvedValue([
       { slug: "cafe" },
       { slug: "gazebos" },
       { slug: "ps-park" },
-    ] as any);
+    ] as never);
     const result = await getUserModules("admin-id");
     expect(result).toEqual(["cafe", "gazebos", "ps-park"]);
   });
 
   it("returns only active assigned modules for MANAGER", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
     vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([
       { module: { slug: "cafe", isActive: true } },
       { module: { slug: "gazebos", isActive: false } },
-    ] as any);
+    ] as never);
     const result = await getUserModules("manager-id");
     expect(result).toEqual(["cafe"]);
   });

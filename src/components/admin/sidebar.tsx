@@ -18,6 +18,7 @@ const navigation: NavItem[] = [
   { label: "Модули", href: "/admin/modules", icon: "📦" },
   { label: "Пользователи", href: "/admin/users", icon: "👥" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍" },
+  { label: "Архитектор", href: "/admin/architect", icon: "🗺" },
 ];
 
 export function Sidebar() {

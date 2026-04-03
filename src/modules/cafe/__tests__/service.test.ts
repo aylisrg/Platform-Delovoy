@@ -58,9 +58,9 @@ describe("createOrder", () => {
     vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
       mockMenuItem({ id: "item-1", price: 500 }),
       mockMenuItem({ id: "item-2", price: 300 }),
-    ] as any);
+    ] as never);
     vi.mocked(prisma.order.create).mockResolvedValue(
-      mockOrder({ totalAmount: 1300, items: [] }) as any
+      mockOrder({ totalAmount: 1300, items: [] }) as never
     );
 
     const result = await createOrder("user-1", {
@@ -106,8 +106,8 @@ describe("createOrder", () => {
   it("calculates total correctly for multiple items with different quantities", async () => {
     vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
       mockMenuItem({ id: "item-1", price: 100 }),
-    ] as any);
-    vi.mocked(prisma.order.create).mockResolvedValue(mockOrder({ totalAmount: 300 }) as any);
+    ] as never);
+    vi.mocked(prisma.order.create).mockResolvedValue(mockOrder({ totalAmount: 300 }) as never);
 
     await createOrder("user-1", { items: [{ menuItemId: "item-1", quantity: 3 }] });
 
@@ -123,8 +123,8 @@ describe("createOrder", () => {
 
 describe("updateOrderStatus", () => {
   it("transitions NEW → PREPARING successfully", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "NEW" }) as any);
-    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "PREPARING" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "NEW" }) as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "PREPARING" }) as never);
 
     const result = await updateOrderStatus("order-1", "PREPARING");
 
@@ -135,8 +135,8 @@ describe("updateOrderStatus", () => {
   });
 
   it("transitions PREPARING → READY successfully", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "PREPARING" }) as any);
-    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "READY" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "PREPARING" }) as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "READY" }) as never);
 
     await updateOrderStatus("order-1", "READY");
     expect(prisma.order.update).toHaveBeenCalledWith(
@@ -145,8 +145,8 @@ describe("updateOrderStatus", () => {
   });
 
   it("transitions READY → DELIVERED successfully", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "READY" }) as any);
-    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "DELIVERED" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "READY" }) as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "DELIVERED" }) as never);
 
     await updateOrderStatus("order-1", "DELIVERED");
     expect(prisma.order.update).toHaveBeenCalledWith(
@@ -155,8 +155,8 @@ describe("updateOrderStatus", () => {
   });
 
   it("transitions NEW → CANCELLED successfully", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "NEW" }) as any);
-    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "CANCELLED" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "NEW" }) as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "CANCELLED" }) as never);
 
     await updateOrderStatus("order-1", "CANCELLED");
     expect(prisma.order.update).toHaveBeenCalledWith(
@@ -165,7 +165,7 @@ describe("updateOrderStatus", () => {
   });
 
   it("throws INVALID_STATUS_TRANSITION for READY → PREPARING", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "READY" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "READY" }) as never);
 
     await expect(updateOrderStatus("order-1", "PREPARING")).rejects.toMatchObject({
       code: "INVALID_STATUS_TRANSITION",
@@ -173,7 +173,7 @@ describe("updateOrderStatus", () => {
   });
 
   it("throws INVALID_STATUS_TRANSITION for DELIVERED → CANCELLED (terminal state)", async () => {
-    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "DELIVERED" }) as any);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(mockOrder({ status: "DELIVERED" }) as never);
 
     await expect(updateOrderStatus("order-1", "CANCELLED")).rejects.toMatchObject({
       code: "INVALID_STATUS_TRANSITION",
@@ -194,9 +194,9 @@ describe("updateOrderStatus", () => {
 describe("cancelOrder", () => {
   it("cancels a NEW order by its owner", async () => {
     vi.mocked(prisma.order.findFirst).mockResolvedValue(
-      mockOrder({ userId: "user-1", status: "NEW" }) as any
+      mockOrder({ userId: "user-1", status: "NEW" }) as never
     );
-    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "CANCELLED" }) as any);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder({ status: "CANCELLED" }) as never);
 
     await cancelOrder("order-1", "user-1");
 
@@ -207,7 +207,7 @@ describe("cancelOrder", () => {
 
   it("throws FORBIDDEN when user is not the order owner", async () => {
     vi.mocked(prisma.order.findFirst).mockResolvedValue(
-      mockOrder({ userId: "user-1", status: "NEW" }) as any
+      mockOrder({ userId: "user-1", status: "NEW" }) as never
     );
 
     await expect(cancelOrder("order-1", "other-user")).rejects.toMatchObject({
@@ -217,7 +217,7 @@ describe("cancelOrder", () => {
 
   it("throws INVALID_STATUS_TRANSITION when order is already PREPARING", async () => {
     vi.mocked(prisma.order.findFirst).mockResolvedValue(
-      mockOrder({ userId: "user-1", status: "PREPARING" }) as any
+      mockOrder({ userId: "user-1", status: "PREPARING" }) as never
     );
 
     await expect(cancelOrder("order-1", "user-1")).rejects.toMatchObject({

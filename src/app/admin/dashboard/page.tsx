@@ -1,7 +1,35 @@
 import { AdminHeader } from "@/components/admin/header";
 import { StatusWidget } from "@/components/admin/status-widget";
+import { prisma } from "@/lib/db";
 
-export default function DashboardPage() {
+export const dynamic = "force-dynamic";
+
+async function getDashboardStats() {
+  try {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [activeModules, totalModules, bookingsToday, ordersToday] = await Promise.all([
+      prisma.module.count({ where: { isActive: true } }),
+      prisma.module.count(),
+      prisma.booking.count({
+        where: { date: { gte: todayStart }, status: { not: "CANCELLED" } },
+      }),
+      prisma.order.count({
+        where: { createdAt: { gte: todayStart }, status: { not: "CANCELLED" } },
+      }),
+    ]);
+
+    return { activeModules, totalModules, bookingsToday, ordersToday };
+  } catch {
+    return { activeModules: 0, totalModules: 0, bookingsToday: 0, ordersToday: 0 };
+  }
+}
+
+export default async function DashboardPage() {
+  const stats = await getDashboardStats();
+
   return (
     <>
       <AdminHeader title="Дашборд" />
@@ -15,25 +43,26 @@ export default function DashboardPage() {
           />
           <StatusWidget
             title="Активные модули"
-            value="5"
+            value={stats.activeModules}
             status="info"
-            description="из 5 доступных"
+            description={`из ${stats.totalModules} доступных`}
           />
           <StatusWidget
             title="Бронирования сегодня"
-            value="0"
-            description="Нет данных"
+            value={stats.bookingsToday}
+            description="беседки + PS Park"
           />
           <StatusWidget
             title="Заказы сегодня"
-            value="0"
-            description="Нет данных"
+            value={stats.ordersToday}
+            description="кафе"
           />
         </div>
 
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-zinc-900">Быстрый доступ</h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <QuickLink href="/admin/architect" title="Архитектор" description="Карта системы, конфиг, аналитика" />
             <QuickLink href="/admin/modules" title="Модули" description="Управление модулями платформы" />
             <QuickLink href="/admin/monitoring" title="Мониторинг" description="Статус системы и логи" />
             <QuickLink href="/admin/users" title="Пользователи" description="Управление пользователями и ролями" />
