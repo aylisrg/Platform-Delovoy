@@ -1,0 +1,66 @@
+name: Auto-merge to main
+
+# Запускается автоматически при пуше в ветки claude/** и feature/**
+# Если тесты + сборка прошли — мержит в main без участия разработчика
+
+on:
+  push:
+    branches:
+      - 'claude/**'
+      - 'feature/**'
+
+jobs:
+  test-build-merge:
+    name: Test → Build → Merge to main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
+          REDIS_URL: 'redis://localhost:6379'
+          NEXTAUTH_SECRET: 'ci-placeholder-secret'
+          NEXTAUTH_URL: 'http://localhost:3000'
+
+      - name: Merge to main
+        run: |
+          BRANCH="${{ github.ref_name }}"
+
+          git config user.name "GitHub Actions Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          git checkout main
+
+          if git merge --no-ff "origin/$BRANCH" -m "chore: auto-merge $BRANCH [CI ✅]"; then
+            git push origin main
+            echo "✅ Ветка $BRANCH успешно замержена в main"
+          else
+            git merge --abort
+            echo "⚠️  Конфликт при мерже $BRANCH в main — нужно разрешить вручную"
+            exit 1
+          fi
