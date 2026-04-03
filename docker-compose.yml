@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: delovoy_park
       POSTGRES_USER: delovoy
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-delovoy_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,15 +28,17 @@ services:
       retries: 5
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/aylisrg/platform-delovoy:latest}
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: delovoy-app
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "80:3000"
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD:-delovoy_secret}@postgres:5432/delovoy_park"
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
       REDIS_URL: "redis://redis:6379"
       NODE_ENV: "production"
     depends_on:
@@ -45,29 +47,6 @@ services:
       redis:
         condition: service_healthy
 
-  nginx:
-    image: nginx:alpine
-    container_name: delovoy-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - certbot_data:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot:ro
-    depends_on:
-      - app
-
-  certbot:
-    image: certbot/certbot
-    container_name: delovoy-certbot
-    volumes:
-      - certbot_data:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-
 volumes:
   postgres_data:
   redis_data:
-  certbot_data:
-  certbot_www:

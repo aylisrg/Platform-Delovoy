@@ -1,219 +1,123 @@
 #!/bin/bash
-# ===========================================================
-# Скрипт первичной настройки VPS для Platform Delovoy
-# Запускать от root: bash setup-vps.sh
-# ===========================================================
+# ============================================================
+# Настройка VPS для Platform Delovoy — ОДНА КОМАНДА
+# Запуск: curl -fsSL <url> | bash
+# Или:    bash setup-vps.sh
+# ============================================================
 set -euo pipefail
 
-echo "=== 1. Обновление системы ==="
-apt update && apt upgrade -y
-
-echo "=== 2. Установка базовых пакетов ==="
-apt install -y curl git ufw fail2ban
-
-echo "=== 3. Создание пользователя deploy ==="
-if ! id "deploy" &>/dev/null; then
-    adduser --disabled-password --gecos "" deploy
-    usermod -aG sudo deploy
-    # Разрешаем deploy запускать docker без sudo (добавим в группу позже)
-    echo "deploy ALL=(ALL) NOPASSWD: /usr/bin/docker,/usr/bin/docker compose" >> /etc/sudoers.d/deploy
-    chmod 440 /etc/sudoers.d/deploy
-fi
-
-echo "=== 4. Настройка SSH-ключа для deploy ==="
-mkdir -p /home/deploy/.ssh
-chmod 700 /home/deploy/.ssh
-
-# Генерируем SSH-ключ для GitHub Actions → VPS
-ssh-keygen -t ed25519 -f /home/deploy/.ssh/github_actions -N "" -C "github-actions-deploy"
-cat /home/deploy/.ssh/github_actions.pub >> /home/deploy/.ssh/authorized_keys
-chmod 600 /home/deploy/.ssh/authorized_keys
-chown -R deploy:deploy /home/deploy/.ssh
+REPO="https://github.com/aylisrg/Platform-Delovoy.git"
+APP_DIR="/opt/delovoy"
 
 echo ""
-echo "============================================="
-echo "ВАЖНО: Скопируйте ПРИВАТНЫЙ ключ ниже."
-echo "Его нужно добавить в GitHub Secrets как VPS_SSH_KEY"
-echo "============================================="
-cat /home/deploy/.ssh/github_actions
+echo "========================================="
+echo "  Настройка VPS для Деловой Парк"
+echo "========================================="
 echo ""
-echo "============================================="
 
-echo "=== 5. Усиление SSH ==="
-# Отключаем вход по паролю, только по ключам
-sed -i 's/#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-systemctl restart sshd
+# --- 1. Обновление + базовые пакеты ---
+echo "[1/7] Обновление системы..."
+apt update -qq && apt upgrade -y -qq
+apt install -y -qq curl git ufw fail2ban
 
-echo "=== 6. Настройка firewall (UFW) ==="
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP
-ufw allow 443/tcp   # HTTPS
-ufw --force enable
-
-echo "=== 7. Настройка Fail2Ban ==="
-cat > /etc/fail2ban/jail.local << 'JAILEOF'
-[sshd]
-enabled = true
-port = ssh
-filter = sshd
-logpath = /var/log/auth.log
-maxretry = 3
-bantime = 3600
-findtime = 600
-JAILEOF
-systemctl enable fail2ban
-systemctl restart fail2ban
-
-echo "=== 8. Установка Docker ==="
+# --- 2. Docker ---
+echo "[2/7] Установка Docker..."
 if ! command -v docker &>/dev/null; then
     curl -fsSL https://get.docker.com | sh
+fi
+
+# --- 3. Пользователь deploy ---
+echo "[3/7] Создание пользователя deploy..."
+if ! id "deploy" &>/dev/null; then
+    adduser --disabled-password --gecos "" deploy
     usermod -aG docker deploy
 fi
 
-echo "=== 9. Создание директории приложения ==="
-mkdir -p /opt/delovoy
-chown deploy:deploy /opt/delovoy
+# --- 4. SSH-ключ для GitHub Actions ---
+echo "[4/7] Генерация SSH-ключа..."
+mkdir -p /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
 
-echo "=== 10. Создание docker-compose и .env на сервере ==="
-cat > /opt/delovoy/docker-compose.yml << 'COMPOSEEOF'
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: delovoy-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: delovoy_park
-      POSTGRES_USER: delovoy
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U delovoy -d delovoy_park"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+ssh-keygen -t ed25519 -f /home/deploy/.ssh/deploy_key -N "" -C "github-actions" -q
+cat /home/deploy/.ssh/deploy_key.pub >> /home/deploy/.ssh/authorized_keys
+chmod 600 /home/deploy/.ssh/authorized_keys
+chown -R deploy:deploy /home/deploy/.ssh
 
-  redis:
-    image: redis:7-alpine
-    container_name: delovoy-redis
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+# --- 5. Firewall ---
+echo "[5/7] Настройка файрвола..."
+ufw default deny incoming > /dev/null
+ufw default allow outgoing > /dev/null
+ufw allow 22/tcp > /dev/null
+ufw allow 80/tcp > /dev/null
+ufw allow 443/tcp > /dev/null
+ufw --force enable > /dev/null
 
-  app:
-    image: ghcr.io/aylisrg/platform-delovoy:latest
-    container_name: delovoy-app
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
-      REDIS_URL: "redis://redis:6379"
-      NODE_ENV: "production"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+# --- 6. Fail2Ban ---
+echo "[6/7] Настройка Fail2Ban..."
+cat > /etc/fail2ban/jail.local << 'EOF'
+[sshd]
+enabled = true
+maxretry = 3
+bantime = 3600
+EOF
+systemctl enable fail2ban -q
+systemctl restart fail2ban
 
-  nginx:
-    image: nginx:alpine
-    container_name: delovoy-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - app
+# --- 7. Клонирование проекта + настройка ---
+echo "[7/7] Клонирование проекта..."
+mkdir -p "$APP_DIR"
 
-volumes:
-  postgres_data:
-  redis_data:
-COMPOSEEOF
+git clone "$REPO" "$APP_DIR/app" 2>/dev/null || (cd "$APP_DIR/app" && git pull)
 
-# Генерируем безопасные пароли
-POSTGRES_PWD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
-AUTH_SECRET=$(openssl rand -base64 32)
+# Генерация .env с безопасными паролями
+PG_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+SECRET=$(openssl rand -base64 32)
 
-cat > /opt/delovoy/.env << ENVEOF
-# Database
-POSTGRES_PASSWORD=${POSTGRES_PWD}
-
-# NextAuth
-NEXTAUTH_SECRET=${AUTH_SECRET}
-NEXTAUTH_URL=http://localhost:3000
-AUTH_SECRET=${AUTH_SECRET}
-
-# App
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+cat > "$APP_DIR/.env" << ENVEOF
+POSTGRES_PASSWORD=${PG_PASS}
+NEXTAUTH_SECRET=${SECRET}
+AUTH_SECRET=${SECRET}
+NEXTAUTH_URL=http://$(curl -s -6 ifconfig.co || echo "localhost"):3000
+NEXT_PUBLIC_APP_URL=http://$(curl -s -6 ifconfig.co || echo "localhost")
 NODE_ENV=production
-
-# Telegram (заполните реальными значениями)
 TELEGRAM_BOT_TOKEN=your-bot-token
-TELEGRAM_ADMIN_CHAT_ID=your-admin-group-id
+TELEGRAM_ADMIN_CHAT_ID=your-chat-id
 ENVEOF
 
-chmod 600 /opt/delovoy/.env
+chmod 600 "$APP_DIR/.env"
 
-# nginx.conf
-cat > /opt/delovoy/nginx.conf << 'NGINXEOF'
-server {
-    listen 80;
-    server_name _;
+# docker-compose.yml в /opt/delovoy (ссылается на ./app как build context)
+cp "$APP_DIR/app/docker-compose.yml" "$APP_DIR/docker-compose.yml"
 
-    location / {
-        proxy_pass http://app:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-NGINXEOF
+chown -R deploy:deploy "$APP_DIR"
 
-chown -R deploy:deploy /opt/delovoy
+# --- Запуск! ---
+echo ""
+echo "[OK] Запускаю контейнеры..."
+cd "$APP_DIR"
+docker compose up --build -d
 
 echo ""
-echo "============================================="
-echo "НАСТРОЙКА ЗАВЕРШЕНА!"
-echo "============================================="
+echo "========================================="
+echo "  ГОТОВО!"
+echo "========================================="
 echo ""
-echo "Следующие шаги:"
+echo "Сайт доступен: http://$(curl -s -6 ifconfig.co 2>/dev/null || echo 'ваш-ip'):80"
 echo ""
-echo "1. СКОПИРУЙТЕ приватный ключ выше и добавьте в GitHub Secrets:"
-echo "   Settings → Secrets → Actions → New repository secret"
-echo "   Имя: VPS_SSH_KEY"
-echo "   Значение: содержимое ключа"
+echo "--- Осталось настроить GitHub Actions ---"
 echo ""
-echo "2. Добавьте остальные GitHub Secrets:"
-echo "   VPS_HOST = 2a03:6f00:a::1:2540"
-echo "   GHCR_USER = ваш-github-username"
-echo "   GHCR_TOKEN = ваш-github-personal-access-token (с правом packages:write)"
+echo "Добавьте 2 секрета в GitHub:"
+echo "  Settings → Secrets → Actions → New repository secret"
 echo ""
-echo "3. ВАЖНО: Перед тем как закрыть эту сессию,"
-echo "   добавьте СВОЙ SSH-ключ в /home/deploy/.ssh/authorized_keys"
-echo "   чтобы сохранить доступ (root вход отключён!)"
+echo "1) VPS_HOST"
+echo "   Значение: $(curl -s -6 ifconfig.co 2>/dev/null || echo '2a03:6f00:a::1:2540')"
 echo ""
-echo "4. Первый деплой: push в main → GitHub Actions → автоматически"
+echo "2) VPS_SSH_KEY"
+echo "   Значение (скопируйте ВСЁ между линиями):"
+echo "---START---"
+cat /home/deploy/.ssh/deploy_key
+echo "---END---"
 echo ""
-echo "Файлы:"
-echo "  /opt/delovoy/.env      — переменные окружения (пароли сгенерированы)"
-echo "  /opt/delovoy/docker-compose.yml — конфигурация контейнеров"
-echo "============================================="
+echo "После этого каждый push в main будет"
+echo "автоматически деплоиться на сервер."
+echo "========================================="
