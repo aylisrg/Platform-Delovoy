@@ -564,6 +564,16 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 - Integration-тесты для API endpoints
 - `npm test` должен проходить перед мержем
 
+**Обязательное правило для Claude Code — тесты вместе с кодом:**
+- При написании ЛЮБОГО нового кода — сразу пишешь тесты в том же коммите
+- Новая функция в `service.ts` → тест в `__tests__/service.test.ts`
+- Новая схема в `validation.ts` → тест в `__tests__/validation.test.ts`
+- Новый API route handler → минимум тест на happy path и один error path
+- Новый модуль → директория `__tests__/` с покрытием всей бизнес-логики
+- Тесты пишутся без реальной БД/Redis — мокируй через `vi.mock('@/lib/db')`
+- После любого изменения кода `npm test` должен оставаться зелёным
+- Тест-фреймворк: **Vitest** (`npm test` = `vitest run`, конфиг в `vitest.config.ts`)
+
 ---
 
 ## Переменные окружения
