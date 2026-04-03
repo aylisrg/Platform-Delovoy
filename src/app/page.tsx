@@ -21,6 +21,11 @@ const modules = [
     description: "Информация о парковке и правила",
     href: "/parking",
   },
+  {
+    title: "Аренда офисов",
+    description: "Каталог офисов, цены и условия аренды",
+    href: "/rental",
+  },
 ];
 
 export default function Home() {

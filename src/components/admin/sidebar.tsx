@@ -14,6 +14,7 @@ const navigation: NavItem[] = [
   { label: "Беседки", href: "/admin/gazebos", icon: "🏕" },
   { label: "PS Park", href: "/admin/ps-park", icon: "🎮" },
   { label: "Кафе", href: "/admin/cafe", icon: "☕" },
+  { label: "Аренда", href: "/admin/rental", icon: "🏢" },
   { label: "Модули", href: "/admin/modules", icon: "📦" },
   { label: "Пользователи", href: "/admin/users", icon: "👥" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍" },
