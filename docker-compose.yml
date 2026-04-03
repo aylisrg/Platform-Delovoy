@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: delovoy_park
       POSTGRES_USER: delovoy
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-delovoy_secret}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +19,6 @@ services:
     image: redis:7-alpine
     container_name: delovoy-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -32,20 +28,16 @@ services:
       retries: 5
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-ghcr.io/aylisrg/platform-delovoy:latest}
     container_name: delovoy-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD:-delovoy_secret}@postgres:5432/delovoy_park"
       REDIS_URL: "redis://redis:6379"
-      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-change-me-in-production}"
-      NEXTAUTH_URL: "${NEXTAUTH_URL:-http://localhost:3000}"
-      AUTH_SECRET: "${AUTH_SECRET:-change-me-in-production}"
-      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:3000}"
       NODE_ENV: "production"
     depends_on:
       postgres:
@@ -53,6 +45,29 @@ services:
       redis:
         condition: service_healthy
 
+  nginx:
+    image: nginx:alpine
+    container_name: delovoy-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot_data:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - app
+
+  certbot:
+    image: certbot/certbot
+    container_name: delovoy-certbot
+    volumes:
+      - certbot_data:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+
 volumes:
   postgres_data:
   redis_data:
+  certbot_data:
+  certbot_www:

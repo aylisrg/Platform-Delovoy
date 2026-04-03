@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+coverage
+*.md
+.DS_Store
+.vercel
+docker-compose.override.yml
+nginx
+scripts/setup-vps.sh
