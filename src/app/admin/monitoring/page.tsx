@@ -50,7 +50,15 @@ export default async function MonitoringPage() {
 
         <Card className="mt-8">
           <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Последние события</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-zinc-900">Последние события</h2>
+              <a
+                href="/admin/architect/logs"
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Полный лог и аудит →
+              </a>
+            </div>
           </CardHeader>
           <CardContent>
             {events.length === 0 ? (
