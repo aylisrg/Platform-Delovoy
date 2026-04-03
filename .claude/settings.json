@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/user/Platform-Delovoy && npm test > /tmp/platform-tests.log 2>&1 && echo '{\"systemMessage\":\"✅ Тесты: 140/140 прошли — всё зелёное!\"}' || echo '{\"systemMessage\":\"❌ Тесты упали — запусти npm test для деталей\"}'",
+            "timeout": 60,
+            "statusMessage": "Проверяю тесты..."
+          }
+        ]
+      }
+    ]
+  }
+}
