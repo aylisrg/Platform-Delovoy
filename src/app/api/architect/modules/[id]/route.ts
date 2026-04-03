@@ -51,7 +51,7 @@ export async function PATCH(
 
   const parsed = updateModuleConfigSchema.safeParse(body);
   if (!parsed.success) {
-    return apiValidationError(parsed.error.errors[0]?.message ?? "Ошибка валидации");
+    return apiValidationError(parsed.error.issues[0]?.message ?? "Ошибка валидации");
   }
 
   try {
