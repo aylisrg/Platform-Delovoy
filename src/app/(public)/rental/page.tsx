@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
+import { listOffices } from "@/modules/rental/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { OfficeStatus } from "@prisma/client";
@@ -19,9 +19,7 @@ const statusVariant: Record<OfficeStatus, "success" | "default" | "warning"> = {
 };
 
 export default async function RentalPage() {
-  const offices = await prisma.office.findMany({
-    orderBy: [{ floor: "asc" }, { number: "asc" }],
-  });
+  const offices = await listOffices();
 
   const available = offices.filter((o) => o.status === "AVAILABLE");
   const floors = [...new Set(offices.map((o) => o.floor))].sort((a, b) => a - b);
