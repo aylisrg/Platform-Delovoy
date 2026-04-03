@@ -485,29 +485,30 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 
 ## Дорожная карта
 
-### Phase 0 — Фундамент (2–3 недели)
+### Phase 0 — Фундамент ✅
 
-- [ ] **Step 1**: Scaffold проекта — Next.js 15, Prisma, Docker Compose (PostgreSQL + Redis), .env
-- [ ] **Step 2**: Схема БД — все модели из раздела выше, первая миграция, seed-скрипт
-- [ ] **Step 3**: Auth + RBAC — NextAuth.js, роли, middleware guards, Telegram OAuth
-- [ ] **Step 4**: API layer — стандартизированные ответы, error handling, rate limiting, request logging
-- [ ] **Step 5**: Мониторинг — health endpoints, system_events, Telegram alert bot
-- [ ] **Step 6**: Admin dashboard shell — layout, sidebar, module registry, system status
+- [x] **Step 1**: Scaffold проекта — Next.js 15, Prisma, Docker Compose (PostgreSQL + Redis), .env
+- [x] **Step 2**: Схема БД — все модели, seed-скрипт (16 моделей, 7 enum)
+- [x] **Step 3**: Auth + RBAC — NextAuth.js v5, роли (SUPERADMIN/MANAGER/USER), middleware guards
+- [x] **Step 4**: API layer — стандартизированные ответы (`apiResponse`/`apiError`), rate limiting (Redis), request logging (`AuditLog`)
+- [x] **Step 5**: Мониторинг — health endpoints, `SystemEvent`, Telegram alert bot (Grammy)
+- [x] **Step 6**: Admin dashboard shell — layout, sidebar, module registry, system status, user management
 
-### Phase 1 — Пилотный B2C модуль: Беседки (2–3 недели)
+### Phase 1 — Пилотный B2C модуль: Беседки ✅
 
-- [ ] Публичная страница с календарём доступности
-- [ ] API бронирования (создание, отмена, подтверждение)
-- [ ] Панель менеджера беседок (список броней, управление ресурсами)
-- [ ] Telegram-бот: бронирование беседки через чат
-- [ ] Уведомления (подтверждение, напоминание за 1 час)
+- [x] Публичная страница с календарём доступности
+- [x] API бронирования (создание, отмена, подтверждение) — 7 endpoints
+- [x] Панель менеджера беседок (список броней, управление ресурсами)
+- [x] Telegram-бот: бронирование беседки через чат (Grammy + inline keyboards)
+- [x] Уведомления (подтверждение, напоминание, алерты менеджеру)
 
-### Phase 2 — Масштабирование B2C (3–4 недели)
+### Phase 2 — Масштабирование B2C ✅
 
-- [ ] PlayStation Park (бронирование столов + меню напитков/пиццы)
-- [ ] Кафе (меню, заказ в офис, статус заказа)
-- [ ] Парковка (информационная страница, в будущем — шлагбаум API)
-- [ ] Единый личный кабинет пользователя (все брони и заказы)
+- [x] PlayStation Park (бронирование столов, 7 API endpoints, панель менеджера)
+- [x] Кафе (меню CRUD, заказы NEW→PREPARING→READY→DELIVERED, 6 API endpoints, корзина)
+- [x] Парковка (информационная страница — места, правила, контакты)
+- [x] Единый личный кабинет пользователя (все брони и заказы)
+- [x] Обновлённая главная страница с навигацией по всем модулям
 
 ### Phase 3 — B2B: Аренда офисов (4–6 недель)
 
