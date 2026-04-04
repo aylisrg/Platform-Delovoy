@@ -19,57 +19,75 @@ jobs:
       - run: npm run lint
       - run: npm test
 
-  diagnose-and-deploy:
-    name: Diagnose VPS & Deploy
+  deploy-via-api:
+    name: Deploy via Timeweb API
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - name: Check VPS status via Timeweb API
+      - uses: actions/checkout@v4
+
+      - name: Query server status and deploy
         env:
           TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+          VPS_PASS: ${{ secrets.VPS_PASSWORD || 'x5EKRBsc443x--' }}
         run: |
-          echo "=== Checking Timeweb API token ==="
+          set +e
+
+          echo "## VPS Deployment Report" >> $GITHUB_STEP_SUMMARY
+
+          # 1. Check Timeweb API
+          echo "### Timeweb API" >> $GITHUB_STEP_SUMMARY
           if [ -z "$TW_TOKEN" ] || [ "$TW_TOKEN" = "placeholder" ]; then
-            echo "ERROR: TIMEWEB_API_TOKEN secret is not set!"
-            echo "Go to GitHub repo Settings → Secrets → Actions → New secret"
-            echo "Name: TIMEWEB_API_TOKEN"
-            echo "Value: your token from https://timeweb.cloud/my/api-keys"
+            echo "::error::TIMEWEB_API_TOKEN not configured in GitHub Secrets"
+            echo "- :x: Token not found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- :white_check_mark: Token found (${#TW_TOKEN} chars)" >> $GITHUB_STEP_SUMMARY
+
+            # Get server info
+            SERVER_DATA=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" \
+              "https://api.timeweb.cloud/api/v1/servers/7215757" 2>&1)
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            echo "$SERVER_DATA" | python3 -m json.tool 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "$SERVER_DATA" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # 2. Port connectivity
+          echo "### Port Scan" >> $GITHUB_STEP_SUMMARY
+          for port in 22 80 443; do
+            timeout 5 bash -c "echo | nc -w3 45.144.222.103 $port" 2>/dev/null
+            if [ $? -eq 0 ]; then
+              echo "- Port $port: :white_check_mark: OPEN" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- Port $port: :x: CLOSED" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          # 3. SSH test with sshpass
+          echo "### SSH Test" >> $GITHUB_STEP_SUMMARY
+          apt-get update -qq && apt-get install -y -qq sshpass 2>/dev/null
+          SSH_OUT=$(sshpass -p "$VPS_PASS" ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@45.144.222.103 "echo SSH_OK && uname -a" 2>&1)
+          SSH_CODE=$?
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "Exit code: $SSH_CODE" >> $GITHUB_STEP_SUMMARY
+          echo "$SSH_OUT" | tail -20 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          # 4. If SSH works, deploy
+          if echo "$SSH_OUT" | grep -q "SSH_OK"; then
+            echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+            sshpass -p "$VPS_PASS" ssh -o StrictHostKeyChecking=no root@45.144.222.103 << 'DEPLOY_SCRIPT'
+              set -e
+              which docker || curl -fsSL https://get.docker.com | sh
+              which git || (apt-get update && apt-get install -y git)
+              [ -d "/opt/delovoy" ] && cd /opt/delovoy && docker compose down 2>/dev/null || true
+              rm -rf /opt/delovoy
+              mkdir -p /opt/delovoy
+              git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
+              cd /opt/delovoy/app && bash scripts/deploy-full.sh
+          DEPLOY_SCRIPT
+            echo "- :white_check_mark: Deployed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### SSH Failed - Cannot Deploy" >> $GITHUB_STEP_SUMMARY
+            echo "::error::SSH connection failed. Check VPS_PASSWORD secret or server firewall." >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
-          echo "Token found (${#TW_TOKEN} chars)"
-
-          echo ""
-          echo "=== Server info ==="
-          curl -sf -H "Authorization: Bearer $TW_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/servers/7215757" | python3 -m json.tool || echo "API v1 failed, trying v2..."
-
-          curl -sf -H "Authorization: Bearer $TW_TOKEN" \
-            "https://api.timeweb.cloud/api/v2/servers/7215757" | python3 -m json.tool 2>/dev/null || echo "API v2 also failed"
-
-          echo ""
-          echo "=== Quick port check ==="
-          timeout 5 bash -c 'echo | nc -w3 45.144.222.103 22' 2>&1 && echo "SSH: OPEN" || echo "SSH port 22: CLOSED/FILTERED"
-          timeout 5 bash -c 'echo | nc -w3 45.144.222.103 80' 2>&1 && echo "HTTP: OPEN" || echo "HTTP port 80: CLOSED/FILTERED"
-
-      - name: Deploy via SSH (if port open)
-        uses: appleboy/ssh-action@v1
-        with:
-          host: "45.144.222.103"
-          username: root
-          password: "x5EKRBsc443x--"
-          port: 22
-          timeout: 15s
-          command_timeout: 10m
-          debug: true
-          script: |
-            echo "Connected!"
-            which docker || curl -fsSL https://get.docker.com | sh
-            which git || apt-get update && apt-get install -y git
-            [ -d "/opt/delovoy" ] && cd /opt/delovoy && docker compose down 2>/dev/null || true
-            rm -rf /opt/delovoy
-            mkdir -p /opt/delovoy
-            git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-            cd /opt/delovoy/app && bash scripts/deploy-full.sh
-            sleep 15
-            curl -s -o /dev/null -w "%{http_code}" http://localhost
-            echo " — Deploy done at $(date)"
