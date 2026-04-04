@@ -79,14 +79,25 @@ jobs:
                 git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
               fi
 
-              # Deploy with retries for Docker Hub rate limits
+              # Deploy — pull images separately with longer waits
               cd /opt/delovoy/app
-              for attempt in 1 2 3; do
-                echo "Deploy attempt $attempt..."
-                bash scripts/deploy-full.sh && break
-                echo "Attempt $attempt failed, waiting 30s..."
-                sleep 30
+
+              # Wait for Docker Hub rate limit to reset (~15 min)
+              echo "Waiting 10 min for Docker Hub rate limit reset..."
+              sleep 600
+
+              # Pull images one at a time with retries
+              for img in postgres:16-alpine redis:7-alpine; do
+                for try in 1 2 3; do
+                  echo "Pulling $img (attempt $try)..."
+                  docker pull $img && break
+                  echo "Rate limited, waiting 120s..."
+                  sleep 120
+                done
               done
+
+              # Now deploy
+              bash scripts/deploy-full.sh
 
               # Verify
               sleep 15
