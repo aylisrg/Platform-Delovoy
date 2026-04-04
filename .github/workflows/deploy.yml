@@ -33,6 +33,11 @@ jobs:
           script: |
             cd /opt/delovoy/app
             git pull origin main
+
+            # Добавить Timeweb API переменные в .env (если ещё нет)
+            grep -q "TIMEWEB_API_TOKEN" /opt/delovoy/.env 2>/dev/null || \
+              echo -e "\n# Timeweb Cloud API\nTIMEWEB_API_TOKEN=${{ secrets.TIMEWEB_API_TOKEN }}\nTIMEWEB_SERVER_ID=7215757" >> /opt/delovoy/.env
+
             docker compose -f /opt/delovoy/docker-compose.yml up --build -d
             docker image prune -f
             echo "Deployed at $(date)"
