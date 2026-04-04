@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn } from "next-auth/react";
+import Link from "next/link";
 import { useState } from "react";
 
 export default function SignInPage() {
@@ -67,12 +68,12 @@ export default function SignInPage() {
         </form>
 
         <div className="mt-4 text-center">
-          <a
+          <Link
             href="/"
             className="text-sm text-blue-600 hover:underline"
           >
             ← На главную
-          </a>
+          </Link>
         </div>
       </div>
     </div>
