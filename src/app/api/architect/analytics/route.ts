@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   apiResponse,
@@ -11,7 +12,7 @@ import { analyticsQuerySchema } from "@/modules/monitoring/architect-validation"
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return apiUnauthorized();
   if (session.user.role !== "SUPERADMIN") return apiForbidden();

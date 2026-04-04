@@ -3,6 +3,7 @@ import {
   apiResponse,
   apiNotFound,
   apiUnauthorized,
+  apiForbidden,
   apiValidationError,
   apiServerError,
 } from "@/lib/api-response";
@@ -40,7 +41,7 @@ export async function PATCH(
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!hasRole(session.user, "MANAGER")) {
-      return apiUnauthorized("Недостаточно прав");
+      return apiForbidden("Недостаточно прав");
     }
 
     const { id } = await params;
