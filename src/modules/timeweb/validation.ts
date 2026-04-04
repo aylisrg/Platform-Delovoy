@@ -2,8 +2,7 @@ import { z } from "zod";
 
 export const powerActionSchema = z.object({
   action: z.enum(["start", "shutdown", "reboot", "hard-reboot"], {
-    required_error: "Действие обязательно",
-    invalid_type_error: "Недопустимое действие",
+    error: "Недопустимое действие",
   }),
 });
 
