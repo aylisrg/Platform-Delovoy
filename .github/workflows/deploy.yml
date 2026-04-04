@@ -79,9 +79,20 @@ jobs:
                 git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
               fi
 
-              # Deploy
+              # Deploy with retries for Docker Hub rate limits
               cd /opt/delovoy/app
-              bash scripts/deploy-full.sh
+              for attempt in 1 2 3; do
+                echo "Deploy attempt $attempt..."
+                bash scripts/deploy-full.sh && break
+                echo "Attempt $attempt failed, waiting 30s..."
+                sleep 30
+              done
+
+              # Verify
+              sleep 15
+              docker compose -f /opt/delovoy/docker-compose.yml ps
+              curl -s -o /dev/null -w "localhost HTTP %{http_code}" http://localhost || true
+              echo ""
               echo "DEPLOY_COMPLETE"
           REMOTE
           else
