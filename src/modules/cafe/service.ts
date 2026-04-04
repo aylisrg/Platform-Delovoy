@@ -182,7 +182,7 @@ export async function cancelOrder(id: string, userId: string) {
     where: { id, moduleSlug: MODULE_SLUG },
   });
 
-  if (!order) throw new OrderError("ORDER_NOT_FOUND", "��аказ не найден");
+  if (!order) throw new OrderError("ORDER_NOT_FOUND", "Заказ не найден");
   if (order.userId !== userId) throw new OrderError("FORBIDDEN", "Нельзя отменить чужой заказ");
   if (order.status !== "NEW") {
     throw new OrderError("INVALID_STATUS_TRANSITION", "Можно отменить только новый заказ");
