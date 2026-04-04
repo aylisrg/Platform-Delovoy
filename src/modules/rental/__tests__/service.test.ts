@@ -55,7 +55,7 @@ const mockOffice = (overrides = {}) => ({
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
-} as any);
+});
 
 const mockTenant = (overrides = {}) => ({
   id: "tenant-1",
@@ -83,7 +83,7 @@ const mockContract = (overrides = {}) => ({
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
-} as any);
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
