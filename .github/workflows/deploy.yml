@@ -65,7 +65,8 @@ jobs:
             echo "3b: Clone/update repo..."
             $SSH_CMD 'if [ -d /opt/delovoy/app ]; then cd /opt/delovoy/app && git pull origin main; else mkdir -p /opt/delovoy && git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app; fi'
 
-            echo "3c: Configure Docker mirror to bypass rate limit..."
+            echo "3c: Add swap + configure Docker mirror..."
+            $SSH_CMD 'fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo "/swapfile swap swap defaults 0 0" >> /etc/fstab; echo "Swap: $(swapon --show)"'
             $SSH_CMD 'mkdir -p /etc/docker && echo "{\"registry-mirrors\": [\"https://mirror.gcr.io\"]}" > /etc/docker/daemon.json && systemctl restart docker && sleep 5'
 
             echo "3d: Pull Docker images..."
