@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -27,26 +28,36 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: deploy
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: "45.144.222.103"
+          username: root
+          password: "x5EKRBsc443x--"
+          command_timeout: 10m
           script: |
-            # === ПОЛНАЯ ОЧИСТКА СЕРВЕРА ===
+            set -e
+
+            # Install Docker if missing
+            which docker || curl -fsSL https://get.docker.com | sh
+
+            # Install git if missing
+            which git || apt-get update && apt-get install -y git
+
+            # Clean previous deploy
             if [ -d "/opt/delovoy" ]; then
               cd /opt/delovoy
-              docker compose down -v 2>/dev/null || true
+              docker compose down 2>/dev/null || true
             fi
-            docker system prune -af --volumes 2>/dev/null || true
             rm -rf /opt/delovoy
 
-            # === ЧИСТЫЙ ДЕПЛОЙ С НУЛЯ ===
+            # Clone fresh
             mkdir -p /opt/delovoy
             git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
             cd /opt/delovoy/app
+
+            # Run deploy script
             bash scripts/deploy-full.sh
 
-            # Добавить Timeweb API токен в .env после генерации
-            grep -q "TIMEWEB_API_TOKEN" /opt/delovoy/.env 2>/dev/null || \
-              echo -e "\n# Timeweb Cloud API\nTIMEWEB_API_TOKEN=${{ secrets.TIMEWEB_API_TOKEN }}\nTIMEWEB_SERVER_ID=7215757" >> /opt/delovoy/.env
-
-            echo "Deployed at $(date)"
+            # Verify
+            sleep 15
+            curl -s -o /dev/null -w "%{http_code}" http://localhost || echo "App starting..."
+            docker compose -f /opt/delovoy/docker-compose.yml ps
+            echo "Deploy completed at $(date)"
