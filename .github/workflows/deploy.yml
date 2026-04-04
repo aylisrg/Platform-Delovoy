@@ -3,6 +3,8 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'deploy-report.txt'
   workflow_dispatch:
 
 jobs:
@@ -30,32 +32,44 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Diagnose and deploy
+      - name: Fix SSH and Deploy
         env:
           TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
         run: |
           set +e
           REPORT="deploy-report.txt"
-          echo "=== DEPLOY DIAGNOSTIC REPORT ==="  > $REPORT
-          echo "Time: $(date -u)"                 >> $REPORT
-          echo ""                                  >> $REPORT
+          echo "=== DEPLOY REPORT $(date -u) ===" > $REPORT
 
-          # 1. Timeweb API
-          echo "--- TIMEWEB API ---" >> $REPORT
-          if [ -z "$TW_TOKEN" ] || [ "$TW_TOKEN" = "placeholder" ]; then
-            echo "TOKEN: NOT SET" >> $REPORT
-          else
-            echo "TOKEN: SET (${#TW_TOKEN} chars)" >> $REPORT
-            SERVER=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" "https://api.timeweb.cloud/api/v1/servers/7215757" 2>&1)
-            echo "API v1 response: $SERVER" >> $REPORT
-            SERVER2=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" "https://api.timeweb.cloud/api/v2/servers/7215757" 2>&1)
-            echo "API v2 response: $SERVER2" >> $REPORT
-          fi
+          # 1. Reboot server to fix SSH
           echo "" >> $REPORT
+          echo "--- STEP 1: Reboot server via Timeweb API ---" >> $REPORT
+          REBOOT=$(curl -sf -X POST \
+            -H "Authorization: Bearer $TW_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"reboot"}' \
+            "https://api.timeweb.cloud/api/v1/servers/7215757/action" 2>&1)
+          echo "Reboot response: $REBOOT" >> $REPORT
 
-          # 2. Port scan
-          echo "--- PORT SCAN ---" >> $REPORT
-          for port in 22 80 443 2222; do
+          # Wait for reboot
+          echo "Waiting 60s for reboot..." >> $REPORT
+          sleep 60
+
+          # 2. Check if SSH is now open
+          echo "" >> $REPORT
+          echo "--- STEP 2: Post-reboot port scan ---" >> $REPORT
+          for i in 1 2 3 4 5; do
+            timeout 5 bash -c 'echo | nc -w3 45.144.222.103 22' 2>/dev/null
+            if [ $? -eq 0 ]; then
+              echo "Attempt $i: Port 22 OPEN" >> $REPORT
+              break
+            else
+              echo "Attempt $i: Port 22 still closed, waiting 15s..." >> $REPORT
+              sleep 15
+            fi
+          done
+
+          # Final port check
+          for port in 22 80; do
             timeout 5 bash -c "echo | nc -w3 45.144.222.103 $port" 2>/dev/null
             if [ $? -eq 0 ]; then
               echo "Port $port: OPEN" >> $REPORT
@@ -63,48 +77,70 @@ jobs:
               echo "Port $port: CLOSED" >> $REPORT
             fi
           done
-          echo "" >> $REPORT
 
-          # 3. HTTP test
-          echo "--- HTTP TEST ---" >> $REPORT
-          HTTP_CODE=$(curl -s -o /tmp/http_body -w "%{http_code}" --max-time 10 http://45.144.222.103/ 2>&1)
-          echo "HTTP status: $HTTP_CODE" >> $REPORT
-          echo "HTTP body: $(cat /tmp/http_body 2>/dev/null | head -5)" >> $REPORT
+          # 3. Try SSH after reboot
           echo "" >> $REPORT
-
-          # 4. SSH test
-          echo "--- SSH TEST ---" >> $REPORT
+          echo "--- STEP 3: SSH connection ---" >> $REPORT
           apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq sshpass > /dev/null 2>&1
-          SSH_OUT=$(sshpass -p 'x5EKRBsc443x--' ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o PasswordAuthentication=yes root@45.144.222.103 'echo SSH_OK' 2>&1)
+
+          SSH_OUT=$(sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.144.222.103 'echo SSH_OK && uname -a' 2>&1)
           SSH_EXIT=$?
           echo "SSH exit code: $SSH_EXIT" >> $REPORT
-          echo "SSH output (last 15 lines):" >> $REPORT
-          echo "$SSH_OUT" | tail -15 >> $REPORT
-          echo "" >> $REPORT
+          echo "$SSH_OUT" | tail -10 >> $REPORT
 
-          # 5. Deploy if SSH works
+          # 4. Deploy if SSH works
           if echo "$SSH_OUT" | grep -q "SSH_OK"; then
-            echo "--- DEPLOYING ---" >> $REPORT
-            sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no root@45.144.222.103 << 'REMOTESCRIPT'
+            echo "" >> $REPORT
+            echo "--- STEP 4: Deploying ---" >> $REPORT
+            sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no root@45.144.222.103 'bash -s' << 'REMOTESCRIPT'
               set -e
+              echo "Installing Docker..."
               which docker || curl -fsSL https://get.docker.com | sh
+              echo "Installing git..."
               which git || (apt-get update && apt-get install -y git)
-              [ -d "/opt/delovoy" ] && cd /opt/delovoy && docker compose down 2>/dev/null || true
+              echo "Cleaning old deploy..."
+              [ -d "/opt/delovoy" ] && (cd /opt/delovoy && docker compose down 2>/dev/null || true)
               rm -rf /opt/delovoy
+              echo "Cloning repo..."
               mkdir -p /opt/delovoy
               git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
+              echo "Running deploy script..."
               cd /opt/delovoy/app && bash scripts/deploy-full.sh
-          REMOTESCRIPT
-            echo "Deploy: DONE" >> $REPORT
+              echo "Checking status..."
+              sleep 15
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1)
+              echo "HTTP localhost: $HTTP_CODE"
+              docker compose -f /opt/delovoy/docker-compose.yml ps 2>/dev/null || true
+              echo "DEPLOY_COMPLETE"
+REMOTESCRIPT
+            DEPLOY_EXIT=$?
+            echo "Deploy exit code: $DEPLOY_EXIT" >> $REPORT
+            echo "Deploy: ATTEMPTED" >> $REPORT
           else
-            echo "--- DEPLOY SKIPPED (SSH failed) ---" >> $REPORT
+            echo "" >> $REPORT
+            echo "--- DEPLOY SKIPPED (SSH still failed) ---" >> $REPORT
+            echo "SSH is still not available after reboot." >> $REPORT
+            echo "Possible fix: use Timeweb API to reinstall OS or enable SSH." >> $REPORT
           fi
+
+          # 5. Final HTTP check
+          echo "" >> $REPORT
+          echo "--- STEP 5: Final HTTP check ---" >> $REPORT
+          HTTP_FINAL=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://45.144.222.103/ 2>&1)
+          echo "HTTP 45.144.222.103: $HTTP_FINAL" >> $REPORT
 
           cat $REPORT
 
-          # Commit report to repo
+          # Commit report
           git config user.name "GitHub Actions Bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add $REPORT
-          git commit -m "ci: deploy diagnostic report [skip ci]" || true
+          git diff --cached --quiet || git commit -m "ci: deploy report $(date -u +%H:%M) [skip ci]"
           git push || true
+
+          # Fail if deploy didn't work
+          if echo "$SSH_OUT" | grep -q "SSH_OK"; then
+            exit 0
+          else
+            exit 1
+          fi
