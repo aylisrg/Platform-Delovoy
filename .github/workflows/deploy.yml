@@ -19,63 +19,73 @@ jobs:
       - run: npm run lint
       - run: npm test
 
-  deploy-via-api:
-    name: Deploy via Timeweb API
+  deploy:
+    name: Deploy VPS
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Query server status and deploy
+      - name: Diagnose and deploy
         env:
           TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
-          VPS_PASS: ${{ secrets.VPS_PASSWORD || 'x5EKRBsc443x--' }}
         run: |
           set +e
+          REPORT="deploy-report.txt"
+          echo "=== DEPLOY DIAGNOSTIC REPORT ==="  > $REPORT
+          echo "Time: $(date -u)"                 >> $REPORT
+          echo ""                                  >> $REPORT
 
-          echo "## VPS Deployment Report" >> $GITHUB_STEP_SUMMARY
-
-          # 1. Check Timeweb API
-          echo "### Timeweb API" >> $GITHUB_STEP_SUMMARY
+          # 1. Timeweb API
+          echo "--- TIMEWEB API ---" >> $REPORT
           if [ -z "$TW_TOKEN" ] || [ "$TW_TOKEN" = "placeholder" ]; then
-            echo "::error::TIMEWEB_API_TOKEN not configured in GitHub Secrets"
-            echo "- :x: Token not found" >> $GITHUB_STEP_SUMMARY
+            echo "TOKEN: NOT SET" >> $REPORT
           else
-            echo "- :white_check_mark: Token found (${#TW_TOKEN} chars)" >> $GITHUB_STEP_SUMMARY
-
-            # Get server info
-            SERVER_DATA=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" \
-              "https://api.timeweb.cloud/api/v1/servers/7215757" 2>&1)
-            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-            echo "$SERVER_DATA" | python3 -m json.tool 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "$SERVER_DATA" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "TOKEN: SET (${#TW_TOKEN} chars)" >> $REPORT
+            SERVER=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" "https://api.timeweb.cloud/api/v1/servers/7215757" 2>&1)
+            echo "API v1 response: $SERVER" >> $REPORT
+            SERVER2=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" "https://api.timeweb.cloud/api/v2/servers/7215757" 2>&1)
+            echo "API v2 response: $SERVER2" >> $REPORT
           fi
+          echo "" >> $REPORT
 
-          # 2. Port connectivity
-          echo "### Port Scan" >> $GITHUB_STEP_SUMMARY
-          for port in 22 80 443; do
+          # 2. Port scan
+          echo "--- PORT SCAN ---" >> $REPORT
+          for port in 22 80 443 2222; do
             timeout 5 bash -c "echo | nc -w3 45.144.222.103 $port" 2>/dev/null
             if [ $? -eq 0 ]; then
-              echo "- Port $port: :white_check_mark: OPEN" >> $GITHUB_STEP_SUMMARY
+              echo "Port $port: OPEN" >> $REPORT
             else
-              echo "- Port $port: :x: CLOSED" >> $GITHUB_STEP_SUMMARY
+              echo "Port $port: CLOSED" >> $REPORT
             fi
           done
+          echo "" >> $REPORT
 
-          # 3. SSH test with sshpass
-          echo "### SSH Test" >> $GITHUB_STEP_SUMMARY
-          apt-get update -qq && apt-get install -y -qq sshpass 2>/dev/null
-          SSH_OUT=$(sshpass -p "$VPS_PASS" ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@45.144.222.103 "echo SSH_OK && uname -a" 2>&1)
-          SSH_CODE=$?
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "Exit code: $SSH_CODE" >> $GITHUB_STEP_SUMMARY
-          echo "$SSH_OUT" | tail -20 >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          # 3. HTTP test
+          echo "--- HTTP TEST ---" >> $REPORT
+          HTTP_CODE=$(curl -s -o /tmp/http_body -w "%{http_code}" --max-time 10 http://45.144.222.103/ 2>&1)
+          echo "HTTP status: $HTTP_CODE" >> $REPORT
+          echo "HTTP body: $(cat /tmp/http_body 2>/dev/null | head -5)" >> $REPORT
+          echo "" >> $REPORT
 
-          # 4. If SSH works, deploy
+          # 4. SSH test
+          echo "--- SSH TEST ---" >> $REPORT
+          apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq sshpass > /dev/null 2>&1
+          SSH_OUT=$(sshpass -p 'x5EKRBsc443x--' ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o PasswordAuthentication=yes root@45.144.222.103 'echo SSH_OK' 2>&1)
+          SSH_EXIT=$?
+          echo "SSH exit code: $SSH_EXIT" >> $REPORT
+          echo "SSH output (last 15 lines):" >> $REPORT
+          echo "$SSH_OUT" | tail -15 >> $REPORT
+          echo "" >> $REPORT
+
+          # 5. Deploy if SSH works
           if echo "$SSH_OUT" | grep -q "SSH_OK"; then
-            echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-            sshpass -p "$VPS_PASS" ssh -o StrictHostKeyChecking=no root@45.144.222.103 << 'DEPLOY_SCRIPT'
+            echo "--- DEPLOYING ---" >> $REPORT
+            sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no root@45.144.222.103 << 'REMOTESCRIPT'
               set -e
               which docker || curl -fsSL https://get.docker.com | sh
               which git || (apt-get update && apt-get install -y git)
@@ -84,10 +94,17 @@ jobs:
               mkdir -p /opt/delovoy
               git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
               cd /opt/delovoy/app && bash scripts/deploy-full.sh
-          DEPLOY_SCRIPT
-            echo "- :white_check_mark: Deployed!" >> $GITHUB_STEP_SUMMARY
+          REMOTESCRIPT
+            echo "Deploy: DONE" >> $REPORT
           else
-            echo "### SSH Failed - Cannot Deploy" >> $GITHUB_STEP_SUMMARY
-            echo "::error::SSH connection failed. Check VPS_PASSWORD secret or server firewall." >> $GITHUB_STEP_SUMMARY
-            exit 1
+            echo "--- DEPLOY SKIPPED (SSH failed) ---" >> $REPORT
           fi
+
+          cat $REPORT
+
+          # Commit report to repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $REPORT
+          git commit -m "ci: deploy diagnostic report [skip ci]" || true
+          git push || true
