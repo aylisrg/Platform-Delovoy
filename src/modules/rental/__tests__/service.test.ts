@@ -50,12 +50,12 @@ const mockOffice = (overrides = {}) => ({
   floor: 3,
   area: 50,
   pricePerMonth: 30000,
-  status: "AVAILABLE",
+  status: "AVAILABLE" as const,
   metadata: null,
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
-});
+} as any);
 
 const mockTenant = (overrides = {}) => ({
   id: "tenant-1",
@@ -77,13 +77,13 @@ const mockContract = (overrides = {}) => ({
   endDate: new Date("2026-12-31"),
   monthlyRate: 30000,
   deposit: 60000,
-  status: "ACTIVE",
+  status: "ACTIVE" as const,
   documentUrl: null,
   notes: null,
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
-});
+} as any);
 
 beforeEach(() => {
   vi.clearAllMocks();

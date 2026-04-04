@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiNotFound, apiServerError, apiValidationError } from "@/lib/api-response";
+import { apiResponse, apiNotFound, apiServerError, apiValidationError, apiUnauthorized, apiForbidden } from "@/lib/api-response";
+import { auth } from "@/lib/auth";
+import { hasRole } from "@/lib/permissions";
 import { getTable, updateTable } from "@/modules/ps-park/service";
 import { updateTableSchema } from "@/modules/ps-park/validation";
 
@@ -28,6 +30,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session?.user) return apiUnauthorized();
+    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
+
     const { id } = await params;
     const body = await request.json();
     const parsed = updateTableSchema.safeParse(body);

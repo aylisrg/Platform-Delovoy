@@ -18,12 +18,14 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+RUN apk add --no-cache su-exec
+
 ENV NODE_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Install only prisma CLI for migrations (as root, before switching user)
+# Install only prisma CLI for migrations
 COPY package.json ./
 RUN npm install --no-save prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")
 
@@ -37,7 +39,7 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
-USER nextjs
+RUN chown -R nextjs:nodejs /app
 
 EXPOSE 3000
 

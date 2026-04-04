@@ -29,7 +29,7 @@ services:
 
   app:
     build:
-      context: ./app
+      context: .
       dockerfile: Dockerfile
     container_name: delovoy-app
     restart: unless-stopped
