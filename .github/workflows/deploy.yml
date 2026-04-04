@@ -25,38 +25,39 @@ jobs:
     needs: test
 
     steps:
+      - name: Debug SSH connectivity
+        run: |
+          echo "Testing SSH port..."
+          nc -zv -w 10 45.144.222.103 22 2>&1 || echo "Port 22 closed"
+          nc -zv -w 10 45.144.222.103 2222 2>&1 || echo "Port 2222 closed"
+          nc -zv -w 10 45.144.222.103 80 2>&1 || echo "Port 80 closed"
+          echo "Testing HTTP..."
+          curl -s -o /dev/null -w "HTTP %{http_code}" --max-time 10 http://45.144.222.103/ || echo "HTTP failed"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: "45.144.222.103"
           username: root
           password: "x5EKRBsc443x--"
+          port: 22
+          timeout: 30s
           command_timeout: 10m
+          debug: true
           script: |
-            set -e
-
-            # Install Docker if missing
+            echo "Connected to VPS!"
+            uname -a
             which docker || curl -fsSL https://get.docker.com | sh
-
-            # Install git if missing
             which git || apt-get update && apt-get install -y git
-
-            # Clean previous deploy
             if [ -d "/opt/delovoy" ]; then
               cd /opt/delovoy
               docker compose down 2>/dev/null || true
             fi
             rm -rf /opt/delovoy
-
-            # Clone fresh
             mkdir -p /opt/delovoy
             git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
             cd /opt/delovoy/app
-
-            # Run deploy script
             bash scripts/deploy-full.sh
-
-            # Verify
             sleep 15
             curl -s -o /dev/null -w "%{http_code}" http://localhost || echo "App starting..."
             docker compose -f /opt/delovoy/docker-compose.yml ps
