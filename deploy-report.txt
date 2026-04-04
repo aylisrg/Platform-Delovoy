@@ -1,4 +1,4 @@
-=== Sat Apr  4 22:24:53 UTC 2026 ===
+=== Sat Apr  4 22:43:50 UTC 2026 ===
 Step 1: Port scan
 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.14
 Invalid SSH identification string.
@@ -9,8 +9,10 @@ Port 443: CLOSED
 Step 2: SSH test
 SSH_OK
 Linux 7225779-jm024579.twc1.net 5.15.0-173-generic #183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
- 22:25:07 up 32 min,  0 users,  load average: 0.00, 0.00, 0.00
-CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+ 22:44:04 up 51 min,  0 users,  load average: 0.04, 0.01, 0.00
+CONTAINER ID   IMAGE     COMMAND   CREATED   debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+debug1: client_input_channel_req: channel 0 rtype eow@openssh.com reply 0
+STATUS    PORTS     NAMES
 Reading package lists...
 Building dependency tree...
 Reading state information...
@@ -31,15 +33,13 @@ Executing: /lib/systemd/systemd-sysv-install enable ssh
 + sh -c echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
 + sh -c apt-get -qq update >/dev/null
 + sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras docker-buildx-plugin docker-model-plugin >/dev/null
-debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
-debug1: client_input_channel_req: channel 0 rtype eow@openssh.com reply 0
 debug1: channel 0: free: client-session, nchannels 1
-Transferred: sent 3336, received 5260 bytes, in 1.2 seconds
-Bytes per second: sent 2795.2, received 4407.3
+Transferred: sent 3336, received 5560 bytes, in 1.2 seconds
+Bytes per second: sent 2783.3, received 4638.8
 debug1: Exit status 0
 
 Step 3: Deploy if SSH works
-SSH connected! Deploying...
+3a: Fix dpkg + install Docker...
 Reading package lists...
 Building dependency tree...
 Reading state information...
@@ -48,13 +48,17 @@ Reading state information...
 Synchronizing state of docker.service with SysV service script with /lib/systemd/systemd-sysv-install.
 Executing: /lib/systemd/systemd-sysv-install enable docker
 /usr/bin/git
+3b: Clone/update repo...
 From https://github.com/aylisrg/Platform-Delovoy
  * branch            main       -> FETCH_HEAD
-   3ade8d5..ab5a808  main       -> origin/main
-Updating 3ade8d5..ab5a808
+   ab5a808..d82babf  main       -> origin/main
+Updating ab5a808..d82babf
 Fast-forward
- .github/workflows/deploy.yml |  23 ++-
- deploy-report.txt            | 335 ++++++++-----------------------------------
- 2 files changed, 77 insertions(+), 281 deletions(-)
-Waiting 10 min for Docker Hub rate limit reset...
-client_loop: send disconnect: Broken pipe
+ .github/workflows/deploy.yml | 75 +++++++++++++------------------------
+ deploy-report.txt            | 88 +++++++-------------------------------------
+ 2 files changed, 39 insertions(+), 124 deletions(-)
+3c: Wait 8 min for Docker Hub rate limit...
+3d: Pull Docker images...
+Error response from daemon: error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+First pull failed, waiting 2 min...
+Error response from daemon: error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
