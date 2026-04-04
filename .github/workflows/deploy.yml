@@ -59,15 +59,28 @@ jobs:
           if echo "$SSH_OUT" | grep -q "SSH_OK"; then
             echo "SSH connected! Deploying..."
             sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no root@$NEW_IP 'bash -s' << 'REMOTE'
-              set -e
+              # Fix dpkg if interrupted
+              dpkg --configure -a
+              apt-get install -f -y
+
+              # Install Docker
               which docker || curl -fsSL https://get.docker.com | sh
+              systemctl enable docker
+              systemctl start docker
+
+              # Install git
               which git || (apt-get update && apt-get install -y git)
-              [ -d "/opt/delovoy/app" ] || {
+
+              # Clone or update repo
+              if [ -d "/opt/delovoy/app" ]; then
+                cd /opt/delovoy/app && git pull origin main || true
+              else
                 mkdir -p /opt/delovoy
                 git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-              }
+              fi
+
+              # Deploy
               cd /opt/delovoy/app
-              git pull origin main || true
               bash scripts/deploy-full.sh
               echo "DEPLOY_COMPLETE"
           REMOTE
