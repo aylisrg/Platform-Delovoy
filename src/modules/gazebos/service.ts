@@ -76,7 +76,7 @@ export async function listBookings(filter?: BookingFilter) {
       ? {
           date: {
             ...(filter?.dateFrom && { gte: new Date(filter.dateFrom) }),
-            ...(filter?.dateTo && { lte: new Date(filter.dateTo) }),
+            ...(filter?.dateTo && { lte: new Date(`${filter.dateTo}T23:59:59.999Z`) }),
           },
         }
       : {}),

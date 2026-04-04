@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   apiResponse,
@@ -14,7 +15,7 @@ import { updateModuleConfigSchema } from "@/modules/monitoring/architect-validat
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
@@ -33,7 +34,7 @@ export async function GET(
 }
 
 export async function PATCH(
-  req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();

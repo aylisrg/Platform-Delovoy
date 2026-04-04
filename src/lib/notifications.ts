@@ -1,24 +1,69 @@
-import { sendAlert } from "../../bot/index";
+type AlertLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+
+const LEVEL_EMOJI: Record<AlertLevel, string> = {
+  INFO: "ℹ️",
+  WARNING: "⚠️",
+  ERROR: "🔴",
+  CRITICAL: "🚨",
+};
+
+/**
+ * Send an alert message to the admin Telegram group via HTTP API.
+ * Self-contained — no dependency on the bot process.
+ */
+async function sendAlert(
+  level: AlertLevel,
+  source: string,
+  message: string,
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+
+  if (!token || !chatId) {
+    console.warn("[Notifications] TELEGRAM_BOT_TOKEN or TELEGRAM_ADMIN_CHAT_ID not set, skipping alert");
+    return false;
+  }
+
+  const emoji = LEVEL_EMOJI[level];
+  const text = [
+    `${emoji} <b>[${level}]</b> ${source}`,
+    ``,
+    message,
+    ``,
+    `<i>${new Date().toISOString()}</i>`,
+  ].join("\n");
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("[Notifications] Failed to send Telegram alert:", err);
+    return false;
+  }
+}
 
 export type NotificationChannel = "telegram" | "email";
 
 export type Notification = {
   channel: NotificationChannel;
-  recipient: string; // chat_id for telegram, email for email
+  recipient: string;
   subject?: string;
   message: string;
 };
 
-/**
- * Send a notification through the specified channel.
- * Currently supports Telegram. Email support planned.
- */
 export async function sendNotification(notification: Notification): Promise<boolean> {
   switch (notification.channel) {
     case "telegram":
       return sendAlert("INFO", "notification", notification.message);
     case "email":
-      // Email provider to be configured later
       console.log(`[Email] To: ${notification.recipient} | ${notification.message}`);
       return true;
     default:
@@ -26,9 +71,6 @@ export async function sendNotification(notification: Notification): Promise<bool
   }
 }
 
-/**
- * Send a booking confirmation notification.
- */
 export async function notifyBookingConfirmed(params: {
   userName: string;
   resourceName: string;
@@ -48,9 +90,6 @@ export async function notifyBookingConfirmed(params: {
   return sendAlert("INFO", "gazebos", message);
 }
 
-/**
- * Send a booking reminder (1 hour before).
- */
 export async function notifyBookingReminder(params: {
   userName: string;
   resourceName: string;
@@ -69,9 +108,6 @@ export async function notifyBookingReminder(params: {
   return sendAlert("INFO", "gazebos", message);
 }
 
-/**
- * Send a new booking notification to managers.
- */
 export async function notifyNewBooking(params: {
   userName: string;
   resourceName: string;
@@ -93,9 +129,6 @@ export async function notifyNewBooking(params: {
   return sendAlert("INFO", "gazebos", message);
 }
 
-/**
- * Send a booking cancellation notification.
- */
 export async function notifyBookingCancelled(params: {
   userName: string;
   resourceName: string;
