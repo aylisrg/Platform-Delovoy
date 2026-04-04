@@ -31,13 +31,22 @@ jobs:
           username: deploy
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /opt/delovoy/app
-            git pull origin main
+            # === ПОЛНАЯ ОЧИСТКА СЕРВЕРА ===
+            if [ -d "/opt/delovoy" ]; then
+              cd /opt/delovoy
+              docker compose down -v 2>/dev/null || true
+            fi
+            docker system prune -af --volumes 2>/dev/null || true
+            rm -rf /opt/delovoy
 
-            # Добавить Timeweb API переменные в .env (если ещё нет)
+            # === ЧИСТЫЙ ДЕПЛОЙ С НУЛЯ ===
+            mkdir -p /opt/delovoy
+            git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
+            cd /opt/delovoy/app
+            bash scripts/deploy-full.sh
+
+            # Добавить Timeweb API токен в .env после генерации
             grep -q "TIMEWEB_API_TOKEN" /opt/delovoy/.env 2>/dev/null || \
               echo -e "\n# Timeweb Cloud API\nTIMEWEB_API_TOKEN=${{ secrets.TIMEWEB_API_TOKEN }}\nTIMEWEB_SERVER_ID=7215757" >> /opt/delovoy/.env
 
-            docker compose -f /opt/delovoy/docker-compose.yml up --build -d
-            docker image prune -f
             echo "Deployed at $(date)"
