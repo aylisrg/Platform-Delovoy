@@ -33,138 +33,45 @@ jobs:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Deploy via Timeweb API
+      - name: Reinstall VPS OS via Timeweb API
         env:
           TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
         run: |
-          set +e
-          REPORT="deploy-report.txt"
-          echo "=== DEPLOY REPORT $(date -u) ===" > $REPORT
+          exec > >(tee deploy-report.txt) 2>&1
+          echo "=== $(date -u) ==="
 
-          # Step 1: Check current server status
-          echo "--- Server status ---" >> $REPORT
-          SERVER=$(curl -sf -H "Authorization: Bearer $TW_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/servers/7215757")
-          STATUS=$(echo $SERVER | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['server']['status'])" 2>/dev/null)
-          echo "Status: $STATUS" >> $REPORT
-
-          # Step 2: Reinstall OS with cloud-init
-          echo "" >> $REPORT
-          echo "--- Reinstalling OS with cloud-init ---" >> $REPORT
-
-          CLOUD_INIT=$(cat << 'CINIT'
-#!/bin/bash
-set -e
-exec > /var/log/cloud-init-deploy.log 2>&1
-
-# Wait for network
-sleep 10
-
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-systemctl enable docker
-systemctl start docker
-
-# Install git
-apt-get update && apt-get install -y git
-
-# Ensure SSH is running
-apt-get install -y openssh-server
-systemctl enable ssh
-systemctl start ssh
-sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-systemctl restart ssh
-
-# Deploy app
-mkdir -p /opt/delovoy
-git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-cd /opt/delovoy/app
-bash scripts/deploy-full.sh
-
-echo "DEPLOY COMPLETE" > /opt/delovoy/deploy-status.txt
-CINIT
-)
-
-          # URL-encode the cloud-init script
-          CLOUD_INIT_B64=$(echo "$CLOUD_INIT" | base64 -w 0)
-
-          # Try reinstall via API
-          REINSTALL_RESP=$(curl -sf -X POST \
+          echo "Step 1: Reinstall OS (Ubuntu 22.04 id=79)"
+          curl -v -X POST \
             -H "Authorization: Bearer $TW_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{"os_id": 79, "cloud_init": "'"$CLOUD_INIT"'"}' \
-            "https://api.timeweb.cloud/api/v1/servers/7215757/reinstall" 2>&1)
-          echo "Reinstall response: $REINSTALL_RESP" >> $REPORT
+            -d '{"os_id":79}' \
+            "https://api.timeweb.cloud/api/v1/servers/7215757/reinstall" 2>&1 || true
 
-          # If reinstall endpoint doesn't exist, try action
-          if [ -z "$REINSTALL_RESP" ] || echo "$REINSTALL_RESP" | grep -qi "error\|not found"; then
-            echo "Trying v1 action endpoint..." >> $REPORT
-
-            # Try to update cloud-init on the server
-            UPDATE_RESP=$(curl -sf -X PATCH \
-              -H "Authorization: Bearer $TW_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{"cloud_init": "'"$(echo "$CLOUD_INIT" | sed 's/"/\\"/g' | tr '\n' ' ')"'"}' \
-              "https://api.timeweb.cloud/api/v1/servers/7215757" 2>&1)
-            echo "Update server response: $UPDATE_RESP" >> $REPORT
-
-            # Reboot to apply cloud-init
-            REBOOT_RESP=$(curl -sf -X POST \
-              -H "Authorization: Bearer $TW_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{"action":"reboot"}' \
-              "https://api.timeweb.cloud/api/v1/servers/7215757/action" 2>&1)
-            echo "Reboot response: $REBOOT_RESP" >> $REPORT
-          fi
-
-          # Step 3: Wait for server to come back
-          echo "" >> $REPORT
-          echo "--- Waiting for server (3 min) ---" >> $REPORT
+          echo ""
+          echo "Step 2: Wait 3 minutes for reinstall"
           sleep 180
 
-          # Step 4: Check ports
-          echo "" >> $REPORT
-          echo "--- Post-reinstall checks ---" >> $REPORT
-          for port in 22 80; do
-            timeout 5 bash -c "echo | nc -w3 45.144.222.103 $port" 2>/dev/null
-            echo "Port $port: $([ $? -eq 0 ] && echo OPEN || echo CLOSED)" >> $REPORT
+          echo ""
+          echo "Step 3: Port scan"
+          for p in 22 80 443; do
+            timeout 5 bash -c "echo >/dev/tcp/45.144.222.103/$p" 2>/dev/null && echo "Port $p: OPEN" || echo "Port $p: CLOSED"
           done
 
-          # Step 5: Try SSH
-          apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq sshpass > /dev/null 2>&1
-          SSH_TEST=$(sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@45.144.222.103 'echo SSH_OK' 2>&1)
-          echo "SSH test: $SSH_TEST" >> $REPORT
+          echo ""
+          echo "Step 4: SSH test"
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          sshpass -p 'x5EKRBsc443x--' ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.144.222.103 'echo SSH_CONNECTED; uname -a; uptime' 2>&1 || true
 
-          # Step 6: HTTP check
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://45.144.222.103/ 2>&1)
-          echo "HTTP: $HTTP_CODE" >> $REPORT
+          echo ""
+          echo "Step 5: If SSH OK, deploy"
+          sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@45.144.222.103 'which docker && echo DOCKER_OK || echo NEED_DOCKER' 2>&1 || echo "SSH_FAILED"
 
-          # Step 7: If SSH works but app not deployed, deploy manually
-          if echo "$SSH_TEST" | grep -q "SSH_OK"; then
-            echo "" >> $REPORT
-            echo "--- SSH works! Deploying manually ---" >> $REPORT
-            sshpass -p 'x5EKRBsc443x--' ssh -o StrictHostKeyChecking=no root@45.144.222.103 'bash -s' << 'REMOTE'
-              set -e
-              which docker || curl -fsSL https://get.docker.com | sh
-              which git || (apt-get update && apt-get install -y git)
-              [ -d "/opt/delovoy/app" ] || {
-                mkdir -p /opt/delovoy
-                git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-              }
-              cd /opt/delovoy/app
-              git pull origin main 2>/dev/null || true
-              bash scripts/deploy-full.sh
-REMOTE
-            echo "Manual deploy: done" >> $REPORT
-          fi
-
-          cat $REPORT
-
-          # Commit report
-          git pull origin main --rebase 2>/dev/null || true
-          git config user.name "GitHub Actions Bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f $REPORT
+      - name: Commit report
+        if: always()
+        run: |
+          git pull origin main --rebase || true
+          git config user.name "deploy-bot"
+          git config user.email "bot@delovoy-park.ru"
+          git add -f deploy-report.txt
           git diff --cached --quiet || git commit -m "deploy: report $(date -u +%H:%M) [skip ci]"
           git push origin main || true
