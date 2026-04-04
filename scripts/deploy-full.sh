@@ -204,7 +204,7 @@ set -a
 source "$APP_DIR/.env"
 set +a
 
-npm ci --omit=dev 2>&1 | tail -1
+npm ci --omit=dev --ignore-scripts 2>&1 | tail -1
 ok "npm ci"
 
 npx prisma generate

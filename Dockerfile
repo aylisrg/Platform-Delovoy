@@ -3,10 +3,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
-
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN npm ci
 
 COPY . .
 
@@ -25,7 +23,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 # Install only prisma CLI for migrations (as root, before switching user)
 COPY package.json ./
-RUN npm install --no-save prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")
+RUN npm install --ignore-scripts --no-save prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
