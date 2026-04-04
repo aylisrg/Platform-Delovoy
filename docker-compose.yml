@@ -3,6 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: delovoy-postgres
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: delovoy_park
       POSTGRES_USER: delovoy
@@ -19,6 +21,9 @@ services:
     image: redis:7-alpine
     container_name: delovoy-redis
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
@@ -26,26 +31,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  app:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
-    container_name: delovoy-app
-    restart: unless-stopped
-    ports:
-      - "80:3000"
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
-      REDIS_URL: "redis://redis:6379"
-      NODE_ENV: "production"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
 
 volumes:
   postgres_data:

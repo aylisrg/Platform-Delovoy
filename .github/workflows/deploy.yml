@@ -30,9 +30,34 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: deploy
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
           script: |
+            set -e
             cd /opt/delovoy/app
-            git pull origin main
-            docker compose -f /opt/delovoy/docker-compose.yml up --build -d
-            docker image prune -f
+
+            # Pull latest code
+            git fetch origin main
+            git checkout main -f
+            git reset --hard origin/main
+
+            # Source env
+            set -a
+            source /opt/delovoy/.env
+            set +a
+
+            # Install deps and build
+            npm ci --omit=dev
+            npx prisma generate
+            npx prisma migrate deploy
+
+            # Build with limited memory for 1GB VPS
+            NODE_OPTIONS="--max-old-space-size=512" npx next build
+
+            # Copy static assets into standalone
+            cp -r public .next/standalone/public 2>/dev/null || true
+            cp -r .next/static .next/standalone/.next/static
+
+            # Restart app
+            pm2 restart delovoy
+
             echo "Deployed at $(date)"
