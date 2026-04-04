@@ -1,4 +1,4 @@
-=== Sat Apr  4 22:15:29 UTC 2026 ===
+=== Sat Apr  4 22:24:53 UTC 2026 ===
 Step 1: Port scan
 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.14
 Invalid SSH identification string.
@@ -9,10 +9,8 @@ Port 443: CLOSED
 Step 2: SSH test
 SSH_OK
 Linux 7225779-jm024579.twc1.net 5.15.0-173-generic #183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
- 22:15:43 up 23 min,  0 users,  load average: 0.00, 0.01, 0.00
+ 22:25:07 up 32 min,  0 users,  load average: 0.00, 0.00, 0.00
 CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
-debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
-debug1: client_input_channel_req: channel 0 rtype eow@openssh.com reply 0
 Reading package lists...
 Building dependency tree...
 Reading state information...
@@ -33,9 +31,11 @@ Executing: /lib/systemd/systemd-sysv-install enable ssh
 + sh -c echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
 + sh -c apt-get -qq update >/dev/null
 + sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras docker-buildx-plugin docker-model-plugin >/dev/null
+debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+debug1: client_input_channel_req: channel 0 rtype eow@openssh.com reply 0
 debug1: channel 0: free: client-session, nchannels 1
-Transferred: sent 3336, received 5560 bytes, in 2.1 seconds
-Bytes per second: sent 1573.4, received 2622.3
+Transferred: sent 3336, received 5260 bytes, in 1.2 seconds
+Bytes per second: sent 2795.2, received 4407.3
 debug1: Exit status 0
 
 Step 3: Deploy if SSH works
@@ -50,73 +50,11 @@ Executing: /lib/systemd/systemd-sysv-install enable docker
 /usr/bin/git
 From https://github.com/aylisrg/Platform-Delovoy
  * branch            main       -> FETCH_HEAD
-   d50567e..3ade8d5  main       -> origin/main
-Updating d50567e..3ade8d5
+   3ade8d5..ab5a808  main       -> origin/main
+Updating 3ade8d5..ab5a808
 Fast-forward
- .github/workflows/deploy.yml |  15 ++-
- deploy-report.txt            | 305 ++++++++++++++++++++++++++++++++++++++++++-
- 2 files changed, 311 insertions(+), 9 deletions(-)
-Deploy attempt 1...
-
-=========================================
-  Деловой Парк — полная установка
-=========================================
-
-[1/5] Код...
-Your branch is up to date with 'origin/main'.
-Already on 'main'
-HEAD is now at 3ade8d5 ci: retry docker compose on rate limit
-[2/5] Конфигурация...
-[3/5] Docker Compose...
-[4/5] Пересборка контейнеров (2-3 минуты)...
- Image postgres:16-alpine Pulling 
- Image redis:7-alpine Pulling 
- Image postgres:16-alpine Error error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
- Image redis:7-alpine Interrupted 
-Error response from daemon: error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-Attempt 1 failed, waiting 30s...
-Deploy attempt 2...
-
-=========================================
-  Деловой Парк — полная установка
-=========================================
-
-[1/5] Код...
-Your branch is up to date with 'origin/main'.
-Already on 'main'
-HEAD is now at 3ade8d5 ci: retry docker compose on rate limit
-[2/5] Конфигурация...
-[3/5] Docker Compose...
-[4/5] Пересборка контейнеров (2-3 минуты)...
- Image redis:7-alpine Pulling 
- Image postgres:16-alpine Pulling 
- Image postgres:16-alpine Error error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
- Image redis:7-alpine Interrupted 
-Error response from daemon: error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-Attempt 2 failed, waiting 30s...
-Deploy attempt 3...
-
-=========================================
-  Деловой Парк — полная установка
-=========================================
-
-[1/5] Код...
-Your branch is up to date with 'origin/main'.
-Already on 'main'
-HEAD is now at 3ade8d5 ci: retry docker compose on rate limit
-[2/5] Конфигурация...
-[3/5] Docker Compose...
-[4/5] Пересборка контейнеров (2-3 минуты)...
- Image redis:7-alpine Pulling 
- Image postgres:16-alpine Pulling 
- Image redis:7-alpine Error error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
- Image postgres:16-alpine Interrupted 
-Error response from daemon: error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-Attempt 3 failed, waiting 30s...
-NAME      IMAGE     COMMAND   SERVICE   CREATED   STATUS    PORTS
-localhost HTTP 000
-DEPLOY_COMPLETE
-
-Step 4: HTTP check
-HTTP 000HTTP_FAILED
-
+ .github/workflows/deploy.yml |  23 ++-
+ deploy-report.txt            | 335 ++++++++-----------------------------------
+ 2 files changed, 77 insertions(+), 281 deletions(-)
+Waiting 10 min for Docker Hub rate limit reset...
+client_loop: send disconnect: Broken pipe
