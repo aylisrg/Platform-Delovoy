@@ -1,0 +1,46 @@
+=== Sat Apr  4 21:58:11 UTC 2026 ===
+Step 1: Port scan
+SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.14
+Invalid SSH identification string.
+Port 22: OPEN
+Port 80: CLOSED
+Port 443: CLOSED
+
+Step 2: SSH test
+SSH_OK
+Linux 7225779-jm024579.twc1.net 5.15.0-173-generic #183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+ 21:58:26 up 6 min,  0 users,  load average: 0.00, 0.02, 0.00
+NO_DOCKER
+debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+debug1: client_input_channel_req: channel 0 rtype eow@openssh.com reply 0
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.81.0-1ubuntu1.23).
+curl set to manually installed.
+git is already the newest version (1:2.34.1-1ubuntu1.17).
+git set to manually installed.
+openssh-server is already the newest version (1:8.9p1-3ubuntu0.14).
+0 upgraded, 0 newly installed, 0 to remove and 11 not upgraded.
+Synchronizing state of ssh.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable ssh
+# Executing docker install script, commit: c04fb16bb8bd8ed6ce884bb40570cbcd6101ae0c
++ sh -c apt-get -qq update >/dev/null
++ sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install ca-certificates curl >/dev/null
++ sh -c install -m 0755 -d /etc/apt/keyrings
++ sh -c curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" -o /etc/apt/keyrings/docker.asc
++ sh -c chmod a+r /etc/apt/keyrings/docker.asc
++ sh -c echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
++ sh -c apt-get -qq update >/dev/null
++ sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras docker-buildx-plugin docker-model-plugin >/dev/null
+debug1: channel 0: free: client-session, nchannels 1
+Transferred: sent 3336, received 5176 bytes, in 2.1 seconds
+Bytes per second: sent 1572.2, received 2439.3
+debug1: Exit status 0
+
+Step 3: Deploy if SSH works
+SSH connected! Deploying...
+# Executing docker install script, commit: c04fb16bb8bd8ed6ce884bb40570cbcd6101ae0c
++ sh -c apt-get -qq update >/dev/null
++ sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install ca-certificates curl >/dev/null
+E: dpkg was interrupted, you must manually run 'dpkg --configure -a' to correct the problem. 
