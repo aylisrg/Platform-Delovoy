@@ -57,55 +57,32 @@ jobs:
           echo ""
           echo "Step 3: Deploy if SSH works"
           if echo "$SSH_OUT" | grep -q "SSH_OK"; then
-            echo "SSH connected! Deploying..."
-            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no root@$NEW_IP 'bash -s' << 'REMOTE'
-              # Fix dpkg if interrupted
-              dpkg --configure -a
-              apt-get install -f -y
+            SSH_CMD="sshpass -p $PASS ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 root@$NEW_IP"
 
-              # Install Docker
-              which docker || curl -fsSL https://get.docker.com | sh
-              systemctl enable docker
-              systemctl start docker
+            echo "3a: Fix dpkg + install Docker..."
+            $SSH_CMD 'dpkg --configure -a; apt-get install -f -y; which docker || curl -fsSL https://get.docker.com | sh; systemctl enable docker; systemctl start docker; which git || apt-get install -y git'
 
-              # Install git
-              which git || (apt-get update && apt-get install -y git)
+            echo "3b: Clone/update repo..."
+            $SSH_CMD 'if [ -d /opt/delovoy/app ]; then cd /opt/delovoy/app && git pull origin main; else mkdir -p /opt/delovoy && git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app; fi'
 
-              # Clone or update repo
-              if [ -d "/opt/delovoy/app" ]; then
-                cd /opt/delovoy/app && git pull origin main || true
-              else
-                mkdir -p /opt/delovoy
-                git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-              fi
+            echo "3c: Wait 8 min for Docker Hub rate limit..."
+            sleep 480
 
-              # Deploy — pull images separately with longer waits
-              cd /opt/delovoy/app
+            echo "3d: Pull Docker images..."
+            $SSH_CMD 'docker pull postgres:16-alpine && docker pull redis:7-alpine' || {
+              echo "First pull failed, waiting 2 min..."
+              sleep 120
+              $SSH_CMD 'docker pull postgres:16-alpine && docker pull redis:7-alpine'
+            }
 
-              # Wait for Docker Hub rate limit to reset (~15 min)
-              echo "Waiting 10 min for Docker Hub rate limit reset..."
-              sleep 600
+            echo "3e: Deploy app..."
+            $SSH_CMD 'cd /opt/delovoy/app && bash scripts/deploy-full.sh'
 
-              # Pull images one at a time with retries
-              for img in postgres:16-alpine redis:7-alpine; do
-                for try in 1 2 3; do
-                  echo "Pulling $img (attempt $try)..."
-                  docker pull $img && break
-                  echo "Rate limited, waiting 120s..."
-                  sleep 120
-                done
-              done
-
-              # Now deploy
-              bash scripts/deploy-full.sh
-
-              # Verify
-              sleep 15
-              docker compose -f /opt/delovoy/docker-compose.yml ps
-              curl -s -o /dev/null -w "localhost HTTP %{http_code}" http://localhost || true
-              echo ""
-              echo "DEPLOY_COMPLETE"
-          REMOTE
+            echo "3f: Verify..."
+            sleep 20
+            $SSH_CMD 'docker compose -f /opt/delovoy/docker-compose.yml ps; curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost'
+            echo ""
+            echo "DEPLOY_COMPLETE"
           else
             echo "SSH FAILED — cannot deploy"
           fi
