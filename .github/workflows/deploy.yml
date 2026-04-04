@@ -19,64 +19,57 @@ jobs:
       - run: npm run lint
       - run: npm test
 
-  check-vps:
-    name: Check VPS Connectivity
+  diagnose-and-deploy:
+    name: Diagnose VPS & Deploy
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - name: Scan VPS ports and test connectivity
+      - name: Check VPS status via Timeweb API
+        env:
+          TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
         run: |
-          echo "=== Port scan ==="
-          for port in 22 80 443 2222 3000 8080 8443; do
-            (echo > /dev/tcp/45.144.222.103/$port) 2>/dev/null && echo "Port $port: OPEN" || echo "Port $port: CLOSED"
-          done
+          echo "=== Checking Timeweb API token ==="
+          if [ -z "$TW_TOKEN" ] || [ "$TW_TOKEN" = "placeholder" ]; then
+            echo "ERROR: TIMEWEB_API_TOKEN secret is not set!"
+            echo "Go to GitHub repo Settings → Secrets → Actions → New secret"
+            echo "Name: TIMEWEB_API_TOKEN"
+            echo "Value: your token from https://timeweb.cloud/my/api-keys"
+            exit 1
+          fi
+          echo "Token found (${#TW_TOKEN} chars)"
 
           echo ""
-          echo "=== HTTP test ==="
-          curl -sv --max-time 10 http://45.144.222.103/ 2>&1 | head -30
+          echo "=== Server info ==="
+          curl -sf -H "Authorization: Bearer $TW_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/servers/7215757" | python3 -m json.tool || echo "API v1 failed, trying v2..."
+
+          curl -sf -H "Authorization: Bearer $TW_TOKEN" \
+            "https://api.timeweb.cloud/api/v2/servers/7215757" | python3 -m json.tool 2>/dev/null || echo "API v2 also failed"
 
           echo ""
-          echo "=== HTTPS test ==="
-          curl -sv --max-time 10 https://45.144.222.103/ 2>&1 | head -30
+          echo "=== Quick port check ==="
+          timeout 5 bash -c 'echo | nc -w3 45.144.222.103 22' 2>&1 && echo "SSH: OPEN" || echo "SSH port 22: CLOSED/FILTERED"
+          timeout 5 bash -c 'echo | nc -w3 45.144.222.103 80' 2>&1 && echo "HTTP: OPEN" || echo "HTTP port 80: CLOSED/FILTERED"
 
-          echo ""
-          echo "=== SSH banner test ==="
-          timeout 10 bash -c 'cat < /dev/tcp/45.144.222.103/22' 2>&1 | head -5 || echo "SSH: no banner / connection refused"
-
-          echo ""
-          echo "=== Timeweb API test ==="
-          curl -s -o /dev/null -w "Timeweb API: HTTP %{http_code}" https://api.timeweb.cloud/api/v1/servers 2>&1
-          echo ""
-
-  deploy:
-    name: Deploy to VPS
-    runs-on: ubuntu-latest
-    needs: check-vps
-    steps:
-      - name: Deploy via SSH
+      - name: Deploy via SSH (if port open)
         uses: appleboy/ssh-action@v1
         with:
           host: "45.144.222.103"
           username: root
           password: "x5EKRBsc443x--"
           port: 22
-          timeout: 30s
+          timeout: 15s
           command_timeout: 10m
           debug: true
           script: |
             echo "Connected!"
             which docker || curl -fsSL https://get.docker.com | sh
             which git || apt-get update && apt-get install -y git
-            if [ -d "/opt/delovoy" ]; then
-              cd /opt/delovoy
-              docker compose down 2>/dev/null || true
-            fi
+            [ -d "/opt/delovoy" ] && cd /opt/delovoy && docker compose down 2>/dev/null || true
             rm -rf /opt/delovoy
             mkdir -p /opt/delovoy
             git clone https://github.com/aylisrg/Platform-Delovoy.git /opt/delovoy/app
-            cd /opt/delovoy/app
-            bash scripts/deploy-full.sh
+            cd /opt/delovoy/app && bash scripts/deploy-full.sh
             sleep 15
             curl -s -o /dev/null -w "%{http_code}" http://localhost
-            docker compose -f /opt/delovoy/docker-compose.yml ps
-            echo "Deploy done at $(date)"
+            echo " — Deploy done at $(date)"
