@@ -6,6 +6,7 @@ import { useState } from "react";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -16,11 +17,12 @@ export default function SignInPage() {
 
     const result = await signIn("credentials", {
       email,
+      password,
       redirect: false,
     });
 
     if (result?.error) {
-      setError("Неверный email или пользователь не найден");
+      setError("Неверный email или пароль");
       setLoading(false);
     } else {
       window.location.href = "/admin/dashboard";
@@ -51,6 +53,24 @@ export default function SignInPage() {
               required
               className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               placeholder="admin@delovoy-park.ru"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-zinc-700"
+            >
+              Пароль
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="••••••••"
             />
           </div>
 
