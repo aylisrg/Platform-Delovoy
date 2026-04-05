@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -6,16 +7,20 @@ async function main() {
   console.log("🌱 Seeding database...");
 
   // === SUPERADMIN ===
+  const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || "admin123";
+  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+
   const admin = await prisma.user.upsert({
     where: { email: "admin@delovoy-park.ru" },
-    update: {},
+    update: { passwordHash },
     create: {
       email: "admin@delovoy-park.ru",
       name: "Администратор",
       role: "SUPERADMIN",
+      passwordHash,
     },
   });
-  console.log(`  ✓ Admin user: ${admin.email}`);
+  console.log(`  ✓ Admin user: ${admin.email} (password: ${defaultPassword})`);
 
   // === MODULES ===
   const modules = [
