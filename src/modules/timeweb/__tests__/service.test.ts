@@ -34,7 +34,7 @@ import { log } from "@/lib/logger";
 
 const mockServerResponse = {
   server: {
-    id: 7215757,
+    id: 7225779,
     name: "delovoy-vps",
     status: "on",
     os: { id: 1, name: "Ubuntu", version: "22.04" },
@@ -91,7 +91,7 @@ const mockLogsResponse = {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.TIMEWEB_API_TOKEN = "test-token-123";
-  process.env.TIMEWEB_SERVER_ID = "7215757";
+  process.env.TIMEWEB_SERVER_ID = "7225779";
   vi.mocked(redis.get).mockResolvedValue(null);
   vi.mocked(redis.set).mockResolvedValue("OK");
   vi.mocked(redis.del).mockResolvedValue(1);
@@ -108,7 +108,7 @@ describe("getServerInfo", () => {
 
     const info = await getServerInfo();
 
-    expect(info.id).toBe(7215757);
+    expect(info.id).toBe(7225779);
     expect(info.name).toBe("delovoy-vps");
     expect(info.status).toBe("on");
     expect(info.ip).toBe("185.1.2.3");
@@ -117,7 +117,7 @@ describe("getServerInfo", () => {
     expect(info.configuration.ram).toBe(4096);
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.timeweb.cloud/api/v1/servers/7215757",
+      "https://api.timeweb.cloud/api/v1/servers/7225779",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer test-token-123",
@@ -128,7 +128,7 @@ describe("getServerInfo", () => {
 
   it("returns cached data when available", async () => {
     const cached = {
-      id: 7215757,
+      id: 7225779,
       name: "delovoy-vps",
       status: "on",
       os: { id: 1, name: "Ubuntu", version: "22.04" },
@@ -141,7 +141,7 @@ describe("getServerInfo", () => {
 
     const info = await getServerInfo();
 
-    expect(info.id).toBe(7215757);
+    expect(info.id).toBe(7225779);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe("getServerInfo", () => {
     await getServerInfo();
 
     expect(redis.set).toHaveBeenCalledWith(
-      "timeweb:server:7215757:info",
+      "timeweb:server:7225779:info",
       expect.any(String),
       "EX",
       30
@@ -213,7 +213,7 @@ describe("getServerStats", () => {
 
     const stats = await getServerStats();
 
-    expect(stats.serverId).toBe(7215757);
+    expect(stats.serverId).toBe(7225779);
     expect(stats.data).toHaveLength(2);
     expect(stats.data[0].cpuPercent).toBe(25.5);
     expect(stats.data[0].ramPercent).toBe(60.0);
@@ -262,7 +262,7 @@ describe("getServerLogs", () => {
 
     const logs = await getServerLogs({ limit: 50, order: "desc" });
 
-    expect(logs.serverId).toBe(7215757);
+    expect(logs.serverId).toBe(7225779);
     expect(logs.logs).toHaveLength(2);
     expect(logs.logs[0].message).toBe("Server started");
     expect(logs.logs[0].timestamp).toBe("2025-06-01T12:00:00Z");
@@ -299,7 +299,7 @@ describe("executeServerAction", () => {
     await executeServerAction("reboot");
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.timeweb.cloud/api/v1/servers/7215757/reboot",
+      "https://api.timeweb.cloud/api/v1/servers/7225779/reboot",
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -312,7 +312,7 @@ describe("executeServerAction", () => {
 
     await executeServerAction("start");
 
-    expect(redis.del).toHaveBeenCalledWith("timeweb:server:7215757:info");
+    expect(redis.del).toHaveBeenCalledWith("timeweb:server:7225779:info");
   });
 
   it("logs the action", async () => {

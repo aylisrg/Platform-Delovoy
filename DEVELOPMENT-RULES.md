@@ -11,7 +11,7 @@
 | Хостинг | Timeweb Cloud VPS |
 | IP | `5.129.255.244` |
 | OS | Ubuntu 22.04 |
-| Server ID | `7215757` |
+| Server ID | `7225779` |
 | Стек | Docker Compose (PostgreSQL 16 + Redis 7 + Next.js 16 app) |
 | Путь на сервере | `/opt/delovoy/` |
 | Репозиторий | `github.com/aylisrg/Platform-Delovoy` |
