@@ -531,9 +531,11 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 
 ### Git
 
-- Ветки: `main` (production), `dev` (staging), `feature/{module}-{feature}`
+- Ветки: `main` (production), `claude/{task}` и `feature/{module}-{feature}` (разработка)
 - Коммиты: conventional commits (`feat:`, `fix:`, `chore:`, `docs:`)
-- PR обязателен для мержа в `main`
+- **Автомерж отключён** — ветки `claude/**` и `feature/**` проходят CI (lint + test + build), но НЕ мержатся автоматически
+- PR обязателен для мержа в `main` — Claude пушит в ветку, создаёт PR, ждёт одобрения
+- Claude Code НЕ должен пушить напрямую в `main`
 
 ### Код
 
