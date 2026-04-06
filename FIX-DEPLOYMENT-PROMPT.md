@@ -60,7 +60,7 @@ Push to main → Test → Build+Push GHCR → SSH → Pull → Up → Health che
 |---|---|
 | IPv4 | `5.129.255.244` |
 | IPv6 | `2a03:6f00:a::1:3e2b` |
-| Timeweb Server ID | `7215757` |
+| Timeweb Server ID | `7225779` |
 | GHCR Image | `ghcr.io/aylisrg/platform-delovoy` |
 
 ## Полезные команды
@@ -71,7 +71,7 @@ curl http://5.129.255.244/api/health
 
 # Timeweb API
 curl -s -H "Authorization: Bearer $TIMEWEB_API_TOKEN" \
-  https://api.timeweb.cloud/api/v1/servers/7215757
+  https://api.timeweb.cloud/api/v1/servers/7225779
 
 # Логи на сервере
 ssh root@5.129.255.244
