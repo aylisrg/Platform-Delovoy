@@ -1,6 +1,7 @@
 # Правила разработки и деплоя — Platform Delovoy
 
 > Этот документ описывает правила взаимодействия с GitHub, Timeweb VPS и процесс выкатки новых версий.
+> Последний деплой: 2026-04-06
 
 ---
 
@@ -98,6 +99,7 @@ Push to main
   → Job 1: lint + test
   → Job 2: docker build + push to GHCR (кешированные слои)
   → Job 3: SSH на VPS
+    → docker stop (убить crash loop)
     → git pull (обновить compose/entrypoint)
     → docker pull (готовый образ, секунды)
     → docker compose up -d --no-build (перезапуск только app)
