@@ -10,3 +10,4 @@ coverage
 docker-compose.override.yml
 nginx
 scripts/setup-vps.sh
+deploy-report.txt
