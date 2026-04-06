@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# ПОЛНАЯ НАСТРОЙКА VPS — ОДНА КОМАНДА
-# Всё: git, env, docker compose, миграции, запуск
+# ПЕРВИЧНАЯ НАСТРОЙКА VPS — запускается ОДИН РАЗ
+# При повторных деплоях используется GitHub Actions (deploy.yml)
 # ============================================================
 set -e
 
@@ -11,15 +11,15 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 
 echo ""
 echo "========================================="
-echo "  Деловой Парк — полная установка"
+echo "  Деловой Парк — установка / обновление"
 echo "========================================="
 echo ""
 
 # --- Git safe directory ---
 git config --global --add safe.directory "$APP_DIR/app" 2>/dev/null || true
 
-# --- Клонирование или обновление ---
-echo "[1/5] Код..."
+# --- 1. Клонирование или обновление ---
+echo "[1/4] Код..."
 if [ -d "$APP_DIR/app/.git" ]; then
     cd "$APP_DIR/app"
     git fetch origin
@@ -32,107 +32,76 @@ else
     git checkout main
 fi
 
-# --- .env ---
-echo "[2/5] Конфигурация..."
-PG_PASS=$(openssl rand -hex 16)
-SECRET=$(openssl rand -hex 32)
+# --- 2. .env (ТОЛЬКО при первой установке!) ---
+echo "[2/4] Конфигурация..."
+if [ -f "$APP_DIR/.env" ]; then
+    echo "  .env уже существует — сохраняем секреты."
+    echo "  Для изменения: nano $APP_DIR/.env"
+else
+    echo "  Первая установка — генерируем .env..."
+    PG_PASS=$(openssl rand -hex 16)
+    SECRET=$(openssl rand -hex 32)
 
-cat > "$APP_DIR/.env" << ENVEOF
+    cat > "$APP_DIR/.env" << ENVEOF
+# === Delovoy Park — Production Environment ===
+# Сгенерировано $(date -u +%Y-%m-%d)
+# ВНИМАНИЕ: этот файл НЕ перезаписывается при последующих деплоях!
+# Для изменения: nano $APP_DIR/.env
+
 POSTGRES_PASSWORD=${PG_PASS}
 NEXTAUTH_SECRET=${SECRET}
 AUTH_SECRET=${SECRET}
 NEXTAUTH_URL=http://${SERVER_IP}
 NEXT_PUBLIC_APP_URL=http://${SERVER_IP}
 NODE_ENV=production
-TELEGRAM_BOT_TOKEN=placeholder
-TELEGRAM_ADMIN_CHAT_ID=placeholder
-TIMEWEB_API_TOKEN=placeholder
+
+# === Telegram Bot (заполните вручную!) ===
+TELEGRAM_BOT_TOKEN=REPLACE_ME
+TELEGRAM_ADMIN_CHAT_ID=REPLACE_ME
+
+# === Timeweb API (заполните вручную!) ===
+# Получить токен: https://timeweb.cloud/my/api-keys
+TIMEWEB_API_TOKEN=REPLACE_ME
 TIMEWEB_SERVER_ID=7215757
 ENVEOF
 
-chmod 600 "$APP_DIR/.env"
+    chmod 600 "$APP_DIR/.env"
+    echo "  .env создан. ОБЯЗАТЕЛЬНО заполните TELEGRAM и TIMEWEB токены!"
+fi
 
-# --- docker-compose.yml ---
-echo "[3/5] Docker Compose..."
-cat > "$APP_DIR/docker-compose.yml" << 'DCEOF'
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: delovoy-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: delovoy_park
-      POSTGRES_USER: delovoy
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U delovoy -d delovoy_park"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+# --- 3. Symlink .env в директорию репозитория ---
+ln -sf "$APP_DIR/.env" "$APP_DIR/app/.env"
 
-  redis:
-    image: redis:7-alpine
-    container_name: delovoy-redis
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  app:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
-    container_name: delovoy-app
-    restart: unless-stopped
-    ports:
-      - "80:3000"
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
-      REDIS_URL: "redis://redis:6379"
-      NODE_ENV: "production"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
-  redis_data:
-DCEOF
-
-# --- Остановить старое ---
-echo "[4/5] Пересборка контейнеров (2-3 минуты)..."
-cd "$APP_DIR"
-docker compose down 2>/dev/null || true
-
-# --- Запуск ---
-docker compose up --build -d 2>&1
+# --- 4. Запуск контейнеров ---
+echo "[3/4] Запуск контейнеров..."
+cd "$APP_DIR/app"
+docker compose up -d --remove-orphans 2>&1
 
 echo ""
-echo "[5/5] Ожидание запуска..."
-sleep 10
-
-# --- Проверка ---
-STATUS=$(docker compose ps --format json 2>/dev/null | grep -c '"running"' || echo "0")
+echo "[4/4] Ожидание запуска..."
+TIMEOUT=120
+ELAPSED=0
+while [ $ELAPSED -lt $TIMEOUT ]; do
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' delovoy-app 2>/dev/null || echo "starting")
+    if [ "$STATUS" = "healthy" ]; then
+        echo "  Приложение запущено! (${ELAPSED}s)"
+        break
+    fi
+    echo "  Статус: $STATUS (${ELAPSED}s / ${TIMEOUT}s)"
+    sleep 5
+    ELAPSED=$((ELAPSED + 5))
+done
 
 echo ""
 echo "========================================="
-if curl -s -o /dev/null -w "%{http_code}" "http://localhost" 2>/dev/null | grep -q "200\|308"; then
+if [ "$STATUS" = "healthy" ]; then
     echo "  ГОТОВО! Сайт работает!"
     echo "  http://${SERVER_IP}"
 else
-    echo "  Контейнеры запущены. Сайт стартует..."
-    echo "  Проверьте через минуту: http://${SERVER_IP}"
+    echo "  Контейнеры запущены, но health check не прошёл."
+    echo "  Логи: docker compose -f $APP_DIR/app/docker-compose.yml logs -f app"
 fi
 echo ""
-echo "  Логи:  docker compose -f $APP_DIR/docker-compose.yml logs -f app"
+echo "  Не забудьте заполнить токены в $APP_DIR/.env"
+echo "  и перезапустить: docker compose -f $APP_DIR/app/docker-compose.yml restart app"
 echo "========================================="

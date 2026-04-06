@@ -1,13 +1,15 @@
 #!/bin/bash
 # ============================================================
-# Настройка VPS для Platform Delovoy — ОДНА КОМАНДА
-# Запуск: curl -fsSL <url> | bash
-# Или:    bash setup-vps.sh
+# Первичная настройка VPS для Platform Delovoy
+# Запуск: bash setup-vps.sh
+# Выполняется ОДИН РАЗ на свежем сервере.
+# Последующие деплои — через GitHub Actions (deploy.yml).
 # ============================================================
 set -euo pipefail
 
 REPO="https://github.com/aylisrg/Platform-Delovoy.git"
 APP_DIR="/opt/delovoy"
+GHCR_IMAGE="ghcr.io/aylisrg/platform-delovoy:latest"
 
 echo ""
 echo "========================================="
@@ -16,35 +18,63 @@ echo "========================================="
 echo ""
 
 # --- 1. Обновление + базовые пакеты ---
-echo "[1/7] Обновление системы..."
+echo "[1/9] Обновление системы..."
 apt update -qq && apt upgrade -y -qq
 apt install -y -qq curl git ufw fail2ban
 
 # --- 2. Docker ---
-echo "[2/7] Установка Docker..."
+echo "[2/9] Установка Docker..."
 if ! command -v docker &>/dev/null; then
     curl -fsSL https://get.docker.com | sh
 fi
+systemctl enable docker
+systemctl start docker
 
-# --- 3. Пользователь deploy ---
-echo "[3/7] Создание пользователя deploy..."
+# --- 3. Swap (2GB) для предотвращения OOM ---
+echo "[3/9] Настройка swap..."
+if [ ! -f /swapfile ]; then
+    fallocate -l 2G /swapfile
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo "/swapfile swap swap defaults 0 0" >> /etc/fstab
+    echo "  Swap создан: 2GB"
+else
+    echo "  Swap уже существует, пропускаем."
+fi
+
+# --- 4. Docker mirror (ускорение pull в РФ) ---
+echo "[4/9] Настройка Docker mirror..."
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << 'EOF'
+{
+  "registry-mirrors": ["https://mirror.gcr.io"]
+}
+EOF
+systemctl restart docker
+sleep 3
+
+# --- 5. Пользователь deploy ---
+echo "[5/9] Создание пользователя deploy..."
 if ! id "deploy" &>/dev/null; then
     adduser --disabled-password --gecos "" deploy
     usermod -aG docker deploy
 fi
 
-# --- 4. SSH-ключ для GitHub Actions ---
-echo "[4/7] Генерация SSH-ключа..."
+# --- 6. SSH-ключ для GitHub Actions ---
+echo "[6/9] Генерация SSH-ключа..."
 mkdir -p /home/deploy/.ssh
 chmod 700 /home/deploy/.ssh
 
-ssh-keygen -t ed25519 -f /home/deploy/.ssh/deploy_key -N "" -C "github-actions" -q
-cat /home/deploy/.ssh/deploy_key.pub >> /home/deploy/.ssh/authorized_keys
-chmod 600 /home/deploy/.ssh/authorized_keys
+if [ ! -f /home/deploy/.ssh/deploy_key ]; then
+    ssh-keygen -t ed25519 -f /home/deploy/.ssh/deploy_key -N "" -C "github-actions" -q
+    cat /home/deploy/.ssh/deploy_key.pub >> /home/deploy/.ssh/authorized_keys
+    chmod 600 /home/deploy/.ssh/authorized_keys
+fi
 chown -R deploy:deploy /home/deploy/.ssh
 
-# --- 5. Firewall ---
-echo "[5/7] Настройка файрвола..."
+# --- 7. Firewall ---
+echo "[7/9] Настройка файрвола..."
 ufw default deny incoming > /dev/null
 ufw default allow outgoing > /dev/null
 ufw allow 22/tcp > /dev/null
@@ -52,8 +82,8 @@ ufw allow 80/tcp > /dev/null
 ufw allow 443/tcp > /dev/null
 ufw --force enable > /dev/null
 
-# --- 6. Fail2Ban ---
-echo "[6/7] Настройка Fail2Ban..."
+# --- 8. Fail2Ban ---
+echo "[8/9] Настройка Fail2Ban..."
 cat > /etc/fail2ban/jail.local << 'EOF'
 [sshd]
 enabled = true
@@ -63,61 +93,50 @@ EOF
 systemctl enable fail2ban -q
 systemctl restart fail2ban
 
-# --- 7. Клонирование проекта + настройка ---
-echo "[7/7] Клонирование проекта..."
+# --- 9. Клонирование проекта + первый запуск ---
+echo "[9/9] Клонирование проекта..."
 mkdir -p "$APP_DIR"
 
-git clone "$REPO" "$APP_DIR/app" 2>/dev/null || (cd "$APP_DIR/app" && git pull)
+git clone "$REPO" "$APP_DIR/app" 2>/dev/null || (cd "$APP_DIR/app" && git pull origin main)
 
-# Генерация .env с безопасными паролями
-PG_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
-SECRET=$(openssl rand -base64 32)
+# Pull базовые Docker-образы
+echo "  Загрузка Docker-образов..."
+docker pull postgres:16-alpine
+docker pull redis:7-alpine
 
-cat > "$APP_DIR/.env" << ENVEOF
-POSTGRES_PASSWORD=${PG_PASS}
-NEXTAUTH_SECRET=${SECRET}
-AUTH_SECRET=${SECRET}
-NEXTAUTH_URL=http://$(curl -s -6 ifconfig.co || echo "localhost"):3000
-NEXT_PUBLIC_APP_URL=http://$(curl -s -6 ifconfig.co || echo "localhost")
-NODE_ENV=production
-TELEGRAM_BOT_TOKEN=your-bot-token
-TELEGRAM_ADMIN_CHAT_ID=your-chat-id
-ENVEOF
+# Первичная установка через deploy-full.sh
+cd "$APP_DIR/app"
+bash scripts/deploy-full.sh
 
-chmod 600 "$APP_DIR/.env"
-
-# docker-compose.yml в /opt/delovoy (ссылается на ./app как build context)
-cp "$APP_DIR/app/docker-compose.yml" "$APP_DIR/docker-compose.yml"
-
-chown -R deploy:deploy "$APP_DIR"
-
-# --- Запуск! ---
-echo ""
-echo "[OK] Запускаю контейнеры..."
-cd "$APP_DIR"
-docker compose up --build -d
+SERVER_IPV4=$(curl -s -4 ifconfig.co 2>/dev/null || hostname -I | awk '{print $1}')
+SERVER_IPV6=$(curl -s -6 ifconfig.co 2>/dev/null || echo "2a03:6f00:a::1:3e2b")
 
 echo ""
 echo "========================================="
 echo "  ГОТОВО!"
 echo "========================================="
 echo ""
-echo "Сайт доступен: http://$(curl -s -6 ifconfig.co 2>/dev/null || echo 'ваш-ip'):80"
+echo "Сайт доступен:"
+echo "  IPv4: http://${SERVER_IPV4}"
+echo "  IPv6: http://[${SERVER_IPV6}]"
 echo ""
-echo "--- Осталось настроить GitHub Actions ---"
+echo "--- Настройте GitHub Secrets ---"
 echo ""
-echo "Добавьте 2 секрета в GitHub:"
 echo "  Settings → Secrets → Actions → New repository secret"
 echo ""
-echo "1) VPS_HOST"
-echo "   Значение: $(curl -s -6 ifconfig.co 2>/dev/null || echo '2a03:6f00:a::1:2540')"
+echo "  1) VPS_HOST = ${SERVER_IPV4}"
+echo "  2) VPS_PASSWORD = <пароль root>"
 echo ""
-echo "2) VPS_SSH_KEY"
-echo "   Значение (скопируйте ВСЁ между линиями):"
-echo "---START---"
-cat /home/deploy/.ssh/deploy_key
-echo "---END---"
+echo "--- Настройте токены в .env ---"
 echo ""
-echo "После этого каждый push в main будет"
-echo "автоматически деплоиться на сервер."
+echo "  nano $APP_DIR/.env"
+echo "  Заполните: TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_CHAT_ID, TIMEWEB_API_TOKEN"
+echo "  Затем: docker compose -f $APP_DIR/app/docker-compose.yml restart app"
+echo ""
+echo "--- Сделайте GHCR package публичным ---"
+echo ""
+echo "  GitHub → Packages → platform-delovoy → Settings → Visibility → Public"
+echo "  (чтобы VPS мог pull-ить без авторизации)"
+echo ""
+echo "После этого каждый push в main будет автоматически деплоиться."
 echo "========================================="
