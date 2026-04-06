@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { redis } from "@/lib/redis";
+import { redis, redisAvailable } from "@/lib/redis";
 
 type HealthStatus = "healthy" | "degraded" | "unhealthy";
 
@@ -33,15 +33,19 @@ export async function GET() {
   }
 
   // Check Redis
-  try {
-    const redisStart = Date.now();
-    await redis.ping();
-    checks.redis = { status: "healthy", latencyMs: Date.now() - redisStart };
-  } catch (error) {
-    checks.redis = {
-      status: "unhealthy",
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
+  if (!redisAvailable) {
+    checks.redis = { status: "unhealthy", error: "Redis not connected" };
+  } else {
+    try {
+      const redisStart = Date.now();
+      await redis.ping();
+      checks.redis = { status: "healthy", latencyMs: Date.now() - redisStart };
+    } catch (error) {
+      checks.redis = {
+        status: "unhealthy",
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
   }
 
   const allHealthy = Object.values(checks).every((c) => c.status === "healthy");
