@@ -3,6 +3,20 @@ set -e
 
 echo "=== Delovoy Park — Container Startup ==="
 
+# --- Crash loop protection ---
+# If this file exists and was created less than 30s ago, we're in a crash loop
+CRASH_MARKER="/tmp/.entrypoint-started"
+if [ -f "$CRASH_MARKER" ]; then
+    LAST=$(stat -c %Y "$CRASH_MARKER" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    DIFF=$((NOW - LAST))
+    if [ "$DIFF" -lt 30 ]; then
+        echo "WARNING: Crash loop detected (last start ${DIFF}s ago). Waiting 30s..."
+        sleep 30
+    fi
+fi
+touch "$CRASH_MARKER"
+
 # --- 1. Database schema ---
 echo "[1/3] Applying database schema..."
 if npx prisma db push 2>&1; then

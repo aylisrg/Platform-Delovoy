@@ -85,16 +85,19 @@ jobs:
           echo "=== Connecting to VPS ${VPS_HOST}... ==="
           $SSH 'echo "SSH OK: $(hostname) $(date -u)"'
 
-          echo "[1/4] Updating repository..."
+          echo "[1/5] Stopping crash-looping container (if any)..."
+          $SSH 'docker stop delovoy-app 2>/dev/null || true'
+
+          echo "[2/5] Updating repository..."
           $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
-          echo "[2/4] Pulling image from GHCR..."
+          echo "[3/5] Pulling image from GHCR..."
           $SSH 'docker pull ghcr.io/aylisrg/platform-delovoy:latest'
 
-          echo "[3/4] Restarting app container..."
+          echo "[4/5] Restarting app container..."
           $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
-          echo "[4/4] Waiting for health check..."
+          echo "[5/5] Waiting for health check..."
           for i in $(seq 1 24); do
             STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
             echo "  Status: $STATUS (${i}x5s)"
