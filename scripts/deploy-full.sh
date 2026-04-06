@@ -62,7 +62,7 @@ TELEGRAM_ADMIN_CHAT_ID=REPLACE_ME
 # === Timeweb API (заполните вручную!) ===
 # Получить токен: https://timeweb.cloud/my/api-keys
 TIMEWEB_API_TOKEN=REPLACE_ME
-TIMEWEB_SERVER_ID=7215757
+TIMEWEB_SERVER_ID=7225779
 ENVEOF
 
     chmod 600 "$APP_DIR/.env"

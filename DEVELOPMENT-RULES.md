@@ -12,7 +12,7 @@
 | IPv4 | `5.129.255.244` |
 | IPv6 | `2a03:6f00:a::1:3e2b` |
 | OS | Ubuntu 22.04 |
-| Server ID | `7215757` |
+| Server ID | `7225779` |
 | Стек | Docker Compose (PostgreSQL 16 + Redis 7 + Next.js 16 app) |
 | Путь на сервере | `/opt/delovoy/` |
 | Docker Registry | `ghcr.io/aylisrg/platform-delovoy` |
