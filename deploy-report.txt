@@ -1,4 +1,4 @@
-=== Mon Apr  6 05:50:54 UTC 2026 ===
+=== Mon Apr  6 05:57:03 UTC 2026 ===
 Step 1: Port scan
 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.14
 Invalid SSH identification string.
@@ -7,12 +7,12 @@ Port 80: CLOSED
 Port 443: CLOSED
 
 Step 2: SSH test
- 05:51:09 up 1 day,  7:58,  0 users,  load average: 0.33, 0.10, 0.03
-CONTAINER ID   IMAGE                COMMAND                  CREATED        STATUSdebug1: client_input_channel_req: channel 0 rtype exit-status reply 0
-                            PORTS                                     NAMES
-a9dc0a02bfbb   delovoy-app          "./docker-entrypoint…"   31 hours ago   Up 3 seconds                      0.0.0.0:80->3000/tcp, [::]:80->3000/tcp   delovoy-app
-f34258ec9107   postgres:16-alpine   "docker-entrypoint.s…"   31 hours ago   Up 3 seconds (health: starting)   5432/tcp                                  delovoy-postgres
-82efcf6f1a98   redis:7-alpine       "docker-entrypoint.s…"   31 hours ago   Up 3 seconds (health: starting)   6379/tcp                                  delovoy-redis
+debug1: pledge: fork
+SSH_OK
+Linux 7225779-jm024579.twc1.net 5.15.0-173-generic #183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+ 05:57:21 up 1 day,  8:04,  0 users,  load average: 3.56, 2.91, 1.37
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMESdebug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+
 Reading package lists...
 Building dependency tree...
 Reading state information...
@@ -34,8 +34,8 @@ Executing: /lib/systemd/systemd-sysv-install enable ssh
 + sh -c apt-get -qq update >/dev/null
 + sh -c DEBIAN_FRONTEND=noninteractive apt-get -y -qq install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras docker-buildx-plugin docker-model-plugin >/dev/null
 debug1: channel 0: free: client-session, nchannels 1
-Transferred: sent 3336, received 7472 bytes, in 1.2 seconds
-Bytes per second: sent 2707.6, received 6064.6
+Transferred: sent 3336, received 5532 bytes, in 2.4 seconds
+Bytes per second: sent 1365.3, received 2264.0
 debug1: Exit status 0
 
 Step 3: Deploy if SSH works
@@ -51,11 +51,18 @@ Executing: /lib/systemd/systemd-sysv-install enable docker
 3b: Clone/update repo...
 From https://github.com/aylisrg/Platform-Delovoy
  * branch            main       -> FETCH_HEAD
-Already up to date.
+   37213d5..fcd3be0  main       -> origin/main
+Updating 37213d5..fcd3be0
+Fast-forward
+ DEVELOPMENT-RULES.md     | 181 +++++++++++++++++++++++++++++++++++++++++++++++
+ FIX-DEPLOYMENT-PROMPT.md | 129 +++++++++++++++++++++++++++++++++
+ 2 files changed, 310 insertions(+)
+ create mode 100644 DEVELOPMENT-RULES.md
+ create mode 100644 FIX-DEPLOYMENT-PROMPT.md
 3c: Add swap + configure Docker mirror...
 fallocate: fallocate failed: Text file busy
-Swap: NAME      TYPE SIZE  USED PRIO
-/swapfile file   2G 27.3M   -2
+Swap: NAME      TYPE SIZE   USED PRIO
+/swapfile file   2G 166.7M   -2
 3d: Pull Docker images...
 16-alpine: Pulling from library/postgres
 Digest: sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
@@ -74,7 +81,7 @@ docker.io/library/redis:7-alpine
 [1/5] Код...
 Already on 'main'
 Your branch is up to date with 'origin/main'.
-HEAD is now at e64d0a1 fix: add tsx, bcryptjs, seed script to Docker runner for admin auth
+HEAD is now at fcd3be0 Add files via upload
 [2/5] Конфигурация...
 [3/5] Docker Compose...
 [4/5] Пересборка контейнеров (2-3 минуты)...
@@ -84,43 +91,257 @@ HEAD is now at e64d0a1 fix: add tsx, bcryptjs, seed script to Docker runner for 
 #1 DONE 0.0s
 
 #2 [internal] load build definition from Dockerfile
-#2 transferring dockerfile:
-#2 transferring dockerfile: 1.46kB 0.1s done
+#2 transferring dockerfile: 30B 0.0s
+#2 transferring dockerfile: 1.46kB 0.0s done
 #2 DONE 0.2s
 
 #3 [internal] load metadata for docker.io/library/node:20-alpine
-#3 DONE 0.5s
+#3 DONE 0.6s
 
-#4 [builder 1/7] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
-#4 resolve docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c 0.0s done
+#4 [internal] load .dockerignore
+#4 transferring context: 163B 0.0s done
 #4 DONE 0.0s
 
-#5 [runner  3/16] RUN apk add --no-cache su-exec
-#5 CACHED
+#5 [internal] load build context
+#5 DONE 0.0s
 
-#6 [runner  4/16] RUN addgroup --system --gid 1001 nodejs &&     adduser --system --uid 1001 nextjs
-#6 CACHED
+#6 [builder 1/7] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#6 resolve docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c 0.0s done
+#6 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 806.43kB 0.2s done
+#5 DONE 0.2s
 
 #7 [builder 2/7] WORKDIR /app
 #7 CACHED
 
-#8 [internal] load .dockerignore
-#8 transferring context: 163B 0.0s done
-#8 DONE 0.1s
+#8 [runner  3/16] RUN apk add --no-cache su-exec
+#8 CACHED
 
-#9 [internal] load build context
-#9 transferring context: 814.02kB 0.3s done
-#9 DONE 0.3s
+#9 [runner  4/16] RUN addgroup --system --gid 1001 nodejs &&     adduser --system --uid 1001 nextjs
+#9 CACHED
 
-#10 [runner  5/16] COPY package.json ./
-#10 DONE 0.1s
+#10 [builder 3/7] COPY package.json package-lock.json ./
+#10 CACHED
 
-#11 [builder 3/7] COPY package.json package-lock.json ./
-#11 DONE 0.1s
+#11 [builder 4/7] COPY prisma ./prisma
+#11 CACHED
 
-#12 [builder 4/7] COPY prisma ./prisma
-#12 DONE 0.2s
+#12 [builder 5/7] RUN npm ci
+#12 ...
 
-#13 [builder 5/7] RUN npm ci
-failed to solve: Unavailable: error reading from server: EOF
+#13 [runner  5/16] COPY package.json ./
+#13 DONE 0.2s
+
+#14 [runner  6/16] RUN npm install --no-save     prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")     tsx     bcryptjs
+#14 ...
+
+#12 [builder 5/7] RUN npm ci
+#12 203.0 
+#12 203.0 > platform-delovoy@0.1.1 postinstall
+#12 203.0 > prisma generate
+#12 203.0 
+#12 208.8 warn The configuration property `package.json#prisma` is deprecated and will be removed in Prisma 7. Please migrate to a Prisma config file (e.g., `prisma.config.ts`).
+#12 208.8 For more information, see: https://pris.ly/prisma-config
+#12 208.8 
+#12 212.4 Prisma schema loaded from prisma/schema.prisma
+#12 219.4 ┌─────────────────────────────────────────────────────────┐
+#12 219.4 │  Update available 6.19.3 -> 7.6.0                       │
+#12 219.4 │                                                         │
+#12 219.4 │  This is a major update - please follow the guide at    │
+#12 219.4 │  https://pris.ly/d/major-version-upgrade                │
+#12 219.4 │                                                         │
+#12 219.4 │  Run the following to update                            │
+#12 219.4 │    npm i --save-dev prisma@latest                       │
+#12 219.4 │    npm i @prisma/client@latest                          │
+#12 219.4 └─────────────────────────────────────────────────────────┘
+#12 219.4 
+#12 219.4 ✔ Generated Prisma Client (v6.19.3) to ./node_modules/@prisma/client in 2.55s
+#12 219.4 
+#12 219.4 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+#12 219.4 
+#12 219.4 Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+#12 219.4 
+#12 219.6 
+#12 219.6 added 476 packages, and audited 477 packages in 4m
+#12 219.6 
+#12 219.6 170 packages are looking for funding
+#12 219.6   run `npm fund` for details
+#12 219.7 
+#12 219.7 found 0 vulnerabilities
+#12 219.7 npm notice
+#12 219.7 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#12 219.7 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#12 219.7 npm notice To update run: npm install -g npm@11.12.1
+#12 219.7 npm notice
+#12 DONE 220.6s
+
+#14 [runner  6/16] RUN npm install --no-save     prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")     tsx     bcryptjs
+#14 ...
+
+#15 [builder 6/7] COPY . .
+#15 DONE 13.8s
+
+#14 [runner  6/16] RUN npm install --no-save     prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")     tsx     bcryptjs
+#14 ...
+
+#16 [builder 7/7] RUN npm run build
+#16 4.070 
+#16 4.070 > platform-delovoy@0.1.1 build
+#16 4.070 > next build
+#16 4.070 
+#16 8.634 Attention: Next.js now collects completely anonymous telemetry regarding usage.
+#16 8.640 This information is used to shape Next.js' roadmap and prioritize features.
+#16 8.647 You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+#16 8.647 https://nextjs.org/telemetry
+#16 8.647 
+#16 8.770 ▲ Next.js 16.2.2 (Turbopack)
+#16 8.778 
+#16 9.721   Creating an optimized production build ...
+#16 ...
+
+#14 [runner  6/16] RUN npm install --no-save     prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')")     tsx     bcryptjs
+#14 318.4 
+#14 318.4 added 95 packages, and audited 96 packages in 5m
+#14 318.4 
+#14 318.4 17 packages are looking for funding
+#14 318.4   run `npm fund` for details
+#14 318.4 
+#14 318.4 found 0 vulnerabilities
+#14 318.4 npm notice
+#14 318.4 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#14 318.4 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#14 318.4 npm notice To update run: npm install -g npm@11.12.1
+#14 318.4 npm notice
+#14 DONE 319.5s
+
+#16 [builder 7/7] RUN npm run build
+#16 142.4 ✓ Compiled successfully in 2.1min
+#16 143.6   Running TypeScript ...
+#16 217.2   Finished TypeScript in 74s ...
+#16 217.5   Collecting page data using 1 worker ...
+#16 223.8   Generating static pages using 1 worker (0/31) ...
+#16 224.8   Generating static pages using 1 worker (7/31) 
+#16 224.9   Generating static pages using 1 worker (15/31) 
+#16 224.9   Generating static pages using 1 worker (23/31) 
+#16 225.2 ✓ Generating static pages using 1 worker (31/31) in 1342ms
+#16 225.2   Finalizing page optimization ...
+#16 228.7 
+#16 228.7 Route (app)
+#16 228.7 ┌ ○ /
+#16 228.7 ├ ○ /_not-found
+#16 228.7 ├ ƒ /admin/architect
+#16 228.7 ├ ƒ /admin/architect/analytics
+#16 228.7 ├ ƒ /admin/architect/logs
+#16 228.7 ├ ƒ /admin/architect/modules/[slug]
+#16 228.7 ├ ƒ /admin/cafe
+#16 228.7 ├ ƒ /admin/dashboard
+#16 228.7 ├ ƒ /admin/gazebos
+#16 228.7 ├ ƒ /admin/modules
+#16 228.7 ├ ƒ /admin/monitoring
+#16 228.7 ├ ƒ /admin/ps-park
+#16 228.7 ├ ƒ /admin/rental
+#16 228.7 ├ ƒ /admin/server
+#16 228.7 ├ ƒ /admin/users
+#16 228.7 ├ ƒ /api/architect/analytics
+#16 228.7 ├ ƒ /api/architect/audit
+#16 228.7 ├ ƒ /api/architect/events
+#16 228.7 ├ ƒ /api/architect/modules
+#16 228.7 ├ ƒ /api/architect/modules/[id]
+#16 228.7 ├ ƒ /api/architect/system-map
+#16 228.7 ├ ƒ /api/auth/[...nextauth]
+#16 228.7 ├ ƒ /api/cafe
+#16 228.7 ├ ƒ /api/cafe/health
+#16 228.7 ├ ƒ /api/cafe/menu/[id]
+#16 228.7 ├ ƒ /api/cafe/order
+#16 228.7 ├ ƒ /api/cafe/orders
+#16 228.7 ├ ƒ /api/cafe/orders/[id]
+#16 228.7 ├ ƒ /api/gazebos
+#16 228.7 ├ ƒ /api/gazebos/[id]
+#16 228.7 ├ ƒ /api/gazebos/availability
+#16 228.7 ├ ƒ /api/gazebos/book
+#16 228.7 ├ ƒ /api/gazebos/bookings
+#16 228.7 ├ ƒ /api/gazebos/bookings/[id]
+#16 228.7 ├ ƒ /api/gazebos/health
+#16 228.7 ├ ƒ /api/health
+#16 228.7 ├ ƒ /api/notifications
+#16 228.7 ├ ƒ /api/parking
+#16 228.7 ├ ƒ /api/parking/health
+#16 228.7 ├ ƒ /api/ps-park
+#16 228.7 ├ ƒ /api/ps-park/[id]
+#16 228.7 ├ ƒ /api/ps-park/availability
+#16 228.7 ├ ƒ /api/ps-park/book
+#16 228.7 ├ ƒ /api/ps-park/bookings
+#16 228.7 ├ ƒ /api/ps-park/bookings/[id]
+#16 228.7 ├ ƒ /api/ps-park/health
+#16 228.7 ├ ƒ /api/rental
+#16 228.7 ├ ƒ /api/rental/[id]
+#16 228.7 ├ ƒ /api/rental/contracts
+#16 228.7 ├ ƒ /api/rental/contracts/[id]
+#16 228.7 ├ ƒ /api/rental/expiring
+#16 228.7 ├ ƒ /api/rental/health
+#16 228.7 ├ ƒ /api/rental/reports
+#16 228.7 ├ ƒ /api/rental/tenants
+#16 228.7 ├ ƒ /api/rental/tenants/[id]
+#16 228.7 ├ ƒ /api/timeweb
+#16 228.7 ├ ƒ /api/timeweb/health
+#16 228.7 ├ ƒ /api/timeweb/logs
+#16 228.7 ├ ƒ /api/timeweb/power
+#16 228.7 ├ ƒ /api/timeweb/stats
+#16 228.7 ├ ƒ /api/users
+#16 228.7 ├ ƒ /api/users/[id]
+#16 228.7 ├ ○ /auth/signin
+#16 228.7 ├ ƒ /cafe
+#16 228.7 ├ ƒ /dashboard
+#16 228.7 ├ ƒ /gazebos
+#16 228.7 ├ ○ /parking
+#16 228.7 ├ ƒ /ps-park
+#16 228.7 └ ƒ /rental
+#16 228.7 
+#16 228.7 
+#16 228.7 ƒ Proxy (Middleware)
+#16 228.7 
+#16 228.7 ○  (Static)   prerendered as static content
+#16 228.7 ƒ  (Dynamic)  server-rendered on demand
+#16 228.7 
+#16 DONE 230.6s
+
+#17 [runner  7/16] COPY --from=builder /app/public ./public
+#17 DONE 8.0s
+
+#18 [runner  8/16] COPY --from=builder /app/.next/standalone ./
+#18 DONE 2.1s
+
+#19 [runner  9/16] COPY --from=builder /app/.next/static ./.next/static
+#19 DONE 0.3s
+
+#20 [runner 10/16] COPY --from=builder /app/prisma ./prisma
+#20 DONE 0.1s
+
+#21 [runner 11/16] COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+#21 DONE 0.3s
+
+#22 [runner 12/16] COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+#22 ERROR: failed to copy files: copy file range failed: no space left on device
+------
+ > [runner 12/16] COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma:
+------
+Dockerfile:38
+
+--------------------
+
+  36 |     COPY --from=builder /app/prisma ./prisma
+
+  37 |     COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+  38 | >>> COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+  39 |     
+
+  40 |     # Copy seed script for entrypoint
+
+--------------------
+
+failed to solve: ResourceExhausted: failed to copy files: copy file range failed: no space left on device
 
