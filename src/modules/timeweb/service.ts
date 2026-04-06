@@ -1,4 +1,4 @@
-import { redis } from "@/lib/redis";
+import { redis, redisAvailable } from "@/lib/redis";
 import { log } from "@/lib/logger";
 import type {
   TimewebServerInfo,
@@ -80,6 +80,7 @@ async function timewebFetch<T>(
 // ─── Cache helpers ──────────────────────────────────────────────────────────
 
 async function getCached<T>(key: string): Promise<T | null> {
+  if (!redisAvailable) return null;
   try {
     const raw = await redis.get(key);
     if (raw) return JSON.parse(raw) as T;
@@ -90,6 +91,7 @@ async function getCached<T>(key: string): Promise<T | null> {
 }
 
 async function setCache(key: string, data: unknown, ttl: number): Promise<void> {
+  if (!redisAvailable) return;
   try {
     await redis.set(key, JSON.stringify(data), "EX", ttl);
   } catch {
@@ -278,10 +280,12 @@ export async function executeServerAction(
   });
 
   // Invalidate cached info since status will change
-  try {
-    await redis.del(`timeweb:server:${serverId}:info`);
-  } catch {
-    // Best effort
+  if (redisAvailable) {
+    try {
+      await redis.del(`timeweb:server:${serverId}:info`);
+    } catch {
+      // Best effort
+    }
   }
 
   await log.info("timeweb", `Server ${action} initiated`, {

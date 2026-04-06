@@ -1,4 +1,4 @@
-import { redis } from "./redis";
+import { redis, redisAvailable } from "./redis";
 import { NextRequest } from "next/server";
 import { apiError } from "./api-response";
 
@@ -22,6 +22,11 @@ export async function rateLimit(
   request: NextRequest,
   type: keyof typeof CONFIGS = "public"
 ) {
+  // Skip rate limiting entirely when Redis is unavailable
+  if (!redisAvailable) {
+    return null;
+  }
+
   const config = CONFIGS[type];
   const ip = request.headers.get("x-forwarded-for") ?? "unknown";
   const key = `rate-limit:${type}:${ip}`;

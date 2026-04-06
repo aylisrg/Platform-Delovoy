@@ -6,6 +6,7 @@ vi.mock("@/lib/redis", () => ({
     set: vi.fn(),
     del: vi.fn(),
   },
+  redisAvailable: true,
 }));
 
 vi.mock("@/lib/logger", () => ({
