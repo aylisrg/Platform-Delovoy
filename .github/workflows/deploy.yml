@@ -74,39 +74,56 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
 
+      - name: Add VPS host key to known_hosts
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          if [ -z "${VPS_HOST}" ]; then
+            echo "ERROR: VPS_HOST secret is not set"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
       - name: Deploy via SSH
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
-          VPS_HOST: ${{ secrets.VPS_HOST || '5.129.255.244' }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           set -e
-          SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ConnectTimeout=15 root@${VPS_HOST}"
+          SSH_OPTS=(-o ServerAliveInterval=30 -o ConnectTimeout=15)
+          SSH_CMD=(sshpass -e ssh "${SSH_OPTS[@]}" "root@${VPS_HOST}")
 
           echo "=== Connecting to VPS ${VPS_HOST}... ==="
-          $SSH 'echo "SSH OK: $(hostname) $(date -u)"'
+          "${SSH_CMD[@]}" 'echo "SSH OK: $(hostname) $(date -u)"'
 
           echo "[1/4] Updating repository..."
-          $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
+          "${SSH_CMD[@]}" 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
           echo "[2/4] Pulling image from GHCR..."
-          $SSH 'docker pull ghcr.io/aylisrg/platform-delovoy:latest'
+          "${SSH_CMD[@]}" 'docker pull ghcr.io/aylisrg/platform-delovoy:latest'
 
           echo "[3/4] Restarting app container..."
-          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
+          "${SSH_CMD[@]}" 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
           echo "[4/4] Waiting for health check..."
-          for i in $(seq 1 24); do
-            STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
-            echo "  Status: $STATUS (${i}x5s)"
+          TIMEOUT=120
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            STATUS=$("${SSH_CMD[@]}" 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
+            echo "  Status: $STATUS (${ELAPSED}s / ${TIMEOUT}s)"
             if [ "$STATUS" = "healthy" ]; then
               echo ""
               echo "=== Deploy successful! ==="
-              $SSH 'curl -s http://localhost/api/health || true'
+              "${SSH_CMD[@]}" 'curl -s http://localhost/api/health || true'
               exit 0
             fi
             sleep 5
+            ELAPSED=$((ELAPSED + 5))
           done
 
-          echo "ERROR: App not healthy after 120s"
-          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=50 app'
+          echo "ERROR: App not healthy after ${TIMEOUT}s"
+          "${SSH_CMD[@]}" 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=50 app'
           exit 1
