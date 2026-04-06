@@ -71,58 +71,42 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-push
     steps:
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST || '5.129.255.244' }}
-          username: root
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: 22
-          timeout: 60s
-          command_timeout: 10m
-          script: |
-            set -e
-            echo "=== Deploy started: $(date -u) ==="
+        env:
+          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST || '5.129.255.244' }}
+        run: |
+          set -e
+          SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ConnectTimeout=15 root@${VPS_HOST}"
 
-            APP_DIR="/opt/delovoy/app"
+          echo "=== Connecting to VPS ${VPS_HOST}... ==="
+          $SSH 'echo "SSH OK: $(hostname) $(date -u)"'
 
-            # --- 1. Update repository ---
-            echo "[1/4] Updating repository..."
-            cd "$APP_DIR"
-            git fetch origin main
-            git checkout main -f
-            git reset --hard origin/main
+          echo "[1/4] Updating repository..."
+          $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
-            # --- 2. Pull pre-built image ---
-            echo "[2/4] Pulling image from GHCR..."
-            docker pull ghcr.io/aylisrg/platform-delovoy:latest
+          echo "[2/4] Pulling image from GHCR..."
+          $SSH 'docker pull ghcr.io/aylisrg/platform-delovoy:latest'
 
-            # --- 3. Restart app (postgres & redis stay up) ---
-            echo "[3/4] Restarting app container..."
-            docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans
+          echo "[3/4] Restarting app container..."
+          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
-            # --- 4. Wait for health check ---
-            echo "[4/4] Waiting for app to become healthy..."
-            TIMEOUT=120
-            ELAPSED=0
-            while [ $ELAPSED -lt $TIMEOUT ]; do
-                STATUS=$(docker inspect --format='{{.State.Health.Status}}' delovoy-app 2>/dev/null || echo "starting")
-                if [ "$STATUS" = "healthy" ]; then
-                    echo "App is healthy! (${ELAPSED}s)"
-                    break
-                fi
-                echo "  Status: $STATUS (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 5
-                ELAPSED=$((ELAPSED + 5))
-            done
-
-            if [ "$STATUS" != "healthy" ]; then
-                echo "ERROR: App did not become healthy within ${TIMEOUT}s"
-                echo "--- Container logs ---"
-                docker compose --env-file /opt/delovoy/.env logs --tail=50 app
-                exit 1
+          echo "[4/4] Waiting for health check..."
+          for i in $(seq 1 24); do
+            STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
+            echo "  Status: $STATUS (${i}x5s)"
+            if [ "$STATUS" = "healthy" ]; then
+              echo ""
+              echo "=== Deploy successful! ==="
+              $SSH 'curl -s http://localhost/api/health || true'
+              exit 0
             fi
+            sleep 5
+          done
 
-            echo ""
-            echo "=== Deploy successful: $(date -u) ==="
-            echo "=== Site: http://$(hostname -I | awk '{print $1}') ==="
+          echo "ERROR: App not healthy after 120s"
+          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=50 app'
+          exit 1
