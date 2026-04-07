@@ -1,0 +1,107 @@
+name: Check Server Status
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-status:
+    name: Check Timeweb VPS Status
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Timeweb API — Server Info
+        env:
+          TIMEWEB_API_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+          TIMEWEB_SERVER_ID: ${{ secrets.TIMEWEB_SERVER_ID || '7225779' }}
+        run: |
+          echo "=============================="
+          echo "  TIMEWEB API: Server Info"
+          echo "=============================="
+          curl -s -X GET \
+            "https://api.timeweb.cloud/api/v1/servers/${TIMEWEB_SERVER_ID}" \
+            -H "Authorization: Bearer ${TIMEWEB_API_TOKEN}" \
+            -H "Content-Type: application/json" | python3 -m json.tool
+
+      - name: Timeweb API — Server Statistics (последние 1 час)
+        env:
+          TIMEWEB_API_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+          TIMEWEB_SERVER_ID: ${{ secrets.TIMEWEB_SERVER_ID || '7225779' }}
+        run: |
+          echo ""
+          echo "=============================="
+          echo "  TIMEWEB API: Statistics"
+          echo "=============================="
+          DATE_FROM=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+          DATE_TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Period: $DATE_FROM → $DATE_TO"
+          curl -s -X GET \
+            "https://api.timeweb.cloud/api/v1/servers/${TIMEWEB_SERVER_ID}/statistics?date_from=${DATE_FROM}&date_to=${DATE_TO}" \
+            -H "Authorization: Bearer ${TIMEWEB_API_TOKEN}" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          stats_list = data.get('server_statistics', [])
+          if not stats_list:
+              print('No statistics available')
+              sys.exit(0)
+          stats = stats_list[0]
+          cpu = stats.get('cpu', [])
+          ram = stats.get('ram', [])
+          disk = stats.get('disk', [])
+          if cpu:
+              avg_cpu = sum(p['value'] for p in cpu) / len(cpu)
+              print(f'CPU avg: {avg_cpu:.1f}% (last {len(cpu)} points)')
+          if ram:
+              avg_ram = sum(p['value'] for p in ram) / len(ram)
+              print(f'RAM avg: {avg_ram:.1f}%')
+          if disk:
+              avg_disk = sum(p['value'] for p in disk) / len(disk)
+              print(f'Disk avg: {avg_disk:.1f}%')
+          "
+
+      - name: Timeweb API — Server Logs
+        env:
+          TIMEWEB_API_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+          TIMEWEB_SERVER_ID: ${{ secrets.TIMEWEB_SERVER_ID || '7225779' }}
+        run: |
+          echo ""
+          echo "=============================="
+          echo "  TIMEWEB API: Last 10 Events"
+          echo "=============================="
+          curl -s -X GET \
+            "https://api.timeweb.cloud/api/v1/servers/${TIMEWEB_SERVER_ID}/logs?limit=10&order=desc" \
+            -H "Authorization: Bearer ${TIMEWEB_API_TOKEN}" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          logs = data.get('server_logs', [])
+          if not logs:
+              print('No logs found')
+          for entry in logs:
+              print(f\"  {entry.get('logged_at', '?')}  {entry.get('event', '?')}\")
+          "
+
+      - name: SSH — Docker & App Status
+        env:
+          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST || '5.129.255.244' }}
+        run: |
+          echo ""
+          echo "=============================="
+          echo "  SSH: Docker containers"
+          echo "=============================="
+          sudo apt-get install -y -qq sshpass
+          SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${VPS_HOST}"
+
+          echo "--- docker ps ---"
+          $SSH 'docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"' || echo "SSH FAILED"
+
+          echo ""
+          echo "--- docker stats (snapshot) ---"
+          $SSH 'docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"' || true
+
+          echo ""
+          echo "--- Disk & Memory ---"
+          $SSH 'df -h / && echo "" && free -h' || true
+
+          echo ""
+          echo "--- App health ---"
+          $SSH 'curl -s http://localhost/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "App not responding"' || true
