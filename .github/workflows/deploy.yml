@@ -113,3 +113,33 @@ jobs:
           echo "ERROR: App not healthy after 120s"
           $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=50 app'
           exit 1
+
+  verify:
+    name: Verify deployment
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Check app health
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST || '5.129.255.244' }}
+        run: |
+          URL="http://${VPS_HOST}/api/health"
+          echo "Polling: $URL"
+          echo ""
+          for i in $(seq 1 24); do
+            HTTP=$(curl -s -o /tmp/health.json -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+            BODY=$(cat /tmp/health.json 2>/dev/null || echo "")
+            if [ "$HTTP" = "200" ]; then
+              echo "✅ Deployment successful!"
+              echo "   URL: http://${VPS_HOST}"
+              echo ""
+              echo "Health: $BODY"
+              exit 0
+            fi
+            echo "  [$(date +%H:%M:%S)] attempt $i/24 — HTTP $HTTP, retrying in 15s..."
+            sleep 15
+          done
+          echo ""
+          echo "❌ App did not respond after 6 minutes"
+          exit 1
