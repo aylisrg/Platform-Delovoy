@@ -16,7 +16,8 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache su-exec
+# Install wget (for healthcheck) and su-exec (for user switching)
+RUN apk add --no-cache su-exec wget curl
 
 ENV NODE_ENV=production
 
@@ -25,17 +26,15 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 # Install prisma CLI + tsx + bcryptjs for migrations and seed
 COPY package.json ./
-RUN npm install --no-save \
-    prisma@$(node -e "console.log(require('./package.json').dependencies.prisma || require('./package.json').devDependencies.prisma || '6')") \
-    tsx \
-    bcryptjs
+RUN npm install --no-save prisma@6 tsx bcryptjs @prisma/client@6
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
+
+# Copy generated Prisma client from builder (overrides the one from npm install)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy seed script for entrypoint
 COPY --from=builder /app/scripts ./scripts

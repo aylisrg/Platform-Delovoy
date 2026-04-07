@@ -4,7 +4,6 @@ set -e
 echo "=== Delovoy Park — Container Startup ==="
 
 # --- Crash loop protection ---
-# If this file exists and was created less than 30s ago, we're in a crash loop
 CRASH_MARKER="/tmp/.entrypoint-started"
 if [ -f "$CRASH_MARKER" ]; then
     LAST=$(stat -c %Y "$CRASH_MARKER" 2>/dev/null || echo 0)
@@ -17,9 +16,13 @@ if [ -f "$CRASH_MARKER" ]; then
 fi
 touch "$CRASH_MARKER"
 
-# --- 1. Database schema ---
-echo "[1/3] Applying database schema..."
-if npx prisma db push 2>&1; then
+# --- 1. Generate Prisma Client (ensure it matches current schema) ---
+echo "[1/4] Generating Prisma Client..."
+npx prisma generate 2>&1 || echo "  WARNING: prisma generate failed, using pre-built client."
+
+# --- 2. Database schema ---
+echo "[2/4] Applying database schema..."
+if npx prisma db push --skip-generate 2>&1; then
     echo "  Schema applied successfully."
 else
     echo "  WARNING: prisma db push failed."
@@ -27,23 +30,25 @@ else
     echo "  Starting with existing schema..."
 fi
 
-# --- 2. Conditional seed ---
-echo "[2/3] Checking if database needs seeding..."
+# --- 3. Conditional seed ---
+echo "[3/4] Checking if database needs seeding..."
 NEEDS_SEED=$(node -e "
   const { PrismaClient } = require('@prisma/client');
   const p = new PrismaClient();
   p.user.count()
     .then(c => { console.log(c === 0 ? 'yes' : 'no'); return p.\$disconnect(); })
     .catch(() => { console.log('yes'); return p.\$disconnect(); });
-" 2>/dev/null || echo "yes")
+" 2>/dev/null || echo "skip")
 
 if [ "$NEEDS_SEED" = "yes" ]; then
     echo "  No users found. Running seed..."
-    npx tsx scripts/seed.ts 2>&1 || echo "  Warning: seed failed"
+    npx tsx scripts/seed.ts 2>&1 || echo "  Warning: seed failed (non-fatal)"
+elif [ "$NEEDS_SEED" = "skip" ]; then
+    echo "  Could not check seed status, skipping seed."
 else
     echo "  Database already has data, skipping seed."
 fi
 
-# --- 3. Start server ---
-echo "[3/3] Starting Next.js server..."
+# --- 4. Start server ---
+echo "[4/4] Starting Next.js server..."
 exec su-exec nextjs node server.js
