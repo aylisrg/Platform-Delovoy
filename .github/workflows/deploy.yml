@@ -97,13 +97,30 @@ jobs:
             fi
           done
 
-          echo "[1/5] Stopping app container..."
+          echo "[1/6] Stopping app container..."
           $SSH 'docker stop delovoy-app 2>/dev/null || true'
 
-          echo "[2/5] Updating repository..."
+          echo "[2/6] Cleaning up disk space..."
+          $SSH '
+            echo "  Disk before cleanup:"
+            df -h / | tail -1
+            echo "  Removing old Docker images, build cache, stopped containers..."
+            docker container prune -f 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+            docker volume prune -f --filter "label!=keep" 2>/dev/null || true
+            # Clean apt cache and logs
+            apt-get clean 2>/dev/null || true
+            journalctl --vacuum-size=50M 2>/dev/null || true
+            rm -rf /tmp/* 2>/dev/null || true
+            echo "  Disk after cleanup:"
+            df -h / | tail -1
+          '
+
+          echo "[3/6] Updating repository..."
           $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
-          echo "[3/5] Pulling image from GHCR..."
+          echo "[4/6] Pulling image from GHCR..."
           # Retry docker pull up to 3 times (network issues in Russia)
           $SSH '
             for i in 1 2 3; do
@@ -114,15 +131,17 @@ jobs:
               sleep 10
               if [ "$i" = "3" ]; then
                 echo "ERROR: Cannot pull image after 3 attempts"
+                echo "Disk space:"
+                df -h /
                 exit 1
               fi
             done
           '
 
-          echo "[4/5] Restarting containers..."
+          echo "[5/6] Restarting containers..."
           $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
-          echo "[5/5] Waiting for health check..."
+          echo "[6/6] Waiting for health check..."
           for i in $(seq 1 30); do
             STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
             echo "  Status: $STATUS (attempt ${i}/30)"
