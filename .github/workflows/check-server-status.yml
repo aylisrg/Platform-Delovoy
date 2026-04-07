@@ -2,6 +2,9 @@ name: Check Server Status
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - claude/check-server-status-hmIR0
 
 jobs:
   check-status:
