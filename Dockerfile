@@ -1,4 +1,4 @@
-# Stage 1: Install ALL dependencies (needed for build)
+# Stage 1: Install dependencies and build
 FROM node:20-alpine AS builder
 WORKDIR /app
 
@@ -8,44 +8,55 @@ RUN npm ci
 
 COPY . .
 
-# Placeholder DATABASE_URL for build (not used at runtime)
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 RUN npm run build
 
-# Stage 2: Production runner
+# Clean dev dependencies to reduce copy size
+RUN npm prune --production && \
+    rm -rf .next/cache
+
+# Stage 2: Minimal production runner
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install wget (for healthcheck) and su-exec (for user switching)
-RUN apk add --no-cache su-exec wget curl
+RUN apk add --no-cache su-exec wget && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
 ENV NODE_ENV=production
 
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
-
-# Install prisma CLI + tsx + bcryptjs for migrations and seed
-COPY package.json ./
-RUN npm install --no-save prisma@6 tsx bcryptjs @prisma/client@6
-
-COPY --from=builder /app/public ./public
+# Copy standalone Next.js output (includes all runtime deps)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 
-# Copy generated Prisma client from builder (overrides the one from npm install)
+# Copy Prisma client + engine from builder (already generated)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
-# Copy seed script for entrypoint
+# Copy tsx + its deps for seed script (from builder, not fresh install)
+COPY --from=builder /app/node_modules/tsx ./node_modules/tsx
+COPY --from=builder /app/node_modules/esbuild ./node_modules/esbuild
+COPY --from=builder /app/node_modules/@esbuild ./node_modules/@esbuild
+
+# Copy bcryptjs for seed
+COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
+
+# Copy seed script
 COPY --from=builder /app/scripts ./scripts
 
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+# Symlink prisma CLI so npx finds it
+RUN mkdir -p node_modules/.bin && \
+    ln -sf ../prisma/build/index.js node_modules/.bin/prisma && \
+    ln -sf ../tsx/dist/cli.mjs node_modules/.bin/tsx
 
-RUN chown -R nextjs:nodejs /app
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh && \
+    chown -R nextjs:nodejs /app
 
 EXPOSE 3000
-
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 

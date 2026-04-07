@@ -82,8 +82,22 @@ ufw allow 80/tcp > /dev/null
 ufw allow 443/tcp > /dev/null
 ufw --force enable > /dev/null
 
-# --- 8. Fail2Ban ---
-echo "[8/9] Настройка Fail2Ban..."
+# --- 8. Docker auto-cleanup cron (prevent disk full) ---
+echo "[8/10] Настройка автоочистки Docker..."
+cat > /etc/cron.daily/docker-cleanup << 'CRONEOF'
+#!/bin/sh
+# Daily Docker cleanup to prevent disk exhaustion
+docker container prune -f > /dev/null 2>&1
+docker image prune -af > /dev/null 2>&1
+docker builder prune -af > /dev/null 2>&1
+apt-get clean > /dev/null 2>&1
+journalctl --vacuum-size=50M > /dev/null 2>&1
+find /var/log -name "*.gz" -delete > /dev/null 2>&1
+CRONEOF
+chmod +x /etc/cron.daily/docker-cleanup
+
+# --- 9. Fail2Ban ---
+echo "[9/10] Настройка Fail2Ban..."
 cat > /etc/fail2ban/jail.local << 'EOF'
 [sshd]
 enabled = true
@@ -93,8 +107,8 @@ EOF
 systemctl enable fail2ban -q
 systemctl restart fail2ban
 
-# --- 9. Клонирование проекта + первый запуск ---
-echo "[9/9] Клонирование проекта..."
+# --- 10. Клонирование проекта + первый запуск ---
+echo "[10/10] Клонирование проекта..."
 mkdir -p "$APP_DIR"
 
 git clone "$REPO" "$APP_DIR/app" 2>/dev/null || (cd "$APP_DIR/app" && git pull origin main)

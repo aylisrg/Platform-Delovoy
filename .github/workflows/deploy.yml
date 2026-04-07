@@ -97,24 +97,59 @@ jobs:
             fi
           done
 
-          echo "[1/6] Stopping app container..."
-          $SSH 'docker stop delovoy-app 2>/dev/null || true'
-
-          echo "[2/6] Cleaning up disk space..."
+          echo "[1/6] Stopping ALL app containers..."
           $SSH '
-            echo "  Disk before cleanup:"
-            df -h / | tail -1
-            echo "  Removing old Docker images, build cache, stopped containers..."
+            docker stop delovoy-app 2>/dev/null || true
+            docker rm delovoy-app 2>/dev/null || true
+          '
+
+          echo "[2/6] AGGRESSIVE disk cleanup..."
+          $SSH '
+            echo "=== Disk BEFORE cleanup ==="
+            df -h /
+            du -sh /var/lib/docker/ 2>/dev/null || true
+            echo ""
+
+            echo "--- Removing ALL stopped containers ---"
             docker container prune -f 2>/dev/null || true
+
+            echo "--- Removing ALL unused images (including tagged) ---"
             docker image prune -af 2>/dev/null || true
+
+            echo "--- Removing ALL build cache ---"
             docker builder prune -af 2>/dev/null || true
-            docker volume prune -f --filter "label!=keep" 2>/dev/null || true
-            # Clean apt cache and logs
+
+            echo "--- Removing dangling volumes ---"
+            docker volume prune -f 2>/dev/null || true
+
+            echo "--- System-wide Docker cleanup ---"
+            docker system prune -af 2>/dev/null || true
+
+            echo "--- Cleaning system caches ---"
             apt-get clean 2>/dev/null || true
-            journalctl --vacuum-size=50M 2>/dev/null || true
-            rm -rf /tmp/* 2>/dev/null || true
-            echo "  Disk after cleanup:"
-            df -h / | tail -1
+            apt-get autoremove -y 2>/dev/null || true
+            rm -rf /var/cache/apt/archives/* 2>/dev/null || true
+            rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
+            echo "--- Truncating logs ---"
+            journalctl --vacuum-size=30M 2>/dev/null || true
+            find /var/log -name "*.gz" -delete 2>/dev/null || true
+            find /var/log -name "*.old" -delete 2>/dev/null || true
+            find /var/log -name "*.1" -delete 2>/dev/null || true
+            truncate -s 0 /var/log/syslog 2>/dev/null || true
+            truncate -s 0 /var/log/kern.log 2>/dev/null || true
+
+            echo "--- Cleaning temp files ---"
+            rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+            rm -rf /root/.npm/_cacache 2>/dev/null || true
+            rm -rf /home/*/.npm/_cacache 2>/dev/null || true
+
+            echo ""
+            echo "=== Disk AFTER cleanup ==="
+            df -h /
+            echo ""
+            echo "Largest dirs in /var/lib/docker:"
+            du -sh /var/lib/docker/*/ 2>/dev/null | sort -rh | head -5 || true
           '
 
           echo "[3/6] Updating repository..."
