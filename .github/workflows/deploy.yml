@@ -83,24 +83,49 @@ jobs:
           SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ConnectTimeout=15 root@${VPS_HOST}"
 
           echo "=== Connecting to VPS ${VPS_HOST}... ==="
-          $SSH 'echo "SSH OK: $(hostname) $(date -u)"'
 
-          echo "[1/5] Stopping crash-looping container (if any)..."
+          # Retry SSH connection up to 3 times
+          for attempt in 1 2 3; do
+            if $SSH 'echo "SSH OK: $(hostname) $(date -u)"'; then
+              break
+            fi
+            echo "SSH attempt $attempt failed, retrying in 5s..."
+            sleep 5
+            if [ "$attempt" = "3" ]; then
+              echo "ERROR: Cannot connect to VPS after 3 attempts"
+              exit 1
+            fi
+          done
+
+          echo "[1/5] Stopping app container..."
           $SSH 'docker stop delovoy-app 2>/dev/null || true'
 
           echo "[2/5] Updating repository..."
           $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
           echo "[3/5] Pulling image from GHCR..."
-          $SSH 'docker pull ghcr.io/aylisrg/platform-delovoy:latest'
+          # Retry docker pull up to 3 times (network issues in Russia)
+          $SSH '
+            for i in 1 2 3; do
+              if docker pull ghcr.io/aylisrg/platform-delovoy:latest; then
+                break
+              fi
+              echo "Pull attempt $i failed, retrying in 10s..."
+              sleep 10
+              if [ "$i" = "3" ]; then
+                echo "ERROR: Cannot pull image after 3 attempts"
+                exit 1
+              fi
+            done
+          '
 
-          echo "[4/5] Restarting app container..."
+          echo "[4/5] Restarting containers..."
           $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
           echo "[5/5] Waiting for health check..."
-          for i in $(seq 1 24); do
+          for i in $(seq 1 30); do
             STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
-            echo "  Status: $STATUS (${i}x5s)"
+            echo "  Status: $STATUS (attempt ${i}/30)"
             if [ "$STATUS" = "healthy" ]; then
               echo ""
               echo "=== Deploy successful! ==="
@@ -110,15 +135,19 @@ jobs:
             sleep 5
           done
 
-          echo "ERROR: App not healthy after 120s"
-          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=50 app'
+          echo ""
+          echo "ERROR: App not healthy after 150s"
+          echo "--- Container logs ---"
+          $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env logs --tail=80 app'
+          echo ""
+          echo "--- Container state ---"
+          $SSH 'docker inspect --format="{{.State.Status}} {{.State.ExitCode}} {{.State.Error}}" delovoy-app 2>/dev/null || echo "container not found"'
           exit 1
 
   verify:
     name: Verify deployment
     runs-on: ubuntu-latest
     needs: deploy
-
     steps:
       - name: Check app health
         env:
@@ -127,19 +156,18 @@ jobs:
           URL="http://${VPS_HOST}/api/health"
           echo "Polling: $URL"
           echo ""
-          for i in $(seq 1 24); do
-            HTTP=$(curl -s -o /tmp/health.json -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+          for i in $(seq 1 12); do
+            HTTP=$(curl -s -o /tmp/health.json -w "%{http_code}" --connect-timeout 10 --max-time 15 "$URL" 2>/dev/null || echo "000")
             BODY=$(cat /tmp/health.json 2>/dev/null || echo "")
             if [ "$HTTP" = "200" ]; then
-              echo "✅ Deployment successful!"
-              echo "   URL: http://${VPS_HOST}"
-              echo ""
-              echo "Health: $BODY"
+              echo "Deployment verified successfully!"
+              echo "  URL: http://${VPS_HOST}"
+              echo "  Health: $BODY"
               exit 0
             fi
-            echo "  [$(date +%H:%M:%S)] attempt $i/24 — HTTP $HTTP, retrying in 15s..."
-            sleep 15
+            echo "  [$(date +%H:%M:%S)] attempt $i/12 — HTTP $HTTP, retrying in 10s..."
+            sleep 10
           done
           echo ""
-          echo "❌ App did not respond after 6 minutes"
+          echo "App did not respond after 2 minutes"
           exit 1
