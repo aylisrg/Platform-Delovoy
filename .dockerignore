@@ -4,10 +4,8 @@ node_modules
 .github
 .env
 .env.*
+!.env.example
 coverage
 *.md
 .DS_Store
 docker-compose.override.yml
-nginx
-scripts/setup-vps.sh
-deploy-report.txt
