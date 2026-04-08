@@ -19,7 +19,6 @@ const navigation: NavItem[] = [
   { label: "Пользователи", href: "/admin/users", icon: "👥" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺" },
-  { label: "Сервер", href: "/admin/server", icon: "🖥" },
 ];
 
 export function Sidebar() {

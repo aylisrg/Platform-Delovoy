@@ -1,0 +1,40 @@
+# Локальная разработка: только PostgreSQL + Redis
+# Использование: docker compose -f docker-compose.dev.yml up -d
+# Затем: npm run dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: delovoy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: delovoy_park
+      POSTGRES_USER: delovoy
+      POSTGRES_PASSWORD: delovoy_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delovoy -d delovoy_park"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: delovoy-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
