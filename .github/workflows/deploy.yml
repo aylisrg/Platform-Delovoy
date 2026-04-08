@@ -97,13 +97,65 @@ jobs:
             fi
           done
 
-          echo "[1/5] Stopping app container..."
-          $SSH 'docker stop delovoy-app 2>/dev/null || true'
+          echo "[1/6] Stopping ALL app containers..."
+          $SSH '
+            docker stop delovoy-app 2>/dev/null || true
+            docker rm delovoy-app 2>/dev/null || true
+          '
 
-          echo "[2/5] Updating repository..."
+          echo "[2/6] AGGRESSIVE disk cleanup..."
+          $SSH '
+            echo "=== Disk BEFORE cleanup ==="
+            df -h /
+            du -sh /var/lib/docker/ 2>/dev/null || true
+            echo ""
+
+            echo "--- Removing ALL stopped containers ---"
+            docker container prune -f 2>/dev/null || true
+
+            echo "--- Removing ALL unused images (including tagged) ---"
+            docker image prune -af 2>/dev/null || true
+
+            echo "--- Removing ALL build cache ---"
+            docker builder prune -af 2>/dev/null || true
+
+            echo "--- Removing dangling volumes ---"
+            docker volume prune -f 2>/dev/null || true
+
+            echo "--- System-wide Docker cleanup ---"
+            docker system prune -af 2>/dev/null || true
+
+            echo "--- Cleaning system caches ---"
+            apt-get clean 2>/dev/null || true
+            apt-get autoremove -y 2>/dev/null || true
+            rm -rf /var/cache/apt/archives/* 2>/dev/null || true
+            rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
+            echo "--- Truncating logs ---"
+            journalctl --vacuum-size=30M 2>/dev/null || true
+            find /var/log -name "*.gz" -delete 2>/dev/null || true
+            find /var/log -name "*.old" -delete 2>/dev/null || true
+            find /var/log -name "*.1" -delete 2>/dev/null || true
+            truncate -s 0 /var/log/syslog 2>/dev/null || true
+            truncate -s 0 /var/log/kern.log 2>/dev/null || true
+
+            echo "--- Cleaning temp files ---"
+            rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+            rm -rf /root/.npm/_cacache 2>/dev/null || true
+            rm -rf /home/*/.npm/_cacache 2>/dev/null || true
+
+            echo ""
+            echo "=== Disk AFTER cleanup ==="
+            df -h /
+            echo ""
+            echo "Largest dirs in /var/lib/docker:"
+            du -sh /var/lib/docker/*/ 2>/dev/null | sort -rh | head -5 || true
+          '
+
+          echo "[3/6] Updating repository..."
           $SSH 'cd /opt/delovoy/app && git fetch origin main && git checkout main -f && git reset --hard origin/main'
 
-          echo "[3/5] Pulling image from GHCR..."
+          echo "[4/6] Pulling image from GHCR..."
           # Retry docker pull up to 3 times (network issues in Russia)
           $SSH '
             for i in 1 2 3; do
@@ -114,15 +166,17 @@ jobs:
               sleep 10
               if [ "$i" = "3" ]; then
                 echo "ERROR: Cannot pull image after 3 attempts"
+                echo "Disk space:"
+                df -h /
                 exit 1
               fi
             done
           '
 
-          echo "[4/5] Restarting containers..."
+          echo "[5/6] Restarting containers..."
           $SSH 'cd /opt/delovoy/app && docker compose --env-file /opt/delovoy/.env up -d --no-build --remove-orphans'
 
-          echo "[5/5] Waiting for health check..."
+          echo "[6/6] Waiting for health check..."
           for i in $(seq 1 30); do
             STATUS=$($SSH 'docker inspect --format={{.State.Health.Status}} delovoy-app 2>/dev/null || echo starting')
             echo "  Status: $STATUS (attempt ${i}/30)"

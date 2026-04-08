@@ -72,13 +72,23 @@ fi
 # --- 3. Symlink .env в директорию репозитория ---
 ln -sf "$APP_DIR/.env" "$APP_DIR/app/.env"
 
+# --- 3.5. Docker cleanup (prevent disk full) ---
+echo "[3/5] Очистка Docker (освобождение места)..."
+echo "  Место на диске до очистки:"
+df -h / | tail -1
+docker container prune -f 2>/dev/null || true
+docker image prune -af 2>/dev/null || true
+docker builder prune -af 2>/dev/null || true
+echo "  Место на диске после очистки:"
+df -h / | tail -1
+
 # --- 4. Запуск контейнеров ---
-echo "[3/4] Запуск контейнеров..."
+echo "[4/5] Запуск контейнеров..."
 cd "$APP_DIR/app"
 docker compose up -d --remove-orphans 2>&1
 
 echo ""
-echo "[4/4] Ожидание запуска..."
+echo "[5/5] Ожидание запуска..."
 TIMEOUT=120
 ELAPSED=0
 while [ $ELAPSED -lt $TIMEOUT ]; do
