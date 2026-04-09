@@ -136,8 +136,6 @@ describe("bookingFilterSchema", () => {
 });
 
 describe("adminCreateBookingSchema", () => {
-  const { adminCreateBookingSchema } = require("@/modules/gazebos/validation");
-
   const validInput = {
     resourceId: "resource-1",
     date: "2030-06-15",
