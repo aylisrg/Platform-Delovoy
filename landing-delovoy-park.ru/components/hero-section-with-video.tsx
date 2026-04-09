@@ -42,13 +42,43 @@ export function HeroSectionWithVideo() {
 
       {/* Content (positioned above video) */}
       <div className="relative z-10 max-w-[1200px] mx-auto w-full py-24 md:py-32 px-6">
-        {/* Rating badge */}
-        <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-4 py-2 mb-10">
-          <span className="text-[#0099ff] text-sm">★★★★★</span>
-          <span className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)]">
-            300+ отзывов на Яндекс Картах
-          </span>
-        </div>
+        {/* Yandex rating badge */}
+        <a
+          href={yandexMapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-3 bg-white rounded-2xl pl-3 pr-5 py-2.5 mb-10 hover:shadow-lg hover:shadow-white/10 transition-all group"
+        >
+          {/* Yandex logo */}
+          <div className="flex items-center justify-center w-8 h-8 bg-[#FC3F1D] rounded-lg">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M13.63 21h2.05V3h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38L7.39 17.4h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V21z"
+                fill="white"
+              />
+            </svg>
+          </div>
+          {/* Rating */}
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#21201F] font-[family-name:var(--font-manrope)] font-bold text-lg leading-none">5.0</span>
+              <div className="flex gap-px">
+                {[1,2,3,4,5].map((i) => (
+                  <svg key={i} width="14" height="14" viewBox="0 0 24 24" fill="#FBC02D">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                ))}
+              </div>
+            </div>
+            <span className="text-[#7B7B7B] text-xs font-[family-name:var(--font-inter)] leading-tight">
+              300+ отзывов на Яндекс Картах
+            </span>
+          </div>
+          {/* Arrow */}
+          <svg className="w-4 h-4 text-[#B0B0B0] group-hover:text-[#21201F] transition-colors ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </a>
 
         {/* Display headline */}
         <h1
