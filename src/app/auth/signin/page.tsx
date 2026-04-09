@@ -86,12 +86,68 @@ export default function SignInPage() {
     }
   }, [email, password]);
 
-  const handlePhoneLogin = useCallback(async (e: React.FormEvent) => {
+  const handleSendOtp = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    // Phone auth placeholder — needs SMS provider
-    setError("Вход по телефону скоро будет доступен. Используйте другой способ входа.");
-  }, []);
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setOtpSent(true);
+      } else {
+        setError(data.error?.message || "Ошибка отправки кода");
+      }
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setLoading(false);
+    }
+  }, [phone]);
+
+  const handleVerifyOtp = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      // Step 1: verify OTP
+      const verifyRes = await fetch("/api/auth/whatsapp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: otpCode }),
+      });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyData.success) {
+        setError(verifyData.error?.message || "Неверный код");
+        setLoading(false);
+        return;
+      }
+
+      // Step 2: sign in with verified userId
+      const result = await signIn("whatsapp", {
+        userId: verifyData.data.userId,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setError("Ошибка входа");
+        setLoading(false);
+      } else {
+        window.location.href = "/auth/redirect";
+      }
+    } catch {
+      setError("Ошибка сети");
+      setLoading(false);
+    }
+  }, [phone, otpCode]);
 
   const handleOAuthLogin = useCallback(async (provider: string) => {
     setError("");
