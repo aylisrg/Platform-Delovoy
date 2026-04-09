@@ -270,6 +270,7 @@ run_stage() {
     claude
     -p
     --model "$MODEL"
+    --permission-mode "$perm_mode"
     --append-system-prompt "$system_prompt"
     --max-budget-usd "$MAX_BUDGET"
   )
