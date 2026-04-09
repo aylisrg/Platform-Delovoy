@@ -178,7 +178,7 @@ function ReviewCard({ review }: { review: Review }) {
     <div className="min-w-[300px] md:min-w-[400px] snap-start bg-[#090909] border border-white/6 rounded-[14px] p-6 flex flex-col">
       {/* Rating stars and date */}
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-[#0099ff] text-lg" aria-label={`${review.rating} из 5 звёзд`}>
+        <span className="text-[#FBC02D] text-lg" aria-label={`${review.rating} из 5 звёзд`}>
           {stars}
         </span>
         <span className="text-white/40 text-xs font-[family-name:var(--font-inter)]">
