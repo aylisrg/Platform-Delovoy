@@ -25,6 +25,8 @@
     "@prisma/client": "^6.19.3",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
+    "cheerio": "^1.2.0",
+    "framer-motion": "^12.38.0",
     "grammy": "^1.41.1",
     "ioredis": "^5.10.1",
     "next": "16.2.2",

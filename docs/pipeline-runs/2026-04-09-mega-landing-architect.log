@@ -1,0 +1,74 @@
+Perfect! План готов к рассмотрению. Я завершил фазы 1-4:
+
+## ✅ Что сделано:
+
+### Фаза 1: Понимание (Explore agent)
+- Изучил текущую структуру лендинга (`src/app/page.tsx`, компоненты в `landing/`)
+- Проанализировал Hero секцию (`hero-section.tsx`)
+- Изучил Design System (`DESIGN.md` — Framer aesthetic)
+- Понял API patterns (`api-response.ts`, Redis setup)
+
+### Фаза 2: Проектирование (Plan agent)
+- Спроектировал техническое решение
+- Определил архитектуру: Cheerio для scraping, Redis для кэша, CSS для responsive video
+- Спроектировал компонентную структуру
+- Определил data flow и API контракты
+
+### Фаза 3: Критические файлы
+- Прочитал `hero-section.tsx` (текущая реализация)
+- Прочитал `api-response.ts` (стандарты API)
+- Прочитал `redis.ts` (существующий Redis client)
+- Прочитал `DESIGN.md` (полная спецификация дизайн-системы)
+
+### Фаза 4: Финальный план
+**Создан:** `/Users/elliott/.claude/plans/lexical-crafting-finch.md`
+
+Включает:
+- Полную архитектуру решения
+- Файлы для создания/модификации
+- TypeScript types, Zod schemas
+- API contracts
+- Caching strategy
+- Error handling & fallbacks
+- Performance optimization
+- Mobile strategy
+- Design system compliance
+- ADR (Architecture Decision Record)
+- Deployment checklist
+
+## 📝 Вопросы для уточнения (в плане):
+
+1. **URL Яндекс Карт** — точная ссылка на организацию
+2. **Видео-файл** — есть ли готовое промо-видео
+3. **Модерация отзывов** — показывать все или только 5-звёздочные
+4. **HTML-селекторы** — Developer должен проверить актуальную структуру Яндекса перед реализацией
+
+План готов к утверждению и передаче Developer!
+lib/parsers/types.ts` — типы `Review`, `ReviewsCache`
+6. `public/media/README.md` — инструкция для пользователя по загрузке видео
+
+### Изменённые файлы
+
+1. `src/app/page.tsx` — добавить `<ReviewsSection />`
+2. `.env.example` — добавить `YANDEX_MAPS_URL`
+3. `package.json` — добавить `cheerio`
+4. `.gitignore` — исключить `public/media/*.mp4`, `*.jpg`
+
+### Зависимости
+
+- **Redis:** уже используется (кэш отзывов)
+- **Cheerio:** новая зависимость (парсинг HTML)
+
+### Риски и смягчение
+
+| Риск | Смягчение |
+|------|-----------|
+| Яндекс меняет DOM | Graceful fallback + логирование в `SystemEvent` + алерт в Telegram |
+| CAPTCHA/блокировка IP | TTL 1 час = низкая частота запросов, User-Agent header |
+| Большой видео-файл | Инструкция в README.md — максимум 2MB, рекомендация сжатия |
+
+### Что дальше?
+
+ADR готов к передаче Developer. Все технические детали, API-контракты, структура компонентов и чеклист реализации — в документе.
+
+**Метрики успеха:** время на Hero >6 сек, скролл до контактов >50%, клики на CTA +20%.
