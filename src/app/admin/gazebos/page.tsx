@@ -73,6 +73,11 @@ export default async function GazebosManagerPage() {
           />
         </div>
 
+        {/* Admin booking form */}
+        <div className="mb-8">
+          <AdminBookingForm />
+        </div>
+
         {/* Resources */}
         <Card className="mb-8">
           <CardHeader>
