@@ -25,7 +25,10 @@ const CACHE_TTL = 3600; // 1 hour in seconds
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const forceRefresh = searchParams.get("refresh") === "1";
+    const params = reviewsQuerySchema.safeParse(
+      Object.fromEntries(searchParams.entries())
+    );
+    const forceRefresh = params.success && params.data.refresh === "1";
 
     // Check Redis cache first (unless force refresh)
     if (!forceRefresh && redisAvailable) {
