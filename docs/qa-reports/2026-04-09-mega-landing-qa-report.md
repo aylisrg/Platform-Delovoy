@@ -1,9 +1,9 @@
 # QA Report: Мега-лендинг — видео на Hero + отзывы с Яндекс Карт
 
-**Дата:** 2026-04-09
+**Дата:** 2026-04-09 23:55 UTC
 **Тестировщик:** QA Engineer (Claude)
 **PRD:** `docs/requirements/2026-04-09-mega-landing-prd.md`
-**Статус:** ⚠️ **BLOCKED** — 3 критических бага найдено
+**Статус:** ⚠️ **BLOCKED** — 3 бага найдено (1 Critical, 1 Major, 1 Minor)
 
 ---
 
