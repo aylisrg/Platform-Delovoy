@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 
-type AuthTab = "social" | "email" | "phone";
+type AuthTab = "social" | "email" | "whatsapp";
 
 // Telegram Login Widget component
 function TelegramLoginButton() {
