@@ -20,6 +20,7 @@ vi.mock("@/lib/db", () => ({
 
 import {
   createBooking,
+  createAdminBooking,
   updateBookingStatus,
   cancelBooking,
   getAvailability,
