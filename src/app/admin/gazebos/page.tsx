@@ -5,6 +5,7 @@ import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/gazebos/booking-actions";
+import { AdminBookingForm } from "@/components/admin/gazebos/admin-booking-form";
 
 export const dynamic = "force-dynamic";
 
