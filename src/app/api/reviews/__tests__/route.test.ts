@@ -55,7 +55,7 @@ const mockReview: Review = {
 
 describe("GET /api/reviews", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     process.env.YANDEX_MAPS_URL = "https://yandex.ru/maps/org/test/123";
   });
 
