@@ -45,6 +45,17 @@ export type BookingFilter = {
   userId?: string;
 };
 
+export type AdminCreateBookingInput = {
+  resourceId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  guestCount?: number;
+  comment?: string;
+  clientName: string;
+  clientPhone: string;
+};
+
 // === Availability ===
 
 export type TimeSlot = {
