@@ -170,5 +170,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
     // Yandex OAuth
     YandexProvider() as never,
+
+    // VK (Max) OAuth
+    VK({
+      clientId: process.env.VK_CLIENT_ID,
+      clientSecret: process.env.VK_CLIENT_SECRET,
+    }),
   ],
 });
