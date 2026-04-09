@@ -172,8 +172,8 @@ export default function SignInPage() {
           <div className="mb-6 flex rounded-xl bg-zinc-800/50 p-1">
             {([
               { key: "social" as AuthTab, label: "Соцсети" },
+              { key: "whatsapp" as AuthTab, label: "WhatsApp" },
               { key: "email" as AuthTab, label: "Email" },
-              { key: "phone" as AuthTab, label: "Телефон" },
             ]).map(({ key, label }) => (
               <button
                 key={key}
