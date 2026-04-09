@@ -142,20 +142,28 @@ export function Navbar() {
 
           {status !== "loading" && (
             isLoggedIn ? (
-              <Link
-                href={isAdmin ? "/admin/dashboard" : "/dashboard"}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 text-white/70 text-sm font-[family-name:var(--font-inter)]"
-              >
-                {session.user.image ? (
-                  <img src={session.user.image} alt="" className="w-5 h-5 rounded-full" />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
-                    {(session.user.name || "U")[0].toUpperCase()}
-                  </div>
-                )}
-                {session.user.name || "Личный кабинет"}
-              </Link>
+              <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                <Link
+                  href={isAdmin ? "/admin/dashboard" : "/dashboard"}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 text-white/70 text-sm font-[family-name:var(--font-inter)]"
+                >
+                  {session.user.image ? (
+                    <img src={session.user.image} alt="" className="w-5 h-5 rounded-full" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
+                      {(session.user.name || "U")[0].toUpperCase()}
+                    </div>
+                  )}
+                  {session.user.name || "Личный кабинет"}
+                </Link>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                  className="text-red-400 hover:text-red-300 text-sm font-[family-name:var(--font-inter)] transition-colors"
+                >
+                  Выйти
+                </button>
+              </div>
             ) : (
               <Link
                 href="/auth/signin"
