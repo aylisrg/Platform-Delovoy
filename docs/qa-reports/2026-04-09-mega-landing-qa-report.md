@@ -147,13 +147,15 @@ Error: Cannot find package 'cheerio' imported from /Users/elliott/Platform Delov
 
 #### Окружение
 - Файл: `src/lib/parsers/yandex-reviews.ts:1`
-- Зависимость используется, но не объявлена в `package.json`
+- Зависимость объявлена в `package.json:7` (`"cheerio": "^1.0.0"`), но не установлена в `node_modules`
 
 #### Решение
-Добавить `cheerio` в dependencies:
+Установить зависимости:
 ```bash
-npm install cheerio
+npm install
 ```
+
+**Примечание**: Пакет присутствует в package.json, но возможно кто-то забыл запустить `npm install` после pull. Это не баг в коде, а ошибка окружения.
 
 ---
 
