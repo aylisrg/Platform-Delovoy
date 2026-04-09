@@ -2,6 +2,8 @@ import Link from "next/link";
 import { listResources } from "@/modules/gazebos/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
+import { Navbar } from "@landing/components/navbar";
+import { Footer } from "@landing/components/footer";
 
 export const dynamic = "force-dynamic";
 
@@ -9,31 +11,50 @@ export default async function GazebosPage() {
   const resources = await listResources(true);
 
   return (
-    <div className="min-h-screen bg-zinc-50">
-      <header className="bg-white border-b border-zinc-200">
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <nav className="mb-4">
-            <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Главная
-            </Link>
-          </nav>
-          <h1 className="text-3xl font-bold text-zinc-900">Беседки</h1>
-          <p className="mt-2 text-zinc-600">
-            Забронируйте беседку на территории бизнес-парка Деловой
+    <div className="bg-black min-h-screen">
+      <Navbar />
+
+      {/* Hero */}
+      <section className="pt-32 pb-16 px-6">
+        <div className="max-w-[1200px] mx-auto">
+          <Link
+            href="/"
+            className="text-[#0099ff] hover:text-[#0099ff]/80 text-sm font-[family-name:var(--font-inter)] transition-colors"
+          >
+            ← Главная
+          </Link>
+          <h1
+            className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-4"
+            style={{
+              fontSize: "clamp(36px, 5vw, 56px)",
+              letterSpacing: "clamp(-1px, -0.03em, -2px)",
+              lineHeight: 0.95,
+            }}
+          >
+            Беседки
+          </h1>
+          <p className="text-[#a6a6a6] font-[family-name:var(--font-inter)] text-base mt-4 max-w-lg">
+            Уютные беседки с мангалом на территории бизнес-парка Деловой.
+            Забронируйте онлайн в пару кликов.
           </p>
         </div>
-      </header>
+      </section>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        <section>
-          <h2 className="text-xl font-semibold text-zinc-900 mb-4">Наши беседки</h2>
+      {/* Gazebo cards */}
+      <section className="px-6 pb-16">
+        <div className="max-w-[1200px] mx-auto">
           <GazeboList resources={resources} />
-        </section>
+        </div>
+      </section>
 
-        <section className="mt-12">
+      {/* Booking flow */}
+      <section className="px-6 pb-24 border-t border-white/5 pt-16">
+        <div className="max-w-[800px] mx-auto">
           <BookingFlow />
-        </section>
-      </main>
+        </div>
+      </section>
+
+      <Footer />
     </div>
   );
 }
