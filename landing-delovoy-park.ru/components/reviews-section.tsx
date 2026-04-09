@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { Review } from "@/lib/parsers/types";
+import type { Review } from "@landing/lib/parsers/types";
 
 export function ReviewsSection() {
   const [reviews, setReviews] = useState<Review[]>([]);
