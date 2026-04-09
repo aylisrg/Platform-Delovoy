@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/db";
 
 const schema = z.object({
   name: z.string().min(2).max(100),
