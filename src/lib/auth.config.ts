@@ -76,7 +76,13 @@ export const authConfig: NextAuthConfig = {
       }
 
       if (isApiRoute) {
-        return !!auth?.user;
+        if (!auth?.user) {
+          return Response.json(
+            { success: false, error: { code: "UNAUTHORIZED", message: "Необходимо войти в аккаунт" } },
+            { status: 401 }
+          );
+        }
+        return true;
       }
 
       return true;
