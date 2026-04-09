@@ -1,5 +1,4 @@
 import type { NextAuthConfig } from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import type { Role } from "@prisma/client";
 
 declare module "next-auth" {
@@ -18,6 +17,13 @@ declare module "next-auth" {
   }
 }
 
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+    role?: Role;
+  }
+}
+
 // Edge-compatible auth config — no DB/Prisma imports.
 // Used by middleware only. Full config (with PrismaAdapter) is in auth.ts.
 export const authConfig: NextAuthConfig = {
@@ -25,31 +31,23 @@ export const authConfig: NextAuthConfig = {
   pages: {
     signIn: "/auth/signin",
   },
-  providers: [
-    // Stub — real authorize with DB access lives in auth.ts
-    Credentials({
-      name: "credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize() {
-        return null;
-      },
-    }),
-  ],
+  providers: [],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
-        token.role = user.role;
+        token.role = user.role ?? "USER";
+      }
+      // Refresh role from DB on session update
+      if (trigger === "update" && token.id) {
+        // Will be resolved by full auth.ts config with DB access
       }
       return token;
     },
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id as string;
-        session.user.role = token.role as Role;
+        session.user.role = (token.role as Role) ?? "USER";
       }
       return session;
     },
@@ -58,7 +56,7 @@ export const authConfig: NextAuthConfig = {
 
       const isAdminRoute = pathname.startsWith("/admin");
       const isApiRoute = pathname.startsWith("/api");
-      const isAuthRoute = pathname.startsWith("/api/auth");
+      const isAuthRoute = pathname.startsWith("/api/auth") || pathname.startsWith("/auth");
       const isHealthRoute = pathname.startsWith("/api/health");
       const isPublicApiRoute =
         pathname.startsWith("/api/cafe") ||
@@ -86,6 +84,13 @@ export const authConfig: NextAuthConfig = {
       }
 
       return true;
+    },
+  },
+  events: {
+    async createUser({ user }) {
+      // New OAuth users automatically get USER role — handled by DB default
+      // This event fires for Google/Yandex OAuth first-time sign-ins
+      console.log(`[Auth] New user created: ${user.email || user.id}`);
     },
   },
 };
