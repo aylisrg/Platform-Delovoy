@@ -145,11 +145,18 @@ export default function SignInPage() {
         redirect: false,
       });
 
-      if (result?.error) {
+      if (result?.error || !result?.ok) {
         setError("Ошибка входа");
         setLoading(false);
       } else {
-        window.location.href = "/auth/redirect";
+        const sessionRes = await fetch("/api/auth/session");
+        const session = await sessionRes.json();
+        const role = session?.user?.role;
+        if (role === "SUPERADMIN" || role === "MANAGER") {
+          window.location.href = "/admin/dashboard";
+        } else {
+          window.location.href = "/";
+        }
       }
     } catch {
       setError("Ошибка сети");
