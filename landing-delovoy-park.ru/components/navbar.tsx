@@ -14,6 +14,7 @@ const navLinks = [
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const [userMenu, setUserMenu] = useState(false);
   const { data: session, status } = useSession();
 
   const isLoggedIn = status === "authenticated" && !!session?.user;
