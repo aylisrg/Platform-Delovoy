@@ -4,6 +4,7 @@ import {
   updateResourceSchema,
   createBookingSchema,
   bookingFilterSchema,
+  adminCreateBookingSchema,
 } from "@/modules/gazebos/validation";
 
 describe("createResourceSchema", () => {
