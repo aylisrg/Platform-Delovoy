@@ -1,9 +1,9 @@
 import { apiResponse, apiError } from "@/lib/api-response";
 import { redis, redisAvailable } from "@/lib/redis";
-import { parseYandexReviews } from "@/lib/parsers/yandex-reviews";
-import { reviewsQuerySchema } from "@/lib/parsers/validation";
+import { parseYandexReviews } from "@landing/lib/parsers/yandex-reviews";
+import { reviewsQuerySchema } from "@landing/lib/parsers/validation";
 import { log } from "@/lib/logger";
-import type { Review, ReviewsCache } from "@/lib/parsers/types";
+import type { Review, ReviewsCache } from "@landing/lib/parsers/types";
 
 const CACHE_KEY = "reviews:yandex";
 const CACHE_TTL = 3600; // 1 hour in seconds
