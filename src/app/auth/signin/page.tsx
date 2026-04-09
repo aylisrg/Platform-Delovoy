@@ -277,38 +277,84 @@ export default function SignInPage() {
             </form>
           )}
 
-          {/* Phone login */}
-          {tab === "phone" && (
-            <form onSubmit={handlePhoneLogin} className="space-y-4">
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
-                  Номер телефона
-                </label>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                  className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="+7 (999) 123-45-67"
-                />
-              </div>
+          {/* WhatsApp login */}
+          {tab === "whatsapp" && (
+            !otpSent ? (
+              <form onSubmit={handleSendOtp} className="space-y-4">
+                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
+                  <WhatsAppIcon />
+                  <span className="text-sm text-[#25D366]">Код придёт в WhatsApp</span>
+                </div>
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
+                    Номер телефона
+                  </label>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="+7 999 123-45-67"
+                  />
+                </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              >
-                Получить код
-              </button>
+                {error && <p className="text-sm text-red-400">{error}</p>}
 
-              <p className="text-center text-xs text-zinc-500">
-                SMS-верификация скоро будет доступна
-              </p>
-            </form>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-xl bg-[#25D366] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#20BD5A] disabled:opacity-50"
+                >
+                  {loading ? "Отправка..." : "Получить код в WhatsApp"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
+                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
+                  <WhatsAppIcon />
+                  <span className="text-sm text-[#25D366]">Код отправлен в WhatsApp</span>
+                </div>
+
+                <div>
+                  <label htmlFor="otp" className="block text-sm font-medium text-zinc-300">
+                    Код из WhatsApp
+                  </label>
+                  <input
+                    id="otp"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                    required
+                    autoFocus
+                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white text-center tracking-[0.3em] font-mono text-lg placeholder-zinc-500 focus:border-[#25D366] focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                    placeholder="• • • • • •"
+                  />
+                </div>
+
+                {error && <p className="text-sm text-red-400">{error}</p>}
+
+                <button
+                  type="submit"
+                  disabled={loading || otpCode.length !== 6}
+                  className="w-full rounded-xl bg-[#25D366] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#20BD5A] disabled:opacity-50"
+                >
+                  {loading ? "Проверка..." : "Войти"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setOtpSent(false); setOtpCode(""); setError(""); }}
+                  className="w-full text-center text-sm text-zinc-400 hover:text-white transition-colors"
+                >
+                  Отправить код повторно
+                </button>
+              </form>
+            )
           )}
         </div>
 
