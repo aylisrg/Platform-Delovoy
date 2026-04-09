@@ -14,7 +14,7 @@ function TelegramLoginButton() {
     if (!botName) return;
 
     // Define the global callback
-    (window as Record<string, unknown>).onTelegramAuth = async (user: Record<string, string>) => {
+    (window as unknown as Record<string, unknown>).onTelegramAuth = async (user: Record<string, string>) => {
       await signIn("telegram", {
         ...user,
         redirect: true,
@@ -38,7 +38,7 @@ function TelegramLoginButton() {
     container.appendChild(script);
 
     return () => {
-      delete (window as Record<string, unknown>).onTelegramAuth;
+      delete (window as unknown as Record<string, unknown>).onTelegramAuth;
     };
   }, [botName]);
 
