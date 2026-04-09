@@ -135,10 +135,10 @@ get_allowed_tools() {
 get_permission_mode() {
   local stage="$1"
   case "$stage" in
-    po)        echo "plan" ;;          # read-only + write docs
-    architect) echo "plan" ;;          # read-only + write docs
-    developer) echo "acceptEdits" ;;   # auto-accept file edits
-    qa)        echo "acceptEdits" ;;   # can run tests
+    po)        echo "acceptEdits" ;;   # read code + write docs
+    architect) echo "acceptEdits" ;;   # read code + write ADR
+    developer) echo "acceptEdits" ;;   # full edits + bash
+    qa)        echo "acceptEdits" ;;   # run tests + write report
   esac
 }
 
