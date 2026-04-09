@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+const yandexMapsUrl = process.env.NEXT_PUBLIC_YANDEX_MAPS_URL || "#";
+
 export function HeroSectionWithVideo() {
   const [videoError, setVideoError] = useState(false);
 
