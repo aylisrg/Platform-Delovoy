@@ -19,3 +19,10 @@ export const reviewsCacheSchema = z.object({
   fetchedAt: z.number(),
   reviews: z.array(reviewSchema),
 });
+
+/**
+ * Zod schema for validating GET /api/reviews query params
+ */
+export const reviewsQuerySchema = z.object({
+  refresh: z.enum(["1"]).optional(),
+});
