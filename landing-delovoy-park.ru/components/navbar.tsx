@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 const navLinks = [
   { label: "О парке", href: "#advantages" },
   { label: "Офисы", href: "#offices" },
+  { label: "Беседки", href: "/gazebos" },
   { label: "Услуги", href: "#services" },
   { label: "Контакты", href: "#contacts" },
 ];
