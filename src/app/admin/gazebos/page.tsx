@@ -142,7 +142,14 @@ export default async function GazebosManagerPage() {
                         {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
                       </td>
                       <td className="py-3 text-zinc-600">
-                        {b.user.name ?? b.user.email ?? "—"}
+                        {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
+                          <span>
+                            {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
+                            <span className="text-xs text-zinc-400 ml-1">(админ)</span>
+                          </span>
+                        ) : (
+                          b.user.name ?? b.user.email ?? "—"
+                        )}
                       </td>
                       <td className="py-3">
                         <Badge variant={statusVariant[b.status]}>
