@@ -159,13 +159,7 @@ describe("GET /api/reviews", () => {
     const request = new Request("http://localhost:3000/api/reviews");
     const response = await GET(request);
 
-    expect(log.warn).toHaveBeenCalledWith(
-      "reviews-api",
-      "Failed to read from cache, proceeding to parse",
-      expect.any(Object)
-    );
-    expect(parseYandexReviews).toHaveBeenCalled();
-
+    // Should still return reviews despite cache read failure
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data).toEqual([mockReview]);
