@@ -1,11 +1,11 @@
-import { Navbar } from "@/components/public/landing/navbar";
-import { HeroSectionWithVideo } from "@/components/public/landing/hero-section-with-video";
-import { OfficesSection } from "@/components/public/landing/offices-section";
-import { ServicesSection } from "@/components/public/landing/services-section";
-import { AdvantagesSection } from "@/components/public/landing/advantages-section";
-import { ReviewsSection } from "@/components/public/landing/reviews-section";
-import { ContactsSection } from "@/components/public/landing/contacts-section";
-import { Footer } from "@/components/public/landing/footer";
+import { Navbar } from "@landing/components/navbar";
+import { HeroSectionWithVideo } from "@landing/components/hero-section-with-video";
+import { OfficesSection } from "@landing/components/offices-section";
+import { ServicesSection } from "@landing/components/services-section";
+import { AdvantagesSection } from "@landing/components/advantages-section";
+import { ReviewsSection } from "@landing/components/reviews-section";
+import { ContactsSection } from "@landing/components/contacts-section";
+import { Footer } from "@landing/components/footer";
 
 export default function Home() {
   return (
