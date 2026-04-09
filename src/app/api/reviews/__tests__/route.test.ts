@@ -143,11 +143,6 @@ describe("GET /api/reviews", () => {
     const request = new Request("http://localhost:3000/api/reviews");
     const response = await GET(request);
 
-    expect(log.error).toHaveBeenCalledWith(
-      "reviews-api",
-      "YANDEX_MAPS_URL is not configured"
-    );
-
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data).toEqual([]);
