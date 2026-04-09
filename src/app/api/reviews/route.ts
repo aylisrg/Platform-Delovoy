@@ -1,6 +1,7 @@
 import { apiResponse, apiError } from "@/lib/api-response";
 import { redis, redisAvailable } from "@/lib/redis";
 import { parseYandexReviews } from "@/lib/parsers/yandex-reviews";
+import { reviewsQuerySchema } from "@/lib/parsers/validation";
 import { log } from "@/lib/logger";
 import type { Review, ReviewsCache } from "@/lib/parsers/types";
 
