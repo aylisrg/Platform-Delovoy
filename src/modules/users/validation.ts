@@ -9,3 +9,11 @@ export const createUserSchema = z.object({
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
+
+export const updateUserSchema = z.object({
+  role: z.enum(["SUPERADMIN", "MANAGER", "USER"]).optional(),
+  name: z.string().min(1, "Имя не может быть пустым").optional(),
+  phone: z.string().optional(),
+});
+
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
