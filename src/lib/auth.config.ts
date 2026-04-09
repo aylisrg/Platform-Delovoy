@@ -17,13 +17,6 @@ declare module "next-auth" {
   }
 }
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    id?: string;
-    role?: Role;
-  }
-}
-
 // Edge-compatible auth config — no DB/Prisma imports.
 // Used by middleware only. Full config (with PrismaAdapter) is in auth.ts.
 export const authConfig: NextAuthConfig = {
