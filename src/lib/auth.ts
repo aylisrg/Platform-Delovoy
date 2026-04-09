@@ -168,6 +168,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
 
     // Yandex OAuth
-    YandexProvider(),
+    YandexProvider() as never,
   ],
 });
