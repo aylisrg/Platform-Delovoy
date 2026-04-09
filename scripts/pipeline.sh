@@ -34,6 +34,7 @@ ALL_STAGES=("po" "architect" "developer" "qa")
 STAGES=("${ALL_STAGES[@]}")
 DRY_RUN=false
 TASK=""
+CUSTOM_RUN_ID=""
 
 # ── Parse args ──────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
