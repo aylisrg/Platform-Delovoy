@@ -196,36 +196,45 @@ Number of calls: 0
 
 ---
 
-### BUG-003: Отсутствует Zod-валидация в API route
+### BUG-003: Zod-схема валидации отзывов не используется в парсере
 
-**Серьёзность:** Minor
-**Модуль:** reviews (API)
+**Серьёжность:** Minor
+**Модуль:** reviews (parser)
 
 #### Шаги для воспроизведения
-1. Открыть `src/app/api/reviews/route.ts`
-2. Найти обработку `searchParams`
+1. Открыть `src/lib/parsers/yandex-reviews.ts`
+2. Поискать использование `reviewSchema` из `validation.ts`
+3. Не найдено
 
 #### Ожидаемый результат
-Query параметр `refresh` валидируется через Zod-схему
+Парсер валидирует отзывы через Zod перед возвратом
 
 #### Фактический результат
-Валидация отсутствует — используется прямое чтение через `searchParams.get("refresh")`
+Схема `reviewSchema` определена в `src/lib/parsers/validation.ts:6-13`, но НЕ используется в `yandex-reviews.ts:86-93`
 
 #### Окружение
-- Файл: `src/app/api/reviews/route.ts:27`
+- Файл парсера: `src/lib/parsers/yandex-reviews.ts`
+- Файл схемы: `src/lib/parsers/validation.ts`
 - Правило: CLAUDE.md — "Все входные данные через Zod-валидацию"
 
 #### Решение
-Создать Zod-схему для query params:
+Добавить валидацию отзывов перед возвратом в `parseYandexReviews()`:
 ```typescript
-import { z } from "zod";
+import { reviewSchema } from "./validation";
 
-const querySchema = z.object({
-  refresh: z.enum(["0", "1"]).optional(),
+// Перед return reviews (строка 105):
+const validatedReviews = reviews.filter(review => {
+  const result = reviewSchema.safeParse(review);
+  if (!result.success) {
+    log.warn("reviews-parser", "Invalid review skipped", { review, error: result.error });
+    return false;
+  }
+  return true;
 });
+return validatedReviews;
 ```
 
-**Примечание:** Это не блокер релиза, т.к. query параметр опциональный и простой, но желательно исправить для консистентности.
+**Примечание:** Это не блокер релиза, т.к. парсер уже вручную валидирует данные (clamping рейтинга, проверка текста), но желательно использовать Zod для консистентности.
 
 ---
 
