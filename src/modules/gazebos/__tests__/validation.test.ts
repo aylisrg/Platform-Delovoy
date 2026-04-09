@@ -4,6 +4,7 @@ import {
   updateResourceSchema,
   createBookingSchema,
   bookingFilterSchema,
+  adminCreateBookingSchema,
 } from "@/modules/gazebos/validation";
 
 describe("createResourceSchema", () => {
@@ -131,5 +132,45 @@ describe("bookingFilterSchema", () => {
   it("rejects wrong date format in dateFrom", () => {
     const result = bookingFilterSchema.safeParse({ dateFrom: "15/06/2030" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("adminCreateBookingSchema", () => {
+  const validInput = {
+    resourceId: "resource-1",
+    date: "2030-06-15",
+    startTime: "10:00",
+    endTime: "12:00",
+    clientName: "Иванов Иван",
+    clientPhone: "+7 999 123-45-67",
+  };
+
+  it("accepts valid admin booking input", () => {
+    const result = adminCreateBookingSchema.safeParse(validInput);
+    expect(result.success).toBe(true);
+  });
+
+  it("requires clientName", () => {
+    const result = adminCreateBookingSchema.safeParse({ ...validInput, clientName: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("requires clientPhone", () => {
+    const result = adminCreateBookingSchema.safeParse({ ...validInput, clientPhone: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects if startTime >= endTime", () => {
+    const result = adminCreateBookingSchema.safeParse({ ...validInput, startTime: "14:00", endTime: "12:00" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts optional guestCount and comment", () => {
+    const result = adminCreateBookingSchema.safeParse({
+      ...validInput,
+      guestCount: 5,
+      comment: "VIP",
+    });
+    expect(result.success).toBe(true);
   });
 });

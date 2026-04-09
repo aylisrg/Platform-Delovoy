@@ -20,6 +20,7 @@ vi.mock("@/lib/db", () => ({
 
 import {
   createBooking,
+  createAdminBooking,
   updateBookingStatus,
   cancelBooking,
   getAvailability,
@@ -335,6 +336,89 @@ describe("getAvailability", () => {
     expect(prisma.resource.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: "resource-1" }),
+      })
+    );
+  });
+});
+
+// === ADMIN BOOKING ===
+
+const validAdminInput = {
+  resourceId: "resource-1",
+  date: FUTURE_DATE,
+  startTime: "10:00",
+  endTime: "12:00",
+  clientName: "Иванов Иван",
+  clientPhone: "+7 999 123-45-67",
+};
+
+describe("createAdminBooking", () => {
+  it("should create a confirmed booking with client info in metadata", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", metadata: { clientName: "Иванов Иван", clientPhone: "+7 999 123-45-67", bookedByAdmin: true } }) as never
+    );
+
+    const result = await createAdminBooking("admin-1", validAdminInput);
+
+    expect(result.status).toBe("CONFIRMED");
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CONFIRMED",
+          userId: "admin-1",
+          metadata: expect.objectContaining({
+            clientName: "Иванов Иван",
+            clientPhone: "+7 999 123-45-67",
+            bookedByAdmin: true,
+          }),
+        }),
+      })
+    );
+  });
+
+  it("should reject if resource not found", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(null as never);
+
+    await expect(createAdminBooking("admin-1", validAdminInput))
+      .rejects.toThrow("Беседка не найдена или неактивна");
+  });
+
+  it("should reject if time slot is conflicting", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as never);
+
+    await expect(createAdminBooking("admin-1", validAdminInput))
+      .rejects.toThrow("Это время уже занято");
+  });
+
+  it("should reject past dates", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(createAdminBooking("admin-1", { ...validAdminInput, date: PAST_DATE }))
+      .rejects.toThrow("Нельзя бронировать на прошедшую дату");
+  });
+
+  it("should store guest count and comment in metadata", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", {
+      ...validAdminInput,
+      guestCount: 5,
+      comment: "VIP клиент",
+    });
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            guestCount: 5,
+            comment: "VIP клиент",
+          }),
+        }),
       })
     );
   });

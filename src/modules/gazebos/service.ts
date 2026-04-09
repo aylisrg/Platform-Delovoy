@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import type {
   CreateBookingInput,
+  AdminCreateBookingInput,
   CreateResourceInput,
   UpdateResourceInput,
   BookingFilter,
@@ -156,6 +157,70 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
       endTime: end,
       status: "PENDING",
       metadata: {
+        ...(guestCount && { guestCount }),
+        ...(comment && { comment }),
+      },
+    },
+  });
+}
+
+/**
+ * Admin creates a booking on behalf of a client.
+ * Booking is auto-CONFIRMED since admin is creating it.
+ * Client info stored in metadata (no user account required).
+ */
+export async function createAdminBooking(adminId: string, input: AdminCreateBookingInput) {
+  const { resourceId, date, startTime, endTime, guestCount, comment, clientName, clientPhone } = input;
+
+  const resource = await prisma.resource.findFirst({
+    where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  if (!resource) {
+    throw new BookingError("RESOURCE_NOT_FOUND", "Беседка не найдена или неактивна");
+  }
+
+  if (guestCount && resource.capacity && guestCount > resource.capacity) {
+    throw new BookingError(
+      "CAPACITY_EXCEEDED",
+      `Максимальная вместимость: ${resource.capacity} человек`
+    );
+  }
+
+  const bookingDate = new Date(date);
+  const start = parseDatetime(date, startTime);
+  const end = parseDatetime(date, endTime);
+
+  if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
+    throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
+  }
+
+  const conflict = await prisma.booking.findFirst({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      resourceId,
+      status: { in: ["PENDING", "CONFIRMED"] },
+      date: bookingDate,
+      OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+    },
+  });
+
+  if (conflict) {
+    throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+  }
+
+  return prisma.booking.create({
+    data: {
+      moduleSlug: MODULE_SLUG,
+      resourceId,
+      userId: adminId,
+      date: bookingDate,
+      startTime: start,
+      endTime: end,
+      status: "CONFIRMED",
+      metadata: {
+        clientName,
+        clientPhone,
+        bookedByAdmin: true,
         ...(guestCount && { guestCount }),
         ...(comment && { comment }),
       },

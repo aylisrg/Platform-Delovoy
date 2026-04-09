@@ -5,6 +5,7 @@ import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/gazebos/booking-actions";
+import { AdminBookingForm } from "@/components/admin/gazebos/admin-booking-form";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,11 @@ export default async function GazebosManagerPage() {
           />
         </div>
 
+        {/* Admin booking form */}
+        <div className="mb-8">
+          <AdminBookingForm />
+        </div>
+
         {/* Resources */}
         <Card className="mb-8">
           <CardHeader>
@@ -136,7 +142,14 @@ export default async function GazebosManagerPage() {
                         {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
                       </td>
                       <td className="py-3 text-zinc-600">
-                        {b.user.name ?? b.user.email ?? "—"}
+                        {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
+                          <span>
+                            {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
+                            <span className="text-xs text-zinc-400 ml-1">(админ)</span>
+                          </span>
+                        ) : (
+                          b.user.name ?? b.user.email ?? "—"
+                        )}
                       </td>
                       <td className="py-3">
                         <Badge variant={statusVariant[b.status]}>
