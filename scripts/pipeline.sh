@@ -69,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       MAX_BUDGET="$2"
       shift 2
       ;;
+    --run-id)
+      CUSTOM_RUN_ID="$2"
+      shift 2
+      ;;
     -h|--help)
       head -12 "$0" | tail -10
       echo ""
