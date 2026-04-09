@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const { name, phone } = parsed.data;
 
   try {
-    await db.systemEvent.create({
+    await prisma.systemEvent.create({
       data: {
         level: "INFO",
         source: "waitlist",
