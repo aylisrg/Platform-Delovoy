@@ -154,6 +154,16 @@ export default function SignInPage() {
                 Войти через Яндекс
               </button>
 
+              {/* VK (Max) */}
+              <button
+                onClick={() => handleOAuthLogin("vk")}
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+              >
+                <VKIcon />
+                Войти через VK
+              </button>
+
               {/* Telegram */}
               <TelegramLoginButton />
 
