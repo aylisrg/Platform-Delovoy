@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { listResources } from "@/modules/gazebos/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
-import { AvailabilityCalendar } from "@/components/public/gazebos/availability-calendar";
+import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +31,7 @@ export default async function GazebosPage() {
         </section>
 
         <section className="mt-12">
-          <h2 className="text-xl font-semibold text-zinc-900 mb-4">Проверить доступность</h2>
-          <AvailabilityCalendar />
+          <BookingFlow />
         </section>
       </main>
     </div>
