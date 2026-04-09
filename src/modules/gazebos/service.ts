@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import type {
   CreateBookingInput,
+  AdminCreateBookingInput,
   CreateResourceInput,
   UpdateResourceInput,
   BookingFilter,
