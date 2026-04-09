@@ -21,11 +21,6 @@ vi.mock("@/lib/parsers/yandex-reviews", () => ({
   parseYandexReviews: vi.fn(),
 }));
 
-vi.mock("@/lib/parsers/validation", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/parsers/validation")>();
-  return actual;
-});
-
 vi.mock("@/lib/api-response", () => ({
   apiResponse: vi.fn((data) => ({
     status: 200,
