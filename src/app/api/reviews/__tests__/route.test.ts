@@ -17,7 +17,7 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
-vi.mock("@/lib/parsers/yandex-reviews", () => ({
+vi.mock("@landing/lib/parsers/yandex-reviews", () => ({
   parseYandexReviews: vi.fn(),
 }));
 
@@ -40,9 +40,9 @@ vi.mock("@/lib/api-response", () => ({
 
 import { GET } from "../route";
 import { redis } from "@/lib/redis";
-import { parseYandexReviews } from "@/lib/parsers/yandex-reviews";
+import { parseYandexReviews } from "@landing/lib/parsers/yandex-reviews";
 import { log } from "@/lib/logger";
-import type { Review, ReviewsCache } from "@/lib/parsers/types";
+import type { Review, ReviewsCache } from "@landing/lib/parsers/types";
 
 const mockReview: Review = {
   id: "yandex-abc123",
