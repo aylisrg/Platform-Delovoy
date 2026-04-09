@@ -56,23 +56,46 @@ export function Navbar() {
 
           {status !== "loading" && (
             isLoggedIn ? (
-              <Link
-                href={isAdmin ? "/admin/dashboard" : "/dashboard"}
-                className="inline-flex items-center gap-2 text-white/70 hover:text-white text-sm px-4 py-2 rounded-full border border-white/10 hover:border-white/20 transition-all font-[family-name:var(--font-inter)]"
-              >
-                {session.user.image ? (
-                  <img
-                    src={session.user.image}
-                    alt=""
-                    className="w-5 h-5 rounded-full"
-                  />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
-                    {(session.user.name || "U")[0].toUpperCase()}
-                  </div>
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenu(!userMenu)}
+                  className="inline-flex items-center gap-2 text-white/70 hover:text-white text-sm px-4 py-2 rounded-full border border-white/10 hover:border-white/20 transition-all font-[family-name:var(--font-inter)]"
+                >
+                  {session.user.image ? (
+                    <img
+                      src={session.user.image}
+                      alt=""
+                      className="w-5 h-5 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
+                      {(session.user.name || "U")[0].toUpperCase()}
+                    </div>
+                  )}
+                  {session.user.name?.split(" ")[0] || "Кабинет"}
+                </button>
+
+                {userMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setUserMenu(false)} />
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50">
+                      <Link
+                        href={isAdmin ? "/admin/dashboard" : "/dashboard"}
+                        onClick={() => setUserMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/80 hover:text-white hover:bg-white/5 transition-colors font-[family-name:var(--font-inter)]"
+                      >
+                        {isAdmin ? "Админ-панель" : "Личный кабинет"}
+                      </Link>
+                      <button
+                        onClick={() => signOut({ callbackUrl: "/" })}
+                        className="block w-full text-left px-4 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition-colors font-[family-name:var(--font-inter)]"
+                      >
+                        Выйти
+                      </button>
+                    </div>
+                  </>
                 )}
-                {session.user.name?.split(" ")[0] || "Кабинет"}
-              </Link>
+              </div>
             ) : (
               <Link
                 href="/auth/signin"
