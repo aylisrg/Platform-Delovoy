@@ -241,6 +241,8 @@ run_stage() {
   label="$(get_stage_emoji "$stage")"
   local tools
   tools="$(get_allowed_tools "$stage")"
+  local perm_mode
+  perm_mode="$(get_permission_mode "$stage")"
   local system_prompt
   system_prompt="$(get_agent_prompt "$stage")"
   local user_prompt
