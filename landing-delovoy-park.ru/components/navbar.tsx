@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 
 const navLinks = [
   { label: "О парке", href: "#advantages" },
@@ -12,6 +13,11 @@ const navLinks = [
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const { data: session, status } = useSession();
+
+  const isLoggedIn = status === "authenticated" && !!session?.user;
+  const isAdmin =
+    session?.user?.role === "SUPERADMIN" || session?.user?.role === "MANAGER";
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/5">
@@ -37,13 +43,44 @@ export function Navbar() {
           ))}
         </nav>
 
-        {/* CTA */}
-        <a
-          href="#offices"
-          className="hidden md:inline-flex items-center bg-white/10 hover:bg-white/20 text-white text-sm px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
-        >
-          Записаться в лист ожидания
-        </a>
+        {/* Right side: CTA + Auth */}
+        <div className="hidden md:flex items-center gap-3">
+          <a
+            href="#offices"
+            className="inline-flex items-center bg-white/10 hover:bg-white/20 text-white text-sm px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
+          >
+            Записаться в лист ожидания
+          </a>
+
+          {status !== "loading" && (
+            isLoggedIn ? (
+              <Link
+                href={isAdmin ? "/admin/dashboard" : "/dashboard"}
+                className="inline-flex items-center gap-2 text-white/70 hover:text-white text-sm px-4 py-2 rounded-full border border-white/10 hover:border-white/20 transition-all font-[family-name:var(--font-inter)]"
+              >
+                {session.user.image ? (
+                  <img
+                    src={session.user.image}
+                    alt=""
+                    className="w-5 h-5 rounded-full"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
+                    {(session.user.name || "U")[0].toUpperCase()}
+                  </div>
+                )}
+                {session.user.name?.split(" ")[0] || "Кабинет"}
+              </Link>
+            ) : (
+              <Link
+                href="/auth/signin"
+                className="text-white/60 hover:text-white text-sm px-4 py-2 transition-colors font-[family-name:var(--font-inter)]"
+              >
+                Войти
+              </Link>
+            )
+          )}
+        </div>
 
         {/* Mobile burger */}
         <button
@@ -77,6 +114,33 @@ export function Navbar() {
           >
             Записаться в лист ожидания
           </a>
+
+          {status !== "loading" && (
+            isLoggedIn ? (
+              <Link
+                href={isAdmin ? "/admin/dashboard" : "/dashboard"}
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2 text-white/70 text-sm font-[family-name:var(--font-inter)]"
+              >
+                {session.user.image ? (
+                  <img src={session.user.image} alt="" className="w-5 h-5 rounded-full" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-medium text-white">
+                    {(session.user.name || "U")[0].toUpperCase()}
+                  </div>
+                )}
+                {session.user.name || "Личный кабинет"}
+              </Link>
+            ) : (
+              <Link
+                href="/auth/signin"
+                onClick={() => setOpen(false)}
+                className="block text-white/60 hover:text-white text-sm font-[family-name:var(--font-inter)]"
+              >
+                Войти
+              </Link>
+            )
+          )}
         </div>
       )}
     </header>
