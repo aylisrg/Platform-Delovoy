@@ -1,7 +1,6 @@
 import { redis, redisAvailable } from "@/lib/redis";
 import { prisma } from "@/lib/db";
 import { apiResponse, apiError } from "@/lib/api-response";
-import jwt from "next-auth/jwt";
 
 const OTP_PREFIX = "whatsapp:otp:";
 const OTP_ATTEMPTS_PREFIX = "whatsapp:attempts:";
