@@ -123,6 +123,16 @@ get_allowed_tools() {
   esac
 }
 
+get_permission_mode() {
+  local stage="$1"
+  case "$stage" in
+    po)        echo "plan" ;;          # read-only + write docs
+    architect) echo "plan" ;;          # read-only + write docs
+    developer) echo "acceptEdits" ;;   # auto-accept file edits
+    qa)        echo "acceptEdits" ;;   # can run tests
+  esac
+}
+
 get_stage_emoji() {
   local stage="$1"
   case "$stage" in
