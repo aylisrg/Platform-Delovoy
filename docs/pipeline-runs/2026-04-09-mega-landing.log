@@ -1,0 +1,58 @@
+[23:33:54] Task: Мега-лендинг: видео-фон на Hero секции + секция отзывов с Яндекс Карт. PRD: docs/requirements/2026-04-09-mega-landing-prd.md
+[23:33:54] Stages: architect developer qa
+[23:33:54] Model: sonnet
+[23:33:54] Budget per stage: $8.00
+[23:33:54] Run ID: 2026-04-09-mega-landing
+[23:33:54] Log: /Users/elliott/Platform Delovoy/Platform-Delovoy/docs/pipeline-runs/2026-04-09-mega-landing.log
+[23:33:54] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:33:54] [0;34m[ARCH] Starting stage: architect[0m
+[23:33:54] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:35:01] Task: Мега-лендинг: видео-фон на Hero секции + секция отзывов с Яндекс Карт. PRD: docs/requirements/2026-04-09-mega-landing-prd.md
+[23:35:01] Stages: architect developer qa
+[23:35:01] Model: sonnet
+[23:35:01] Budget per stage: $8.00
+[23:35:01] Run ID: 2026-04-09-mega-landing
+[23:35:01] Log: /Users/elliott/Platform Delovoy/Platform-Delovoy/docs/pipeline-runs/2026-04-09-mega-landing.log
+[23:35:01] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:35:01] [0;34m[ARCH] Starting stage: architect[0m
+[23:35:01] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:38:36] [0;32m[ARCH] Stage architect completed[0m
+[23:38:36] 
+[23:38:36] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:38:36] [0;34m[DEV] Starting stage: developer[0m
+[23:38:36] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:47:11] [0;32m[ARCH] Stage architect completed[0m
+[23:47:11] 
+[23:47:11] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:47:11] [0;34m[DEV] Starting stage: developer[0m
+[23:47:11] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:47:13] [0;32m[DEV] Stage developer completed[0m
+[23:47:13] 
+[23:47:13] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:47:13] [0;34m[QA] Starting stage: qa[0m
+[23:47:13] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:52:17] [0;32m[DEV] Stage developer completed[0m
+[23:52:17] 
+[23:52:17] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:52:17] [0;34m[QA] Starting stage: qa[0m
+[23:52:17] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:53:11] [0;32m[QA] Stage qa completed[0m
+[23:53:11] 
+[23:53:11] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:53:11] [0;32mPipeline completed successfully[0m
+[23:53:11] 
+[23:53:11] Artifacts:
+[23:53:11]   PRD:       docs/requirements/2026-04-09-mega-landing-prd.md
+[23:53:11]   ADR:       docs/architecture/2026-04-09-mega-landing-adr.md
+[23:53:11]   QA Report: docs/qa-reports/2026-04-09-mega-landing-qa-report.md
+[23:53:11]   Full log:  /Users/elliott/Platform Delovoy/Platform-Delovoy/docs/pipeline-runs/2026-04-09-mega-landing.log
+[23:59:00] [0;32m[QA] Stage qa completed[0m
+[23:59:00] 
+[23:59:00] [0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[23:59:00] [0;32mPipeline completed successfully[0m
+[23:59:00] 
+[23:59:00] Artifacts:
+[23:59:00]   PRD:       docs/requirements/2026-04-09-mega-landing-prd.md
+[23:59:00]   ADR:       docs/architecture/2026-04-09-mega-landing-adr.md
+[23:59:00]   QA Report: docs/qa-reports/2026-04-09-mega-landing-qa-report.md
+[23:59:00]   Full log:  /Users/elliott/Platform Delovoy/Platform-Delovoy/docs/pipeline-runs/2026-04-09-mega-landing.log
