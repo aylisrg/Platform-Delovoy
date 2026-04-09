@@ -98,8 +98,12 @@ fi
 mkdir -p "$DOCS_DIR/requirements" "$DOCS_DIR/architecture" "$DOCS_DIR/qa-reports"
 
 # ── Slug from task (for filenames) ──────────────────────────────────
-TASK_SLUG=$(echo "$TASK" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zа-яё0-9]/-/g' | sed 's/--*/-/g' | cut -c1-50)
-RUN_ID="${TIMESTAMP}-${TASK_SLUG}"
+if [[ -n "$CUSTOM_RUN_ID" ]]; then
+  RUN_ID="$CUSTOM_RUN_ID"
+else
+  TASK_SLUG=$(echo "$TASK" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zа-яё0-9]/-/g' | sed 's/--*/-/g' | cut -c1-50)
+  RUN_ID="${TIMESTAMP}-${TASK_SLUG}"
+fi
 
 # ── Log file ────────────────────────────────────────────────────────
 LOG_DIR="$DOCS_DIR/pipeline-runs"
