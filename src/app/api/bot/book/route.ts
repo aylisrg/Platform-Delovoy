@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiValidationError, apiServerError } from "@/lib/api-response";
+import { verifyBotRequest } from "@/lib/bot-auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
 import { createBooking, BookingError } from "@/modules/gazebos/service";
