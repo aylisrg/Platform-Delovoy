@@ -51,18 +51,45 @@ export function AuthModal({
       setError("");
       setLoading(true);
 
+      // Step 1: try credentials login (for users who already have a password)
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
 
-      if (result?.error || !result?.ok) {
-        setError("Неверный email или пароль");
-        setLoading(false);
-      } else {
+      if (result?.ok) {
         onClose();
         window.location.reload();
+        return;
+      }
+
+      // Step 2: credentials failed — try magic link flow
+      try {
+        const res = await fetch("/api/auth/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password: password || undefined }),
+        });
+        const data = await res.json();
+
+        if (!data.success && data.error?.code === "USE_PASSWORD") {
+          setError("Неверный email или пароль");
+          setLoading(false);
+          return;
+        }
+
+        if (!data.success) {
+          setError(data.error?.message || "Не удалось отправить письмо");
+          setLoading(false);
+          return;
+        }
+
+        setEmailSubView("magic-link-sent");
+      } catch {
+        setError("Ошибка сети");
+      } finally {
+        setLoading(false);
       }
     },
     [email, password, onClose]
