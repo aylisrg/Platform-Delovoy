@@ -34,6 +34,7 @@ export function TelegramSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tgUsers, setTgUsers] = useState<TelegramUser[]>([]);
   const [managers, setManagers] = useState<AllUser[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [chatIdInput, setChatIdInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
