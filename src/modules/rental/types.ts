@@ -1,4 +1,4 @@
-import type { Office, Tenant, RentalContract, OfficeStatus, ContractStatus } from "@prisma/client";
+import type { Office, Tenant, RentalContract, OfficeStatus, ContractStatus, InquiryStatus } from "@prisma/client";
 
 // === Office Types ===
 
