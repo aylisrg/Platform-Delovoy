@@ -104,8 +104,8 @@ async function showBookings(ctx: BotContext, edit = false) {
   }
 
   try {
-    const res = await fetch(
-      `${API_URL}/api/bot/my-bookings?telegramId=${telegramId}`
+    const res = await botFetch(
+      `/api/bot/my-bookings?telegramId=${telegramId}`
     );
     const data = await res.json();
 
