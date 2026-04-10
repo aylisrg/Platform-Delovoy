@@ -188,12 +188,12 @@ export async function getModuleBotConfig(
   moduleSlug: string
 ): Promise<ModuleBotConfig> {
   try {
-    const module = await prisma.module.findUnique({
+    const mod = await prisma.module.findUnique({
       where: { slug: moduleSlug },
       select: { config: true },
     });
 
-    const config = module?.config as Record<string, unknown> | null;
+    const config = mod?.config as Record<string, unknown> | null;
     return {
       telegramBotToken:
         (config?.telegramBotToken as string) || undefined,
