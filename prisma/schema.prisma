@@ -144,16 +144,17 @@ enum BookingStatus {
 // === BOOKABLE RESOURCES (беседки, столы PS) ===
 
 model Resource {
-  id           String   @id @default(cuid())
-  moduleSlug   String
-  name         String
-  description  String?
-  capacity     Int?
-  pricePerHour Decimal?
-  isActive     Boolean  @default(true)
-  metadata     Json?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String   @id @default(cuid())
+  moduleSlug       String
+  name             String
+  description      String?
+  capacity         Int?
+  pricePerHour     Decimal?
+  isActive         Boolean  @default(true)
+  googleCalendarId String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([moduleSlug])
 }
