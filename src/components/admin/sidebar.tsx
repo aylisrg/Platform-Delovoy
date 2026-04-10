@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 type NavItem = {
   label: string;
@@ -24,9 +24,12 @@ const navigation: NavItem[] = [
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
 
+const BADGE_POLL_INTERVAL = 30_000; // 30 seconds
+
 export function Sidebar() {
   const pathname = usePathname();
   const [allowedSections, setAllowedSections] = useState<string[] | null>(null);
+  const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch("/api/admin/permissions/me")
@@ -37,14 +40,31 @@ export function Sidebar() {
         }
       })
       .catch(() => {
-        // If fetch fails, show nothing for safety
         setAllowedSections([]);
       });
   }, []);
 
+  const fetchBadges = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/badge-counts");
+      const data = await res.json();
+      if (data.success) {
+        setBadgeCounts(data.data);
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBadges();
+    const interval = setInterval(fetchBadges, BADGE_POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchBadges]);
+
   const visibleNavigation =
     allowedSections === null
-      ? [] // Loading — don't show anything yet
+      ? []
       : navigation.filter((item) => allowedSections.includes(item.section));
 
   return (
@@ -68,6 +88,7 @@ export function Sidebar() {
         ) : (
           visibleNavigation.map((item) => {
             const isActive = pathname?.startsWith(item.href);
+            const count = badgeCounts[item.section] || 0;
             return (
               <Link
                 key={item.href}
@@ -80,6 +101,11 @@ export function Sidebar() {
               >
                 <span>{item.icon}</span>
                 {item.label}
+                {count > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white leading-none">
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
               </Link>
             );
           })
