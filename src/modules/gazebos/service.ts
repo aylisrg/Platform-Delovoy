@@ -327,7 +327,7 @@ export async function updateBookingStatus(
   return updated;
 }
 
-export async function cancelBooking(id: string, userId: string) {
+export async function cancelBooking(id: string, userId: string, cancelReason?: string) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
   });
@@ -344,9 +344,24 @@ export async function cancelBooking(id: string, userId: string) {
     throw new BookingError("INVALID_STATUS_TRANSITION", "Бронирование уже завершено или отменено");
   }
 
+  // Delete from Google Calendar if synced
+  if (booking.googleEventId) {
+    const resource = await prisma.resource.findUnique({
+      where: { id: booking.resourceId },
+      select: { googleCalendarId: true },
+    });
+    if (resource?.googleCalendarId) {
+      await deleteCalendarEvent(resource.googleCalendarId, booking.googleEventId);
+    }
+  }
+
   const updated = await prisma.booking.update({
     where: { id },
-    data: { status: "CANCELLED" },
+    data: {
+      status: "CANCELLED",
+      googleEventId: null,
+      ...(cancelReason && { cancelReason }),
+    },
   });
 
   const resource = await prisma.resource.findUnique({
