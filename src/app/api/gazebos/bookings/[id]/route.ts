@@ -5,6 +5,7 @@ import {
   apiNotFound,
   apiUnauthorized,
   apiServerError,
+  requireAdminSection,
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
