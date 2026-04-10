@@ -16,10 +16,72 @@ const inter = Inter({
   display: "swap",
 });
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+
 export const metadata: Metadata = {
-  title: "Деловой Парк — Бизнес-парк в Селятино",
+  metadataBase: new URL(APP_URL),
+  title: {
+    default: "Деловой Парк — Бизнес-парк в Селятино",
+    template: "%s | Деловой Парк",
+  },
   description:
-    "Бизнес-парк Деловой в Селятино, Московская область. 300+ отзывов ★★★★★ на Яндекс Картах. Аренда офисов, беседки, PS Park, кафе.",
+    "Бизнес-парк Деловой в Селятино, Московская область. Аренда офисов от 15 м², беседки с мангалом, PlayStation Park, кафе с доставкой в офис. 300+ отзывов ★★★★★.",
+  keywords: [
+    "бизнес-парк Селятино",
+    "аренда офисов Селятино",
+    "офисы Московская область",
+    "беседки аренда",
+    "PlayStation Park",
+    "кафе Селятино",
+    "Деловой Парк",
+    "бизнес центр Нарофоминск",
+  ],
+  authors: [{ name: "Деловой Парк", url: APP_URL }],
+  creator: "Деловой Парк",
+  publisher: "Деловой Парк",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  alternates: {
+    canonical: APP_URL,
+  },
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    url: APP_URL,
+    siteName: "Деловой Парк",
+    title: "Деловой Парк — Бизнес-парк в Селятино",
+    description:
+      "Аренда офисов, беседки с мангалом, PlayStation Park, кафе. Бизнес-парк в Селятино, Московская область.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Деловой Парк — Бизнес-парк в Селятино",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Деловой Парк — Бизнес-парк в Селятино",
+    description:
+      "Аренда офисов, беседки с мангалом, PlayStation Park, кафе. Селятино, Московская область.",
+    images: ["/og-image.png"],
+  },
+  verification: {
+    yandex: "yandex-verification-placeholder",
+    google: "google-verification-placeholder",
+  },
+  category: "business",
 };
 
 export default function RootLayout({
