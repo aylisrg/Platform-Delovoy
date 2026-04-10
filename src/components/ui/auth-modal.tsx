@@ -251,37 +251,70 @@ export function AuthModal({
           {tab === "email" && (
             <div className="space-y-3">
               <button
-                onClick={() => { setTab("telegram"); setError(""); }}
+                onClick={() => { setTab("telegram"); setEmailSubView("form"); setError(""); }}
                 className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
               >
                 ← Назад
               </button>
-              <form onSubmit={handleEmailLogin} className="space-y-3">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="Email"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-                />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="Пароль"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-                />
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
-                >
-                  {loading ? "Вход..." : "Войти"}
-                </button>
-              </form>
+
+              {emailSubView === "form" && (
+                <form onSubmit={handleEmailLogin} className="space-y-3">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="Email"
+                    className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                  />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Пароль (если есть)"
+                    className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                  />
+                  {error && <p className="text-sm text-red-500">{error}</p>}
+                  <button
+                    type="submit"
+                    disabled={loading || !email}
+                    className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                  >
+                    {loading ? "Отправка..." : "Войти"}
+                  </button>
+                  <p className="text-center text-xs text-[#86868b] font-[family-name:var(--font-inter)]">
+                    Если аккаунта нет — пришлём ссылку для входа
+                  </p>
+                </form>
+              )}
+
+              {emailSubView === "magic-link-sent" && (
+                <div className="space-y-3 text-center py-2">
+                  <div className="flex justify-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#0071e3]/10">
+                      <MailIcon />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#1d1d1f] font-[family-name:var(--font-inter)]">
+                      Проверьте почту
+                    </p>
+                    <p className="text-sm text-[#86868b] mt-1 font-[family-name:var(--font-inter)]">
+                      Отправили письмо на{" "}
+                      <span className="text-[#1d1d1f] font-medium">{email}</span>
+                    </p>
+                    <p className="text-xs text-[#86868b]/70 mt-1 font-[family-name:var(--font-inter)]">
+                      Ссылка действительна 15 минут
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setEmailSubView("form"); setError(""); }}
+                    className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)]"
+                  >
+                    Изменить email или отправить повторно
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
