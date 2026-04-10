@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { NotificationSettings } from "@/components/public/notifications/notification-settings";
 import type { BookingStatus, OrderStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
