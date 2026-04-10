@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CreateUserForm } from "./create-user-form";
+import { PermissionsModal } from "./permissions-modal";
 
 type Role = "SUPERADMIN" | "MANAGER" | "USER";
 
