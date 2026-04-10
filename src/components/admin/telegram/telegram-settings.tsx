@@ -456,7 +456,7 @@ export function TelegramSettings() {
                       <select
                         value={user.role}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                        disabled={roleChanging === user.id}
+                        disabled={!isSuperAdmin || roleChanging === user.id}
                         className={`rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
                           user.role === "SUPERADMIN"
                             ? "border-purple-200 bg-purple-50 text-purple-700"
