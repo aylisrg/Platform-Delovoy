@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
   const parsed = sendMagicLinkSchema.safeParse(body);
   if (!parsed.success) {
-    const message = parsed.error.errors[0]?.message || "Ошибка валидации";
+    const message = parsed.error.issues[0]?.message || "Ошибка валидации";
     return apiError("VALIDATION_ERROR", message, 422);
   }
 
