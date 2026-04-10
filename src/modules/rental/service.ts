@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { ContractStatus, OfficeStatus } from "@prisma/client";
+import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateOfficeInput,
   UpdateOfficeInput,
