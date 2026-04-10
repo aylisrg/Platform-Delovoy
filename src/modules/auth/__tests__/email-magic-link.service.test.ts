@@ -1,17 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mocks ---
+// --- Hoisted mocks (vi.mock factories are hoisted, so vars must be too) ---
 
-const mockVerificationToken = {
-  deleteMany: vi.fn(),
-  create: vi.fn(),
-  findFirst: vi.fn(),
-};
-const mockUser = {
-  findUnique: vi.fn(),
-  create: vi.fn(),
-  update: vi.fn(),
-};
+const { mockVerificationToken, mockUser, mockRedis } = vi.hoisted(() => {
+  const mockVerificationToken = {
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    findFirst: vi.fn(),
+  };
+  const mockUser = {
+    findUnique: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  };
+  const mockRedis = {
+    get: vi.fn(),
+    set: vi.fn(),
+    del: vi.fn(),
+  };
+  return { mockVerificationToken, mockUser, mockRedis };
+});
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -19,12 +27,6 @@ vi.mock("@/lib/db", () => ({
     user: mockUser,
   },
 }));
-
-const mockRedis = {
-  get: vi.fn(),
-  set: vi.fn(),
-  del: vi.fn(),
-};
 
 vi.mock("@/lib/redis", () => ({
   redis: mockRedis,
