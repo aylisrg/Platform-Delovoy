@@ -319,17 +319,17 @@ describe("getAvailability", () => {
     expect(slot10?.isAvailable).toBe(false);
   });
 
-  it("returns correct slot time labels (first: 09:00, last: 21:00)", async () => {
+  it("returns correct slot time labels (first: 08:00, last: 22:00)", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);
     const slots = result[0].slots;
 
-    expect(slots[0].startTime).toBe("09:00");
-    expect(slots[0].endTime).toBe("10:00");
-    expect(slots[slots.length - 1].startTime).toBe("21:00");
-    expect(slots[slots.length - 1].endTime).toBe("22:00");
+    expect(slots[0].startTime).toBe("08:00");
+    expect(slots[0].endTime).toBe("09:00");
+    expect(slots[slots.length - 1].startTime).toBe("22:00");
+    expect(slots[slots.length - 1].endTime).toBe("23:00");
   });
 
   it("filters by resourceId when provided", async () => {
