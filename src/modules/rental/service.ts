@@ -240,6 +240,19 @@ export async function createContract(input: CreateContractInput) {
     });
   }
 
+  enqueueNotification({
+    type: "contract.created",
+    moduleSlug: "rental",
+    entityId: contract.id,
+    data: {
+      tenantName: tenant.companyName,
+      officeNumber: office.number,
+      monthlyRate: input.monthlyRate.toString(),
+      startDate: input.startDate,
+      endDate: input.endDate,
+    },
+  });
+
   return contract;
 }
 
