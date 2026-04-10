@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/modules/notifications/queue", () => ({
+  enqueueNotification: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
