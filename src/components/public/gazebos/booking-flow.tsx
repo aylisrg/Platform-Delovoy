@@ -324,7 +324,13 @@ export function BookingFlow() {
                     )}
                   </div>
                   <button
-                    onClick={() => setStep("form")}
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        setShowAuthModal(true);
+                        return;
+                      }
+                      setStep("form");
+                    }}
                     className="text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
                     style={{
                       backgroundColor: ACCENT,
