@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { verifyBotRequest } from "@/lib/bot-auth";
 import { prisma } from "@/lib/db";
 
 /**
@@ -8,6 +9,10 @@ import { prisma } from "@/lib/db";
  */
 export async function GET(request: NextRequest) {
   try {
+    if (!verifyBotRequest(request)) {
+      return apiError("UNAUTHORIZED", "Invalid bot token", 401);
+    }
+
     const telegramId = request.nextUrl.searchParams.get("telegramId");
     if (!telegramId) {
       return apiError("VALIDATION_ERROR", "telegramId is required", 400);
