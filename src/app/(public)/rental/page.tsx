@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { listOffices } from "@/modules/rental/service";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,6 +7,21 @@ import { InquiryForm } from "@/components/public/rental/inquiry-form";
 import type { OfficeStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Аренда офисов",
+  description:
+    "Аренда офисов в бизнес-парке Деловой, Селятино, Московская область. Офисы от 15 м² с отделкой, интернетом, парковкой. Вступайте в лист ожидания.",
+  alternates: {
+    canonical: "/rental",
+  },
+  openGraph: {
+    title: "Аренда офисов — Деловой Парк",
+    description: "Офисы от 15 м² в Селятино. Готовая отделка, интернет, охрана, парковка. Московская область.",
+    url: "/rental",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
+};
 
 const statusLabel: Record<OfficeStatus, string> = {
   AVAILABLE: "Свободен",
