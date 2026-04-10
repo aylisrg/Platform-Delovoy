@@ -11,9 +11,26 @@ export type Review = {
 };
 
 /**
+ * Aggregated rating metadata from Yandex Maps
+ */
+export type ReviewsMeta = {
+  rating: number;       // e.g. 4.8
+  totalReviews: number; // e.g. 342
+};
+
+/**
+ * Combined response from reviews API
+ */
+export type ReviewsResponse = {
+  reviews: Review[];
+  meta: ReviewsMeta;
+};
+
+/**
  * Reviews cache structure in Redis
  */
 export type ReviewsCache = {
   fetchedAt: number;    // Unix timestamp
   reviews: Review[];
+  meta: ReviewsMeta;
 };
