@@ -99,7 +99,7 @@ export async function createOrder(userId: string, input: CreateOrderInput) {
     };
   });
 
-  return prisma.order.create({
+  const order = await prisma.order.create({
     data: {
       moduleSlug: MODULE_SLUG,
       userId,
@@ -112,6 +112,22 @@ export async function createOrder(userId: string, input: CreateOrderInput) {
     },
     include: { items: true },
   });
+
+  enqueueNotification({
+    type: "order.placed",
+    moduleSlug: MODULE_SLUG,
+    entityId: order.id,
+    userId,
+    actor: "client",
+    data: {
+      orderNumber: order.id.slice(-6).toUpperCase(),
+      totalAmount: totalAmount.toString(),
+      deliveryTo,
+      itemCount: items.length,
+    },
+  });
+
+  return order;
 }
 
 export async function listOrders(filter?: OrderFilter) {
