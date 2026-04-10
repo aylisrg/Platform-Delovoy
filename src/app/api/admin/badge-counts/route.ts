@@ -49,6 +49,15 @@ export async function GET() {
       );
     }
 
+    if (sections.includes("clients")) {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      queries.push(
+        prisma.user
+          .count({ where: { role: "USER", createdAt: { gte: oneDayAgo } } })
+          .then((n) => { counts.clients = n; })
+      );
+    }
+
     await Promise.all(queries);
 
     return apiResponse(counts);
