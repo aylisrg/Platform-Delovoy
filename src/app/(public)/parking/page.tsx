@@ -1,7 +1,23 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getParkingInfo } from "@/modules/parking/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+
+export const metadata: Metadata = {
+  title: "Парковка",
+  description:
+    "Бесплатная парковка для арендаторов и гостей бизнес-парка Деловой, Селятино. 200+ машиномест. Видеонаблюдение, охрана.",
+  alternates: {
+    canonical: "/parking",
+  },
+  openGraph: {
+    title: "Парковка — Деловой Парк",
+    description: "200+ машиномест, бесплатно для арендаторов и гостей. Бизнес-парк Деловой, Селятино.",
+    url: "/parking",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
+};
 
 export default function ParkingPage() {
   const info = getParkingInfo();
