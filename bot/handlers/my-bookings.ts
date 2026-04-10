@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 
-const API_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+import { botFetch, API_URL } from "../lib/api";
 
 type BotContext = Context;
 
