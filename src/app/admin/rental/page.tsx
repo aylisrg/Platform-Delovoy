@@ -88,6 +88,8 @@ export default async function RentalManagerPage() {
       }),
     ]);
 
+  const newInquiries = inquiries.filter((i) => !i.isRead).length;
+
   const monthlyRevenue = totalRevenue.reduce(
     (sum, c) => sum + Number(c.monthlyRate),
     0
