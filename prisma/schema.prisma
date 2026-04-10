@@ -308,3 +308,52 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
 }
+
+// === NOTIFICATIONS ===
+
+model NotificationPreference {
+  id               String              @id @default(cuid())
+  userId           String              @unique
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferredChannel NotificationChannel @default(AUTO)
+  enableBooking    Boolean             @default(true)
+  enableOrder      Boolean             @default(true)
+  enableReminder   Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model NotificationLog {
+  id         String              @id @default(cuid())
+  userId     String?
+  channel    NotificationChannel
+  eventType  String
+  moduleSlug String
+  entityId   String?
+  recipient  String
+  message    String              @db.Text
+  status     NotificationStatus  @default(PENDING)
+  error      String?
+  sentAt     DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([userId])
+  @@index([moduleSlug, eventType])
+  @@index([status, createdAt])
+  @@index([entityId])
+}
+
+enum NotificationChannel {
+  AUTO
+  TELEGRAM
+  WHATSAPP
+  EMAIL
+  VK
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
