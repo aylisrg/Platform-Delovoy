@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 
-type AuthTab = "social" | "email" | "whatsapp";
+type AuthView = "main" | "email" | "whatsapp" | "whatsapp-verify";
 
 // Telegram Login Widget component
 function TelegramLoginButton() {
@@ -31,7 +31,7 @@ function TelegramLoginButton() {
     script.src = "https://telegram.org/js/telegram-widget.js?22";
     script.setAttribute("data-telegram-login", botName);
     script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "8");
+    script.setAttribute("data-radius", "12");
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
     script.async = true;
@@ -44,28 +44,43 @@ function TelegramLoginButton() {
 
   if (!botName) {
     return (
-      <button
-        disabled
-        className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-400 cursor-not-allowed"
-      >
+      <div className="flex items-center justify-center gap-2 rounded-xl bg-[#26A5E4]/10 border border-[#26A5E4]/20 px-4 py-4">
         <TelegramIcon />
-        Telegram (не настроен)
-      </button>
+        <span className="text-sm text-[#26A5E4]">Telegram вход скоро будет доступен</span>
+      </div>
     );
   }
 
-  return <div id="telegram-login" className="flex justify-center" />;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2 text-[#26A5E4] mb-1">
+        <TelegramIcon />
+        <span className="text-sm font-medium">Быстрый вход через Telegram</span>
+      </div>
+      <div id="telegram-login" className="flex justify-center" />
+    </div>
+  );
 }
 
 export default function SignInPage() {
-  const [tab, setTab] = useState<AuthTab>("social");
+  const [view, setView] = useState<AuthView>("main");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const redirectAfterLogin = useCallback(async () => {
+    const sessionRes = await fetch("/api/auth/session");
+    const session = await sessionRes.json();
+    const role = session?.user?.role;
+    if (role === "SUPERADMIN" || role === "MANAGER") {
+      window.location.href = "/admin/dashboard";
+    } else {
+      window.location.href = "/";
+    }
+  }, []);
 
   const handleEmailLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,17 +97,9 @@ export default function SignInPage() {
       setError("Неверный email или пароль");
       setLoading(false);
     } else {
-      // Fetch session to determine redirect target
-      const sessionRes = await fetch("/api/auth/session");
-      const session = await sessionRes.json();
-      const role = session?.user?.role;
-      if (role === "SUPERADMIN" || role === "MANAGER") {
-        window.location.href = "/admin/dashboard";
-      } else {
-        window.location.href = "/";
-      }
+      await redirectAfterLogin();
     }
-  }, [email, password]);
+  }, [email, password, redirectAfterLogin]);
 
   const handleSendOtp = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +115,7 @@ export default function SignInPage() {
       const data = await res.json();
 
       if (data.success) {
-        setOtpSent(true);
+        setView("whatsapp-verify");
       } else {
         setError(data.error?.message || "Ошибка отправки кода");
       }
@@ -125,7 +132,6 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      // Step 1: verify OTP
       const verifyRes = await fetch("/api/auth/whatsapp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,7 +145,6 @@ export default function SignInPage() {
         return;
       }
 
-      // Step 2: sign in with verified userId
       const result = await signIn("whatsapp", {
         userId: verifyData.data.userId,
         redirect: false,
@@ -149,20 +154,13 @@ export default function SignInPage() {
         setError("Ошибка входа");
         setLoading(false);
       } else {
-        const sessionRes = await fetch("/api/auth/session");
-        const session = await sessionRes.json();
-        const role = session?.user?.role;
-        if (role === "SUPERADMIN" || role === "MANAGER") {
-          window.location.href = "/admin/dashboard";
-        } else {
-          window.location.href = "/";
-        }
+        await redirectAfterLogin();
       }
     } catch {
       setError("Ошибка сети");
       setLoading(false);
     }
-  }, [phone, otpCode]);
+  }, [phone, otpCode, redirectAfterLogin]);
 
   const handleOAuthLogin = useCallback(async (provider: string) => {
     setError("");
@@ -183,118 +181,136 @@ export default function SignInPage() {
 
         {/* Card */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-8">
-          {/* Tabs */}
-          <div className="mb-6 flex rounded-xl bg-zinc-800/50 p-1">
-            {([
-              { key: "social" as AuthTab, label: "Соцсети" },
-              { key: "whatsapp" as AuthTab, label: "WhatsApp" },
-              { key: "email" as AuthTab, label: "Email" },
-            ]).map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => { setTab(key); setError(""); }}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                  tab === key
-                    ? "bg-zinc-700 text-white"
-                    : "text-zinc-400 hover:text-zinc-300"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
 
-          {/* Social login */}
-          {tab === "social" && (
-            <div className="space-y-3">
-              {/* Google */}
-              <button
-                onClick={() => handleOAuthLogin("google")}
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-              >
-                <GoogleIcon />
-                Войти через Google
-              </button>
-
-              {/* Yandex */}
-              <button
-                onClick={() => handleOAuthLogin("yandex")}
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-              >
-                <YandexIcon />
-                Войти через Яндекс
-              </button>
-
-              {/* VK (Max) */}
-              <button
-                onClick={() => handleOAuthLogin("vk")}
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-              >
-                <VKIcon />
-                Войти через VK
-              </button>
-
-              {/* Telegram */}
+          {/* Main view — Telegram first */}
+          {view === "main" && (
+            <div className="space-y-5">
+              {/* Telegram — primary */}
               <TelegramLoginButton />
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-zinc-700/50" />
+                <span className="text-xs text-zinc-500">или</span>
+                <div className="flex-1 h-px bg-zinc-700/50" />
+              </div>
+
+              {/* OAuth buttons */}
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => handleOAuthLogin("google")}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  <GoogleIcon />
+                  Войти через Google
+                </button>
+
+                <button
+                  onClick={() => handleOAuthLogin("yandex")}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  <YandexIcon />
+                  Войти через Яндекс
+                </button>
+
+                <button
+                  onClick={() => handleOAuthLogin("vk")}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  <VKIcon />
+                  Войти через VK
+                </button>
+              </div>
+
+              {/* Secondary links */}
+              <div className="flex justify-center gap-4 pt-1">
+                <button
+                  onClick={() => { setView("whatsapp"); setError(""); }}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  WhatsApp
+                </button>
+                <span className="text-zinc-700">|</span>
+                <button
+                  onClick={() => { setView("email"); setError(""); }}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Email + пароль
+                </button>
+              </div>
 
               {error && <p className="text-center text-sm text-red-400">{error}</p>}
 
-              <p className="pt-2 text-center text-xs text-zinc-500">
+              <p className="pt-1 text-center text-xs text-zinc-500">
                 При первом входе аккаунт создаётся автоматически
               </p>
             </div>
           )}
 
           {/* Email login */}
-          {tab === "email" && (
-            <form onSubmit={handleEmailLogin} className="space-y-4">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
-                  Пароль
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="••••••••"
-                />
-              </div>
-
-              {error && <p className="text-sm text-red-400">{error}</p>}
-
+          {view === "email" && (
+            <div className="space-y-4">
               <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => { setView("main"); setError(""); }}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
               >
-                {loading ? "Вход..." : "Войти"}
+                ← Назад
               </button>
-            </form>
+              <form onSubmit={handleEmailLogin} className="space-y-4">
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
+                    Пароль
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="********"
+                  />
+                </div>
+
+                {error && <p className="text-sm text-red-400">{error}</p>}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? "Вход..." : "Войти"}
+                </button>
+              </form>
+            </div>
           )}
 
-          {/* WhatsApp login */}
-          {tab === "whatsapp" && (
-            !otpSent ? (
+          {/* WhatsApp — send OTP */}
+          {view === "whatsapp" && (
+            <div className="space-y-4">
+              <button
+                onClick={() => { setView("main"); setError(""); }}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                ← Назад
+              </button>
               <form onSubmit={handleSendOtp} className="space-y-4">
                 <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
                   <WhatsAppIcon />
@@ -326,7 +342,18 @@ export default function SignInPage() {
                   {loading ? "Отправка..." : "Получить код в WhatsApp"}
                 </button>
               </form>
-            ) : (
+            </div>
+          )}
+
+          {/* WhatsApp — verify OTP */}
+          {view === "whatsapp-verify" && (
+            <div className="space-y-4">
+              <button
+                onClick={() => { setView("main"); setError(""); }}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                ← Назад
+              </button>
               <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
                   <WhatsAppIcon />
@@ -347,7 +374,7 @@ export default function SignInPage() {
                     required
                     autoFocus
                     className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white text-center tracking-[0.3em] font-mono text-lg placeholder-zinc-500 focus:border-[#25D366] focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                    placeholder="• • • • • •"
+                    placeholder="******"
                   />
                 </div>
 
@@ -363,13 +390,13 @@ export default function SignInPage() {
 
                 <button
                   type="button"
-                  onClick={() => { setOtpSent(false); setOtpCode(""); setError(""); }}
+                  onClick={() => { setView("whatsapp"); setOtpCode(""); setError(""); }}
                   className="w-full text-center text-sm text-zinc-400 hover:text-white transition-colors"
                 >
                   Отправить код повторно
                 </button>
               </form>
-            )
+            </div>
           )}
         </div>
 
@@ -389,22 +416,10 @@ export default function SignInPage() {
 function GoogleIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24">
-      <path
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-        fill="#4285F4"
-      />
-      <path
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        fill="#34A853"
-      />
-      <path
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        fill="#FBBC05"
-      />
-      <path
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        fill="#EA4335"
-      />
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
     </svg>
   );
 }
@@ -413,10 +428,7 @@ function YandexIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect width="24" height="24" rx="4" fill="#FC3F1D" />
-      <path
-        d="M13.63 19.2h2.05V4.8h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38l-3.06 6h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V19.2z"
-        fill="white"
-      />
+      <path d="M13.63 19.2h2.05V4.8h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38l-3.06 6h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V19.2z" fill="white" />
     </svg>
   );
 }
@@ -425,10 +437,7 @@ function VKIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect width="24" height="24" rx="4" fill="#0077FF" />
-      <path
-        d="M12.77 16.87h.89s.27-.03.4-.18c.13-.14.12-.4.12-.4s-.02-1.22.55-1.4c.56-.18 1.28 1.18 2.04 1.7.58.39 1.02.3 1.02.3l2.05-.03s1.07-.07.56-.91c-.04-.07-.3-.63-1.55-1.78-1.31-1.2-1.13-.99.44-3.04.96-1.25 1.34-2.01 1.22-2.34-.12-.31-.83-.23-.83-.23l-2.31.01s-.17-.02-.3.05c-.12.08-.2.25-.2.25s-.37.98-.86 1.81c-1.03 1.74-1.45 1.83-1.62 1.72-.39-.26-.3-1.02-.3-1.57 0-1.7.26-2.41-.5-2.6-.25-.06-.44-.1-1.08-.11-.83-.01-1.53 0-1.93.2-.26.13-.47.42-.34.44.15.02.5.1.69.34.24.32.23 1.03.23 1.03s.14 2-.32 2.25c-.32.17-.75-.18-1.68-1.76-.48-.81-.84-1.7-.84-1.7s-.07-.17-.2-.26c-.15-.1-.36-.14-.36-.14l-2.2.01s-.33.01-.45.15c-.11.13-.01.4-.01.4s1.74 4.07 3.7 6.12c1.8 1.88 3.85 1.76 3.85 1.76z"
-        fill="white"
-      />
+      <path d="M12.77 16.87h.89s.27-.03.4-.18c.13-.14.12-.4.12-.4s-.02-1.22.55-1.4c.56-.18 1.28 1.18 2.04 1.7.58.39 1.02.3 1.02.3l2.05-.03s1.07-.07.56-.91c-.04-.07-.3-.63-1.55-1.78-1.31-1.2-1.13-.99.44-3.04.96-1.25 1.34-2.01 1.22-2.34-.12-.31-.83-.23-.83-.23l-2.31.01s-.17-.02-.3.05c-.12.08-.2.25-.2.25s-.37.98-.86 1.81c-1.03 1.74-1.45 1.83-1.62 1.72-.39-.26-.3-1.02-.3-1.57 0-1.7.26-2.41-.5-2.6-.25-.06-.44-.1-1.08-.11-.83-.01-1.53 0-1.93.2-.26.13-.47.42-.34.44.15.02.5.1.69.34.24.32.23 1.03.23 1.03s.14 2-.32 2.25c-.32.17-.75-.18-1.68-1.76-.48-.81-.84-1.7-.84-1.7s-.07-.17-.2-.26c-.15-.1-.36-.14-.36-.14l-2.2.01s-.33.01-.45.15c-.11.13-.01.4-.01.4s1.74 4.07 3.7 6.12c1.8 1.88 3.85 1.76 3.85 1.76z" fill="white" />
     </svg>
   );
 }
@@ -437,10 +446,7 @@ function WhatsAppIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect width="24" height="24" rx="4" fill="#25D366" />
-      <path
-        d="M17.47 14.38c-.29-.15-1.73-.85-2-.95-.27-.1-.46-.15-.66.15-.2.29-.76.95-.93 1.14-.17.2-.34.22-.64.07-.29-.15-1.24-.46-2.37-1.46-.88-.78-1.47-1.74-1.64-2.04-.17-.29-.02-.45.13-.6.13-.13.29-.34.44-.51.15-.17.2-.29.29-.49.1-.2.05-.37-.02-.51-.07-.15-.66-1.58-.9-2.17-.24-.57-.48-.49-.66-.5h-.56c-.2 0-.51.07-.78.37s-1.02 1-1.02 2.44c0 1.43 1.05 2.82 1.2 3.01.14.2 2.06 3.14 4.99 4.41.7.3 1.24.48 1.67.61.7.22 1.34.19 1.84.12.56-.08 1.73-.71 1.97-1.39.25-.68.25-1.27.17-1.39-.07-.12-.27-.2-.56-.34z"
-        fill="white"
-      />
+      <path d="M17.47 14.38c-.29-.15-1.73-.85-2-.95-.27-.1-.46-.15-.66.15-.2.29-.76.95-.93 1.14-.17.2-.34.22-.64.07-.29-.15-1.24-.46-2.37-1.46-.88-.78-1.47-1.74-1.64-2.04-.17-.29-.02-.45.13-.6.13-.13.29-.34.44-.51.15-.17.2-.29.29-.49.1-.2.05-.37-.02-.51-.07-.15-.66-1.58-.9-2.17-.24-.57-.48-.49-.66-.5h-.56c-.2 0-.51.07-.78.37s-1.02 1-1.02 2.44c0 1.43 1.05 2.82 1.2 3.01.14.2 2.06 3.14 4.99 4.41.7.3 1.24.48 1.67.61.7.22 1.34.19 1.84.12.56-.08 1.73-.71 1.97-1.39.25-.68.25-1.27.17-1.39-.07-.12-.27-.2-.56-.34z" fill="white" />
     </svg>
   );
 }
@@ -449,10 +455,7 @@ function TelegramIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect width="24" height="24" rx="4" fill="#26A5E4" />
-      <path
-        d="M18.92 6.09L4.75 11.67c-.97.39-.96.93-.18 1.17l3.64 1.14 1.41 4.33c.17.48.09.67.54.67.35 0 .5-.16.7-.35l1.68-1.63 3.49 2.58c.64.35 1.1.17 1.26-.6l2.28-10.72c.23-.92-.35-1.34-1-.97z"
-        fill="white"
-      />
+      <path d="M17.05 7.26l-1.83 9.43c-.14.62-.5.77-.99.48l-2.78-2.05-1.34 1.29c-.15.15-.27.27-.56.27l.2-2.83 5.15-4.65c.22-.2-.05-.31-.35-.12l-6.36 4.01-2.74-.85c-.59-.19-.61-.59.12-.88l10.72-4.13c.5-.19.94.12.76.88z" fill="white" />
     </svg>
   );
 }

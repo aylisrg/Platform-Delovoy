@@ -1,4 +1,4 @@
-import type { Office, Tenant, RentalContract, OfficeStatus, ContractStatus } from "@prisma/client";
+import type { Office, Tenant, RentalContract, OfficeStatus, ContractStatus, InquiryStatus } from "@prisma/client";
 
 // === Office Types ===
 
@@ -75,6 +75,29 @@ export type ContractFilter = {
   status?: ContractStatus;
   tenantId?: string;
   officeId?: string;
+};
+
+// === Inquiry Types ===
+
+export type CreateInquiryInput = {
+  name: string;
+  phone: string;
+  email?: string;
+  companyName?: string;
+  message?: string;
+  officeId?: string;
+};
+
+export type UpdateInquiryInput = Partial<{
+  status: InquiryStatus;
+  isRead: boolean;
+  adminNotes: string;
+  convertedToId: string;
+}>;
+
+export type InquiryFilter = {
+  status?: InquiryStatus;
+  isRead?: boolean;
 };
 
 // === Reports ===

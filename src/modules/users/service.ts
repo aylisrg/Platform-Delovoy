@@ -89,6 +89,7 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.phone !== undefined ? { phone: input.phone || null } : {}),
+      ...(input.telegramId !== undefined ? { telegramId: input.telegramId || null } : {}),
     },
     select: USER_SELECT,
   });

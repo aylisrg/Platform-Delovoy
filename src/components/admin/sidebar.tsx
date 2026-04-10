@@ -19,13 +19,17 @@ const navigation: NavItem[] = [
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
+  { label: "Telegram", href: "/admin/telegram", icon: "📨", section: "telegram" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
 
+const BADGE_POLL_INTERVAL = 30_000; // 30 seconds
+
 export function Sidebar() {
   const pathname = usePathname();
   const [allowedSections, setAllowedSections] = useState<string[] | null>(null);
+  const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch("/api/admin/permissions/me")
@@ -36,14 +40,32 @@ export function Sidebar() {
         }
       })
       .catch(() => {
-        // If fetch fails, show nothing for safety
         setAllowedSections([]);
       });
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    function poll() {
+      fetch("/api/admin/badge-counts")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && active) {
+            setBadgeCounts(data.data);
+          }
+        })
+        .catch(() => {});
+    }
+
+    poll();
+    const interval = setInterval(poll, BADGE_POLL_INTERVAL);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
   const visibleNavigation =
     allowedSections === null
-      ? [] // Loading — don't show anything yet
+      ? []
       : navigation.filter((item) => allowedSections.includes(item.section));
 
   return (
@@ -67,6 +89,7 @@ export function Sidebar() {
         ) : (
           visibleNavigation.map((item) => {
             const isActive = pathname?.startsWith(item.href);
+            const count = badgeCounts[item.section] || 0;
             return (
               <Link
                 key={item.href}
@@ -79,13 +102,29 @@ export function Sidebar() {
               >
                 <span>{item.icon}</span>
                 {item.label}
+                {count > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white leading-none">
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
               </Link>
             );
           })
         )}
       </nav>
 
-      <div className="border-t border-zinc-200 p-4">
+      <div className="border-t border-zinc-200 p-4 space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <video
+            src="/media/logo-animated.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="h-6 w-6 rounded object-cover"
+          />
+          <span className="text-xs text-zinc-400 font-medium">Деловой Парк</span>
+        </div>
         <Link
           href="/"
           className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700"

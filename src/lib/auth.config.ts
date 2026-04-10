@@ -75,10 +75,16 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/cafe") ||
         pathname.startsWith("/api/gazebos") ||
         pathname.startsWith("/api/ps-park") ||
-        pathname.startsWith("/api/parking");
+        pathname.startsWith("/api/parking") ||
+        pathname.startsWith("/api/rental");
+      const isPublicPostRoute =
+        pathname === "/api/rental/inquiries" ||
+        pathname.startsWith("/api/waitlist") ||
+        pathname.startsWith("/api/bot/");
 
       if (isAuthRoute || isHealthRoute) return true;
       if (isPublicApiRoute && request.method === "GET") return true;
+      if (isPublicPostRoute && request.method === "POST") return true;
 
       if (isAdminRoute) {
         if (!auth?.user) return false;

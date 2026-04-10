@@ -144,8 +144,9 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
     const config = await getModuleBotConfig(event.moduleSlug);
+    // Priority: module-specific chat ID → global DB setting → env fallback
     const chatId =
-      config.telegramAdminChatId || process.env.TELEGRAM_ADMIN_CHAT_ID;
+      config.telegramAdminChatId || await getGlobalAdminChatId();
 
     if (!chatId) {
       console.warn(
@@ -202,6 +203,22 @@ export async function getModuleBotConfig(
     };
   } catch {
     return {};
+  }
+}
+
+/**
+ * Get the global admin chat ID from DB (system module config), fallback to env.
+ */
+async function getGlobalAdminChatId(): Promise<string | undefined> {
+  try {
+    const systemModule = await prisma.module.findUnique({
+      where: { slug: "system" },
+      select: { config: true },
+    });
+    const config = (systemModule?.config as Record<string, unknown>) || {};
+    return (config.telegramAdminChatId as string) || process.env.TELEGRAM_ADMIN_CHAT_ID || undefined;
+  } catch {
+    return process.env.TELEGRAM_ADMIN_CHAT_ID || undefined;
   }
 }
 

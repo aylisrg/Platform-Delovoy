@@ -27,4 +27,7 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   // Rental contracts (admin-only)
   "contract.created": { client: false, admin: true },
   "contract.expiring": { client: false, admin: true },
+
+  // Rental inquiries (admin-only)
+  "inquiry.created": { client: false, admin: true },
 };

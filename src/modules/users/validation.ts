@@ -14,6 +14,7 @@ export const updateUserSchema = z.object({
   role: z.enum(["SUPERADMIN", "MANAGER", "USER"]).optional(),
   name: z.string().min(1, "Имя не может быть пустым").optional(),
   phone: z.string().optional(),
+  telegramId: z.string().nullable().optional(),
 });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;

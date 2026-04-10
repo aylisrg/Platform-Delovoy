@@ -62,6 +62,8 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
       `<b>Новый договор аренды</b>\n\nАрендатор: ${d.tenantName}\nОфис: ${d.officeNumber}\nСтавка: ${d.monthlyRate} руб./мес.\nСрок: ${d.startDate} — ${d.endDate}`,
     "contract.expiring": (d) =>
       `<b>Договор истекает через ${d.daysLeft} дн.</b>\n\nАрендатор: ${d.tenantName}\nОфис: ${d.officeNumber}\nДата окончания: ${d.endDate}`,
+    "inquiry.created": (d) =>
+      `<b>Новая заявка на аренду!</b>\n\nИмя: ${d.name}\nТелефон: ${d.phone}\nEmail: ${d.email}\nКомпания: ${d.companyName}\nОфис: ${d.officeNumber}\n\nСообщение: ${d.message}`,
   },
 };
 

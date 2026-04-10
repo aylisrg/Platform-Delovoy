@@ -64,6 +64,29 @@ export const officeFilterSchema = z.object({
   floor: z.coerce.number().int().positive().optional(),
 });
 
+// === Inquiry ===
+
+export const createInquirySchema = z.object({
+  name: z.string().min(1, "Имя обязательно").max(100),
+  phone: z.string().min(7, "Некорректный телефон").max(20),
+  email: z.string().email("Некорректный email").optional(),
+  companyName: z.string().max(200).optional(),
+  message: z.string().max(2000).optional(),
+  officeId: z.string().optional(),
+});
+
+export const updateInquirySchema = z.object({
+  status: z.enum(["NEW", "IN_PROGRESS", "CONVERTED", "CLOSED"]).optional(),
+  isRead: z.boolean().optional(),
+  adminNotes: z.string().max(2000).optional(),
+  convertedToId: z.string().optional(),
+});
+
+export const inquiryFilterSchema = z.object({
+  status: z.enum(["NEW", "IN_PROGRESS", "CONVERTED", "CLOSED"]).optional(),
+  isRead: z.coerce.boolean().optional(),
+});
+
 export const reportQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),

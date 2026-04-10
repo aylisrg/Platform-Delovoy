@@ -6,20 +6,19 @@ import { botFetch, API_URL } from "../lib/api";
 type BotContext = Context;
 
 /**
- * Register gazebo booking handlers on the bot instance.
+ * Register PlayStation Park booking handlers.
  */
-export function registerGazeboHandlers(bot: Bot<BotContext>) {
-  // Menu entry point
-  bot.callbackQuery("menu:gazebos", loadGazeboList);
-  bot.callbackQuery("gazebos:list", loadGazeboList);
+export function registerPSParkHandlers(bot: Bot<BotContext>) {
+  // Menu entry + command
+  bot.callbackQuery("menu:ps-park", loadPSList);
+  bot.callbackQuery("pspark:list", loadPSList);
 
-  // /gazebos command
-  bot.command("gazebos", async (ctx) => {
-    await showGazeboList(ctx);
+  bot.command("ps", async (ctx) => {
+    await showPSList(ctx);
   });
 
-  // Select gazebo → show dates
-  bot.callbackQuery(/^gz_select:(.+)$/, async (ctx) => {
+  // Select table → show dates
+  bot.callbackQuery(/^ps_select:(.+)$/, async (ctx) => {
     const resourceId = ctx.match[1];
     await ctx.answerCallbackQuery();
 
@@ -35,31 +34,29 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
         day: "numeric",
         month: "short",
       });
-      keyboard.text(label, `gz_date:${resourceId}:${dateStr}`).row();
+      keyboard.text(label, `ps_date:${resourceId}:${dateStr}`).row();
     }
-    keyboard.text("← Назад", "gazebos:list");
+    keyboard.text("← Назад", "pspark:list");
 
-    await ctx.editMessageText("📅 Выберите дату:", {
-      reply_markup: keyboard,
-    });
+    await ctx.editMessageText("📅 Выберите дату:", { reply_markup: keyboard });
   });
 
   // Select date → show time slots
-  bot.callbackQuery(/^gz_date:(.+):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^ps_date:(.+):(.+)$/, async (ctx) => {
     const resourceId = ctx.match[1];
     const date = ctx.match[2];
     await ctx.answerCallbackQuery();
 
     try {
       const res = await fetch(
-        `${API_URL}/api/gazebos/availability?date=${date}&resourceId=${resourceId}`
+        `${API_URL}/api/ps-park/availability?date=${date}&resourceId=${resourceId}`
       );
       const data = await res.json();
 
       if (!data.success || data.data.length === 0) {
         await ctx.editMessageText(
           "Нет данных о доступности. Попробуйте другую дату.",
-          { reply_markup: backToGazebos() }
+          { reply_markup: backToPS() }
         );
         return;
       }
@@ -70,12 +67,11 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
       );
 
       if (availableSlots.length === 0) {
-        const dateFormatted = formatDate(date);
         await ctx.editMessageText(
-          `На ${dateFormatted} все слоты заняты.`,
+          `На ${formatDate(date)} все слоты заняты.`,
           {
             reply_markup: new InlineKeyboard()
-              .text("← Другая дата", `gz_select:${resourceId}`)
+              .text("← Другая дата", `ps_select:${resourceId}`)
               .text("← Меню", "menu:main"),
           }
         );
@@ -87,11 +83,11 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
         keyboard
           .text(
             `${slot.startTime} — ${slot.endTime}`,
-            `gz_slot:${resourceId}:${date}:${slot.startTime}:${slot.endTime}`
+            `ps_slot:${resourceId}:${date}:${slot.startTime}:${slot.endTime}`
           )
           .row();
       }
-      keyboard.text("← Назад к датам", `gz_select:${resourceId}`);
+      keyboard.text("← Назад к датам", `ps_select:${resourceId}`);
 
       await ctx.editMessageText(
         `🕐 <b>${availability.resource.name}</b>\n📅 ${formatDate(date)}\n\nВыберите время:`,
@@ -99,13 +95,13 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
       );
     } catch {
       await ctx.editMessageText("Ошибка загрузки. Попробуйте позже.", {
-        reply_markup: backToGazebos(),
+        reply_markup: backToPS(),
       });
     }
   });
 
-  // Confirm slot selection
-  bot.callbackQuery(/^gz_slot:(.+):(.+):(.+):(.+)$/, async (ctx) => {
+  // Confirm slot
+  bot.callbackQuery(/^ps_slot:(.+):(.+):(.+):(.+)$/, async (ctx) => {
     const resourceId = ctx.match[1];
     const date = ctx.match[2];
     const startTime = ctx.match[3];
@@ -114,20 +110,21 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
 
     await ctx.editMessageText(
       `📋 <b>Подтвердите бронирование</b>\n\n` +
+        `🎮 PlayStation Park\n` +
         `📅 ${formatDate(date)}\n` +
         `🕐 ${startTime} — ${endTime}\n\n` +
         `Забронировать?`,
       {
         parse_mode: "HTML",
         reply_markup: new InlineKeyboard()
-          .text("✅ Подтвердить", `gz_book:${resourceId}:${date}:${startTime}:${endTime}`)
-          .text("❌ Отмена", "gazebos:list"),
+          .text("✅ Подтвердить", `ps_book:${resourceId}:${date}:${startTime}:${endTime}`)
+          .text("❌ Отмена", "pspark:list"),
       }
     );
   });
 
-  // Create booking via API
-  bot.callbackQuery(/^gz_book:(.+):(.+):(.+):(.+)$/, async (ctx) => {
+  // Create booking
+  bot.callbackQuery(/^ps_book:(.+):(.+):(.+):(.+)$/, async (ctx) => {
     const resourceId = ctx.match[1];
     const date = ctx.match[2];
     const startTime = ctx.match[3];
@@ -137,7 +134,7 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
     const telegramId = ctx.from?.id?.toString();
     if (!telegramId) {
       await ctx.editMessageText("Ошибка: не удалось определить пользователя.", {
-        reply_markup: backToGazebos(),
+        reply_markup: backToPS(),
       });
       return;
     }
@@ -147,7 +144,7 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
         method: "POST",
         body: JSON.stringify({
           telegramId,
-          moduleSlug: "gazebos",
+          moduleSlug: "ps-park",
           resourceId,
           date,
           startTime,
@@ -166,6 +163,7 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
       if (data.success) {
         await ctx.editMessageText(
           `✅ <b>Бронирование создано!</b>\n\n` +
+            `🎮 PlayStation Park\n` +
             `📅 ${formatDate(date)}\n` +
             `🕐 ${startTime} — ${endTime}\n\n` +
             `Статус: ожидает подтверждения.\n` +
@@ -179,31 +177,28 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
         );
       } else {
         const errorMsg = data.error?.message || "Не удалось создать бронирование";
-        await ctx.editMessageText(
-          `❌ ${errorMsg}`,
-          { reply_markup: backToGazebos() }
-        );
+        await ctx.editMessageText(`❌ ${errorMsg}`, { reply_markup: backToPS() });
       }
     } catch {
       await ctx.editMessageText("Ошибка сети. Попробуйте позже.", {
-        reply_markup: backToGazebos(),
+        reply_markup: backToPS(),
       });
     }
   });
 }
 
-async function loadGazeboList(ctx: BotContext) {
+async function loadPSList(ctx: BotContext) {
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
-  await showGazeboList(ctx, true);
+  await showPSList(ctx, true);
 }
 
-async function showGazeboList(ctx: BotContext, edit = false) {
+async function showPSList(ctx: BotContext, edit = false) {
   try {
-    const res = await fetch(`${API_URL}/api/gazebos`);
+    const res = await fetch(`${API_URL}/api/ps-park`);
     const data = await res.json();
 
     if (!data.success || data.data.length === 0) {
-      const text = "Беседки не найдены. Попробуйте позже.";
+      const text = "Столы PlayStation не найдены. Попробуйте позже.";
       const opts = { reply_markup: new InlineKeyboard().text("← Меню", "menu:main") };
       if (edit) await ctx.editMessageText(text, opts);
       else await ctx.reply(text, opts);
@@ -216,25 +211,25 @@ async function showGazeboList(ctx: BotContext, edit = false) {
       const capacity = resource.capacity ? `${resource.capacity} чел` : "";
       const info = [capacity, price].filter(Boolean).join(" · ");
       const label = info ? `${resource.name} (${info})` : resource.name;
-      keyboard.text(label, `gz_select:${resource.id}`).row();
+      keyboard.text(label, `ps_select:${resource.id}`).row();
     }
     keyboard.text("← Главное меню", "menu:main");
 
-    const text = "🏕 <b>Беседки бизнес-парка «Деловой»</b>\n\nВыберите беседку:";
+    const text = "🎮 <b>PlayStation Park</b>\n\nВыберите стол:";
     const opts = { parse_mode: "HTML" as const, reply_markup: keyboard };
 
     if (edit) await ctx.editMessageText(text, opts);
     else await ctx.reply(text, opts);
   } catch {
-    const text = "Ошибка загрузки беседок. Попробуйте позже.";
+    const text = "Ошибка загрузки столов. Попробуйте позже.";
     if (edit) await ctx.editMessageText(text);
     else await ctx.reply(text);
   }
 }
 
-function backToGazebos() {
+function backToPS() {
   return new InlineKeyboard()
-    .text("← Беседки", "gazebos:list")
+    .text("← PlayStation", "pspark:list")
     .text("← Меню", "menu:main");
 }
 

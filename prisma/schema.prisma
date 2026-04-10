@@ -244,6 +244,7 @@ model Office {
   updatedAt     DateTime     @updatedAt
 
   contracts RentalContract[]
+  inquiries RentalInquiry[]
 }
 
 enum OfficeStatus {
@@ -279,6 +280,35 @@ enum ContractStatus {
   EXPIRING
   EXPIRED
   TERMINATED
+}
+
+// === RENTAL INQUIRIES ===
+
+enum InquiryStatus {
+  NEW
+  IN_PROGRESS
+  CONVERTED
+  CLOSED
+}
+
+model RentalInquiry {
+  id            String        @id @default(cuid())
+  name          String
+  phone         String
+  email         String?
+  companyName   String?
+  message       String?       @db.Text
+  officeId      String?
+  office        Office?       @relation(fields: [officeId], references: [id])
+  status        InquiryStatus @default(NEW)
+  isRead        Boolean       @default(false)
+  adminNotes    String?       @db.Text
+  convertedToId String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([status, createdAt])
+  @@index([isRead])
 }
 
 // === MONITORING ===

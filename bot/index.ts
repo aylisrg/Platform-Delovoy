@@ -1,19 +1,22 @@
 /**
- * Telegram Bot for Platform Delovoy.
+ * Telegram Bot — @DelovoyPark_bot
  *
- * Dual-purpose:
- * 1. Alert bot — sends system alerts to admin group
- * 2. User bot — booking flow for gazebos (and future modules)
+ * Main entry point for the Platform Delovoy Telegram bot.
+ * Handles: bookings (gazebos, PS Park), cafe menu, notifications, admin alerts.
  *
  * Usage:
- *   npx tsx bot/index.ts    — run the bot
+ *   npx tsx bot/index.ts
  */
 
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import { registerGazeboHandlers } from "./handlers/gazebos";
+import { registerPSParkHandlers } from "./handlers/ps-park";
+import { registerCafeHandlers } from "./handlers/cafe";
+import { registerMyBookingsHandler } from "./handlers/my-bookings";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 type AlertLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
@@ -73,6 +76,20 @@ export async function sendAlert(
 }
 
 /**
+ * Build the main menu keyboard.
+ */
+function mainMenuKeyboard() {
+  return new InlineKeyboard()
+    .text("🏕 Беседки", "menu:gazebos")
+    .text("🎮 PlayStation", "menu:ps-park")
+    .row()
+    .text("☕ Кафе", "menu:cafe")
+    .text("📋 Мои брони", "menu:my-bookings")
+    .row()
+    .url("🌐 Открыть сайт", APP_URL);
+}
+
+/**
  * Start the bot in long-polling mode.
  */
 async function startBot() {
@@ -83,28 +100,121 @@ async function startBot() {
 
   const bot = new Bot(BOT_TOKEN);
 
-  // Start command
+  // /start — main menu (supports deep linking: /start gazebos, /start ps-park)
   bot.command("start", async (ctx) => {
+    const deepLink = ctx.match?.trim();
+
+    // Handle deep links
+    if (deepLink === "gazebos") {
+      await ctx.reply(
+        "🏕 *Беседки бизнес\\-парка «Деловой»*\n\nВыберите действие:",
+        {
+          parse_mode: "MarkdownV2",
+          reply_markup: new InlineKeyboard()
+            .text("📅 Забронировать", "gazebos:list")
+            .row()
+            .text("← Главное меню", "menu:main"),
+        }
+      );
+      return;
+    }
+
+    if (deepLink === "ps-park" || deepLink === "ps") {
+      await ctx.reply(
+        "🎮 *PlayStation Park*\n\nВыберите действие:",
+        {
+          parse_mode: "MarkdownV2",
+          reply_markup: new InlineKeyboard()
+            .text("📅 Забронировать стол", "pspark:list")
+            .row()
+            .text("← Главное меню", "menu:main"),
+        }
+      );
+      return;
+    }
+
+    if (deepLink === "cafe") {
+      await ctx.reply(
+        "☕ *Кафе бизнес\\-парка «Деловой»*\n\nВыберите действие:",
+        {
+          parse_mode: "MarkdownV2",
+          reply_markup: new InlineKeyboard()
+            .text("📖 Посмотреть меню", "cafe:menu")
+            .row()
+            .text("← Главное меню", "menu:main"),
+        }
+      );
+      return;
+    }
+
+    // Default welcome
+    const userName = ctx.from?.first_name || "друг";
     await ctx.reply(
-      "👋 Добро пожаловать в бот бизнес-парка *Деловой*\\!\n\n" +
-        "Доступные команды:\n" +
-        "/gazebos — Забронировать беседку\n" +
-        "/help — Помощь",
-      { parse_mode: "MarkdownV2" }
+      `Привет, ${userName}! 👋\n\n` +
+        `Я бот бизнес-парка <b>«Деловой»</b> (Селятино).\n\n` +
+        `Через меня можно:\n` +
+        `🏕 Забронировать беседку\n` +
+        `🎮 Забронировать стол в PlayStation Park\n` +
+        `☕ Посмотреть меню кафе\n` +
+        `📋 Проверить свои бронирования\n\n` +
+        `Выберите, что вас интересует:`,
+      {
+        parse_mode: "HTML",
+        reply_markup: mainMenuKeyboard(),
+      }
     );
   });
 
-  // Help command
+  // /help
   bot.command("help", async (ctx) => {
     await ctx.reply(
-      "🔹 /gazebos — Посмотреть беседки и забронировать\n" +
-        "🔹 /start — Начать сначала\n\n" +
-        "По вопросам обращайтесь к администратору парка."
+      `<b>Команды бота:</b>\n\n` +
+        `/start — Главное меню\n` +
+        `/gazebos — Бронирование беседок\n` +
+        `/ps — Бронирование PlayStation\n` +
+        `/cafe — Меню кафе\n` +
+        `/mybookings — Мои бронирования\n` +
+        `/help — Эта справка\n\n` +
+        `По вопросам: позвоните администратору парка или напишите на сайте.`,
+      { parse_mode: "HTML" }
     );
+  });
+
+  // Main menu callback
+  bot.callbackQuery("menu:main", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(
+      `<b>Бизнес-парк «Деловой»</b>\n\nВыберите, что вас интересует:`,
+      {
+        parse_mode: "HTML",
+        reply_markup: mainMenuKeyboard(),
+      }
+    );
+  });
+
+  // Menu routing callbacks
+  bot.callbackQuery("menu:gazebos", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    // Will be handled by gazebo handler
+  });
+
+  bot.callbackQuery("menu:ps-park", async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery("menu:cafe", async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery("menu:my-bookings", async (ctx) => {
+    await ctx.answerCallbackQuery();
   });
 
   // Register module handlers
   registerGazeboHandlers(bot);
+  registerPSParkHandlers(bot);
+  registerCafeHandlers(bot);
+  registerMyBookingsHandler(bot);
 
   // Error handler
   bot.catch((err) => {
@@ -112,9 +222,9 @@ async function startBot() {
   });
 
   // Start
-  console.log("[Bot] Starting...");
+  console.log("[Bot] Starting @DelovoyPark_bot...");
   await bot.start({
-    onStart: () => console.log("[Bot] Running"),
+    onStart: () => console.log("[Bot] @DelovoyPark_bot is running"),
   });
 }
 
