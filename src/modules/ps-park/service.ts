@@ -191,7 +191,23 @@ export async function updateBookingStatus(id: string, status: BookingStatus) {
     );
   }
 
-  return prisma.booking.update({ where: { id }, data: { status } });
+  const updated = await prisma.booking.update({ where: { id }, data: { status } });
+
+  const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId }, select: { name: true } });
+  const dateStr = booking.date.toISOString().split("T")[0];
+  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+  enqueueNotification({
+    type: `booking.${status === "CONFIRMED" ? "confirmed" : status === "CANCELLED" ? "cancelled" : "confirmed"}`,
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId: booking.userId,
+    actor: "admin",
+    data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
+  });
+
+  return updated;
 }
 
 export async function cancelBooking(id: string, userId: string) {
