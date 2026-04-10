@@ -196,6 +196,16 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Notification Settings */}
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">Настройки уведомлений</h2>
+          </CardHeader>
+          <CardContent>
+            <NotificationSettings />
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
