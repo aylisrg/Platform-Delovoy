@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiValidationError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 import { createInquiry, listInquiries, RentalError } from "@/modules/rental/service";
 import { createInquirySchema, inquiryFilterSchema } from "@/modules/rental/validation";
 
@@ -9,6 +10,9 @@ import { createInquirySchema, inquiryFilterSchema } from "@/modules/rental/valid
  */
 export async function POST(request: NextRequest) {
   try {
+    const rateLimited = await rateLimit(request, "public");
+    if (rateLimited) return rateLimited;
+
     const body = await request.json();
     const parsed = createInquirySchema.safeParse(body);
     if (!parsed.success) {
