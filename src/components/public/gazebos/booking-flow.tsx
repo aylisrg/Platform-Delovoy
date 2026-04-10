@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { Toast } from "@/components/ui/toast";
+import { AuthModal } from "@/components/ui/auth-modal";
 
 type TimeSlot = {
   startTime: string;
@@ -25,6 +27,8 @@ type BookingStep = "date" | "slots" | "form" | "done";
 const ACCENT = "#16A34A";
 
 export function BookingFlow() {
+  const { data: session, status: sessionStatus } = useSession();
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [step, setStep] = useState<BookingStep>("date");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
@@ -38,6 +42,8 @@ export function BookingFlow() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
   });
+
+  const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type, visible: true });
@@ -158,6 +164,7 @@ export function BookingFlow() {
 
   return (
     <>
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
       <Toast
         message={toast.message}
         type={toast.type}
@@ -318,7 +325,13 @@ export function BookingFlow() {
                     )}
                   </div>
                   <button
-                    onClick={() => setStep("form")}
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        setShowAuthModal(true);
+                        return;
+                      }
+                      setStep("form");
+                    }}
                     className="text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
                     style={{
                       backgroundColor: ACCENT,
