@@ -89,6 +89,10 @@ export function TelegramSettings() {
     loadSettings();
     loadTgUsers();
     loadManagers();
+    fetch("/api/admin/permissions/me")
+      .then((r) => r.json())
+      .then((d) => { if (d.success && d.data.role === "SUPERADMIN") setIsSuperAdmin(true); })
+      .catch(() => {});
   }, [loadSettings, loadTgUsers, loadManagers]);
 
   const handleSaveSettings = useCallback(async () => {
