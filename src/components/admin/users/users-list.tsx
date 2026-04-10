@@ -291,14 +291,23 @@ export function UsersList() {
 
                     {/* Actions */}
                     <td className="px-6 py-3 text-right">
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={deleting === user.id}
-                        onClick={() => handleDelete(user.id)}
-                      >
-                        {deleting === user.id ? "..." : "Удалить"}
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setPermissionsUser(user)}
+                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+                          title="Управление правами доступа"
+                        >
+                          Права
+                        </button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={deleting === user.id}
+                          onClick={() => handleDelete(user.id)}
+                        >
+                          {deleting === user.id ? "..." : "Удалить"}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
