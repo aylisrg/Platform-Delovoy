@@ -38,7 +38,7 @@ export default async function GazebosPage() {
             ← Главная
           </Link>
           <h1
-            className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-6"
+            className="font-[family-name:var(--font-manrope)] font-[500] text-[#1d1d1f] mt-6"
             style={{
               fontSize: "clamp(36px, 5vw, 56px)",
               letterSpacing: "clamp(-1px, -0.03em, -2px)",
@@ -47,7 +47,11 @@ export default async function GazebosPage() {
           >
             Беседки
           </h1>
+<<<<<<< HEAD
           <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
+=======
+          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
+>>>>>>> origin/main
             Уютные беседки с мангалом на территории бизнес-парка Деловой.
             Забронируйте онлайн в пару кликов.
           </p>
