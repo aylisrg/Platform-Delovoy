@@ -144,8 +144,9 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
     const config = await getModuleBotConfig(event.moduleSlug);
+    // Priority: module-specific chat ID → global DB setting → env fallback
     const chatId =
-      config.telegramAdminChatId || process.env.TELEGRAM_ADMIN_CHAT_ID;
+      config.telegramAdminChatId || await getGlobalAdminChatId();
 
     if (!chatId) {
       console.warn(
