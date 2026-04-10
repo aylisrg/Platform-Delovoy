@@ -441,9 +441,20 @@ export async function createInquiry(input: CreateInquiryInput) {
   return inquiry;
 }
 
+const VALID_INQUIRY_TRANSITIONS: Record<string, string[]> = {
+  NEW: ["IN_PROGRESS", "CLOSED"],
+  IN_PROGRESS: ["CONVERTED", "CLOSED"],
+  CONVERTED: [],
+  CLOSED: [],
+};
+
 export async function updateInquiry(id: string, input: UpdateInquiryInput) {
   const inquiry = await prisma.rentalInquiry.findUnique({ where: { id } });
   if (!inquiry) throw new RentalError("INQUIRY_NOT_FOUND", "Заявка не найдена");
+
+  if (input.status && !VALID_INQUIRY_TRANSITIONS[inquiry.status]?.includes(input.status)) {
+    throw new RentalError("INVALID_STATUS_TRANSITION", `Нельзя перевести из ${inquiry.status} в ${input.status}`);
+  }
 
   return prisma.rentalInquiry.update({
     where: { id },
