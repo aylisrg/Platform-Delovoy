@@ -114,32 +114,15 @@ export default async function RentalPage() {
           </Card>
         )}
 
-        {/* Contact CTA */}
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-zinc-900 mb-2">
-              Заинтересованы в аренде?
-            </h2>
-            <p className="text-sm text-zinc-600 mb-4">
-              Свяжитесь с нашим менеджером, чтобы обсудить условия аренды,
-              получить полную информацию и договориться об осмотре офиса.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <a
-                href="tel:+74991234567"
-                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-              >
-                Позвонить менеджеру
-              </a>
-              <a
-                href="mailto:rental@delovoy-park.ru"
-                className="inline-flex items-center justify-center rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-              >
-                Написать на email
-              </a>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Inquiry Form */}
+        <InquiryForm
+          offices={offices.map((o) => ({
+            id: o.id,
+            number: o.number,
+            floor: o.floor,
+            status: o.status,
+          }))}
+        />
       </main>
     </div>
   );
