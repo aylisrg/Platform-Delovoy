@@ -164,6 +164,7 @@ export function BookingFlow() {
 
   return (
     <>
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
       <Toast
         message={toast.message}
         type={toast.type}
