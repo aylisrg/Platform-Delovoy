@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listOffices } from "@/modules/rental/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InquiryForm } from "@/components/public/rental/inquiry-form";
 import type { OfficeStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
