@@ -1,8 +1,24 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getMenu, getMenuCategories } from "@/modules/cafe/service";
 import { MenuList } from "@/components/public/cafe/menu-list";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Кафе",
+  description:
+    "Кафе в бизнес-парке Деловой, Селятино. Завтраки, обеды, пицца, напитки. Доставка прямо в ваш офис. Онлайн-заказ.",
+  alternates: {
+    canonical: "/cafe",
+  },
+  openGraph: {
+    title: "Кафе — Деловой Парк",
+    description: "Завтраки, обеды, пицца, напитки с доставкой в офис. Бизнес-парк Деловой, Селятино.",
+    url: "/cafe",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
+};
 
 export default async function CafePage() {
   const [items, categories] = await Promise.all([
