@@ -75,6 +75,41 @@ function verifyTelegramAuth(data: Record<string, string>): boolean {
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma) as never,
+  callbacks: {
+    ...authConfig.callbacks,
+    async jwt({ token, user, trigger }) {
+      // Call the base jwt callback first
+      const baseResult = authConfig.callbacks?.jwt
+        ? await authConfig.callbacks.jwt({ token, user, trigger } as never)
+        : token;
+
+      // On login or session update, fetch admin sections from DB
+      if ((user || trigger === "update") && baseResult.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: baseResult.id as string },
+          select: { role: true },
+        });
+
+        if (dbUser && dbUser.role === "SUPERADMIN") {
+          // SUPERADMIN gets all sections in the token
+          baseResult.adminSections = [
+            "dashboard", "gazebos", "ps-park", "cafe",
+            "rental", "modules", "users", "monitoring", "architect",
+          ];
+        } else if (dbUser && dbUser.role === "MANAGER") {
+          const permissions = await prisma.adminPermission.findMany({
+            where: { userId: baseResult.id as string },
+            select: { section: true },
+          });
+          baseResult.adminSections = permissions.map((p) => p.section);
+        } else {
+          baseResult.adminSections = [];
+        }
+      }
+
+      return baseResult;
+    },
+  },
   providers: [
     // Email + Password
     Credentials({
