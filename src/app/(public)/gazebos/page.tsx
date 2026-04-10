@@ -47,11 +47,7 @@ export default async function GazebosPage() {
           >
             Беседки
           </h1>
-<<<<<<< HEAD
           <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
-=======
-          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
->>>>>>> origin/main
             Уютные беседки с мангалом на территории бизнес-парка Деловой.
             Забронируйте онлайн в пару кликов.
           </p>
