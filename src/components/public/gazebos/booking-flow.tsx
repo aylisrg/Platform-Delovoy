@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { Toast } from "@/components/ui/toast";
+import { AuthModal } from "@/components/ui/auth-modal";
 
 type TimeSlot = {
   startTime: string;
