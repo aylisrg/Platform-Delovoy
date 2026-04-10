@@ -228,11 +228,25 @@ export async function cancelOrder(id: string, userId: string) {
     throw new OrderError("INVALID_STATUS_TRANSITION", "Можно отменить только новый заказ");
   }
 
-  return prisma.order.update({
+  const updated = await prisma.order.update({
     where: { id },
     data: { status: "CANCELLED" },
     include: { items: true },
   });
+
+  enqueueNotification({
+    type: "order.cancelled",
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId,
+    actor: "client",
+    data: {
+      orderNumber: id.slice(-6).toUpperCase(),
+      totalAmount: order.totalAmount.toString(),
+    },
+  });
+
+  return updated;
 }
 
 // === HELPERS ===
