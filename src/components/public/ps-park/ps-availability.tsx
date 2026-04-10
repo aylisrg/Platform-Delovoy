@@ -25,6 +25,8 @@ type ResourceAvailability = {
 };
 
 export function PSAvailability() {
+  const { data: session, status: sessionStatus } = useSession();
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [date, setDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split("T")[0];
@@ -32,6 +34,75 @@ export function PSAvailability() {
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingSuccess, setBookingSuccess] = useState(false);
+
+  const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
+
+  function toggleSlot(resourceId: string, slotStart: string) {
+    if (selectedResourceId && selectedResourceId !== resourceId) {
+      setSelectedResourceId(resourceId);
+      setSelectedSlots([slotStart]);
+      return;
+    }
+    setSelectedResourceId(resourceId);
+    setSelectedSlots((prev) => {
+      if (prev.includes(slotStart)) {
+        const idx = prev.indexOf(slotStart);
+        if (idx === 0 || idx === prev.length - 1) return prev.filter((s) => s !== slotStart);
+        return prev.slice(0, idx);
+      }
+      if (prev.length === 0) return [slotStart];
+      const allSlots = availability.find((a) => a.resource.id === resourceId)
+        ?.slots.filter((s) => s.isAvailable).map((s) => s.startTime) ?? [];
+      const sortedSelected = [...prev].sort();
+      const firstIdx = allSlots.indexOf(sortedSelected[0]);
+      const lastIdx = allSlots.indexOf(sortedSelected[sortedSelected.length - 1]);
+      const newIdx = allSlots.indexOf(slotStart);
+      if (newIdx === firstIdx - 1 || newIdx === lastIdx + 1) return [...prev, slotStart].sort();
+      return [slotStart];
+    });
+  }
+
+  async function submitBooking() {
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
+    if (!selectedResourceId || selectedSlots.length === 0) return;
+    const sorted = [...selectedSlots].sort();
+    const resource = availability.find((a) => a.resource.id === selectedResourceId);
+    const lastSlot = resource?.slots.find((s) => s.startTime === sorted[sorted.length - 1]);
+    const endTime = lastSlot?.endTime ?? sorted[sorted.length - 1];
+
+    setBookingLoading(true);
+    try {
+      const res = await fetch("/api/ps-park/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resourceId: selectedResourceId,
+          date,
+          startTime: sorted[0],
+          endTime,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookingSuccess(true);
+        setSelectedResourceId(null);
+        setSelectedSlots([]);
+      } else {
+        setError(data.error?.message ?? "Ошибка при бронировании");
+      }
+    } catch {
+      setError("Не удалось отправить бронирование");
+    } finally {
+      setBookingLoading(false);
+    }
+  }
 
   async function checkAvailability() {
     setLoading(true);
