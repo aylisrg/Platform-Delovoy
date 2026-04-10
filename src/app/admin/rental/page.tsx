@@ -9,6 +9,20 @@ import { InquiryActions } from "@/components/admin/rental/inquiry-actions";
 
 export const dynamic = "force-dynamic";
 
+const inquiryStatusLabel: Record<InquiryStatus, string> = {
+  NEW: "Новая",
+  IN_PROGRESS: "В работе",
+  CONVERTED: "Клиент",
+  CLOSED: "Закрыта",
+};
+
+const inquiryStatusVariant: Record<InquiryStatus, "warning" | "success" | "default" | "info" | "danger"> = {
+  NEW: "warning",
+  IN_PROGRESS: "info",
+  CONVERTED: "success",
+  CLOSED: "default",
+};
+
 const contractStatusLabel: Record<ContractStatus, string> = {
   DRAFT: "Черновик",
   ACTIVE: "Активен",
