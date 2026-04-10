@@ -35,7 +35,8 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (!["MANAGER", "SUPERADMIN"].includes(session.user.role ?? "")) return apiForbidden();
+    const deniedPost = await requireAdminSection(session, "rental");
+    if (deniedPost) return deniedPost;
 
     const body = await request.json();
     const parsed = createContractSchema.safeParse(body);
