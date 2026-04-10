@@ -26,6 +26,7 @@ model User {
   accounts          Account[]
   sessions          Session[]
   moduleAssignments ModuleAssignment[]
+  adminPermissions  AdminPermission[]
   bookings          Booking[]
   orders            Order[]
   auditLogs         AuditLog[]
