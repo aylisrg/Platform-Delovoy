@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiUnauthorized, apiForbidden, apiValidationError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiError, apiUnauthorized, apiValidationError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { listContracts, createContract, RentalError } from "@/modules/rental/service";
