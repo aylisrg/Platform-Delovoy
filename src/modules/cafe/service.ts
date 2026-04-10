@@ -187,11 +187,34 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     );
   }
 
-  return prisma.order.update({
+  const updated = await prisma.order.update({
     where: { id },
     data: { status },
     include: { items: true },
   });
+
+  const eventMap: Record<string, string> = {
+    PREPARING: "order.preparing",
+    READY: "order.ready",
+    DELIVERED: "order.delivered",
+    CANCELLED: "order.cancelled",
+  };
+  if (eventMap[status]) {
+    enqueueNotification({
+      type: eventMap[status],
+      moduleSlug: MODULE_SLUG,
+      entityId: id,
+      userId: order.userId,
+      actor: "admin",
+      data: {
+        orderNumber: id.slice(-6).toUpperCase(),
+        totalAmount: order.totalAmount.toString(),
+        deliveryTo: order.deliveryTo,
+      },
+    });
+  }
+
+  return updated;
 }
 
 export async function cancelOrder(id: string, userId: string) {
