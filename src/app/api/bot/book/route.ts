@@ -74,19 +74,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function verifyBotRequest(request: NextRequest): boolean {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return false;
-
-  // Accept requests from the bot via shared secret header
-  const authHeader = request.headers.get("x-bot-token");
-  if (authHeader === botToken) return true;
-
-  // Also accept requests from localhost (bot runs on same server)
-  const host = request.headers.get("host") || "";
-  if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
-    return true;
-  }
-
-  return false;
-}
