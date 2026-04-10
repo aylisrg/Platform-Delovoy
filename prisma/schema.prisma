@@ -326,6 +326,7 @@ model NotificationPreference {
 model NotificationLog {
   id         String              @id @default(cuid())
   userId     String?
+  user       User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   channel    NotificationChannel
   eventType  String
   moduleSlug String
