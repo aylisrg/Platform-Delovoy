@@ -79,35 +79,36 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     ...authConfig.callbacks,
     async jwt({ token, user, trigger }) {
       // Call the base jwt callback first
-      const baseResult = authConfig.callbacks?.jwt
+      const result = authConfig.callbacks?.jwt
         ? await authConfig.callbacks.jwt({ token, user, trigger } as never)
         : token;
 
+      if (!result) return token;
+
       // On login or session update, fetch admin sections from DB
-      if ((user || trigger === "update") && baseResult.id) {
+      if ((user || trigger === "update") && result.id) {
         const dbUser = await prisma.user.findUnique({
-          where: { id: baseResult.id as string },
+          where: { id: result.id as string },
           select: { role: true },
         });
 
         if (dbUser && dbUser.role === "SUPERADMIN") {
-          // SUPERADMIN gets all sections in the token
-          baseResult.adminSections = [
+          result.adminSections = [
             "dashboard", "gazebos", "ps-park", "cafe",
             "rental", "modules", "users", "monitoring", "architect",
           ];
         } else if (dbUser && dbUser.role === "MANAGER") {
           const permissions = await prisma.adminPermission.findMany({
-            where: { userId: baseResult.id as string },
+            where: { userId: result.id as string },
             select: { section: true },
           });
-          baseResult.adminSections = permissions.map((p) => p.section);
+          result.adminSections = permissions.map((p) => p.section);
         } else {
-          baseResult.adminSections = [];
+          result.adminSections = [];
         }
       }
 
-      return baseResult;
+      return result;
     },
   },
   providers: [
