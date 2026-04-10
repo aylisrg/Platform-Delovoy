@@ -61,3 +61,31 @@ export function apiValidationError(message: string) {
 export function apiServerError(message = "Внутренняя ошибка сервера") {
   return apiError("INTERNAL_ERROR", message, 500);
 }
+
+/**
+ * Check if the current session has admin access to a specific section.
+ * Returns null if access is granted, or an error Response if denied.
+ * Usage:
+ *   const denied = await requireAdminSection(session, "cafe");
+ *   if (denied) return denied;
+ */
+export async function requireAdminSection(
+  session: { user: { id: string; role: string } } | null,
+  section: string
+): Promise<Response | null> {
+  if (!session?.user) return apiUnauthorized();
+
+  const { role } = session.user;
+  if (role === "SUPERADMIN") return null; // Full access
+
+  if (role !== "MANAGER") return apiForbidden();
+
+  // Dynamic import to avoid circular deps
+  const { hasAdminSectionAccess } = await import("./permissions");
+  const hasAccess = await hasAdminSectionAccess(session.user.id, section);
+  if (!hasAccess) {
+    return apiForbidden("Нет доступа к этому разделу");
+  }
+
+  return null;
+}
