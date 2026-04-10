@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /dashboard/
+
+# Allow important public API paths for SEO tools
+Allow: /api/health
+
+Sitemap: https://delovoy-park.ru/sitemap.xml
