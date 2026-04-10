@@ -54,6 +54,8 @@ export async function PATCH(
     if (status === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
       updated = await cancelOrder(id, session.user.id);
     } else if (hasRole(session.user, "MANAGER")) {
+      const denied = await requireAdminSection(session, "cafe");
+      if (denied) return denied;
       updated = await updateOrderStatus(id, status);
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
