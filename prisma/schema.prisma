@@ -116,18 +116,25 @@ model AdminPermission {
 // === BOOKING (общая для беседок, PS Park) ===
 
 model Booking {
-  id         String        @id @default(cuid())
-  moduleSlug String
-  resourceId String
-  userId     String
-  user       User          @relation(fields: [userId], references: [id])
-  date       DateTime
-  startTime  DateTime
-  endTime    DateTime
-  status     BookingStatus @default(PENDING)
-  metadata   Json?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  moduleSlug      String
+  resourceId      String
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  date            DateTime
+  startTime       DateTime
+  endTime         DateTime
+  status          BookingStatus @default(PENDING)
+  clientName      String?
+  clientPhone     String?
+  clientTelegram  String?
+  cancelReason    String?
+  googleEventId   String?
+  managerId       String?
+  paymentStatus   String?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([moduleSlug, date])
   @@index([userId])
