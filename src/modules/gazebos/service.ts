@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
+import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
