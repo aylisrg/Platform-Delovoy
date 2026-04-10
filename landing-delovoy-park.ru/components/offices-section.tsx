@@ -29,31 +29,31 @@ const offices = [
 
 export function OfficesSection() {
   return (
-    <section id="offices" className="bg-black py-24 px-6">
+    <section id="offices" className="bg-white py-24 px-6">
       <div className="max-w-[1200px] mx-auto">
         {/* Heading row */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-14">
           <div>
             <h2
-              className="font-[family-name:var(--font-manrope)] font-[500] text-white"
+              className="font-[family-name:var(--font-manrope)] font-[600] text-[#1d1d1f]"
               style={{
-                fontSize: "clamp(40px, 6vw, 72px)",
-                letterSpacing: "clamp(-1.5px, -0.04em, -3px)",
-                lineHeight: 0.95,
+                fontSize: "clamp(36px, 5vw, 64px)",
+                letterSpacing: "clamp(-1px, -0.03em, -2.5px)",
+                lineHeight: 1,
               }}
             >
               Офисы
             </h2>
-            <p className="text-[#a6a6a6] font-[family-name:var(--font-inter)] text-base mt-4 max-w-sm">
+            <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-[15px] mt-4 max-w-sm leading-relaxed">
               Все помещения сданы. Оставьте заявку — сообщим первыми, когда
               появится место.
             </p>
           </div>
 
           {/* Sold-out badge */}
-          <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-5 py-2.5 self-start md:self-auto">
-            <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-            <span className="text-white text-sm font-medium font-[family-name:var(--font-inter)]">
+          <div className="inline-flex items-center gap-2 bg-[#f5f5f7] rounded-full px-5 py-2.5 self-start md:self-auto">
+            <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+            <span className="text-[#1d1d1f] text-[13px] font-medium font-[family-name:var(--font-inter)]">
               Все места заняты
             </span>
           </div>
@@ -64,28 +64,25 @@ export function OfficesSection() {
           {offices.map((office) => (
             <div
               key={office.title}
-              className="relative bg-black rounded-[12px] p-6 border border-white/5 flex flex-col gap-4"
-              style={{
-                boxShadow: "rgba(0, 153, 255, 0.08) 0px 0px 0px 1px",
-              }}
+              className="relative bg-[#f5f5f7] rounded-2xl p-6 flex flex-col gap-4 hover:bg-[#ebebed] transition-colors"
             >
               {/* СДАН badge */}
-              <span className="absolute top-3 right-3 bg-amber-400/10 text-amber-400 text-[10px] font-semibold px-2 py-0.5 rounded-full font-[family-name:var(--font-inter)] uppercase tracking-wide">
+              <span className="absolute top-4 right-4 bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 rounded-full font-[family-name:var(--font-inter)] uppercase tracking-wide">
                 СДАН
               </span>
 
               {/* Photo placeholder */}
-              <div className="w-full h-32 rounded-lg bg-white/[0.03] border border-white/5 flex items-center justify-center">
-                <span className="text-[#a6a6a6]/30 text-xs font-[family-name:var(--font-inter)]">
+              <div className="w-full h-32 rounded-xl bg-white/60 flex items-center justify-center">
+                <span className="text-[#86868b]/40 text-xs font-[family-name:var(--font-inter)]">
                   фото
                 </span>
               </div>
 
               <div>
-                <p className="text-white font-semibold font-[family-name:var(--font-manrope)] text-base">
+                <p className="text-[#1d1d1f] font-semibold font-[family-name:var(--font-manrope)] text-[15px]">
                   {office.title}
                 </p>
-                <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)] mt-0.5">
+                <p className="text-[#86868b] text-[13px] font-[family-name:var(--font-inter)] mt-0.5">
                   {office.area}
                 </p>
               </div>
@@ -94,15 +91,15 @@ export function OfficesSection() {
                 {office.features.map((f) => (
                   <li
                     key={f}
-                    className="flex items-center gap-2 text-[#a6a6a6] text-xs font-[family-name:var(--font-inter)]"
+                    className="flex items-center gap-2 text-[#86868b] text-xs font-[family-name:var(--font-inter)]"
                   >
-                    <span className="w-1 h-1 rounded-full bg-[#0099ff] flex-shrink-0" />
+                    <span className="w-1 h-1 rounded-full bg-[#0071e3] flex-shrink-0" />
                     {f}
                   </li>
                 ))}
               </ul>
 
-              <p className="text-white/60 text-xs font-[family-name:var(--font-inter)] mt-auto pt-2 border-t border-white/5">
+              <p className="text-[#1d1d1f]/50 text-xs font-[family-name:var(--font-inter)] mt-auto pt-3 border-t border-black/[0.04]">
                 {office.price}
               </p>
             </div>
@@ -111,19 +108,14 @@ export function OfficesSection() {
 
         {/* Wait list form */}
         <div className="max-w-md mx-auto">
-          <div
-            className="bg-black rounded-[16px] p-8 border border-white/5"
-            style={{
-              boxShadow: "rgba(0, 153, 255, 0.12) 0px 0px 0px 1px",
-            }}
-          >
+          <div className="bg-[#f5f5f7] rounded-2xl p-8">
             <h3
-              className="font-[family-name:var(--font-manrope)] font-semibold text-white text-2xl mb-2"
+              className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-2xl mb-2"
               style={{ letterSpacing: "-0.5px" }}
             >
               Лист ожидания
             </h3>
-            <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)] mb-6">
+            <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] mb-6 leading-relaxed">
               Оставьте заявку — мы свяжемся с вами в первую очередь, когда
               освободится подходящий офис.
             </p>
