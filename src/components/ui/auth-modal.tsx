@@ -494,6 +494,15 @@ function TelegramLoginInModal() {
 
 // --- Icons ---
 
+function MailIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M2 7l10 7 10-7" />
+    </svg>
+  );
+}
+
 function TelegramIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
