@@ -3,7 +3,7 @@ import { apiResponse, apiError, apiValidationError, apiServerError } from "@/lib
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
 import { createBooking, BookingError } from "@/modules/gazebos/service";
-import { createBooking as createPSBooking, BookingError as PSBookingError } from "@/modules/ps-park/service";
+import { createBooking as createPSBooking, PSBookingError } from "@/modules/ps-park/service";
 
 /**
  * POST /api/bot/book — create a booking from Telegram bot.
