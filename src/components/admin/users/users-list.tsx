@@ -316,6 +316,17 @@ export function UsersList() {
           )}
         </div>
       </div>
+
+      {/* Permissions Modal */}
+      {permissionsUser && (
+        <PermissionsModal
+          userId={permissionsUser.id}
+          userName={permissionsUser.name}
+          userRole={permissionsUser.role}
+          onClose={() => setPermissionsUser(null)}
+          onSaved={() => fetchUsers(search || undefined)}
+        />
+      )}
     </div>
   );
 }
