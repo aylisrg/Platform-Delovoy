@@ -14,17 +14,31 @@ export default async function GazebosPage() {
     <div className="bg-white min-h-screen">
       <Navbar />
 
-      {/* Hero */}
-      <section className="pt-36 pb-20 px-6">
-        <div className="max-w-[1200px] mx-auto">
+      {/* Hero with video background */}
+      <section className="relative h-[70vh] min-h-[500px] flex items-end overflow-hidden">
+        {/* Video background */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        >
+          <source src="/media/gazebo.mp4" type="video/mp4" />
+        </video>
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />
+
+        {/* Content */}
+        <div className="relative z-10 max-w-[1200px] mx-auto w-full px-6 pb-16">
           <Link
             href="/"
-            className="text-[#0071e3] hover:text-[#0071e3]/80 text-sm font-[family-name:var(--font-inter)] transition-colors"
+            className="text-white/70 hover:text-white text-sm font-[family-name:var(--font-inter)] transition-colors"
           >
             ← Главная
           </Link>
           <h1
-            className="font-[family-name:var(--font-manrope)] font-[500] text-[#1d1d1f] mt-6"
+            className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-6"
             style={{
               fontSize: "clamp(36px, 5vw, 56px)",
               letterSpacing: "clamp(-1px, -0.03em, -2px)",
@@ -33,7 +47,7 @@ export default async function GazebosPage() {
           >
             Беседки
           </h1>
-          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
+          <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
             Уютные беседки с мангалом на территории бизнес-парка Деловой.
             Забронируйте онлайн в пару кликов.
           </p>
