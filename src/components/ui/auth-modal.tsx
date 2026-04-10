@@ -14,6 +14,7 @@ export function AuthModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<AuthTab>("telegram");
+  const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
