@@ -143,9 +143,8 @@ export function registerGazeboHandlers(bot: Bot<BotContext>) {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/bot/book`, {
+      const res = await botFetch("/api/bot/book", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           telegramId,
           moduleSlug: "gazebos",
