@@ -172,7 +172,12 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
   return booking;
 }
 
-export async function updateBookingStatus(id: string, status: BookingStatus) {
+export async function updateBookingStatus(
+  id: string,
+  status: BookingStatus,
+  managerId?: string,
+  cancelReason?: string
+) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
   });
@@ -195,9 +200,42 @@ export async function updateBookingStatus(id: string, status: BookingStatus) {
     );
   }
 
-  const updated = await prisma.booking.update({ where: { id }, data: { status } });
+  const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId } });
 
-  const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId }, select: { name: true } });
+  // Google Calendar sync
+  let googleEventId = booking.googleEventId;
+
+  if (status === "CONFIRMED" && resource?.googleCalendarId) {
+    const user = await prisma.user.findUnique({
+      where: { id: booking.userId },
+      select: { name: true, phone: true },
+    });
+    const calResult = await createCalendarEvent(resource.googleCalendarId, {
+      summary: `${resource.name} — ${booking.clientName || user?.name || "Клиент"}`,
+      description: `Телефон: ${booking.clientPhone || user?.phone || "не указан"}`,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+    });
+    if (calResult.success && calResult.eventId) {
+      googleEventId = calResult.eventId;
+    }
+  }
+
+  if (status === "CANCELLED" && booking.googleEventId && resource?.googleCalendarId) {
+    await deleteCalendarEvent(resource.googleCalendarId, booking.googleEventId);
+    googleEventId = null;
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id },
+    data: {
+      status,
+      ...(managerId && { managerId }),
+      ...(cancelReason && { cancelReason }),
+      ...(googleEventId !== booking.googleEventId && { googleEventId }),
+    },
+  });
+
   const dateStr = booking.date.toISOString().split("T")[0];
   const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
