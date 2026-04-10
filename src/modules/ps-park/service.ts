@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+} from "@/lib/google-calendar";
 import type {
   CreatePSBookingInput,
   CreateTableInput,
@@ -13,8 +17,8 @@ import type {
 
 const MODULE_SLUG = "ps-park";
 
-// Operating hours: 10:00 - 23:00, 1-hour slots
-const OPEN_HOUR = 10;
+// Operating hours (unified: 08:00–23:00)
+const OPEN_HOUR = 8;
 const CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
 
