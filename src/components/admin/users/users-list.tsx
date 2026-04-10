@@ -44,6 +44,7 @@ export function UsersList() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [savingRole, setSavingRole] = useState<string | null>(null);
+  const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
 
   const fetchUsers = useCallback(async (searchQuery?: string) => {
     try {
