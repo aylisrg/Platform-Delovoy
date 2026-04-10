@@ -140,7 +140,7 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  return prisma.booking.create({
+  const booking = await prisma.booking.create({
     data: {
       moduleSlug: MODULE_SLUG,
       resourceId,
@@ -155,6 +155,17 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
       },
     },
   });
+
+  enqueueNotification({
+    type: "booking.created",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId,
+    actor: "client",
+    data: { resourceName: resource.name, date, startTime, endTime },
+  });
+
+  return booking;
 }
 
 export async function updateBookingStatus(id: string, status: BookingStatus) {
