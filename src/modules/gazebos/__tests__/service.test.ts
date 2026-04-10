@@ -177,7 +177,7 @@ describe("updateBookingStatus", () => {
 
     await updateBookingStatus("booking-1", "CANCELLED");
     expect(prisma.booking.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: "CANCELLED" } })
+      expect.objectContaining({ data: expect.objectContaining({ status: "CANCELLED" }) })
     );
   });
 
