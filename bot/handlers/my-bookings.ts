@@ -134,13 +134,13 @@ async function showBookings(ctx: BotContext, edit = false) {
     }>;
 
     const lines = bookings.map((b) => {
-      const module = MODULE_LABELS[b.moduleSlug] || b.moduleSlug;
+      const moduleLabel = MODULE_LABELS[b.moduleSlug] || b.moduleSlug;
       const status = STATUS_LABELS[b.status] || b.status;
       const date = new Date(b.date).toLocaleDateString("ru-RU", {
         day: "numeric",
         month: "short",
       });
-      return `${module} · ${b.resourceName}\n   📅 ${date} · 🕐 ${b.startTime}–${b.endTime}\n   ${status}`;
+      return `${moduleLabel} · ${b.resourceName}\n   📅 ${date} · 🕐 ${b.startTime}–${b.endTime}\n   ${status}`;
     });
 
     const text = `📋 <b>Ваши бронирования</b>\n\n${lines.join("\n\n")}`;
