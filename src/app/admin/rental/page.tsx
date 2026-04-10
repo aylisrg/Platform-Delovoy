@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
-import type { ContractStatus, OfficeStatus } from "@prisma/client";
+import type { ContractStatus, OfficeStatus, InquiryStatus } from "@prisma/client";
 import { ContractActions } from "@/components/admin/rental/contract-actions";
+import { InquiryActions } from "@/components/admin/rental/inquiry-actions";
 
 export const dynamic = "force-dynamic";
 
