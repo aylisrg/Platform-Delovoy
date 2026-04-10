@@ -3,7 +3,7 @@
 import { signIn } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 
-type AuthTab = "social" | "whatsapp" | "email";
+type AuthTab = "telegram" | "other" | "email" | "whatsapp";
 
 export function AuthModal({
   isOpen,
@@ -12,7 +12,7 @@ export function AuthModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<AuthTab>("social");
+  const [tab, setTab] = useState<AuthTab>("telegram");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
@@ -173,39 +173,44 @@ export function AuthModal({
 
         {/* Content */}
         <div className="px-8 pb-8 pt-4">
-          {/* Tabs */}
-          <div className="flex rounded-xl bg-[#f5f5f7] p-1 mb-5">
-            {(
-              [
-                { key: "social" as AuthTab, label: "Соцсети" },
-                { key: "whatsapp" as AuthTab, label: "WhatsApp" },
-                { key: "email" as AuthTab, label: "Email" },
-              ] as const
-            ).map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => {
-                  setTab(key);
-                  setError("");
-                }}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors font-[family-name:var(--font-inter)] ${
-                  tab === key
-                    ? "bg-white text-[#1d1d1f] shadow-sm"
-                    : "text-[#86868b] hover:text-[#1d1d1f]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
 
-          {/* Social */}
-          {tab === "social" && (
-            <div className="space-y-2.5">
-              <OAuthButton onClick={() => handleOAuth("google")} disabled={loading} icon={<GoogleIcon />} label="Google" />
-              <OAuthButton onClick={() => handleOAuth("yandex")} disabled={loading} icon={<YandexIcon />} label="Яндекс" />
-              <OAuthButton onClick={() => handleOAuth("vk")} disabled={loading} icon={<VKIcon />} label="VK" />
+          {/* Telegram — primary method, always visible */}
+          {tab === "telegram" && (
+            <div className="space-y-4">
+              {/* Telegram Login Widget */}
               <TelegramLoginInModal />
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-black/[0.06]" />
+                <span className="text-xs text-[#86868b] font-[family-name:var(--font-inter)]">или</span>
+                <div className="flex-1 h-px bg-black/[0.06]" />
+              </div>
+
+              {/* Other methods */}
+              <div className="space-y-2">
+                <OAuthButton onClick={() => handleOAuth("google")} disabled={loading} icon={<GoogleIcon />} label="Google" />
+                <OAuthButton onClick={() => handleOAuth("yandex")} disabled={loading} icon={<YandexIcon />} label="Яндекс" />
+                <OAuthButton onClick={() => handleOAuth("vk")} disabled={loading} icon={<VKIcon />} label="VK" />
+              </div>
+
+              {/* Secondary auth links */}
+              <div className="flex justify-center gap-4 pt-1">
+                <button
+                  onClick={() => { setTab("whatsapp"); setError(""); }}
+                  className="text-xs text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
+                >
+                  WhatsApp
+                </button>
+                <span className="text-[#86868b]/30">|</span>
+                <button
+                  onClick={() => { setTab("email"); setError(""); }}
+                  className="text-xs text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
+                >
+                  Email + пароль
+                </button>
+              </div>
+
               {error && <p className="text-center text-sm text-red-500">{error}</p>}
               <p className="text-center text-xs text-[#86868b] pt-1">
                 Аккаунт создаётся автоматически при первом входе
@@ -215,101 +220,125 @@ export function AuthModal({
 
           {/* Email */}
           {tab === "email" && (
-            <form onSubmit={handleEmailLogin} className="space-y-3">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="Email"
-                className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="Пароль"
-                className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-              />
-              {error && <p className="text-sm text-red-500">{error}</p>}
+            <div className="space-y-3">
               <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                onClick={() => { setTab("telegram"); setError(""); }}
+                className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
               >
-                {loading ? "Вход..." : "Войти"}
+                ← Назад
               </button>
-            </form>
+              <form onSubmit={handleEmailLogin} className="space-y-3">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  placeholder="Email"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="Пароль"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                />
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                >
+                  {loading ? "Вход..." : "Войти"}
+                </button>
+              </form>
+            </div>
           )}
 
           {/* WhatsApp */}
           {tab === "whatsapp" && !otpSent && (
-            <form onSubmit={handleSendOtp} className="space-y-3">
-              <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                <WhatsAppIcon />
-                <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
-                  Код придёт в WhatsApp
-                </span>
-              </div>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-                placeholder="+7 999 123-45-67"
-                className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-              />
-              {error && <p className="text-sm text-red-500">{error}</p>}
+            <div className="space-y-3">
               <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                onClick={() => { setTab("telegram"); setError(""); }}
+                className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
               >
-                {loading ? "Отправка..." : "Получить код"}
+                ← Назад
               </button>
-            </form>
+              <form onSubmit={handleSendOtp} className="space-y-3">
+                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
+                  <WhatsAppIcon />
+                  <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
+                    Код придёт в WhatsApp
+                  </span>
+                </div>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                  placeholder="+7 999 123-45-67"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                />
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                >
+                  {loading ? "Отправка..." : "Получить код"}
+                </button>
+              </form>
+            </div>
           )}
 
           {tab === "whatsapp" && otpSent && (
-            <form onSubmit={handleVerifyOtp} className="space-y-3">
-              <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                <WhatsAppIcon />
-                <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
-                  Код отправлен
-                </span>
-              </div>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                required
-                autoFocus
-                placeholder="Код из WhatsApp"
-                className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm text-center tracking-[0.3em] font-mono font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366]/20"
-              />
-              {error && <p className="text-sm text-red-500">{error}</p>}
+            <div className="space-y-3">
               <button
-                type="submit"
-                disabled={loading || otpCode.length !== 6}
-                className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                onClick={() => { setTab("telegram"); setError(""); }}
+                className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
               >
-                {loading ? "Проверка..." : "Войти"}
+                ← Назад
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOtpSent(false);
-                  setOtpCode("");
-                  setError("");
-                }}
-                className="w-full text-center text-sm text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
-              >
-                Отправить код повторно
-              </button>
-            </form>
+              <form onSubmit={handleVerifyOtp} className="space-y-3">
+                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
+                  <WhatsAppIcon />
+                  <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
+                    Код отправлен
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                  required
+                  autoFocus
+                  placeholder="Код из WhatsApp"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm text-center tracking-[0.3em] font-mono font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366]/20"
+                />
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={loading || otpCode.length !== 6}
+                  className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                >
+                  {loading ? "Проверка..." : "Войти"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOtpSent(false);
+                    setOtpCode("");
+                    setError("");
+                  }}
+                  className="w-full text-center text-sm text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
+                >
+                  Отправить код повторно
+                </button>
+              </form>
+            </div>
           )}
         </div>
       </div>
@@ -366,7 +395,7 @@ function TelegramLoginInModal() {
     script.src = "https://telegram.org/js/telegram-widget.js?22";
     script.setAttribute("data-telegram-login", botName);
     script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "8");
+    script.setAttribute("data-radius", "12");
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
     script.async = true;
@@ -377,12 +406,40 @@ function TelegramLoginInModal() {
     };
   }, [botName]);
 
-  if (!botName) return null;
+  if (!botName) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-xl bg-[#26A5E4]/10 border border-[#26A5E4]/20 px-4 py-4">
+        <TelegramIcon />
+        <span className="text-sm text-[#26A5E4] font-medium font-[family-name:var(--font-inter)]">
+          Telegram вход скоро будет доступен
+        </span>
+      </div>
+    );
+  }
 
-  return <div id="telegram-login-modal" className="flex justify-center" />;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2 text-[#26A5E4] mb-1">
+        <TelegramIcon />
+        <span className="text-sm font-medium font-[family-name:var(--font-inter)]">
+          Быстрый вход через Telegram
+        </span>
+      </div>
+      <div id="telegram-login-modal" className="flex justify-center" />
+    </div>
+  );
 }
 
 // --- Icons ---
+
+function TelegramIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="4" fill="#26A5E4" />
+      <path d="M17.05 7.26l-1.83 9.43c-.14.62-.5.77-.99.48l-2.78-2.05-1.34 1.29c-.15.15-.27.27-.56.27l.2-2.83 5.15-4.65c.22-.2-.05-.31-.35-.12l-6.36 4.01-2.74-.85c-.59-.19-.61-.59.12-.88l10.72-4.13c.5-.19.94.12.76.88z" fill="white" />
+    </svg>
+  );
+}
 
 function GoogleIcon() {
   return (
