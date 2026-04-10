@@ -86,7 +86,18 @@ export function Sidebar() {
         )}
       </nav>
 
-      <div className="border-t border-zinc-200 p-4">
+      <div className="border-t border-zinc-200 p-4 space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <video
+            src="/media/logo-animated.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="h-6 w-6 rounded object-cover"
+          />
+          <span className="text-xs text-zinc-400 font-medium">Деловой Парк</span>
+        </div>
         <Link
           href="/"
           className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700"
