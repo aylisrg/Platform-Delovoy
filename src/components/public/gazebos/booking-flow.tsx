@@ -27,6 +27,8 @@ type BookingStep = "date" | "slots" | "form" | "done";
 const ACCENT = "#16A34A";
 
 export function BookingFlow() {
+  const { data: session, status: sessionStatus } = useSession();
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [step, setStep] = useState<BookingStep>("date");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
@@ -40,6 +42,8 @@ export function BookingFlow() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
   });
+
+  const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type, visible: true });
