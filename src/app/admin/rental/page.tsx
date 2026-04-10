@@ -56,7 +56,7 @@ export default async function RentalManagerPage() {
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [offices, tenants, contracts, expiringCount, newThisMonth, totalRevenue] =
+  const [offices, tenants, contracts, expiringCount, newThisMonth, totalRevenue, inquiries] =
     await Promise.all([
       prisma.office.findMany({ orderBy: [{ floor: "asc" }, { number: "asc" }] }),
       prisma.tenant.findMany({
@@ -80,6 +80,11 @@ export default async function RentalManagerPage() {
       prisma.rentalContract.findMany({
         where: { status: { in: ["ACTIVE", "EXPIRING"] } },
         select: { monthlyRate: true },
+      }),
+      prisma.rentalInquiry.findMany({
+        include: { office: { select: { number: true, floor: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
       }),
     ]);
 
