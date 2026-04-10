@@ -19,6 +19,7 @@ const navigation: NavItem[] = [
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
+  { label: "Клиенты", href: "/admin/clients", icon: "👤", section: "clients" },
   { label: "Telegram", href: "/admin/telegram", icon: "📨", section: "telegram" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
