@@ -49,15 +49,16 @@ export async function PATCH(
       return apiError("VALIDATION_ERROR", "Укажите статус", 422);
     }
 
+    const { reason } = body;
     let updated;
 
     // Users can only cancel their own bookings
     if (status === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
-      updated = await cancelBooking(id, session.user.id);
+      updated = await cancelBooking(id, session.user.id, reason);
     } else if (hasRole(session.user, "MANAGER")) {
       const denied = await requireAdminSection(session, "ps-park");
       if (denied) return denied;
-      updated = await updateBookingStatus(id, status);
+      updated = await updateBookingStatus(id, status, session.user.id, reason);
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
