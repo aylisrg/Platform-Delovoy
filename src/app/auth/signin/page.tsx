@@ -2,9 +2,11 @@
 
 import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 type AuthView = "main" | "email" | "whatsapp" | "whatsapp-verify";
+type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
 
 // Telegram Login Widget component
 function TelegramLoginButton() {
@@ -62,8 +64,11 @@ function TelegramLoginButton() {
   );
 }
 
-export default function SignInPage() {
+// Inner component that uses useSearchParams (requires Suspense boundary)
+function SignInInner() {
+  const searchParams = useSearchParams();
   const [view, setView] = useState<AuthView>("main");
+  const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
@@ -82,22 +87,85 @@ export default function SignInPage() {
     }
   }, []);
 
-  const handleEmailLogin = useCallback(async (e: React.FormEvent) => {
+  // Handle magic link redirect: ?magic=userId
+  useEffect(() => {
+    const magicUserId = searchParams.get("magic");
+    if (!magicUserId) return;
+
+    setView("email");
+    setEmailSubView("auto-signing-in");
+
+    signIn("magic-link", { userId: magicUserId, redirect: false }).then(
+      async (result) => {
+        if (result?.ok) {
+          await redirectAfterLogin();
+        } else {
+          setEmailSubView("form");
+          setError("Ссылка недействительна или уже была использована");
+        }
+      }
+    );
+  }, [searchParams, redirectAfterLogin]);
+
+  // Handle error params from verify-email redirect
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    if (!errorParam) return;
+
+    setView("email");
+    setEmailSubView("form");
+    if (errorParam === "link-expired") {
+      setError("Ссылка истекла. Запросите новую.");
+    } else if (errorParam === "invalid-link") {
+      setError("Недействительная ссылка. Запросите новую.");
+    }
+  }, [searchParams]);
+
+  const handleEmailSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
+    // Step 1: try credentials login (for existing users with password)
     const result = await signIn("credentials", {
       email,
       password,
       redirect: false,
     });
 
-    if (result?.error || !result?.ok) {
-      setError("Неверный email или пароль");
-      setLoading(false);
-    } else {
+    if (result?.ok) {
       await redirectAfterLogin();
+      return;
+    }
+
+    // Step 2: credentials failed — try magic link flow
+    try {
+      const res = await fetch("/api/auth/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: password || undefined }),
+      });
+      const data = await res.json();
+
+      if (!data.success && data.error?.code === "USE_PASSWORD") {
+        // User has a password but typed it wrong
+        setError("Неверный email или пароль");
+        setLoading(false);
+        return;
+      }
+
+      if (!data.success) {
+        setError(data.error?.message || "Не удалось отправить письмо");
+        setLoading(false);
+        return;
+      }
+
+      // Magic link sent successfully
+      setEmailSubView("magic-link-sent");
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setLoading(false);
     }
   }, [email, password, redirectAfterLogin]);
 
@@ -235,10 +303,10 @@ export default function SignInPage() {
                 </button>
                 <span className="text-zinc-700">|</span>
                 <button
-                  onClick={() => { setView("email"); setError(""); }}
+                  onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
                   className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  Email + пароль
+                  Email
                 </button>
               </div>
 
@@ -250,55 +318,102 @@ export default function SignInPage() {
             </div>
           )}
 
-          {/* Email login */}
+          {/* Email flow */}
           {view === "email" && (
             <div className="space-y-4">
-              <button
-                onClick={() => { setView("main"); setError(""); }}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                ← Назад
-              </button>
-              <form onSubmit={handleEmailLogin} className="space-y-4">
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
-                    Email
-                  </label>
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="you@example.com"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
-                    Пароль
-                  </label>
-                  <input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="********"
-                  />
-                </div>
-
-                {error && <p className="text-sm text-red-400">{error}</p>}
-
+              {emailSubView !== "auto-signing-in" && (
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  onClick={() => { setView("main"); setEmailSubView("form"); setError(""); }}
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
                 >
-                  {loading ? "Вход..." : "Войти"}
+                  ← Назад
                 </button>
-              </form>
+              )}
+
+              {/* Form sub-view */}
+              {emailSubView === "form" && (
+                <form onSubmit={handleEmailSubmit} className="space-y-4">
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
+                      Email
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
+                      Пароль{" "}
+                      <span className="text-zinc-500 font-normal">(если есть)</span>
+                    </label>
+                    <input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      placeholder="Оставьте пустым — войдём по ссылке"
+                    />
+                  </div>
+
+                  {error && <p className="text-sm text-red-400">{error}</p>}
+
+                  <button
+                    type="submit"
+                    disabled={loading || !email}
+                    className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? "Отправка..." : "Войти"}
+                  </button>
+
+                  <p className="text-center text-xs text-zinc-500">
+                    Если аккаунта нет — отправим письмо со ссылкой для входа
+                  </p>
+                </form>
+              )}
+
+              {/* Magic link sent sub-view */}
+              {emailSubView === "magic-link-sent" && (
+                <div className="space-y-4 text-center">
+                  <div className="flex justify-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600/10">
+                      <MailIcon />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-base font-medium text-white">Проверьте почту</p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Отправили письмо на{" "}
+                      <span className="text-white font-medium">{email}</span>
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Перейдите по ссылке в письме — ссылка действительна 15 минут
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setEmailSubView("form"); setError(""); }}
+                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Изменить email или отправить повторно
+                  </button>
+                </div>
+              )}
+
+              {/* Auto-signing-in sub-view */}
+              {emailSubView === "auto-signing-in" && (
+                <div className="space-y-4 text-center py-4">
+                  <div className="flex justify-center">
+                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                  </div>
+                  <p className="text-sm text-zinc-400">Выполняется вход...</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -411,7 +526,28 @@ export default function SignInPage() {
   );
 }
 
+export default function SignInPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      </div>
+    }>
+      <SignInInner />
+    </Suspense>
+  );
+}
+
 // --- SVG Icons ---
+
+function MailIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M2 7l10 7 10-7" />
+    </svg>
+  );
+}
 
 function GoogleIcon() {
   return (
