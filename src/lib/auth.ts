@@ -95,7 +95,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (dbUser && dbUser.role === "SUPERADMIN") {
           result.adminSections = [
             "dashboard", "gazebos", "ps-park", "cafe",
-            "rental", "modules", "users", "monitoring", "architect",
+            "rental", "modules", "users", "telegram", "monitoring", "architect",
           ];
         } else if (dbUser && dbUser.role === "MANAGER") {
           const permissions = await prisma.adminPermission.findMany({
