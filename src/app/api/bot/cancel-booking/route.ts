@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { verifyBotRequest } from "@/lib/bot-auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
 import { cancelBooking, BookingError } from "@/modules/gazebos/service";
@@ -10,6 +11,10 @@ import { cancelBooking as cancelPSBooking, PSBookingError } from "@/modules/ps-p
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!verifyBotRequest(request)) {
+      return apiError("UNAUTHORIZED", "Invalid bot token", 401);
+    }
+
     const body = await request.json();
     const { telegramId, bookingId } = body;
 
