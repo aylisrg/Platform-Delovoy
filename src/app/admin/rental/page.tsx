@@ -104,7 +104,7 @@ export default async function RentalManagerPage() {
       <AdminHeader title="Аренда офисов" />
       <div className="p-8">
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
           <StatusWidget
             title="Офисов занято"
             value={`${occupiedOffices} / ${offices.length}`}
