@@ -77,6 +77,29 @@ export type ContractFilter = {
   officeId?: string;
 };
 
+// === Inquiry Types ===
+
+export type CreateInquiryInput = {
+  name: string;
+  phone: string;
+  email?: string;
+  companyName?: string;
+  message?: string;
+  officeId?: string;
+};
+
+export type UpdateInquiryInput = Partial<{
+  status: InquiryStatus;
+  isRead: boolean;
+  adminNotes: string;
+  convertedToId: string;
+}>;
+
+export type InquiryFilter = {
+  status?: InquiryStatus;
+  isRead?: boolean;
+};
+
 // === Reports ===
 
 export type MonthlyReport = {
