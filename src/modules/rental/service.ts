@@ -383,3 +383,76 @@ export async function getMonthlyReport(year: number, month: number): Promise<Mon
     expiringContracts,
   };
 }
+
+// === INQUIRIES ===
+
+export async function listInquiries(filter?: InquiryFilter) {
+  return prisma.rentalInquiry.findMany({
+    where: {
+      ...(filter?.status && { status: filter.status }),
+      ...(filter?.isRead !== undefined && { isRead: filter.isRead }),
+    },
+    include: { office: { select: { id: true, number: true, floor: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getInquiry(id: string) {
+  const inquiry = await prisma.rentalInquiry.findUnique({
+    where: { id },
+    include: { office: true },
+  });
+  if (!inquiry) throw new RentalError("INQUIRY_NOT_FOUND", "Заявка не найдена");
+  return inquiry;
+}
+
+export async function createInquiry(input: CreateInquiryInput) {
+  if (input.officeId) {
+    const office = await prisma.office.findUnique({ where: { id: input.officeId } });
+    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Офис не найден");
+  }
+
+  const inquiry = await prisma.rentalInquiry.create({
+    data: {
+      name: input.name,
+      phone: input.phone,
+      email: input.email,
+      companyName: input.companyName,
+      message: input.message,
+      officeId: input.officeId,
+    },
+    include: { office: { select: { number: true } } },
+  });
+
+  enqueueNotification({
+    type: "inquiry.created",
+    moduleSlug: "rental",
+    entityId: inquiry.id,
+    data: {
+      name: input.name,
+      phone: input.phone,
+      email: input.email || "—",
+      companyName: input.companyName || "—",
+      message: input.message || "—",
+      officeNumber: inquiry.office?.number || "Общий запрос",
+    },
+  });
+
+  return inquiry;
+}
+
+export async function updateInquiry(id: string, input: UpdateInquiryInput) {
+  const inquiry = await prisma.rentalInquiry.findUnique({ where: { id } });
+  if (!inquiry) throw new RentalError("INQUIRY_NOT_FOUND", "Заявка не найдена");
+
+  return prisma.rentalInquiry.update({
+    where: { id },
+    data: {
+      ...(input.status !== undefined && { status: input.status }),
+      ...(input.isRead !== undefined && { isRead: input.isRead }),
+      ...(input.adminNotes !== undefined && { adminNotes: input.adminNotes }),
+      ...(input.convertedToId !== undefined && { convertedToId: input.convertedToId }),
+    },
+    include: { office: { select: { id: true, number: true, floor: true } } },
+  });
+}
