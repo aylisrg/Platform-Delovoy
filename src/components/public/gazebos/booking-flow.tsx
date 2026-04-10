@@ -165,14 +165,11 @@ export function BookingFlow() {
         onClose={() => setToast((t) => ({ ...t, visible: false }))}
       />
 
-      <div
-        className="rounded-[16px] border border-white/5 overflow-hidden"
-        style={{ boxShadow: "rgba(0, 153, 255, 0.06) 0px 0px 0px 1px" }}
-      >
+      <div className="rounded-2xl border border-black/[0.08] overflow-hidden bg-white">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
+        <div className="px-6 py-5 border-b border-black/[0.04] flex items-center justify-between">
           <h2
-            className="font-[family-name:var(--font-manrope)] font-semibold text-white text-xl"
+            className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-xl"
             style={{ letterSpacing: "-0.4px" }}
           >
             Забронировать беседку
@@ -186,14 +183,14 @@ export function BookingFlow() {
           {/* Step 1: Date */}
           {step === "date" && (
             <div className="space-y-5">
-              <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)]">
+              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)]">
                 Выберите дату для бронирования
               </p>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label
                     htmlFor="booking-date"
-                    className="block text-white/60 text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                    className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
                   >
                     Дата
                   </label>
@@ -203,19 +200,19 @@ export function BookingFlow() {
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
                     min={new Date().toISOString().split("T")[0]}
-                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0099ff] transition-colors [color-scheme:dark]"
+                    className="bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
                   />
                 </div>
                 <button
                   onClick={loadAvailability}
                   disabled={loading}
-                  className="bg-white text-black font-medium text-sm py-3 px-6 rounded-full hover:bg-white/90 transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                  className="bg-[#0071e3] text-white font-medium text-sm py-3 px-6 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
                 >
                   {loading ? "Загрузка..." : "Показать доступность"}
                 </button>
               </div>
               {error && (
-                <p className="text-red-400 text-xs font-[family-name:var(--font-inter)]">{error}</p>
+                <p className="text-red-500 text-xs font-[family-name:var(--font-inter)]">{error}</p>
               )}
             </div>
           )}
@@ -224,12 +221,12 @@ export function BookingFlow() {
           {step === "slots" && (
             <div className="space-y-5">
               <div className="flex items-center gap-3">
-                <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)]">
+                <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)]">
                   {formatDate(date)}
                 </p>
                 <button
                   onClick={() => setStep("date")}
-                  className="text-[#0099ff] hover:text-[#0099ff]/80 text-xs font-[family-name:var(--font-inter)] transition-colors"
+                  className="text-[#0071e3] hover:text-[#0071e3]/80 text-xs font-[family-name:var(--font-inter)] transition-colors"
                 >
                   изменить
                 </button>
@@ -242,22 +239,21 @@ export function BookingFlow() {
                 return (
                   <div
                     key={item.resource.id}
-                    className={`rounded-[14px] p-5 border transition-all ${
+                    className={`rounded-2xl p-5 border transition-all ${
                       isSelected
                         ? "border-[#16A34A]/40 bg-[#16A34A]/[0.04]"
-                        : "border-white/5 hover:border-white/10"
+                        : "border-black/[0.06] hover:border-black/[0.12]"
                     }`}
-                    style={isSelected ? { boxShadow: `${ACCENT}1A 0px 0px 0px 1px` } : {}}
                   >
                     <div className="flex flex-wrap items-center gap-2 mb-3">
                       <h3
-                        className="font-[family-name:var(--font-manrope)] font-semibold text-white text-base"
+                        className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-base"
                         style={{ letterSpacing: "-0.3px" }}
                       >
                         {item.resource.name}
                       </h3>
                       {item.resource.capacity && (
-                        <span className="text-white/30 text-xs font-[family-name:var(--font-inter)]">
+                        <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)]">
                           до {item.resource.capacity} чел.
                         </span>
                       )}
@@ -270,7 +266,7 @@ export function BookingFlow() {
                         </span>
                       )}
                       {!hasAvailable && (
-                        <span className="text-white/30 text-xs font-[family-name:var(--font-inter)] bg-white/5 px-2.5 py-0.5 rounded-full">
+                        <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)] bg-[#f5f5f7] px-2.5 py-0.5 rounded-full">
                           Всё занято
                         </span>
                       )}
@@ -288,8 +284,8 @@ export function BookingFlow() {
                               isSlotSelected
                                 ? "bg-[#16A34A] text-white shadow-lg shadow-[#16A34A]/20"
                                 : slot.isAvailable
-                                  ? "bg-white/5 text-white/70 border border-white/10 hover:border-white/20 hover:text-white"
-                                  : "bg-white/[0.02] text-white/15 cursor-not-allowed"
+                                  ? "bg-[#f5f5f7] text-[#1d1d1f]/70 border border-black/[0.06] hover:border-black/[0.12]"
+                                  : "bg-[#f5f5f7]/50 text-[#1d1d1f]/20 cursor-not-allowed"
                             }`}
                           >
                             {slot.startTime}–{slot.endTime}
@@ -304,24 +300,20 @@ export function BookingFlow() {
               {/* Selection summary */}
               {selectedResourceId && selectedSlots.length > 0 && timeRange && (
                 <div
-                  className="rounded-[14px] p-4 border flex flex-wrap items-center justify-between gap-3"
-                  style={{
-                    backgroundColor: `${ACCENT}08`,
-                    borderColor: `${ACCENT}30`,
-                  }}
+                  className="rounded-2xl p-4 border flex flex-wrap items-center justify-between gap-3 bg-[#16A34A]/[0.04] border-[#16A34A]/20"
                 >
                   <div className="text-sm font-[family-name:var(--font-inter)]">
-                    <span className="text-white font-medium">
+                    <span className="text-[#1d1d1f] font-medium">
                       {selectedResource?.resource.name}
                     </span>
-                    <span className="text-white/40 mx-2">·</span>
-                    <span className="text-white/60">
+                    <span className="text-[#86868b] mx-2">·</span>
+                    <span className="text-[#86868b]">
                       {timeRange.startTime}–{timeRange.endTime} ({selectedSlots.length} ч.)
                     </span>
                     {totalPrice > 0 && (
                       <>
-                        <span className="text-white/40 mx-2">·</span>
-                        <span className="text-white font-semibold">{totalPrice} ₽</span>
+                        <span className="text-[#86868b] mx-2">·</span>
+                        <span className="text-[#1d1d1f] font-semibold">{totalPrice} ₽</span>
                       </>
                     )}
                   </div>
@@ -329,8 +321,7 @@ export function BookingFlow() {
                     onClick={() => setStep("form")}
                     className="text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
                     style={{
-                      backgroundColor: `${ACCENT}20`,
-                      border: `1px solid ${ACCENT}40`,
+                      backgroundColor: ACCENT,
                     }}
                   >
                     Продолжить →
@@ -344,21 +335,21 @@ export function BookingFlow() {
           {step === "form" && selectedResource && timeRange && (
             <div className="space-y-5">
               {/* Summary */}
-              <div className="rounded-[14px] border border-white/5 p-5 space-y-2">
+              <div className="rounded-2xl border border-black/[0.08] p-5 space-y-2">
                 {[
                   ["Беседка", selectedResource.resource.name],
                   ["Дата", formatDate(date)],
                   ["Время", `${timeRange.startTime}–${timeRange.endTime} (${selectedSlots.length} ч.)`],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between text-sm font-[family-name:var(--font-inter)]">
-                    <span className="text-white/40">{label}</span>
-                    <span className="text-white font-medium">{value}</span>
+                    <span className="text-[#86868b]">{label}</span>
+                    <span className="text-[#1d1d1f] font-medium">{value}</span>
                   </div>
                 ))}
                 {totalPrice > 0 && (
-                  <div className="flex justify-between text-sm font-[family-name:var(--font-inter)] pt-2 border-t border-white/5 mt-2">
-                    <span className="text-white/40">Итого</span>
-                    <span className="text-white font-bold">{totalPrice} ₽</span>
+                  <div className="flex justify-between text-sm font-[family-name:var(--font-inter)] pt-2 border-t border-black/[0.04] mt-2">
+                    <span className="text-[#86868b]">Итого</span>
+                    <span className="text-[#1d1d1f] font-bold">{totalPrice} ₽</span>
                   </div>
                 )}
               </div>
@@ -367,11 +358,11 @@ export function BookingFlow() {
               <div>
                 <label
                   htmlFor="guest-count"
-                  className="block text-white/60 text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                  className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
                 >
                   Количество гостей
                   {selectedResource.resource.capacity && (
-                    <span className="text-white/30"> (макс. {selectedResource.resource.capacity})</span>
+                    <span className="text-[#86868b]/50"> (макс. {selectedResource.resource.capacity})</span>
                   )}
                 </label>
                 <input
@@ -382,7 +373,7 @@ export function BookingFlow() {
                   value={guestCount}
                   onChange={(e) => setGuestCount(e.target.value)}
                   placeholder="Необязательно"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0099ff] transition-colors"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
                 />
               </div>
 
@@ -390,7 +381,7 @@ export function BookingFlow() {
               <div>
                 <label
                   htmlFor="comment"
-                  className="block text-white/60 text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                  className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
                 >
                   Комментарий
                 </label>
@@ -400,7 +391,7 @@ export function BookingFlow() {
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="Пожелания, особые условия..."
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0099ff] transition-colors resize-none"
+                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors resize-none"
                 />
               </div>
 
@@ -408,20 +399,20 @@ export function BookingFlow() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep("slots")}
-                  className="bg-white/10 hover:bg-white/15 text-white text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium border border-white/10"
+                  className="bg-[#1d1d1f]/[0.06] hover:bg-[#1d1d1f]/[0.1] text-[#1d1d1f] text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
                 >
                   Назад
                 </button>
                 <button
                   onClick={submitBooking}
                   disabled={submitting}
-                  className="bg-white text-black font-medium text-sm py-3 px-6 rounded-full hover:bg-white/90 transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                  className="bg-[#0071e3] text-white font-medium text-sm py-3 px-6 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
                 >
                   {submitting ? "Отправка..." : "Забронировать"}
                 </button>
               </div>
 
-              <p className="text-white/20 text-xs font-[family-name:var(--font-inter)]">
+              <p className="text-[#86868b]/60 text-xs font-[family-name:var(--font-inter)]">
                 После отправки заявки администратор подтвердит бронирование.
               </p>
             </div>
@@ -432,18 +423,18 @@ export function BookingFlow() {
             <div className="text-center py-10 space-y-4">
               <div className="text-[#16A34A] text-4xl mb-2">✓</div>
               <h3
-                className="font-[family-name:var(--font-manrope)] font-semibold text-white text-lg"
+                className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-lg"
                 style={{ letterSpacing: "-0.3px" }}
               >
                 Заявка отправлена!
               </h3>
-              <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)] max-w-md mx-auto">
+              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] max-w-md mx-auto">
                 Ваше бронирование ожидает подтверждения администратора.
                 Вы получите уведомление, когда бронь будет подтверждена.
               </p>
               <button
                 onClick={resetFlow}
-                className="bg-white/10 hover:bg-white/15 text-white text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium border border-white/10 mt-2"
+                className="bg-[#1d1d1f]/[0.06] hover:bg-[#1d1d1f]/[0.1] text-[#1d1d1f] text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium mt-2"
               >
                 Новое бронирование
               </button>
@@ -475,21 +466,21 @@ function StepIndicator({ current }: { current: BookingStep }) {
                 isDone
                   ? "bg-[#16A34A] text-white"
                   : isActive
-                    ? "bg-white/10 text-white border border-white/20"
-                    : "bg-white/5 text-white/30"
+                    ? "bg-[#1d1d1f]/10 text-[#1d1d1f] border border-black/[0.1]"
+                    : "bg-[#f5f5f7] text-[#86868b]"
               }`}
             >
               {isDone ? "✓" : i + 1}
             </div>
             <span
               className={`text-xs hidden sm:inline font-[family-name:var(--font-inter)] ${
-                isActive ? "text-white" : "text-white/30"
+                isActive ? "text-[#1d1d1f]" : "text-[#86868b]"
               }`}
             >
               {s.label}
             </span>
             {i < steps.length - 1 && (
-              <div className={`w-4 h-px ${isDone ? "bg-[#16A34A]/50" : "bg-white/10"}`} />
+              <div className={`w-4 h-px ${isDone ? "bg-[#16A34A]/50" : "bg-black/[0.08]"}`} />
             )}
           </div>
         );
