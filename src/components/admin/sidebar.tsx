@@ -2,27 +2,49 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 
 type NavItem = {
   label: string;
   href: string;
   icon: string;
+  section: string;
 };
 
 const navigation: NavItem[] = [
-  { label: "Дашборд", href: "/admin/dashboard", icon: "📊" },
-  { label: "Беседки", href: "/admin/gazebos", icon: "🏕" },
-  { label: "PS Park", href: "/admin/ps-park", icon: "🎮" },
-  { label: "Кафе", href: "/admin/cafe", icon: "☕" },
-  { label: "Аренда", href: "/admin/rental", icon: "🏢" },
-  { label: "Модули", href: "/admin/modules", icon: "📦" },
-  { label: "Пользователи", href: "/admin/users", icon: "👥" },
-  { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍" },
-  { label: "Архитектор", href: "/admin/architect", icon: "🗺" },
+  { label: "Дашборд", href: "/admin/dashboard", icon: "📊", section: "dashboard" },
+  { label: "Беседки", href: "/admin/gazebos", icon: "🏕", section: "gazebos" },
+  { label: "PS Park", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
+  { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
+  { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
+  { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
+  { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
+  { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
+  { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [allowedSections, setAllowedSections] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/permissions/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setAllowedSections(data.data.sections);
+        }
+      })
+      .catch(() => {
+        // If fetch fails, show nothing for safety
+        setAllowedSections([]);
+      });
+  }, []);
+
+  const visibleNavigation =
+    allowedSections === null
+      ? [] // Loading — don't show anything yet
+      : navigation.filter((item) => allowedSections.includes(item.section));
 
   return (
     <aside className="flex w-64 flex-col border-r border-zinc-200 bg-white">
@@ -33,23 +55,34 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 p-4">
-        {navigation.map((item) => {
-          const isActive = pathname?.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-            >
-              <span>{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
+        {allowedSections === null ? (
+          <div className="flex flex-col gap-2 px-3 py-2">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-8 animate-pulse rounded-lg bg-zinc-100"
+              />
+            ))}
+          </div>
+        ) : (
+          visibleNavigation.map((item) => {
+            const isActive = pathname?.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-blue-50 text-blue-700"
+                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                }`}
+              >
+                <span>{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })
+        )}
       </nav>
 
       <div className="border-t border-zinc-200 p-4">
