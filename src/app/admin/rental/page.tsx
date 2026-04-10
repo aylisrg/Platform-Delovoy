@@ -128,6 +128,12 @@ export default async function RentalManagerPage() {
             status="info"
             description="в этом месяце"
           />
+          <StatusWidget
+            title="Заявки на аренду"
+            value={newInquiries}
+            status={newInquiries > 0 ? "warning" : "success"}
+            description={`${inquiries.length} всего`}
+          />
         </div>
 
         {/* === OFFICES === */}
