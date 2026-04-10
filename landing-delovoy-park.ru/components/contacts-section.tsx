@@ -3,33 +3,33 @@ const contacts = [
     type: "Телефон",
     value: "+7 (XXX) XXX-XX-XX",
     href: "tel:+7XXXXXXXXXX",
-    icon: "📞",
+    icon: "phone",
   },
   {
     type: "Telegram",
     value: "@delovoy_park",
     href: "https://t.me/delovoy_park",
-    icon: "✈️",
+    icon: "telegram",
   },
   {
     type: "WhatsApp",
     value: "+7 (XXX) XXX-XX-XX",
     href: "https://wa.me/7XXXXXXXXXX",
-    icon: "💬",
+    icon: "whatsapp",
   },
 ];
 
 export function ContactsSection() {
   return (
-    <section id="contacts" className="bg-black py-24 px-6 border-t border-white/5">
+    <section id="contacts" className="bg-white py-24 px-6">
       <div className="max-w-[1200px] mx-auto">
         <div className="mb-14">
           <h2
-            className="font-[family-name:var(--font-manrope)] font-[500] text-white"
+            className="font-[family-name:var(--font-manrope)] font-[600] text-[#1d1d1f]"
             style={{
-              fontSize: "clamp(40px, 6vw, 72px)",
-              letterSpacing: "clamp(-1.5px, -0.04em, -3px)",
-              lineHeight: 0.95,
+              fontSize: "clamp(36px, 5vw, 64px)",
+              letterSpacing: "clamp(-1px, -0.03em, -2.5px)",
+              lineHeight: 1,
             }}
           >
             Как нас
@@ -41,22 +41,17 @@ export function ContactsSection() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Map */}
           <div
-            className="rounded-[16px] overflow-hidden border border-white/5"
+            className="rounded-2xl overflow-hidden bg-[#f5f5f7]"
             style={{ minHeight: "360px" }}
           >
-            {/*
-              ЗАМЕНИТЬ на реальный Yandex Maps embed:
-              <iframe
-                src="https://yandex.ru/map-widget/v1/?..."
-                width="100%"
-                height="100%"
-                frameBorder="0"
-                allowFullScreen
-              />
-            */}
-            <div className="w-full h-full min-h-[360px] bg-white/[0.02] flex flex-col items-center justify-center gap-3">
-              <span className="text-4xl">📍</span>
-              <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)] text-center px-4 max-w-xs leading-relaxed">
+            <div className="w-full h-full min-h-[360px] flex flex-col items-center justify-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-[#0071e3]/10 flex items-center justify-center">
+                <svg className="w-5 h-5 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] text-center px-4 max-w-xs leading-relaxed">
                 Московская область,
                 <br />
                 Наро-Фоминский р-н,
@@ -67,7 +62,7 @@ export function ContactsSection() {
                 href="https://yandex.ru/maps/?text=Деловой+Парк+Селятино"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 text-[#0099ff] text-sm font-[family-name:var(--font-inter)] hover:underline"
+                className="mt-2 text-[#0071e3] text-sm font-[family-name:var(--font-inter)] hover:underline"
               >
                 Открыть на Яндекс Картах →
               </a>
@@ -77,7 +72,7 @@ export function ContactsSection() {
           {/* Contacts */}
           <div className="flex flex-col justify-center gap-5">
             <div className="mb-2">
-              <p className="text-[#a6a6a6] text-sm font-[family-name:var(--font-inter)] max-w-sm leading-relaxed">
+              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] max-w-sm leading-relaxed">
                 40 км от Москвы по Киевскому шоссе.
                 Бесплатная парковка на территории.
               </p>
@@ -90,17 +85,18 @@ export function ContactsSection() {
                   href={c.href}
                   target={c.href.startsWith("http") ? "_blank" : undefined}
                   rel={c.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                  className="flex items-center gap-4 p-4 rounded-[12px] border border-white/5 hover:border-white/10 transition-colors group"
-                  style={{
-                    boxShadow: "rgba(0, 153, 255, 0.06) 0px 0px 0px 1px",
-                  }}
+                  className="flex items-center gap-4 p-4 rounded-2xl bg-[#f5f5f7] hover:bg-[#ebebed] transition-colors group"
                 >
-                  <span className="text-xl flex-shrink-0">{c.icon}</span>
+                  <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                    <span className="text-[#1d1d1f] text-sm font-medium">
+                      {c.type[0]}
+                    </span>
+                  </div>
                   <div>
-                    <p className="text-[#a6a6a6] text-xs font-[family-name:var(--font-inter)] uppercase tracking-wide">
+                    <p className="text-[#86868b] text-xs font-[family-name:var(--font-inter)] uppercase tracking-wide">
                       {c.type}
                     </p>
-                    <p className="text-white font-medium font-[family-name:var(--font-inter)] text-sm group-hover:text-[#0099ff] transition-colors">
+                    <p className="text-[#1d1d1f] font-medium font-[family-name:var(--font-inter)] text-sm group-hover:text-[#0071e3] transition-colors">
                       {c.value}
                     </p>
                   </div>
@@ -110,7 +106,7 @@ export function ContactsSection() {
 
             <a
               href="#offices"
-              className="mt-4 inline-flex items-center justify-center bg-white text-black font-medium text-sm px-8 py-4 rounded-full hover:bg-white/90 transition-all font-[family-name:var(--font-inter)] self-start"
+              className="mt-4 inline-flex items-center justify-center bg-[#0071e3] hover:bg-[#0077ED] text-white font-medium text-[15px] px-8 py-4 rounded-full transition-all font-[family-name:var(--font-inter)] self-start"
             >
               Записаться в лист ожидания
             </a>

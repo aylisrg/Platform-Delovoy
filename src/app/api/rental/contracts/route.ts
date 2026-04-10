@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiUnauthorized, apiForbidden, apiValidationError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiError, apiUnauthorized, apiValidationError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { listContracts, createContract, RentalError } from "@/modules/rental/service";
@@ -12,7 +12,8 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (!["MANAGER", "SUPERADMIN"].includes(session.user.role ?? "")) return apiForbidden();
+    const denied = await requireAdminSection(session, "rental");
+    if (denied) return denied;
 
     const params = Object.fromEntries(request.nextUrl.searchParams.entries());
     const parsed = contractFilterSchema.safeParse(params);
@@ -34,7 +35,8 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (!["MANAGER", "SUPERADMIN"].includes(session.user.role ?? "")) return apiForbidden();
+    const deniedPost = await requireAdminSection(session, "rental");
+    if (deniedPost) return deniedPost;
 
     const body = await request.json();
     const parsed = createContractSchema.safeParse(body);

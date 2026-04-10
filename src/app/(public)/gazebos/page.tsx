@@ -11,7 +11,7 @@ export default async function GazebosPage() {
   const resources = await listResources(true);
 
   return (
-    <div className="bg-black min-h-screen">
+    <div className="bg-white min-h-screen">
       <Navbar />
 
       {/* Hero */}
@@ -19,12 +19,12 @@ export default async function GazebosPage() {
         <div className="max-w-[1200px] mx-auto">
           <Link
             href="/"
-            className="text-[#0099ff] hover:text-[#0099ff]/80 text-sm font-[family-name:var(--font-inter)] transition-colors"
+            className="text-[#0071e3] hover:text-[#0071e3]/80 text-sm font-[family-name:var(--font-inter)] transition-colors"
           >
             ← Главная
           </Link>
           <h1
-            className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-6"
+            className="font-[family-name:var(--font-manrope)] font-[500] text-[#1d1d1f] mt-6"
             style={{
               fontSize: "clamp(36px, 5vw, 56px)",
               letterSpacing: "clamp(-1px, -0.03em, -2px)",
@@ -33,7 +33,7 @@ export default async function GazebosPage() {
           >
             Беседки
           </h1>
-          <p className="text-[#a6a6a6] font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
+          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
             Уютные беседки с мангалом на территории бизнес-парка Деловой.
             Забронируйте онлайн в пару кликов.
           </p>
@@ -48,7 +48,7 @@ export default async function GazebosPage() {
       </section>
 
       {/* Booking flow */}
-      <section className="px-6 pb-24 border-t border-white/5 pt-20">
+      <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">
         <div className="max-w-[800px] mx-auto">
           <BookingFlow />
         </div>

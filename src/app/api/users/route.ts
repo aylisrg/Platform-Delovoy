@@ -3,13 +3,15 @@ import { apiResponse, apiError, apiForbidden, apiUnauthorized, apiValidationErro
 import { createUserSchema } from "@/modules/users/validation";
 import { createUser, listUsers } from "@/modules/users/service";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user) return apiUnauthorized();
   if (session.user.role !== "SUPERADMIN") return apiForbidden();
 
   try {
-    const users = await listUsers();
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || undefined;
+    const users = await listUsers(search);
     return apiResponse(users);
   } catch {
     return apiError("INTERNAL_ERROR", "Ошибка загрузки пользователей", 500);

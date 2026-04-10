@@ -1,5 +1,4 @@
 import type { NextAuthConfig } from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import type { Role } from "@prisma/client";
 
 declare module "next-auth" {
@@ -10,12 +9,30 @@ declare module "next-auth" {
       email?: string | null;
       name?: string | null;
       image?: string | null;
+      adminSections: string[];
     };
   }
 
   interface User {
     role: Role;
   }
+}
+
+declare module "@auth/core/jwt" {
+  interface JWT {
+    id: string;
+    role: Role;
+    adminSections: string[];
+  }
+}
+
+/**
+ * Extract admin section slug from pathname.
+ * "/admin/cafe" -> "cafe", "/admin/architect/logs" -> "architect"
+ */
+function getAdminSection(pathname: string): string | null {
+  const match = pathname.match(/^\/admin\/([^/]+)/);
+  return match ? match[1] : null;
 }
 
 // Edge-compatible auth config — no DB/Prisma imports.
@@ -25,31 +42,25 @@ export const authConfig: NextAuthConfig = {
   pages: {
     signIn: "/auth/signin",
   },
-  providers: [
-    // Stub — real authorize with DB access lives in auth.ts
-    Credentials({
-      name: "credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize() {
-        return null;
-      },
-    }),
-  ],
+  providers: [],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
-        token.id = user.id;
-        token.role = user.role;
+        token.id = user.id!;
+        token.role = user.role ?? "USER";
+        token.adminSections = [];
+        // adminSections will be populated by full auth.ts config with DB access
+      }
+      if (trigger === "update" && token.id) {
+        // Will be resolved by full auth.ts config with DB access
       }
       return token;
     },
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id as string;
-        session.user.role = token.role as Role;
+        session.user.role = (token.role as Role) ?? "USER";
+        session.user.adminSections = (token.adminSections as string[]) ?? [];
       }
       return session;
     },
@@ -58,7 +69,7 @@ export const authConfig: NextAuthConfig = {
 
       const isAdminRoute = pathname.startsWith("/admin");
       const isApiRoute = pathname.startsWith("/api");
-      const isAuthRoute = pathname.startsWith("/api/auth");
+      const isAuthRoute = pathname.startsWith("/api/auth") || pathname.startsWith("/auth");
       const isHealthRoute = pathname.startsWith("/api/health");
       const isPublicApiRoute =
         pathname.startsWith("/api/cafe") ||
@@ -72,7 +83,44 @@ export const authConfig: NextAuthConfig = {
       if (isAdminRoute) {
         if (!auth?.user) return false;
         const role = auth.user.role;
-        return role === "SUPERADMIN" || role === "MANAGER";
+
+        // SUPERADMIN always has full access
+        if (role === "SUPERADMIN") return true;
+
+        // MANAGER needs to be checked against admin sections
+        if (role === "MANAGER") {
+          const section = getAdminSection(pathname);
+          if (!section) return true; // /admin root — redirect will handle
+
+          const adminSections: string[] = auth.user.adminSections ?? [];
+          if (adminSections.length === 0 || !adminSections.includes(section)) {
+            // Redirect to first allowed section or show forbidden
+            return Response.redirect(
+              new URL("/admin/forbidden", request.nextUrl.origin)
+            );
+          }
+          return true;
+        }
+
+        return false; // USER role — no admin access
+      }
+
+      // Admin API routes — check section permissions
+      if (isApiRoute && pathname.startsWith("/api/admin")) {
+        if (!auth?.user) {
+          return Response.json(
+            { success: false, error: { code: "UNAUTHORIZED", message: "Необходимо войти в аккаунт" } },
+            { status: 401 }
+          );
+        }
+        const role = auth.user.role;
+        if (role !== "SUPERADMIN" && role !== "MANAGER") {
+          return Response.json(
+            { success: false, error: { code: "FORBIDDEN", message: "Доступ запрещён" } },
+            { status: 403 }
+          );
+        }
+        return true;
       }
 
       if (isApiRoute) {
@@ -86,6 +134,11 @@ export const authConfig: NextAuthConfig = {
       }
 
       return true;
+    },
+  },
+  events: {
+    async createUser({ user }) {
+      console.log(`[Auth] New user created: ${user.email || user.id}`);
     },
   },
 };

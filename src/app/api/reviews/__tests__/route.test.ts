@@ -42,7 +42,7 @@ import { GET } from "../route";
 import { redis } from "@/lib/redis";
 import { parseYandexReviews } from "@landing/lib/parsers/yandex-reviews";
 import { log } from "@/lib/logger";
-import type { Review, ReviewsCache } from "@landing/lib/parsers/types";
+import type { Review, ReviewsCache, ReviewsMeta } from "@landing/lib/parsers/types";
 
 const mockReview: Review = {
   id: "yandex-abc123",
@@ -51,6 +51,11 @@ const mockReview: Review = {
   text: "Great business park!",
   date: "2 месяца назад",
   source: "yandex",
+};
+
+const mockMeta: ReviewsMeta = {
+  rating: 5.0,
+  totalReviews: 300,
 };
 
 describe("GET /api/reviews", () => {
@@ -67,6 +72,7 @@ describe("GET /api/reviews", () => {
     const cachedData: ReviewsCache = {
       fetchedAt: Date.now(),
       reviews: [mockReview],
+      meta: mockMeta,
     };
 
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
@@ -86,14 +92,16 @@ describe("GET /api/reviews", () => {
 
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([mockReview]);
+    expect(body.data.reviews).toEqual([mockReview]);
+    expect(body.data.meta).toBeDefined();
   });
 
   it("parses fresh reviews when cache is empty", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      mockReview,
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [mockReview],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews");
     const response = await GET(request);
@@ -110,21 +118,23 @@ describe("GET /api/reviews", () => {
 
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([mockReview]);
+    expect(body.data.reviews).toEqual([mockReview]);
   });
 
   it("bypasses cache when refresh=1 query param is present", async () => {
     const cachedData: ReviewsCache = {
       fetchedAt: Date.now() - 100000,
       reviews: [mockReview],
+      meta: mockMeta,
     };
 
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       JSON.stringify(cachedData)
     );
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { ...mockReview, id: "yandex-new123" },
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [{ ...mockReview, id: "yandex-new123" }],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews?refresh=1");
     const response = await GET(request);
@@ -133,10 +143,10 @@ describe("GET /api/reviews", () => {
     expect(parseYandexReviews).toHaveBeenCalled();
 
     const body = await response.json();
-    expect(body.data[0].id).toBe("yandex-new123");
+    expect(body.data.reviews[0].id).toBe("yandex-new123");
   });
 
-  it("returns empty array when YANDEX_MAPS_URL is not configured", async () => {
+  it("returns empty reviews when YANDEX_MAPS_URL is not configured", async () => {
     delete process.env.YANDEX_MAPS_URL;
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
@@ -145,31 +155,33 @@ describe("GET /api/reviews", () => {
 
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([]);
+    expect(body.data.reviews).toEqual([]);
+    expect(body.data.meta).toBeDefined();
   });
 
   it("handles cache read errors gracefully", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Redis connection failed")
     );
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      mockReview,
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [mockReview],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews");
     const response = await GET(request);
 
-    // Should still return reviews despite cache read failure
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([mockReview]);
+    expect(body.data.reviews).toEqual([mockReview]);
   });
 
   it("handles cache write errors gracefully", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      mockReview,
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [mockReview],
+      meta: mockMeta,
+    });
     (redis.setex as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Redis write failed")
     );
@@ -183,15 +195,17 @@ describe("GET /api/reviews", () => {
       expect.any(Object)
     );
 
-    // Should still return reviews despite cache write failure
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([mockReview]);
+    expect(body.data.reviews).toEqual([mockReview]);
   });
 
   it("does not cache empty reviews array", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews");
     const response = await GET(request);
@@ -200,7 +214,7 @@ describe("GET /api/reviews", () => {
 
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([]);
+    expect(body.data.reviews).toEqual([]);
   });
 
   it("handles unexpected errors gracefully", async () => {
@@ -220,17 +234,17 @@ describe("GET /api/reviews", () => {
       expect.any(Object)
     );
 
-    // Graceful degradation: return empty array
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual([]);
+    expect(body.data.reviews).toEqual([]);
   });
 
   it("saves reviews to cache with correct TTL", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      mockReview,
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [mockReview],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews");
     await GET(request);
@@ -247,14 +261,16 @@ describe("GET /api/reviews", () => {
     const cachedData = JSON.parse(cachedDataString);
     expect(cachedData).toHaveProperty("fetchedAt");
     expect(cachedData).toHaveProperty("reviews");
+    expect(cachedData).toHaveProperty("meta");
     expect(cachedData.reviews).toEqual([mockReview]);
   });
 
   it("logs successful cache save", async () => {
     (redis.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      mockReview,
-    ]);
+    (parseYandexReviews as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      reviews: [mockReview],
+      meta: mockMeta,
+    });
 
     const request = new Request("http://localhost:3000/api/reviews");
     await GET(request);

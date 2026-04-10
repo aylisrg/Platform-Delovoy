@@ -25,15 +25,16 @@ describe("parseYandexReviews", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns empty array when fetch fails", async () => {
+  it("returns empty reviews when fetch fails", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 404,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews).toEqual([]);
+    expect(result.reviews).toEqual([]);
+    expect(result.meta).toBeDefined();
     expect(log.warn).toHaveBeenCalledWith(
       "reviews-parser",
       expect.stringContaining("Failed to fetch"),
@@ -41,7 +42,7 @@ describe("parseYandexReviews", () => {
     );
   });
 
-  it("returns empty array when no review elements found", async () => {
+  it("returns empty reviews when no review elements found", async () => {
     const html = "<html><body><div>No reviews here</div></body></html>";
 
     fetchMock.mockResolvedValueOnce({
@@ -50,9 +51,10 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews).toEqual([]);
+    expect(result.reviews).toEqual([]);
+    expect(result.meta).toBeDefined();
     expect(log.warn).toHaveBeenCalledWith(
       "reviews-parser",
       "No review elements found on page",
@@ -86,17 +88,18 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews).toHaveLength(2);
-    expect(reviews[0]).toMatchObject({
+    expect(result.reviews).toHaveLength(2);
+    expect(result.reviews[0]).toMatchObject({
       author: "Иван Петров",
       rating: 5,
       text: "Отличный бизнес-парк!",
       date: "2 месяца назад",
       source: "yandex",
     });
-    expect(reviews[0].id).toBeTruthy();
+    expect(result.reviews[0].id).toBeTruthy();
+    expect(result.meta).toBeDefined();
     expect(log.info).toHaveBeenCalledWith(
       "reviews-parser",
       expect.stringContaining("Successfully parsed"),
@@ -126,9 +129,9 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews.length).toBeLessThanOrEqual(15);
+    expect(result.reviews.length).toBeLessThanOrEqual(15);
   });
 
   it("truncates review text to 1000 characters", async () => {
@@ -152,9 +155,9 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews[0].text).toHaveLength(1000);
+    expect(result.reviews[0].text).toHaveLength(1000);
   });
 
   it("skips reviews without text", async () => {
@@ -183,10 +186,10 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews).toHaveLength(1);
-    expect(reviews[0].author).toBe("User 2");
+    expect(result.reviews).toHaveLength(1);
+    expect(result.reviews[0].author).toBe("User 2");
   });
 
   it("clamps rating to 1-5 range", async () => {
@@ -209,19 +212,20 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews[0].rating).toBe(5);
-    expect(reviews[0].rating).toBeGreaterThanOrEqual(1);
-    expect(reviews[0].rating).toBeLessThanOrEqual(5);
+    expect(result.reviews[0].rating).toBe(5);
+    expect(result.reviews[0].rating).toBeGreaterThanOrEqual(1);
+    expect(result.reviews[0].rating).toBeLessThanOrEqual(5);
   });
 
   it("handles fetch exception gracefully", async () => {
     fetchMock.mockRejectedValueOnce(new Error("Network error"));
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews).toEqual([]);
+    expect(result.reviews).toEqual([]);
+    expect(result.meta).toBeDefined();
     expect(log.error).toHaveBeenCalledWith(
       "reviews-parser",
       "Failed to parse Yandex Maps reviews",
@@ -248,9 +252,9 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews[0].author).toBe("Аноним");
+    expect(result.reviews[0].author).toBe("Аноним");
   });
 
   it("uses default date when not found", async () => {
@@ -272,9 +276,9 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews[0].date).toBe("недавно");
+    expect(result.reviews[0].date).toBe("недавно");
   });
 
   it("generates unique IDs for different reviews", async () => {
@@ -303,10 +307,10 @@ describe("parseYandexReviews", () => {
       text: async () => html,
     });
 
-    const reviews = await parseYandexReviews("https://example.com");
+    const result = await parseYandexReviews("https://example.com");
 
-    expect(reviews[0].id).not.toBe(reviews[1].id);
-    expect(reviews[0].id).toContain("yandex-");
-    expect(reviews[1].id).toContain("yandex-");
+    expect(result.reviews[0].id).not.toBe(result.reviews[1].id);
+    expect(result.reviews[0].id).toContain("yandex-");
+    expect(result.reviews[1].id).toContain("yandex-");
   });
 });
