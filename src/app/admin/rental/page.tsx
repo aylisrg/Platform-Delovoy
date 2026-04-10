@@ -136,6 +136,70 @@ export default async function RentalManagerPage() {
           />
         </div>
 
+        {/* === INQUIRIES === */}
+        <Card className="mb-8">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-zinc-900">
+                Заявки на аренду
+                {newInquiries > 0 && (
+                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                    {newInquiries}
+                  </span>
+                )}
+              </h2>
+              <span className="text-sm text-zinc-500">{inquiries.length} всего</span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {inquiries.length === 0 ? (
+              <p className="text-sm text-zinc-400">Заявок пока нет</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                    <th className="pb-3 font-medium">Дата</th>
+                    <th className="pb-3 font-medium">Имя</th>
+                    <th className="pb-3 font-medium">Телефон</th>
+                    <th className="pb-3 font-medium">Компания</th>
+                    <th className="pb-3 font-medium">Офис</th>
+                    <th className="pb-3 font-medium">Статус</th>
+                    <th className="pb-3 font-medium">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inquiries.map((inq) => (
+                    <tr key={inq.id} className={`border-b border-zinc-50 ${!inq.isRead ? "bg-blue-50/50" : ""}`}>
+                      <td className="py-3 text-zinc-500 whitespace-nowrap">
+                        {new Date(inq.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td className="py-3 font-medium text-zinc-900">
+                        {!inq.isRead && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2" />}
+                        {inq.name}
+                      </td>
+                      <td className="py-3">
+                        <a href={`tel:${inq.phone}`} className="text-blue-600 hover:underline">{inq.phone}</a>
+                      </td>
+                      <td className="py-3 text-zinc-600">{inq.companyName || "—"}</td>
+                      <td className="py-3 text-zinc-600">
+                        {inq.office ? `№${inq.office.number} (${inq.office.floor} эт.)` : "Общий"}
+                      </td>
+                      <td className="py-3">
+                        <Badge variant={inquiryStatusVariant[inq.status]}>
+                          {inquiryStatusLabel[inq.status]}
+                        </Badge>
+                      </td>
+                      <td className="py-3">
+                        <InquiryActions inquiryId={inq.id} currentStatus={inq.status} isRead={inq.isRead} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
         {/* === OFFICES === */}
         <Card className="mb-8">
           <CardHeader>
