@@ -55,7 +55,8 @@ export async function PATCH(
     if (status === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
       updated = await cancelBooking(id, session.user.id);
     } else if (hasRole(session.user, "MANAGER")) {
-      // Managers can change any status
+      const denied = await requireAdminSection(session, "ps-park");
+      if (denied) return denied;
       updated = await updateBookingStatus(id, status);
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
