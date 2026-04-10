@@ -244,6 +244,7 @@ model Office {
   updatedAt     DateTime     @updatedAt
 
   contracts RentalContract[]
+  inquiries RentalInquiry[]
 }
 
 enum OfficeStatus {
