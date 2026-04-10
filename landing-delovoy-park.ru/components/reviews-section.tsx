@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { Review } from "@landing/lib/parsers/types";
+import type { Review, ReviewsMeta } from "@landing/lib/parsers/types";
 
 export function ReviewsSection() {
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [meta, setMeta] = useState<ReviewsMeta>({ rating: 5.0, totalReviews: 300 });
   const [loading, setLoading] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -15,8 +16,13 @@ export function ReviewsSection() {
       try {
         const response = await fetch("/api/reviews");
         const data = await response.json();
-        if (data.success && Array.isArray(data.data)) {
-          setReviews(data.data);
+        if (data.success && data.data) {
+          if (Array.isArray(data.data.reviews)) {
+            setReviews(data.data.reviews);
+          }
+          if (data.data.meta) {
+            setMeta(data.data.meta);
+          }
         }
       } catch (error) {
         console.error("Failed to fetch reviews:", error);
@@ -41,18 +47,18 @@ export function ReviewsSection() {
   };
 
   return (
-    <section className="bg-black py-24 px-6 border-t border-white/5">
+    <section className="bg-[#f5f5f7] py-24 px-6">
       <div className="max-w-[1200px] mx-auto">
         {/* Heading + Yandex badge */}
         <div className="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div>
             <h2
-              className="font-[family-name:var(--font-manrope)] font-[500] text-white text-[42px] md:text-[56px] leading-tight"
+              className="font-[family-name:var(--font-manrope)] font-[600] text-[#1d1d1f] text-[42px] md:text-[56px] leading-tight"
               style={{ letterSpacing: "-1.5px" }}
             >
               Отзывы
             </h2>
-            <p className="text-[#a6a6a6] text-lg font-[family-name:var(--font-inter)] mt-3">
+            <p className="text-[#86868b] text-[15px] font-[family-name:var(--font-inter)] mt-3 leading-relaxed">
               Реальные мнения арендаторов и гостей
             </p>
           </div>
@@ -62,7 +68,7 @@ export function ReviewsSection() {
             href={yandexMapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-3 bg-white rounded-2xl pl-3 pr-5 py-3 hover:shadow-lg hover:shadow-white/5 transition-all group self-start md:self-auto shrink-0"
+            className="inline-flex items-center gap-3 bg-white rounded-2xl pl-3 pr-5 py-3 shadow-sm hover:shadow-md transition-all group self-start md:self-auto shrink-0 border border-black/[0.04]"
           >
             <div className="flex items-center justify-center w-10 h-10 bg-[#FC3F1D] rounded-xl">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -74,20 +80,22 @@ export function ReviewsSection() {
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="text-[#21201F] font-[family-name:var(--font-manrope)] font-bold text-xl leading-none">5.0</span>
+                <span className="text-[#1d1d1f] font-[family-name:var(--font-manrope)] font-bold text-xl leading-none">
+                  {meta.rating.toFixed(1)}
+                </span>
                 <div className="flex gap-px">
-                  {[1,2,3,4,5].map((i) => (
+                  {[1, 2, 3, 4, 5].map((i) => (
                     <svg key={i} width="16" height="16" viewBox="0 0 24 24" fill="#FBC02D">
                       <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                     </svg>
                   ))}
                 </div>
               </div>
-              <span className="text-[#7B7B7B] text-xs font-[family-name:var(--font-inter)]">
-                300+ отзывов
+              <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)]">
+                {meta.totalReviews}+ отзывов
               </span>
             </div>
-            <svg className="w-4 h-4 text-[#B0B0B0] group-hover:text-[#21201F] transition-colors ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-[#86868b] group-hover:text-[#1d1d1f] transition-colors ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </a>
@@ -95,8 +103,8 @@ export function ReviewsSection() {
 
         {/* Content */}
         {loading ? (
-          <div className="text-center p-12 border border-white/10 rounded-[14px]">
-            <p className="text-[#a6a6a6] text-lg">Загрузка отзывов...</p>
+          <div className="text-center p-12 bg-white rounded-2xl">
+            <p className="text-[#86868b] text-lg">Загрузка отзывов...</p>
           </div>
         ) : reviews.length > 0 ? (
           <div className="relative">
@@ -117,14 +125,14 @@ export function ReviewsSection() {
             {/* Desktop navigation arrows */}
             <button
               onClick={scrollLeft}
-              className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-12 h-12 items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 rounded-full text-white transition-all z-10"
+              className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-12 h-12 items-center justify-center bg-white hover:bg-[#f5f5f7] shadow-md rounded-full text-[#1d1d1f] transition-all z-10"
               aria-label="Предыдущий отзыв"
             >
               ←
             </button>
             <button
               onClick={scrollRight}
-              className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-12 h-12 items-center justify-center bg-white/10 hover:bg-white/20 border border-white/10 rounded-full text-white transition-all z-10"
+              className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-12 h-12 items-center justify-center bg-white hover:bg-[#f5f5f7] shadow-md rounded-full text-[#1d1d1f] transition-all z-10"
               aria-label="Следующий отзыв"
             >
               →
@@ -132,15 +140,15 @@ export function ReviewsSection() {
           </div>
         ) : (
           /* Fallback when no reviews */
-          <div className="text-center p-12 border border-white/10 rounded-[14px] bg-[#090909]">
-            <p className="text-white text-lg mb-4 font-[family-name:var(--font-manrope)] font-medium">
-              300+ отзывов на Яндекс Картах
+          <div className="text-center p-12 bg-white rounded-2xl">
+            <p className="text-[#1d1d1f] text-lg mb-4 font-[family-name:var(--font-manrope)] font-medium">
+              {meta.totalReviews}+ отзывов на Яндекс Картах
             </p>
             <a
               href={yandexMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-[#0099ff] hover:text-[#0099ff]/80 transition-colors font-[family-name:var(--font-inter)]"
+              className="inline-flex items-center gap-2 text-[#0071e3] hover:text-[#0071e3]/80 transition-colors font-[family-name:var(--font-inter)]"
             >
               Читать отзывы →
             </a>
@@ -154,7 +162,7 @@ export function ReviewsSection() {
               href={yandexMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-[#0099ff] hover:text-[#0099ff]/80 transition-colors font-[family-name:var(--font-inter)] text-sm"
+              className="inline-flex items-center gap-2 text-[#0071e3] hover:text-[#0071e3]/80 transition-colors font-[family-name:var(--font-inter)] text-sm"
             >
               Все отзывы на Яндекс Картах →
             </a>
@@ -175,24 +183,24 @@ function ReviewCard({ review }: { review: Review }) {
   const stars = "★".repeat(review.rating) + "☆".repeat(5 - review.rating);
 
   return (
-    <div className="min-w-[300px] md:min-w-[400px] snap-start bg-[#090909] border border-white/6 rounded-[14px] p-6 flex flex-col">
+    <div className="min-w-[300px] md:min-w-[400px] snap-start bg-white rounded-2xl p-6 flex flex-col shadow-sm">
       {/* Rating stars and date */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-[#FBC02D] text-lg" aria-label={`${review.rating} из 5 звёзд`}>
           {stars}
         </span>
-        <span className="text-white/40 text-xs font-[family-name:var(--font-inter)]">
+        <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)]">
           {review.date}
         </span>
       </div>
 
       {/* Review text */}
-      <p className="text-[#a6a6a6] text-sm leading-relaxed mb-4 font-[family-name:var(--font-inter)] flex-grow">
+      <p className="text-[#86868b] text-sm leading-relaxed mb-4 font-[family-name:var(--font-inter)] flex-grow">
         {review.text}
       </p>
 
       {/* Author */}
-      <p className="font-[family-name:var(--font-manrope)] font-semibold text-white text-base">
+      <p className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-[15px]">
         {review.author}
       </p>
     </div>
