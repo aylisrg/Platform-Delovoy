@@ -44,23 +44,24 @@ export function Sidebar() {
       });
   }, []);
 
-  const fetchBadges = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/badge-counts");
-      const data = await res.json();
-      if (data.success) {
-        setBadgeCounts(data.data);
-      }
-    } catch {
-      // silent
-    }
-  }, []);
-
   useEffect(() => {
-    fetchBadges();
-    const interval = setInterval(fetchBadges, BADGE_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchBadges]);
+    let active = true;
+
+    function poll() {
+      fetch("/api/admin/badge-counts")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && active) {
+            setBadgeCounts(data.data);
+          }
+        })
+        .catch(() => {});
+    }
+
+    poll();
+    const interval = setInterval(poll, BADGE_POLL_INTERVAL);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
 
   const visibleNavigation =
     allowedSections === null
