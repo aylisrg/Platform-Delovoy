@@ -3,7 +3,7 @@ import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
 import { cancelBooking, BookingError } from "@/modules/gazebos/service";
-import { cancelBooking as cancelPSBooking, BookingError as PSBookingError } from "@/modules/ps-park/service";
+import { cancelBooking as cancelPSBooking, PSBookingError } from "@/modules/ps-park/service";
 
 /**
  * POST /api/bot/cancel-booking — cancel a booking from Telegram bot.
