@@ -12,7 +12,8 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (!["MANAGER", "SUPERADMIN"].includes(session.user.role ?? "")) return apiForbidden();
+    const denied = await requireAdminSection(session, "rental");
+    if (denied) return denied;
 
     const params = Object.fromEntries(request.nextUrl.searchParams.entries());
     const parsed = contractFilterSchema.safeParse(params);
