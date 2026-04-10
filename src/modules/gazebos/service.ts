@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+} from "@/lib/google-calendar";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -14,9 +18,9 @@ import type {
 
 const MODULE_SLUG = "gazebos";
 
-// Operating hours
-const OPEN_HOUR = 9;
-const CLOSE_HOUR = 22;
+// Operating hours (unified: 08:00–23:00)
+const OPEN_HOUR = 8;
+const CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
 
 // === RESOURCES ===
