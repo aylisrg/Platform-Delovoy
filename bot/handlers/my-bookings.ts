@@ -55,9 +55,8 @@ export function registerMyBookingsHandler(bot: Bot<BotContext>) {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/bot/cancel-booking`, {
+      const res = await botFetch("/api/bot/cancel-booking", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ telegramId, bookingId }),
       });
 
