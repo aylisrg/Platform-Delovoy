@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 
 type AuthTab = "telegram" | "other" | "email" | "whatsapp";
+type EmailSubView = "form" | "magic-link-sent";
 
 export function AuthModal({
   isOpen,
