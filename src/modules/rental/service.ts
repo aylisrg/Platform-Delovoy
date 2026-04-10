@@ -11,6 +11,9 @@ import type {
   UpdateContractInput,
   ContractFilter,
   MonthlyReport,
+  CreateInquiryInput,
+  UpdateInquiryInput,
+  InquiryFilter,
 } from "./types";
 
 // === ERROR ===
