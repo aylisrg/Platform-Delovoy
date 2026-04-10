@@ -97,6 +97,19 @@ model ModuleAssignment {
   @@unique([userId, moduleId])
 }
 
+// === ADMIN PERMISSIONS (granular section access) ===
+
+model AdminPermission {
+  id        String   @id @default(cuid())
+  userId    String
+  section   String   // "dashboard", "gazebos", "ps-park", "cafe", "rental", "modules", "users", "monitoring", "architect"
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, section])
+  @@index([userId])
+}
+
 // === BOOKING (общая для беседок, PS Park) ===
 
 model Booking {
