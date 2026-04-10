@@ -20,6 +20,7 @@ export const ADMIN_SECTIONS = [
   { slug: "rental", label: "Аренда", icon: "🏢" },
   { slug: "modules", label: "Модули", icon: "📦" },
   { slug: "users", label: "Пользователи", icon: "👥" },
+  { slug: "telegram", label: "Telegram", icon: "📨" },
   { slug: "monitoring", label: "Мониторинг", icon: "🔍" },
   { slug: "architect", label: "Архитектор", icon: "🗺" },
 ] as const;
