@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { ContractStatus, OfficeStatus } from "@prisma/client";
+import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateOfficeInput,
   UpdateOfficeInput,
@@ -238,6 +239,19 @@ export async function createContract(input: CreateContractInput) {
       data: { status: "OCCUPIED" },
     });
   }
+
+  enqueueNotification({
+    type: "contract.created",
+    moduleSlug: "rental",
+    entityId: contract.id,
+    data: {
+      tenantName: tenant.companyName,
+      officeNumber: office.number,
+      monthlyRate: input.monthlyRate.toString(),
+      startDate: input.startDate,
+      endDate: input.endDate,
+    },
+  });
 
   return contract;
 }

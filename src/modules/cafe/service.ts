@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { OrderStatus } from "@prisma/client";
+import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateMenuItemInput,
   UpdateMenuItemInput,
@@ -98,7 +99,7 @@ export async function createOrder(userId: string, input: CreateOrderInput) {
     };
   });
 
-  return prisma.order.create({
+  const order = await prisma.order.create({
     data: {
       moduleSlug: MODULE_SLUG,
       userId,
@@ -111,6 +112,22 @@ export async function createOrder(userId: string, input: CreateOrderInput) {
     },
     include: { items: true },
   });
+
+  enqueueNotification({
+    type: "order.placed",
+    moduleSlug: MODULE_SLUG,
+    entityId: order.id,
+    userId,
+    actor: "client",
+    data: {
+      orderNumber: order.id.slice(-6).toUpperCase(),
+      totalAmount: totalAmount.toString(),
+      deliveryTo,
+      itemCount: items.length,
+    },
+  });
+
+  return order;
 }
 
 export async function listOrders(filter?: OrderFilter) {
@@ -170,11 +187,34 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     );
   }
 
-  return prisma.order.update({
+  const updated = await prisma.order.update({
     where: { id },
     data: { status },
     include: { items: true },
   });
+
+  const eventMap: Record<string, string> = {
+    PREPARING: "order.preparing",
+    READY: "order.ready",
+    DELIVERED: "order.delivered",
+    CANCELLED: "order.cancelled",
+  };
+  if (eventMap[status]) {
+    enqueueNotification({
+      type: eventMap[status],
+      moduleSlug: MODULE_SLUG,
+      entityId: id,
+      userId: order.userId,
+      actor: "admin",
+      data: {
+        orderNumber: id.slice(-6).toUpperCase(),
+        totalAmount: order.totalAmount.toString(),
+        deliveryTo: order.deliveryTo,
+      },
+    });
+  }
+
+  return updated;
 }
 
 export async function cancelOrder(id: string, userId: string) {
@@ -188,11 +228,25 @@ export async function cancelOrder(id: string, userId: string) {
     throw new OrderError("INVALID_STATUS_TRANSITION", "Можно отменить только новый заказ");
   }
 
-  return prisma.order.update({
+  const updated = await prisma.order.update({
     where: { id },
     data: { status: "CANCELLED" },
     include: { items: true },
   });
+
+  enqueueNotification({
+    type: "order.cancelled",
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId,
+    actor: "client",
+    data: {
+      orderNumber: id.slice(-6).toUpperCase(),
+      totalAmount: order.totalAmount.toString(),
+    },
+  });
+
+  return updated;
 }
 
 // === HELPERS ===

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { NotificationSettings } from "@/components/public/notifications/notification-settings";
 import type { BookingStatus, OrderStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -193,6 +194,16 @@ export default async function DashboardPage() {
                 </tbody>
               </table>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Notification Settings */}
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">Настройки уведомлений</h2>
+          </CardHeader>
+          <CardContent>
+            <NotificationSettings />
           </CardContent>
         </Card>
       </main>

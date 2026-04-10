@@ -47,12 +47,14 @@ export function Navbar() {
 
         {/* Right side: CTA + Auth */}
         <div className="hidden md:flex items-center gap-3">
-          <a
-            href="#offices"
-            className="inline-flex items-center bg-[#0071e3] hover:bg-[#0077ED] text-white text-[13px] px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
-          >
-            Оставить заявку
-          </a>
+          {!isLoggedIn && (
+            <a
+              href="#offices"
+              className="inline-flex items-center bg-[#0071e3] hover:bg-[#0077ED] text-white text-[13px] px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
+            >
+              Оставить заявку
+            </a>
+          )}
 
           {status !== "loading" && (
             isLoggedIn ? (
@@ -132,13 +134,15 @@ export function Navbar() {
               {link.label}
             </a>
           ))}
-          <a
-            href="#offices"
-            onClick={() => setOpen(false)}
-            className="block w-full text-center bg-[#0071e3] text-white text-[15px] px-5 py-3 rounded-full font-medium font-[family-name:var(--font-inter)]"
-          >
-            Оставить заявку
-          </a>
+          {!isLoggedIn && (
+            <a
+              href="#offices"
+              onClick={() => setOpen(false)}
+              className="block w-full text-center bg-[#0071e3] text-white text-[15px] px-5 py-3 rounded-full font-medium font-[family-name:var(--font-inter)]"
+            >
+              Оставить заявку
+            </a>
+          )}
 
           {status !== "loading" && (
             isLoggedIn ? (

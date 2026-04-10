@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/modules/notifications/queue", () => ({
+  enqueueNotification: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },

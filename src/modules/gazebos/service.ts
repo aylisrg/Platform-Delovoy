@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
+import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -147,7 +148,7 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
     throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  return prisma.booking.create({
+  const booking = await prisma.booking.create({
     data: {
       moduleSlug: MODULE_SLUG,
       resourceId,
@@ -162,6 +163,17 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
       },
     },
   });
+
+  enqueueNotification({
+    type: "booking.created",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId,
+    actor: "client",
+    data: { resourceName: resource.name, date, startTime, endTime },
+  });
+
+  return booking;
 }
 
 /**
@@ -252,10 +264,29 @@ export async function updateBookingStatus(id: string, status: BookingStatus) {
     );
   }
 
-  return prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id },
     data: { status },
   });
+
+  const resource = await prisma.resource.findUnique({
+    where: { id: booking.resourceId },
+    select: { name: true },
+  });
+  const dateStr = booking.date.toISOString().split("T")[0];
+  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+  enqueueNotification({
+    type: `booking.${status === "CONFIRMED" ? "confirmed" : status === "CANCELLED" ? "cancelled" : "confirmed"}`,
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId: booking.userId,
+    actor: "admin",
+    data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
+  });
+
+  return updated;
 }
 
 export async function cancelBooking(id: string, userId: string) {
@@ -275,10 +306,29 @@ export async function cancelBooking(id: string, userId: string) {
     throw new BookingError("INVALID_STATUS_TRANSITION", "Бронирование уже завершено или отменено");
   }
 
-  return prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id },
     data: { status: "CANCELLED" },
   });
+
+  const resource = await prisma.resource.findUnique({
+    where: { id: booking.resourceId },
+    select: { name: true },
+  });
+  const dateStr = booking.date.toISOString().split("T")[0];
+  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+  enqueueNotification({
+    type: "booking.cancelled",
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId,
+    actor: "client",
+    data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
+  });
+
+  return updated;
 }
 
 // === AVAILABILITY ===
