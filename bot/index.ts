@@ -180,31 +180,6 @@ async function startBot() {
     );
   });
 
-  // Shortcut commands
-  bot.command("gazebos", async (ctx) => {
-    // Trigger the gazebo list flow
-    await ctx.reply(
-      "🏕 <b>Беседки бизнес-парка «Деловой»</b>\n\nЗагружаю доступные беседки...",
-      { parse_mode: "HTML" }
-    );
-    // Simulate callback for gazebo list
-    ctx.callbackQuery = { data: "gazebos:list" } as never;
-  });
-
-  bot.command("ps", async (ctx) => {
-    await ctx.reply(
-      "🎮 <b>PlayStation Park</b>\n\nЗагружаю доступные столы...",
-      { parse_mode: "HTML" }
-    );
-  });
-
-  bot.command("cafe", async (ctx) => {
-    await ctx.reply(
-      "☕ <b>Кафе «Деловой»</b>\n\nЗагружаю меню...",
-      { parse_mode: "HTML" }
-    );
-  });
-
   // Main menu callback
   bot.callbackQuery("menu:main", async (ctx) => {
     await ctx.answerCallbackQuery();
