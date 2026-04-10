@@ -284,14 +284,14 @@ describe("cancelBooking", () => {
 // ===== getAvailability =====
 
 describe("getAvailability", () => {
-  it("returns 13 slots per resource (9:00–22:00)", async () => {
+  it("returns 15 slots per resource (8:00–23:00)", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]); // no bookings
 
     const result = await getAvailability(FUTURE_DATE);
 
     expect(result).toHaveLength(1);
-    expect(result[0].slots).toHaveLength(13); // hours 9,10,11,...,21 = 13 slots
+    expect(result[0].slots).toHaveLength(15); // hours 8,9,10,...,22 = 15 slots
   });
 
   it("marks all slots as available when no bookings exist", async () => {
