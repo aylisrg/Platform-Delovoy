@@ -50,16 +50,8 @@ export function Sidebar() {
   return (
     <aside className="flex w-64 flex-col border-r border-zinc-200 bg-white">
       <div className="flex h-16 items-center border-b border-zinc-200 px-6">
-        <Link href="/admin/dashboard" className="flex items-center gap-3">
-          <video
-            src="/media/logo-animated.mp4"
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="h-9 w-9 rounded-lg object-cover"
-          />
-          <span className="text-lg font-bold text-zinc-900">Деловой</span>
+        <Link href="/admin/dashboard" className="text-lg font-bold text-zinc-900">
+          Деловой Парк
         </Link>
       </div>
 
