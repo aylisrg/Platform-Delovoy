@@ -10,7 +10,7 @@ export function GazeboList({ resources }: Props) {
   if (resources.length === 0) {
     return (
       <p className="text-[#86868b]/50 font-[family-name:var(--font-inter)] text-sm">
-        Беседки пока не добавлены
+        Беседки временно в отпуске. Они вернутся раньше, чем вы успеете раздуть угли.
       </p>
     );
   }

@@ -20,6 +20,8 @@ const statusLabel: Record<BookingStatus, string> = {
   CONFIRMED: "Подтверждено",
   CANCELLED: "Отменено",
   COMPLETED: "Завершено",
+  CHECKED_IN: "Идёт сеанс",
+  NO_SHOW: "Не явился",
 };
 
 const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "info"> = {
@@ -27,6 +29,8 @@ const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "
   CONFIRMED: "success",
   CANCELLED: "default",
   COMPLETED: "info",
+  CHECKED_IN: "success",
+  NO_SHOW: "default",
 };
 
 function formatTime(dt: Date) {
@@ -203,7 +207,7 @@ export default async function PSParkManagerPage() {
           </CardHeader>
           <CardContent>
             {recentCompleted.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет завершённых бронирований</p>
+              <p className="text-sm text-zinc-400">Тишина. Все геймеры сегодня дома. Или у конкурентов. Надеемся, что дома.</p>
             ) : (
               <BookingTable bookings={recentCompleted} resourceMap={resourceMap} />
             )}

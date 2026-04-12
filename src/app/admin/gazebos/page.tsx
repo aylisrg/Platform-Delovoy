@@ -145,7 +145,7 @@ export default async function GazebosManagerPage() {
           </CardHeader>
           <CardContent>
             {bookings.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет предстоящих бронирований</p>
+              <p className="text-sm text-zinc-400">Сегодня никто не бронировал. Может, все на шашлыках без нас?</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>

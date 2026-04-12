@@ -45,6 +45,7 @@ export default async function MonitoringPage() {
             title="Ошибки за 24ч"
             value={stats.criticalCount}
             status={stats.criticalCount > 0 ? "danger" : "success"}
+            description={stats.criticalCount === 0 ? "Вы красавчики." : undefined}
           />
         </div>
 
@@ -62,7 +63,7 @@ export default async function MonitoringPage() {
           </CardHeader>
           <CardContent>
             {events.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет событий</p>
+              <p className="text-sm text-zinc-400">Всё тихо. Слишком тихо... (это хорошо, не переживайте)</p>
             ) : (
               <div className="space-y-3">
                 {events.map((event) => (

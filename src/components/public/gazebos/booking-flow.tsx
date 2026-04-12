@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
+import { pickRandom, TOAST_BOOKING_SUCCESS, TOAST_BOOKING_CANCEL } from "@/lib/easter-eggs";
 
 type TimeSlot = {
   startTime: string;
@@ -143,7 +144,7 @@ export function BookingFlow() {
       const data = await res.json();
       if (data.success) {
         setStep("done");
-        showToast("Бронирование создано!", "success");
+        showToast(pickRandom(TOAST_BOOKING_SUCCESS), "success");
       } else {
         showToast(data.error?.message ?? "Ошибка при бронировании", "error");
       }

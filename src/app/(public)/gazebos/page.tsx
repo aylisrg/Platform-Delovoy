@@ -68,7 +68,7 @@ export default async function GazebosPage() {
             Беседки
           </h1>
           <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
-            Уютные беседки с мангалом на территории бизнес-парка Деловой.
+            Беседки с мангалом. Запах шашлыка, друзья рядом — это и есть план.
             Забронируйте онлайн в пару кликов.
           </p>
           {phoneInfo && (
