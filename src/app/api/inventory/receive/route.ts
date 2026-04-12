@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
       parsed.data.name,
       parsed.data.quantity,
       parsed.data.note,
-      session.user.id
+      session.user.id,
+      parsed.data.receivedAt ? new Date(parsed.data.receivedAt) : undefined
     );
 
     await logAudit(
@@ -48,11 +49,22 @@ export async function POST(request: NextRequest) {
         name: parsed.data.name,
         quantity: parsed.data.quantity,
         note: parsed.data.note,
+        receivedAt: parsed.data.receivedAt,
         newStockQuantity: result.newStockQuantity,
+        isNewSku: result.isNewSku,
       }
     );
 
-    return apiResponse(result, undefined, 201);
+    return apiResponse(
+      {
+        skuId: result.skuId,
+        name: result.name,
+        newStockQuantity: result.newStockQuantity,
+        isNewSku: result.isNewSku,
+      },
+      undefined,
+      201
+    );
   } catch (error) {
     if (error instanceof InventoryError) {
       return apiError(error.code, error.message);

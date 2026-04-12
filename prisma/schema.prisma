@@ -378,11 +378,13 @@ model InventoryTransaction {
   performedById String
   note          String?
   isVoided      Boolean                  @default(false)
+  receivedAt    DateTime?
   createdAt     DateTime                 @default(now())
 
   @@index([skuId, createdAt])
   @@index([bookingId])
   @@index([type, isVoided])
+  @@index([type, receivedAt])
 }
 
 enum InventoryTransactionType {

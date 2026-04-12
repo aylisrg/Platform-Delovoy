@@ -73,6 +73,33 @@ describe("receiveSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts receipt with valid past receivedAt", () => {
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: 10, receivedAt: "2026-04-11" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts receipt without receivedAt (optional)", () => {
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: 5 });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects future receivedAt", () => {
+    const future = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: 5, receivedAt: future });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error)).toContain("будущем");
+  });
+
+  it("rejects receivedAt with wrong format", () => {
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: 5, receivedAt: "11-04-2026" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects name longer than 200 chars", () => {
+    const result = receiveSchema.safeParse({ name: "A".repeat(201), quantity: 1 });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects empty name", () => {
     const result = receiveSchema.safeParse({ name: "", quantity: 10 });
     expect(result.success).toBe(false);

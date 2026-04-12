@@ -9,6 +9,7 @@ import type {
   BookingItemInput,
   BookingItemSnapshot,
   InventoryAnalytics,
+  ReceiptHistoryRow,
 } from "./types";
 
 // === SKU MANAGEMENT ===
@@ -145,14 +146,17 @@ export async function receiveStock(input: ReceiveInput, performedById: string) {
 /**
  * Receive stock by free-text name.
  * Finds existing SKU by name (case-insensitive) or creates a new one.
- * Date is captured automatically via InventoryTransaction.createdAt.
+ * receivedAt — фактическая дата прихода (AC-3.1). Fallback — текущая дата.
  */
 export async function receiveStockByName(
   name: string,
   quantity: number,
   note: string | undefined,
-  performedById: string
+  performedById: string,
+  receivedAt?: Date
 ) {
+  const effectiveReceivedAt = receivedAt ?? new Date();
+
   const existing = await prisma.inventorySku.findFirst({
     where: { name: { equals: name, mode: "insensitive" } },
   });
@@ -160,12 +164,13 @@ export async function receiveStockByName(
   return prisma.$transaction(async (tx) => {
     let skuId: string;
     let newStockQuantity: number;
+    const isNewSku = !existing;
 
     if (existing) {
       // SKU exists — record RECEIPT and increment stock
       skuId = existing.id;
       await tx.inventoryTransaction.create({
-        data: { skuId, type: "RECEIPT", quantity, performedById, note },
+        data: { skuId, type: "RECEIPT", quantity, performedById, note, receivedAt: effectiveReceivedAt },
       });
       const updated = await tx.inventorySku.update({
         where: { id: skuId },
@@ -187,13 +192,51 @@ export async function receiveStockByName(
       });
       skuId = sku.id;
       await tx.inventoryTransaction.create({
-        data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход" },
+        data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход", receivedAt: effectiveReceivedAt },
       });
       newStockQuantity = quantity;
     }
 
-    return { skuId, newStockQuantity, name };
+    return { skuId, newStockQuantity, name, isNewSku };
   });
+}
+
+/**
+ * List the last N RECEIPT and INITIAL transactions, sorted by receivedAt desc.
+ * Falls back to createdAt for rows where receivedAt is null (AC-3.4).
+ */
+export async function listReceipts(limit = 50): Promise<ReceiptHistoryRow[]> {
+  const rows = await prisma.inventoryTransaction.findMany({
+    where: {
+      type: { in: ["RECEIPT", "INITIAL"] },
+      isVoided: false,
+    },
+    include: {
+      sku: { select: { name: true } },
+    },
+    orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
+    take: limit,
+  });
+
+  const userIds = [...new Set(rows.map((r) => r.performedById))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true },
+  });
+  const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+  return rows.map((r) => ({
+    id: r.id,
+    skuId: r.skuId,
+    skuName: r.sku.name,
+    type: r.type as "RECEIPT" | "INITIAL",
+    quantity: r.quantity,
+    note: r.note,
+    performedById: r.performedById,
+    performedByName: userMap.get(r.performedById) ?? null,
+    receivedAt: (r.receivedAt ?? r.createdAt).toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  }));
 }
 
 // === ADJUSTMENT (inventory correction) ===

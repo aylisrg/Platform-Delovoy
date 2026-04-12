@@ -16,10 +16,17 @@ export const updateSkuSchema = createSkuSchema
     isActive: z.boolean().optional(),
   });
 
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
 export const receiveSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(200),
   quantity: z.number().int().positive("Количество должно быть положительным"),
   note: z.string().max(500).optional(),
+  receivedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD")
+    .refine((val) => val <= todayISO(), "Дата прихода не может быть в будущем")
+    .optional(),
 });
 
 export const adjustSchema = z.object({
