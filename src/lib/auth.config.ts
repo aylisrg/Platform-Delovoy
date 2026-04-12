@@ -76,7 +76,9 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/gazebos") ||
         pathname.startsWith("/api/ps-park") ||
         pathname.startsWith("/api/parking") ||
-        pathname.startsWith("/api/rental");
+        pathname.startsWith("/api/rental") ||
+        pathname === "/api/inventory" ||
+        pathname === "/api/inventory/health";
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/waitlist") ||

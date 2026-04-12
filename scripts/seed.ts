@@ -124,6 +124,61 @@ async function main() {
   }
   console.log(`  ✓ Offices: ${offices.length}`);
 
+  // === INVENTORY SKU ===
+  const inventoryItems = [
+    // Напитки
+    { name: "Coca-Cola 0.5л", category: "Напитки", unit: "шт", price: 150, lowStockThreshold: 10, initialStock: 48 },
+    { name: "Pepsi 0.5л", category: "Напитки", unit: "шт", price: 150, lowStockThreshold: 10, initialStock: 36 },
+    { name: "Вода Evian 0.5л", category: "Напитки", unit: "шт", price: 100, lowStockThreshold: 10, initialStock: 60 },
+    { name: "Red Bull 0.25л", category: "Напитки", unit: "шт", price: 280, lowStockThreshold: 5, initialStock: 24 },
+    { name: "Сок апельсиновый 0.2л", category: "Напитки", unit: "шт", price: 120, lowStockThreshold: 8, initialStock: 30 },
+    // Еда
+    { name: "Снек-набор (чипсы, орешки)", category: "Еда", unit: "шт", price: 250, lowStockThreshold: 5, initialStock: 20 },
+    { name: "Шоколадный батончик", category: "Еда", unit: "шт", price: 80, lowStockThreshold: 8, initialStock: 40 },
+    { name: "Пицца Маргарита", category: "Еда", unit: "шт", price: 550, lowStockThreshold: 3, initialStock: 10 },
+    { name: "Хот-дог", category: "Еда", unit: "шт", price: 180, lowStockThreshold: 5, initialStock: 15 },
+    // Аксессуары PS Park
+    { name: "Наушники (прокат)", category: "Аксессуары", unit: "шт", price: 100, lowStockThreshold: 2, initialStock: 8 },
+    { name: "Доп. геймпад (прокат)", category: "Аксессуары", unit: "шт", price: 150, lowStockThreshold: 2, initialStock: 6 },
+  ];
+
+  const adminUser = await prisma.user.findFirst({ where: { role: "SUPERADMIN" } });
+  const performedById = adminUser?.id ?? "seed";
+
+  for (const item of inventoryItems) {
+    const existing = await prisma.inventorySku.findFirst({
+      where: { name: item.name, category: item.category },
+    });
+
+    if (!existing) {
+      const { initialStock, ...skuData } = item;
+      await prisma.$transaction(async (tx) => {
+        const sku = await tx.inventorySku.create({
+          data: { ...skuData, stockQuantity: initialStock ?? 0 },
+        });
+        if (initialStock && initialStock > 0) {
+          await tx.inventoryTransaction.create({
+            data: {
+              skuId: sku.id,
+              type: "INITIAL",
+              quantity: initialStock,
+              performedById,
+              note: "Начальный остаток (seed)",
+            },
+          });
+        }
+      });
+    }
+  }
+
+  // Register inventory module
+  await prisma.module.upsert({
+    where: { slug: "inventory" },
+    update: { name: "Инвентарь", description: "Учёт товаров: напитки, еда, аксессуары" },
+    create: { slug: "inventory", name: "Инвентарь", description: "Учёт товаров: напитки, еда, аксессуары" },
+  });
+  console.log(`  ✓ Inventory SKUs: ${inventoryItems.length}`);
+
   console.log("\n✅ Seed completed successfully!");
 }
 
