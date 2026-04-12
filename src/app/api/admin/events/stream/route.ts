@@ -23,6 +23,8 @@ export async function GET() {
   const sections = await getUserAdminSections(session.user.id);
 
   const encoder = new TextEncoder();
+  let cleanup: (() => void) | undefined;
+
   const stream = new ReadableStream({
     start(controller) {
       // Send initial keepalive
@@ -44,27 +46,19 @@ export async function GET() {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          // Stream closed
           clearInterval(keepalive);
         }
       }, 30_000);
 
-      // Cleanup when client disconnects
-      const cleanup = () => {
+      cleanup = () => {
         unsubscribe();
         clearInterval(keepalive);
       };
 
-      // AbortSignal is not available on ReadableStream start,
-      // so we rely on the controller error/close to clean up
       controller.enqueue(encoder.encode("retry: 5000\n\n"));
-
-      // Store cleanup for cancel
-      (stream as unknown as { _cleanup: () => void })._cleanup = cleanup;
     },
     cancel() {
-      const s = stream as unknown as { _cleanup?: () => void };
-      s._cleanup?.();
+      cleanup?.();
     },
   });
 

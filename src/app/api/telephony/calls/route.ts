@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const filter = parsed.data;
 
     // MANAGER must provide moduleSlug and can only see their own module's calls
-    if (!hasRole(session.user as { role: import("@prisma/client").Role }, "SUPERADMIN")) {
+    if (!hasRole(session.user, "SUPERADMIN")) {
       if (!filter.moduleSlug) {
         return apiForbidden("Необходимо указать moduleSlug");
       }
