@@ -67,10 +67,6 @@ export function NotificationBell() {
 
   // SSE connection
   useEffect(() => {
-    if (typeof Notification !== "undefined") {
-      setPermissionState(Notification.permission);
-    }
-
     // Load last read timestamp from localStorage
     lastReadRef.current = localStorage.getItem("admin-notif-last-read");
 
