@@ -4,6 +4,7 @@ import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
 import type { PSTableResource } from "@/modules/ps-park/types";
+import type { DayAvailability } from "@/modules/ps-park/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,38 +23,30 @@ export const metadata: Metadata = {
   },
 };
 
-function TableCard({ resource, index }: { resource: PSTableResource; index: number }) {
-  // Photo placeholder — will use real images once added to /public/media/ps-park/
-  const photoPath = `/media/ps-park/table-${index + 1}.jpg`;
+/** Convert Prisma Decimal objects to plain numbers so Client Components can receive them */
+function serializeAvailability(availability: DayAvailability[]): DayAvailability[] {
+  return availability.map((item) => ({
+    ...item,
+    resource: {
+      ...item.resource,
+      pricePerHour: item.resource.pricePerHour != null
+        ? (Number(item.resource.pricePerHour) as unknown as typeof item.resource.pricePerHour)
+        : null,
+    },
+  }));
+}
 
+function TableCard({ resource, index }: { resource: PSTableResource; index: number }) {
   return (
-    <div className="group rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-900/20">
-      {/* Photo slot */}
-      <div className="relative w-full aspect-[4/3] bg-zinc-800 overflow-hidden">
-        <img
-          src={photoPath}
-          alt={resource.name}
-          className="w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
-        />
-        {/* Placeholder shown when no photo */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-          {/* PS controller icon */}
-          <svg
-            className="w-10 h-10 text-zinc-700"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-          >
-            <path d="M14.235 2.19c-.897-.264-1.822-.38-2.735-.38-2.82 0-5.5 1.16-7.5 3.16C2 7.02 1 9.4 1 12c0 2.6 1 4.98 2.78 6.78.48.47 1 .87 1.56 1.2V12c0-1.1.9-2 2-2h1V8a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v2h1c1.1 0 2 .9 2 2v2h-2v-2H7.34v5.22C8.73 18.39 10.35 19 12 19c1.83 0 3.61-.67 5-1.9V12a2 2 0 0 0-2-2h-1V8a1 1 0 0 0-1-1h-1V5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v2h1a4 4 0 0 1 4 4v5.1c1.57-1.8 2.5-4.13 2.5-6.6a9.47 9.47 0 0 0-4.315-7.81z" />
-          </svg>
-          <span className="text-zinc-700 text-xs font-medium">
-            /media/ps-park/table-{index + 1}.jpg
-          </span>
-        </div>
-        {/* Gradient overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent" />
+    <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-900/20">
+      {/* Photo placeholder — replace with real <img> once /public/media/ps-park/table-N.jpg exists */}
+      <div className="relative w-full aspect-[4/3] bg-zinc-800 flex flex-col items-center justify-center gap-2">
+        <svg className="w-10 h-10 text-zinc-700" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M21 6H3a1 1 0 00-1 1v10a1 1 0 001 1h18a1 1 0 001-1V7a1 1 0 00-1-1zm-9 8.5a3 3 0 110-6 3 3 0 010 6zM5 8h2v2H5V8zm12 8h-2v-2h2v2z" />
+        </svg>
+        <span className="text-zinc-700 text-xs font-mono">table-{index + 1}.jpg</span>
+        {/* Bottom gradient */}
+        <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-900 to-transparent" />
       </div>
 
       {/* Card content */}
@@ -95,42 +88,26 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
   );
 }
 
-// Photo gallery placeholder
 function PhotoGallery() {
-  const photos = [
-    { file: "gallery-1.jpg", label: "Игровая зона" },
-    { file: "gallery-2.jpg", label: "PS5 крупный план" },
-    { file: "gallery-3.jpg", label: "Атмосфера" },
-    { file: "gallery-4.jpg", label: "Интерьер" },
+  const slots = [
+    "gallery-1.jpg",
+    "gallery-2.jpg",
+    "gallery-3.jpg",
+    "gallery-4.jpg",
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {photos.map((photo, i) => (
+      {slots.map((file) => (
         <div
-          key={i}
-          className="relative aspect-square rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 group"
+          key={file}
+          className="aspect-square rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col items-center justify-center gap-2"
         >
-          <img
-            src={`/media/ps-park/${photo.file}`}
-            alt={photo.label}
-            className="w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-          {/* Placeholder overlay */}
-          <div className="absolute inset-0 flex flex-col items-end justify-end p-3">
-            <span className="text-zinc-700 text-[10px] font-mono">/media/ps-park/{photo.file}</span>
-          </div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full border-2 border-dashed border-zinc-700 flex items-center justify-center">
-              <svg className="w-4 h-4 text-zinc-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-          </div>
+          <svg className="w-6 h-6 text-zinc-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-zinc-700 text-[10px] font-mono">{file}</span>
         </div>
       ))}
     </div>
@@ -139,11 +116,14 @@ function PhotoGallery() {
 
 export default async function PSParkPage() {
   const today = new Date().toISOString().split("T")[0];
-  const [tables, initialAvailability, phoneInfo] = await Promise.all([
+  const [tables, rawAvailability, phoneInfo] = await Promise.all([
     listTables(true),
     getAvailability(today),
     getPublicPhone("ps-park"),
   ]);
+
+  // Serialize Decimal → number so the Client Component can receive plain objects
+  const initialAvailability = serializeAvailability(rawAvailability);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -203,7 +183,7 @@ export default async function PSParkPage() {
           </h1>
 
           <p className="mt-6 text-zinc-400 font-[family-name:var(--font-inter)] text-lg max-w-lg leading-relaxed">
-            PS5, большой экран, кресло как дома. Приходи — мы не осудим, если немного прогуливаешь работу.
+            PS5, большие экраны, комфортные кресла. Аренда по часам — забронируйте стол прямо сейчас.
           </p>
 
           {/* CTAs */}
@@ -225,11 +205,10 @@ export default async function PSParkPage() {
                 href={`tel:${phoneInfo.phone}`}
                 className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200 font-medium text-[15px] px-6 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.69 13.5a19.79 19.79 0 01-3.07-8.67A2 2 0 013.6 2.69h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L7.91 9.4a16 16 0 006.29 6.29l.94-.94a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
                 </svg>
-                Позвонить
-                <span className="text-zinc-400 text-sm">{phoneInfo.displayPhone}</span>
+                {phoneInfo.displayPhone}
               </a>
             )}
           </div>
@@ -275,7 +254,7 @@ export default async function PSParkPage() {
         </div>
 
         {tables.length === 0 ? (
-          <p className="text-zinc-600 py-8">Консоли ещё в пути. Скоро тут будет шум и победные кричалки.</p>
+          <p className="text-zinc-600 py-8">Столы пока не добавлены</p>
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {tables.map((table, i) => (
@@ -297,7 +276,7 @@ export default async function PSParkPage() {
                   </svg>
                 ),
                 title: "Аренда от 1 часа",
-                desc: "Минимум час. Но ты же знаешь, что час — это «ещё одна игра».",
+                desc: "Минимальная аренда — 60 минут. Оплата по факту.",
               },
               {
                 icon: (

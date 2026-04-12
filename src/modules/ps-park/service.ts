@@ -403,7 +403,7 @@ export async function cancelBooking(
         }
       : {};
 
-  const updatedMetadata = { ...metadataForItems, ...penaltyMetadata };
+  const updatedMetadata = { ...metadataForItems, ...penaltyMetadata } as import("@prisma/client").Prisma.InputJsonValue;
 
   let updated;
   if (wasConfirmed && items.length > 0) {
@@ -616,9 +616,9 @@ export async function checkInBooking(bookingId: string, managerId: string) {
 
   // Handle NO_SHOW → CHECKED_IN (late arrival)
   const isFromNoShow = booking.status === "NO_SHOW";
-  const newMetadata = isFromNoShow
+  const newMetadata = (isFromNoShow
     ? { ...existingMetadata, lateCheckedInAt: checkinData.checkedInAt, checkedInBy: managerId }
-    : { ...existingMetadata, ...checkinData };
+    : { ...existingMetadata, ...checkinData }) as import("@prisma/client").Prisma.InputJsonValue;
 
   return prisma.booking.update({
     where: { id: bookingId },
@@ -666,7 +666,7 @@ export async function markNoShow(
     where: { id: bookingId },
     data: {
       status: "NO_SHOW",
-      metadata: { ...existingMetadata, ...noShowData },
+      metadata: { ...existingMetadata, ...noShowData } as import("@prisma/client").Prisma.InputJsonValue,
     },
   });
 }

@@ -12,6 +12,7 @@ import type {
   ExpiringBatchRow,
 } from "./types";
 import { InventoryError } from "./service";
+export { InventoryError } from "./service";
 import { checkAndSendLowStockAlert } from "./alerts";
 
 // ============================================================

@@ -8,7 +8,8 @@ const navLinks = [
   { label: "О парке", href: "#advantages" },
   { label: "Офисы", href: "#offices" },
   { label: "Беседки", href: "/gazebos" },
-  { label: "Услуги", href: "#services" },
+  { label: "PS Park", href: "/ps-park" },
+  { label: "Кафе", href: "/cafe" },
   { label: "Контакты", href: "#contacts" },
 ];
 

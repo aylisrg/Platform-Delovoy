@@ -14,6 +14,8 @@ const bookingStatusLabel: Record<BookingStatus, string> = {
   CONFIRMED: "Подтверждено",
   CANCELLED: "Отменено",
   COMPLETED: "Завершено",
+  CHECKED_IN: "Идёт сеанс",
+  NO_SHOW: "Не явился",
 };
 
 const bookingStatusVariant: Record<BookingStatus, "warning" | "success" | "default" | "info"> = {
@@ -21,6 +23,8 @@ const bookingStatusVariant: Record<BookingStatus, "warning" | "success" | "defau
   CONFIRMED: "success",
   CANCELLED: "default",
   COMPLETED: "info",
+  CHECKED_IN: "success",
+  NO_SHOW: "default",
 };
 
 const orderStatusLabel: Record<OrderStatus, string> = {
