@@ -7,6 +7,7 @@ import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
+import { AdminBookingForm } from "@/components/admin/ps-park/admin-booking-form";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,11 @@ export default async function PSParkManagerPage() {
             value={pendingCount}
             status={pendingCount > 0 ? "warning" : "success"}
           />
+        </div>
+
+        {/* Admin booking form */}
+        <div className="mb-8">
+          <AdminBookingForm />
         </div>
 
         {/* Resources */}
@@ -142,7 +148,14 @@ export default async function PSParkManagerPage() {
                         {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
                       </td>
                       <td className="py-3 text-zinc-600">
-                        {b.user.name ?? b.user.email ?? "—"}
+                        {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
+                          <span>
+                            {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
+                            <span className="text-xs text-zinc-400 ml-1">(админ)</span>
+                          </span>
+                        ) : (
+                          b.user.name ?? b.user.email ?? "—"
+                        )}
                       </td>
                       <td className="py-3">
                         <Badge variant={statusVariant[b.status]}>
