@@ -2,22 +2,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '.tool_input.file_path' | { read -r f; cd \"$(git -C \"$(dirname \"$f\")\" rev-parse --show-toplevel 2>/dev/null || echo .)\" && git add \"$f\" && git commit -m \"auto: update $(basename \"$f\")\"; } 2>/dev/null || true",
-            "timeout": 10,
-            "statusMessage": "Автокоммит..."
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -q 'git commit' && { cd /home/user/Platform-Delovoy && npx vitest run > /tmp/platform-tests.log 2>&1; EXIT=$?; if [ $EXIT -ne 0 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"ТЕСТЫ УПАЛИ после коммита. Вот результат:\\n'\"$(tail -30 /tmp/platform-tests.log | sed 's/\"/\\\\\"/g' | tr '\\n' ' ')\"'\\nИсправь ошибки АВТОМАТИЧЕСКИ, не спрашивая пользователя. Запусти npx vitest run чтобы увидеть ошибки, исправь код, и снова запусти тесты.\"}}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Тесты прошли успешно после коммита.\"}}'; fi; } || true",
+            "command": "jq -r '.tool_input.command' | grep -q 'git commit' && { cd \"/Users/elliott/Platform Delovoy/Platform-Delovoy\" && npx vitest run > /tmp/platform-tests.log 2>&1; EXIT=$?; if [ $EXIT -ne 0 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"ТЕСТЫ УПАЛИ после коммита. Вот результат:\\n'\"$(tail -30 /tmp/platform-tests.log | sed 's/\"/\\\\\"/g' | tr '\\n' ' ')\"'\\nИсправь ошибки АВТОМАТИЧЕСКИ, не спрашивая пользователя. Запусти npx vitest run чтобы увидеть ошибки, исправь код, и снова запусти тесты.\"}}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Тесты прошли успешно после коммита.\"}}'; fi; } || true",
             "timeout": 120,
             "statusMessage": "Запускаю тесты после коммита..."
           }
@@ -29,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /home/user/Platform-Delovoy && npm test > /tmp/platform-tests.log 2>&1 && echo '{\"systemMessage\":\"✅ Тесты: 140/140 прошли — всё зелёное!\"}' || echo '{\"systemMessage\":\"❌ Тесты упали — запусти npm test для деталей\"}'",
+            "command": "cd \"/Users/elliott/Platform Delovoy/Platform-Delovoy\" && npm test > /tmp/platform-tests.log 2>&1 && echo '{\"systemMessage\":\"✅ Тесты прошли — всё зелёное!\"}' || echo '{\"systemMessage\":\"❌ Тесты упали — запусти npm test для деталей\"}'",
             "timeout": 60,
             "statusMessage": "Проверяю тесты..."
           }
