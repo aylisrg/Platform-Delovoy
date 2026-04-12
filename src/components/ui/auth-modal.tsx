@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 
 type AuthTab = "telegram" | "other" | "email" | "whatsapp";
+type EmailSubView = "form" | "magic-link-sent";
 
 export function AuthModal({
   isOpen,
@@ -13,6 +14,7 @@ export function AuthModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<AuthTab>("telegram");
+  const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
@@ -49,18 +51,45 @@ export function AuthModal({
       setError("");
       setLoading(true);
 
+      // Step 1: try credentials login (for users who already have a password)
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
 
-      if (result?.error || !result?.ok) {
-        setError("Неверный email или пароль");
-        setLoading(false);
-      } else {
+      if (result?.ok) {
         onClose();
         window.location.reload();
+        return;
+      }
+
+      // Step 2: credentials failed — try magic link flow
+      try {
+        const res = await fetch("/api/auth/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password: password || undefined }),
+        });
+        const data = await res.json();
+
+        if (!data.success && data.error?.code === "USE_PASSWORD") {
+          setError("Неверный email или пароль");
+          setLoading(false);
+          return;
+        }
+
+        if (!data.success) {
+          setError(data.error?.message || "Не удалось отправить письмо");
+          setLoading(false);
+          return;
+        }
+
+        setEmailSubView("magic-link-sent");
+      } catch {
+        setError("Ошибка сети");
+      } finally {
+        setLoading(false);
       }
     },
     [email, password, onClose]
@@ -222,37 +251,70 @@ export function AuthModal({
           {tab === "email" && (
             <div className="space-y-3">
               <button
-                onClick={() => { setTab("telegram"); setError(""); }}
+                onClick={() => { setTab("telegram"); setEmailSubView("form"); setError(""); }}
                 className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
               >
                 ← Назад
               </button>
-              <form onSubmit={handleEmailLogin} className="space-y-3">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="Email"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-                />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="Пароль"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-                />
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
-                >
-                  {loading ? "Вход..." : "Войти"}
-                </button>
-              </form>
+
+              {emailSubView === "form" && (
+                <form onSubmit={handleEmailLogin} className="space-y-3">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="Email"
+                    className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                  />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Пароль (если есть)"
+                    className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
+                  />
+                  {error && <p className="text-sm text-red-500">{error}</p>}
+                  <button
+                    type="submit"
+                    disabled={loading || !email}
+                    className="w-full bg-[#0071e3] text-white font-medium text-sm py-3 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
+                  >
+                    {loading ? "Отправка..." : "Войти"}
+                  </button>
+                  <p className="text-center text-xs text-[#86868b] font-[family-name:var(--font-inter)]">
+                    Если аккаунта нет — пришлём ссылку для входа
+                  </p>
+                </form>
+              )}
+
+              {emailSubView === "magic-link-sent" && (
+                <div className="space-y-3 text-center py-2">
+                  <div className="flex justify-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#0071e3]/10">
+                      <MailIcon />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#1d1d1f] font-[family-name:var(--font-inter)]">
+                      Проверьте почту
+                    </p>
+                    <p className="text-sm text-[#86868b] mt-1 font-[family-name:var(--font-inter)]">
+                      Отправили письмо на{" "}
+                      <span className="text-[#1d1d1f] font-medium">{email}</span>
+                    </p>
+                    <p className="text-xs text-[#86868b]/70 mt-1 font-[family-name:var(--font-inter)]">
+                      Ссылка действительна 15 минут
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setEmailSubView("form"); setError(""); }}
+                    className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)]"
+                  >
+                    Изменить email или отправить повторно
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -431,6 +493,15 @@ function TelegramLoginInModal() {
 }
 
 // --- Icons ---
+
+function MailIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M2 7l10 7 10-7" />
+    </svg>
+  );
+}
 
 function TelegramIcon() {
   return (

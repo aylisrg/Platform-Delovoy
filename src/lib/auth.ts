@@ -215,6 +215,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
+    // Magic Link Email (token verified via GET /api/auth/verify-email, then signed in here)
+    Credentials({
+      id: "magic-link",
+      name: "Magic Link",
+      credentials: {
+        userId: { type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.userId) return null;
+
+        const user = await prisma.user.findUnique({
+          where: { id: credentials.userId as string },
+        });
+
+        return user;
+      },
+    }),
+
     // Google OAuth
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,

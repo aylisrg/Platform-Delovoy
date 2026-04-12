@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { listResources } from "@/modules/gazebos/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
@@ -6,6 +7,21 @@ import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Беседки с мангалом",
+  description:
+    "Аренда беседок с мангалом в бизнес-парке Деловой, Селятино. Комфортные беседки до 20 человек. Онлайн-бронирование. Мангал, дрова, зона отдыха.",
+  alternates: {
+    canonical: "/gazebos",
+  },
+  openGraph: {
+    title: "Беседки с мангалом — Деловой Парк",
+    description: "Аренда беседок с мангалом до 20 человек. Селятино, Московская область. Онлайн-бронирование.",
+    url: "/gazebos",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
+};
 
 export default async function GazebosPage() {
   const resources = await listResources(true);
