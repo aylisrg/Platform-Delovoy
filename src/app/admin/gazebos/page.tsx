@@ -8,6 +8,7 @@ import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/gazebos/booking-actions";
 import { AdminBookingForm } from "@/components/admin/gazebos/admin-booking-form";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
+import { ResourceEditor } from "@/components/admin/gazebos/resource-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -53,13 +54,8 @@ export default async function GazebosManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Управление беседками" />
+      <AdminHeader title="Управление беседками" actions={<ReceiveStockButton />} />
       <div className="p-8">
-        {/* Inventory action */}
-        <div className="mb-6 flex justify-end">
-          <ReceiveStockButton />
-        </div>
-
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-8">
           <StatusWidget
@@ -113,6 +109,7 @@ export default async function GazebosManagerPage() {
                   <th className="pb-3 font-medium">Вместимость</th>
                   <th className="pb-3 font-medium">Цена/час</th>
                   <th className="pb-3 font-medium">Статус</th>
+                  <th className="pb-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -125,6 +122,9 @@ export default async function GazebosManagerPage() {
                       <Badge variant={r.isActive ? "success" : "default"}>
                         {r.isActive ? "Активна" : "Отключена"}
                       </Badge>
+                    </td>
+                    <td className="py-3">
+                      <ResourceEditor resource={{ ...r, pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null }} />
                     </td>
                   </tr>
                 ))}

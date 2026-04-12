@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
+import { TableEditor } from "@/components/admin/ps-park/table-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -51,13 +52,8 @@ export default async function PSParkManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Управление PlayStation Park" />
+      <AdminHeader title="Управление PlayStation Park" actions={<ReceiveStockButton />} />
       <div className="p-8">
-        {/* Inventory action */}
-        <div className="mb-6 flex justify-end">
-          <ReceiveStockButton />
-        </div>
-
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-8">
           <StatusWidget
@@ -91,6 +87,7 @@ export default async function PSParkManagerPage() {
                   <th className="pb-3 font-medium">Игроков</th>
                   <th className="pb-3 font-medium">Цена/час</th>
                   <th className="pb-3 font-medium">Статус</th>
+                  <th className="pb-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -103,6 +100,9 @@ export default async function PSParkManagerPage() {
                       <Badge variant={r.isActive ? "success" : "default"}>
                         {r.isActive ? "Активен" : "Отключен"}
                       </Badge>
+                    </td>
+                    <td className="py-3">
+                      <TableEditor table={{ ...r, pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null }} />
                     </td>
                   </tr>
                 ))}
