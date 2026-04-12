@@ -4,6 +4,11 @@ vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
 }));
 
+vi.mock("@/lib/google-calendar", () => ({
+  createCalendarEvent: vi.fn().mockResolvedValue({ success: false }),
+  deleteCalendarEvent: vi.fn().mockResolvedValue({ success: true }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -31,6 +36,8 @@ import {
   getAvailability,
 } from "@/modules/gazebos/service";
 import { prisma } from "@/lib/db";
+import { createCalendarEvent } from "@/lib/google-calendar";
+import { enqueueNotification } from "@/modules/notifications/queue";
 
 // Future date safe for all tests
 const FUTURE_DATE = "2030-06-15";
@@ -358,11 +365,11 @@ const validAdminInput = {
 };
 
 describe("createAdminBooking", () => {
-  it("should create a confirmed booking with client info in metadata", async () => {
+  it("should create a confirmed booking with client info as top-level fields", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
     vi.mocked(prisma.booking.create).mockResolvedValue(
-      mockBooking({ status: "CONFIRMED", metadata: { clientName: "Иванов Иван", clientPhone: "+7 999 123-45-67", bookedByAdmin: true } }) as never
+      mockBooking({ status: "CONFIRMED", clientName: "Иванов Иван", clientPhone: "+7 999 123-45-67" }) as never
     );
 
     const result = await createAdminBooking("admin-1", validAdminInput);
@@ -373,12 +380,67 @@ describe("createAdminBooking", () => {
         data: expect.objectContaining({
           status: "CONFIRMED",
           userId: "admin-1",
-          metadata: expect.objectContaining({
-            clientName: "Иванов Иван",
-            clientPhone: "+7 999 123-45-67",
-            bookedByAdmin: true,
-          }),
+          clientName: "Иванов Иван",
+          clientPhone: "+7 999 123-45-67",
+          metadata: expect.objectContaining({ bookedByAdmin: true }),
         }),
+      })
+    );
+  });
+
+  it("should call Google Calendar when resource has googleCalendarId", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(
+      mockResource({ googleCalendarId: "cal-123@group.calendar.google.com" }) as never
+    );
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(createCalendarEvent).mockResolvedValue({
+      success: true,
+      eventId: "gcal-event-1",
+    });
+    vi.mocked(prisma.booking.create).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", googleEventId: "gcal-event-1" }) as never
+    );
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(createCalendarEvent).toHaveBeenCalledWith(
+      "cal-123@group.calendar.google.com",
+      expect.objectContaining({
+        summary: "Беседка №1 — Иванов Иван",
+        description: expect.stringContaining("+7 999 123-45-67"),
+      })
+    );
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          googleEventId: "gcal-event-1",
+        }),
+      })
+    );
+  });
+
+  it("should not call Google Calendar when resource has no googleCalendarId", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+  });
+
+  it("should enqueue notification on admin booking creation", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED", id: "new-booking" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.confirmed",
+        moduleSlug: "gazebos",
+        entityId: "new-booking",
       })
     );
   });
