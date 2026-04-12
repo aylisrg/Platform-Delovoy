@@ -30,7 +30,7 @@ export const createBookingSchema = z.object({
 );
 
 export const bookingFilterSchema = z.object({
-  status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED"]).optional(),
+  status: z.enum(["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "NO_SHOW"]).optional(),
   resourceId: z.string().optional(),
   dateFrom: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
   dateTo: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),

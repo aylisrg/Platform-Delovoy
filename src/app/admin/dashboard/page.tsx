@@ -10,20 +10,37 @@ async function getDashboardStats() {
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
 
-    const [activeModules, totalModules, bookingsToday, ordersToday] = await Promise.all([
+    const [activeModules, totalModules, gazeboBookingsToday, psParkBookingsToday, ordersToday] = await Promise.all([
       prisma.module.count({ where: { isActive: true } }),
       prisma.module.count(),
       prisma.booking.count({
-        where: { date: { gte: todayStart }, status: { not: "CANCELLED" } },
+        where: { moduleSlug: "gazebos", date: { gte: todayStart }, status: { not: "CANCELLED" } },
+      }),
+      prisma.booking.count({
+        where: { moduleSlug: "ps-park", date: { gte: todayStart }, status: { not: "CANCELLED" } },
       }),
       prisma.order.count({
         where: { createdAt: { gte: todayStart }, status: { not: "CANCELLED" } },
       }),
     ]);
 
-    return { activeModules, totalModules, bookingsToday, ordersToday };
+    return {
+      activeModules,
+      totalModules,
+      bookingsToday: gazeboBookingsToday + psParkBookingsToday,
+      gazeboBookingsToday,
+      psParkBookingsToday,
+      ordersToday,
+    };
   } catch {
-    return { activeModules: 0, totalModules: 0, bookingsToday: 0, ordersToday: 0 };
+    return {
+      activeModules: 0,
+      totalModules: 0,
+      bookingsToday: 0,
+      gazeboBookingsToday: 0,
+      psParkBookingsToday: 0,
+      ordersToday: 0,
+    };
   }
 }
 
@@ -40,22 +57,28 @@ export default async function DashboardPage() {
             value="Онлайн"
             status="success"
             description="Все сервисы работают"
+            href="/admin/monitoring"
           />
           <StatusWidget
             title="Активные модули"
             value={stats.activeModules}
             status="info"
             description={`из ${stats.totalModules} доступных`}
+            href="/admin/modules"
           />
           <StatusWidget
             title="Бронирования сегодня"
             value={stats.bookingsToday}
-            description="беседки + PS Park"
+            subLinks={[
+              { label: "Беседки", href: "/admin/gazebos", count: stats.gazeboBookingsToday },
+              { label: "PS Park", href: "/admin/ps-park", count: stats.psParkBookingsToday },
+            ]}
           />
           <StatusWidget
             title="Заказы сегодня"
             value={stats.ordersToday}
             description="кафе"
+            href="/admin/cafe"
           />
         </div>
 

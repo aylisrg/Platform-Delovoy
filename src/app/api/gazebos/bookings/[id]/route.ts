@@ -49,12 +49,16 @@ export async function PATCH(
       return apiError("VALIDATION_ERROR", "Укажите статус", 422);
     }
 
-    const { reason } = body;
+    const { reason, confirmPenalty } = body;
     let updated;
 
     // Users can only cancel their own bookings
     if (status === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
-      updated = await cancelBooking(id, session.user.id, reason);
+      const result = await cancelBooking(id, session.user.id, reason, confirmPenalty === true);
+      if (result.penaltyRequired) {
+        return apiError("PENALTY_CONFIRMATION_REQUIRED", "Требуется подтверждение штрафа", 402);
+      }
+      updated = result.booking;
     } else if (hasRole(session.user, "MANAGER")) {
       // Managers can change any status — check section permission
       const denied = await requireAdminSection(session, "gazebos");

@@ -50,6 +50,8 @@ import {
   getActiveSessions,
   extendBooking,
   getBookingBill,
+  checkInBooking,
+  markNoShow,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
 import { validateAndSnapshotItems, saleBookingItems } from "@/modules/inventory/service";
@@ -163,7 +165,7 @@ describe("createBooking", () => {
     expect(prisma.booking.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          metadata: { playerCount: 2, comment: "Турнир" },
+          metadata: expect.objectContaining({ playerCount: 2, comment: "Турнир" }),
         }),
       })
     );
@@ -611,6 +613,120 @@ describe("getBookingBill", () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
 
     await expect(getBookingBill("bad-id")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+  });
+});
+
+// ===== checkInBooking =====
+
+describe("checkInBooking", () => {
+  it("transitions CONFIRMED → CHECKED_IN and stores checkedInAt/By in metadata", async () => {
+    const pastStart = new Date(Date.now() - 10 * 60 * 1000); // 10 min ago
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", startTime: pastStart }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(
+      mockBooking({ status: "CHECKED_IN" }) as never
+    );
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CHECKED_IN",
+          managerId: "manager-1",
+          metadata: expect.objectContaining({
+            checkedInBy: "manager-1",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("transitions NO_SHOW → CHECKED_IN (late arrival), stores lateCheckedInAt", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "NO_SHOW",
+        startTime: new Date(Date.now() - 60 * 60 * 1000),
+        metadata: { noShowAt: new Date().toISOString(), noShowReason: "auto" },
+      }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(
+      mockBooking({ status: "CHECKED_IN" }) as never
+    );
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CHECKED_IN",
+          metadata: expect.objectContaining({ lateCheckedInAt: expect.any(String) }),
+        }),
+      })
+    );
+  });
+
+  it("throws BOOKING_NOT_FOUND when booking does not exist", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    await expect(checkInBooking("bad-id", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+  });
+
+  it("throws TRANSITION_CONDITION_NOT_MET when startTime is in the future", async () => {
+    const futureStart = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", startTime: futureStart }) as never
+    );
+    await expect(checkInBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "TRANSITION_CONDITION_NOT_MET",
+    });
+  });
+});
+
+// ===== markNoShow =====
+
+describe("markNoShow", () => {
+  it("transitions CONFIRMED → NO_SHOW when 30+ min past startTime", async () => {
+    const oldStart = new Date(Date.now() - 35 * 60 * 1000); // 35 min ago
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", startTime: oldStart }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(
+      mockBooking({ status: "NO_SHOW" }) as never
+    );
+
+    await markNoShow("booking-1", "manager-1", "manual");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "NO_SHOW",
+          metadata: expect.objectContaining({
+            noShowReason: "manual",
+            noShowBy: "manager-1",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("throws TRANSITION_CONDITION_NOT_MET when < 30 min past startTime", async () => {
+    const recentStart = new Date(Date.now() - 20 * 60 * 1000); // only 20 min ago
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", startTime: recentStart }) as never
+    );
+    await expect(markNoShow("booking-1", "manager-1", "manual")).rejects.toMatchObject({
+      code: "TRANSITION_CONDITION_NOT_MET",
+    });
+  });
+
+  it("throws BOOKING_NOT_FOUND when booking does not exist", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    await expect(markNoShow("bad-id", "manager-1")).rejects.toMatchObject({
       code: "BOOKING_NOT_FOUND",
     });
   });
