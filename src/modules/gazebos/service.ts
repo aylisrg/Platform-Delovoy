@@ -650,7 +650,7 @@ export async function markNoShow(
     throw new BookingError(e.code ?? "INVALID_STATUS_TRANSITION", e.message ?? "Недопустимый переход");
   }
 
-  const noShowData = buildNoShowMetadata(reason, now);
+  const noShowData = buildNoShowMetadata(reason, now, actorId);
   const existingMetadata = (booking.metadata as BookingMetadata | null) ?? {};
 
   return prisma.booking.update({

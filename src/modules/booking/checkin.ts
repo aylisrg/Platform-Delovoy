@@ -10,11 +10,13 @@ export function buildCheckInMetadata(managerId: string, now: Date): CheckInMetad
 
 export function buildNoShowMetadata(
   reason: "auto" | "manual",
-  now: Date
-): NoShowMetadata {
+  now: Date,
+  actorId?: string
+): NoShowMetadata & { noShowBy?: string } {
   return {
     noShowAt: now.toISOString(),
     noShowReason: reason,
+    ...(actorId && { noShowBy: actorId }),
   };
 }
 
