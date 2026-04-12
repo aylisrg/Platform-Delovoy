@@ -33,7 +33,9 @@ export function NotificationBell() {
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
-  const [permissionState, setPermissionState] = useState<NotificationPermission>("default");
+  const [permissionState, setPermissionState] = useState<NotificationPermission>(() =>
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
   const dropdownRef = useRef<HTMLDivElement>(null);
   const lastReadRef = useRef<string | null>(null);
 
