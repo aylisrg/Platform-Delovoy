@@ -4,6 +4,9 @@ import {
   updateTableSchema,
   createPSBookingSchema,
   psBookingFilterSchema,
+  adminCreatePSBookingSchema,
+  addBookingItemsSchema,
+  timelineQuerySchema,
 } from "@/modules/ps-park/validation";
 
 describe("createTableSchema", () => {
@@ -108,6 +111,84 @@ describe("createPSBookingSchema", () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { resourceId: _resourceId, ...rest } = validInput;
     const result = createPSBookingSchema.safeParse(rest);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("adminCreatePSBookingSchema", () => {
+  const validBase = {
+    resourceId: "table-1",
+    date: "2030-08-20",
+    startTime: "14:00",
+    endTime: "16:00",
+    clientName: "Иван Петров",
+  };
+
+  it("accepts valid input with name only (no phone)", () => {
+    const result = adminCreatePSBookingSchema.safeParse(validBase);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts valid input with optional phone", () => {
+    const result = adminCreatePSBookingSchema.safeParse({ ...validBase, clientPhone: "+79001234567" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty clientName", () => {
+    const result = adminCreatePSBookingSchema.safeParse({ ...validBase, clientName: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty string for clientPhone when provided", () => {
+    const result = adminCreatePSBookingSchema.safeParse({ ...validBase, clientPhone: "" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("addBookingItemsSchema", () => {
+  it("accepts valid items array", () => {
+    const result = addBookingItemsSchema.safeParse({
+      items: [{ skuId: "sku-1", quantity: 2 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty items array", () => {
+    const result = addBookingItemsSchema.safeParse({ items: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing items field", () => {
+    const result = addBookingItemsSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects zero quantity", () => {
+    const result = addBookingItemsSchema.safeParse({
+      items: [{ skuId: "sku-1", quantity: 0 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("timelineQuerySchema", () => {
+  it("accepts valid date", () => {
+    const result = timelineQuerySchema.safeParse({ date: "2030-08-20" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid date format", () => {
+    const result = timelineQuerySchema.safeParse({ date: "20/08/2030" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing date", () => {
+    const result = timelineQuerySchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty string", () => {
+    const result = timelineQuerySchema.safeParse({ date: "" });
     expect(result.success).toBe(false);
   });
 });
