@@ -240,6 +240,10 @@ function SortableGroup({
   const [draft, setDraft] = useState(group.label);
   const [collapsed, setCollapsed] = useState(false);
 
+  useEffect(() => {
+    if (!editing) setDraft(group.label);
+  }, [group.label, editing]);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -294,7 +298,14 @@ function SortableGroup({
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+            <span
+              className="text-xs font-semibold uppercase tracking-wide text-zinc-400 cursor-text hover:text-zinc-600 transition-colors"
+              title="Двойной клик — переименовать"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+            >
               {group.label}
             </span>
           )}
