@@ -13,6 +13,7 @@ import {
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import type {
   CreatePSBookingInput,
+  AdminCreatePSBookingInput,
   CreateTableInput,
   UpdateTableInput,
   PSBookingFilter,
@@ -385,6 +386,113 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
   });
 
   return updated;
+}
+
+export async function createAdminBooking(adminId: string, input: AdminCreatePSBookingInput) {
+  const { resourceId, date, startTime, endTime, playerCount, comment, clientName, clientPhone, items } = input;
+
+  const resource = await prisma.resource.findFirst({
+    where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  if (!resource) {
+    throw new PSBookingError("RESOURCE_NOT_FOUND", "Стол не найден или неактивен");
+  }
+
+  if (playerCount && resource.capacity && playerCount > resource.capacity) {
+    throw new PSBookingError(
+      "CAPACITY_EXCEEDED",
+      `Максимальная вместимость стола: ${resource.capacity} человек`
+    );
+  }
+
+  const bookingDate = new Date(date);
+  const start = parseDatetime(date, startTime);
+  const end = parseDatetime(date, endTime);
+
+  if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
+    throw new PSBookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
+  }
+
+  const conflict = await prisma.booking.findFirst({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      resourceId,
+      status: { in: ["PENDING", "CONFIRMED"] },
+      date: bookingDate,
+      OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+    },
+  });
+
+  if (conflict) {
+    throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
+  }
+
+  // Validate items snapshot (admin booking is auto-CONFIRMED, so deduct immediately)
+  let itemSnapshots: BookingItemSnapshot[] = [];
+  let itemsTotal = 0;
+  if (items && items.length > 0) {
+    const result = await validateAndSnapshotItems(items);
+    itemSnapshots = result.snapshots;
+    itemsTotal = result.itemsTotal;
+  }
+
+  // Google Calendar sync for admin-created (auto-confirmed) bookings
+  let googleEventId: string | undefined;
+  if (resource.googleCalendarId) {
+    const calResult = await createCalendarEvent(resource.googleCalendarId, {
+      summary: `${resource.name} — ${clientName}`,
+      description: `Телефон: ${clientPhone}`,
+      startTime: start,
+      endTime: end,
+    });
+    if (calResult.success && calResult.eventId) {
+      googleEventId = calResult.eventId;
+    }
+  }
+
+  // Admin booking is auto-CONFIRMED, so deduct inventory atomically
+  const booking = await prisma.$transaction(async (tx) => {
+    const b = await tx.booking.create({
+      data: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        userId: adminId,
+        date: bookingDate,
+        startTime: start,
+        endTime: end,
+        status: "CONFIRMED",
+        clientName,
+        clientPhone,
+        ...(googleEventId && { googleEventId }),
+        metadata: {
+          bookedByAdmin: true,
+          ...(playerCount && { playerCount }),
+          ...(comment && { comment }),
+          ...(itemSnapshots.length > 0 && {
+            items: itemSnapshots,
+            itemsTotal: itemsTotal.toFixed(2),
+          }),
+        },
+      },
+    });
+
+    if (itemSnapshots.length > 0) {
+      await saleBookingItems(tx, b.id, MODULE_SLUG, itemSnapshots, adminId);
+    }
+
+    return b;
+  });
+
+  enqueueNotification({
+    type: "booking.confirmed",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId: adminId,
+    actor: "admin",
+    data: { resourceName: resource.name, date, startTime, endTime },
+  });
+
+  return booking;
 }
 
 // === AVAILABILITY ===

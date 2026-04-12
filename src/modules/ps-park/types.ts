@@ -35,6 +35,18 @@ export type CreatePSBookingInput = {
   items?: BookingItemInput[];
 };
 
+export type AdminCreatePSBookingInput = {
+  resourceId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  playerCount?: number;
+  comment?: string;
+  clientName: string;
+  clientPhone: string;
+  items?: BookingItemInput[];
+};
+
 export type PSBookingFilter = {
   status?: BookingStatus;
   resourceId?: string;
