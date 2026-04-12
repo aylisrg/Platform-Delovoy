@@ -11,6 +11,7 @@ import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
 import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
+import { CallButton } from "@/components/admin/telephony/call-button";
 
 export const dynamic = "force-dynamic";
 
@@ -264,6 +265,15 @@ function BookingTable({
                 <div className="font-medium leading-tight">{name}</div>
                 {phone && (
                   <div className="text-xs text-zinc-400 mt-0.5">{phone}</div>
+                )}
+                {phone && (
+                  <div className="mt-1">
+                    <CallButton
+                      bookingId={b.id}
+                      moduleSlug="ps-park"
+                      clientPhone={phone}
+                    />
+                  </div>
                 )}
               </td>
               <td className="py-3">
