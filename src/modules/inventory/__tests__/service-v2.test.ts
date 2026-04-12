@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock alerts to prevent real Telegram calls during service tests
+vi.mock("../alerts", () => ({
+  checkAndSendLowStockAlert: vi.fn().mockResolvedValue(undefined),
+  runLowStockAlertSweep: vi.fn().mockResolvedValue({ checked: 0, alerted: 0 }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     supplier: {

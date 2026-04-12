@@ -12,6 +12,7 @@ import type {
   ExpiringBatchRow,
 } from "./types";
 import { InventoryError } from "./service";
+import { checkAndSendLowStockAlert } from "./alerts";
 
 // ============================================================
 // SUPPLIERS
@@ -298,26 +299,25 @@ export async function deductStockFifo(
 
     remaining -= take;
     batchesAffected++;
-
-    // We'll record movement after updating aggregate (need balanceAfter)
-    movementIds.push(batch.id); // temporarily store batch id
   }
 
-  // Update aggregate
+  // Update aggregate once
   const updatedSku = await tx.inventorySku.update({
     where: { id: skuId },
     data: { stockQuantity: { decrement: quantity } },
     select: { stockQuantity: true },
   });
 
-  // Now record movements (re-process with final balance)
+  // Record one movement per batch, each with a correct running balance
   const recordedMovementIds: string[] = [];
   remaining = quantity;
+  let runningBalance = updatedSku.stockQuantity + quantity; // start from pre-deduction balance
 
   for (const batch of batches) {
     if (remaining <= 0) break;
-    const take = Math.min(batch.remainingQty, remaining); // Note: remainingQty is original (before update)
+    const take = Math.min(batch.remainingQty, remaining);
     remaining -= take;
+    runningBalance -= take; // track balance after each batch deduction
 
     const movement = await tx.stockMovement.create({
       data: {
@@ -325,7 +325,7 @@ export async function deductStockFifo(
         batchId: batch.id,
         type: "SALE",
         delta: -take,
-        balanceAfter: updatedSku.stockQuantity,
+        balanceAfter: runningBalance,
         referenceType,
         referenceId,
         performedById,
@@ -451,9 +451,10 @@ export async function createWriteOff(
     return { writeOffId: writeOff.id, newStockQuantity: updatedSku.stockQuantity };
   });
 
-  // Post-transaction: auto-disable menu items if stock hits 0
+  // Post-transaction: auto-disable menu items if stock hits 0, send low-stock alert
   setImmediate(async () => {
     await autoDisableMenuItems(input.skuId);
+    await checkAndSendLowStockAlert(input.skuId);
   });
 
   return result;
@@ -463,12 +464,102 @@ export async function createBatchWriteOff(
   items: CreateWriteOffInput[],
   performedById: string
 ) {
-  const results = [];
-  for (const item of items) {
-    const result = await createWriteOff(item, performedById);
-    results.push(result);
-  }
-  return results;
+  // All items in one atomic transaction — if any item fails, nothing is committed
+  return prisma.$transaction(async (tx) => {
+    const results = [];
+
+    for (const item of items) {
+      const sku = await tx.inventorySku.findUnique({
+        where: { id: item.skuId },
+        select: { id: true, name: true, isActive: true },
+      });
+      if (!sku) throw new InventoryError("SKU_NOT_FOUND", `Товар не найден: ${item.skuId}`);
+
+      if (item.batchId) {
+        const batch = await tx.stockBatch.findUnique({
+          where: { id: item.batchId },
+          select: { id: true, skuId: true, remainingQty: true },
+        });
+        if (!batch || batch.skuId !== item.skuId) {
+          throw new InventoryError("BATCH_NOT_FOUND", "Партия не найдена");
+        }
+        if (batch.remainingQty < item.quantity) {
+          throw new InventoryError(
+            "INVENTORY_INSUFFICIENT",
+            `Недостаточно в партии: доступно ${batch.remainingQty}`
+          );
+        }
+        const newQty = batch.remainingQty - item.quantity;
+        await tx.stockBatch.update({
+          where: { id: item.batchId },
+          data: { remainingQty: newQty, isExhausted: newQty === 0 },
+        });
+      } else {
+        const batches = await tx.$queryRaw<Array<{ id: string; remainingQty: number }>>`
+          SELECT id, "remainingQty"
+          FROM "StockBatch"
+          WHERE "skuId" = ${item.skuId}
+            AND "isExhausted" = false
+            AND "remainingQty" > 0
+          ORDER BY "expiresAt" ASC NULLS LAST, "receiptDate" ASC
+          FOR UPDATE
+        `;
+        const totalAvailable = batches.reduce((sum, b) => sum + b.remainingQty, 0);
+        if (totalAvailable < item.quantity) {
+          throw new InventoryError(
+            "INVENTORY_INSUFFICIENT",
+            `Недостаточно товара для списания "${sku.name}": доступно ${totalAvailable}`
+          );
+        }
+        let remaining = item.quantity;
+        for (const batch of batches) {
+          if (remaining <= 0) break;
+          const take = Math.min(batch.remainingQty, remaining);
+          const newQty = batch.remainingQty - take;
+          await tx.stockBatch.update({
+            where: { id: batch.id },
+            data: { remainingQty: newQty, isExhausted: newQty === 0 },
+          });
+          remaining -= take;
+        }
+      }
+
+      const writeOff = await tx.writeOff.create({
+        data: {
+          skuId: item.skuId,
+          batchId: item.batchId ?? null,
+          quantity: item.quantity,
+          reason: item.reason,
+          note: item.note ?? null,
+          performedById,
+        },
+      });
+
+      const updatedSku = await tx.inventorySku.update({
+        where: { id: item.skuId },
+        data: { stockQuantity: { decrement: item.quantity } },
+        select: { stockQuantity: true },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          skuId: item.skuId,
+          batchId: item.batchId ?? null,
+          type: "WRITE_OFF",
+          delta: -item.quantity,
+          balanceAfter: updatedSku.stockQuantity,
+          referenceType: "WRITE_OFF",
+          referenceId: writeOff.id,
+          performedById,
+          note: `Списание (пакетное): ${WRITE_OFF_REASON_LABELS[item.reason]}`,
+        },
+      });
+
+      results.push({ writeOffId: writeOff.id, newStockQuantity: updatedSku.stockQuantity });
+    }
+
+    return results;
+  });
 }
 
 export async function writeOffExpiredBatches(performedById: string) {
