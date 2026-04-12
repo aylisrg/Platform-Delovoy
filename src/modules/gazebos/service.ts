@@ -224,7 +224,21 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  return prisma.booking.create({
+  // Google Calendar sync for admin-created (auto-confirmed) bookings
+  let googleEventId: string | undefined;
+  if (resource.googleCalendarId) {
+    const calResult = await createCalendarEvent(resource.googleCalendarId, {
+      summary: `${resource.name} — ${clientName}`,
+      description: `Телефон: ${clientPhone}`,
+      startTime: start,
+      endTime: end,
+    });
+    if (calResult.success && calResult.eventId) {
+      googleEventId = calResult.eventId;
+    }
+  }
+
+  const booking = await prisma.booking.create({
     data: {
       moduleSlug: MODULE_SLUG,
       resourceId,
@@ -233,15 +247,27 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
       startTime: start,
       endTime: end,
       status: "CONFIRMED",
+      clientName,
+      clientPhone,
+      ...(googleEventId && { googleEventId }),
       metadata: {
-        clientName,
-        clientPhone,
         bookedByAdmin: true,
         ...(guestCount && { guestCount }),
         ...(comment && { comment }),
       },
     },
   });
+
+  enqueueNotification({
+    type: "booking.confirmed",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId: adminId,
+    actor: "admin",
+    data: { resourceName: resource.name, date, startTime, endTime },
+  });
+
+  return booking;
 }
 
 export async function updateBookingStatus(
