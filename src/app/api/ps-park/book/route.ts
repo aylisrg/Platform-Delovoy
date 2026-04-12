@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { createBooking, PSBookingError } from "@/modules/ps-park/service";
 import { createPSBookingSchema } from "@/modules/ps-park/validation";
+import { InventoryError } from "@/modules/inventory/service";
 
 /**
  * POST /api/ps-park/book — create a new booking
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof PSBookingError) {
       return apiError(error.code, error.message);
+    }
+    if (error instanceof InventoryError) {
+      return apiError(error.code, error.message, 400);
     }
     return apiServerError();
   }

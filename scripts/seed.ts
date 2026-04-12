@@ -124,6 +124,14 @@ async function main() {
   }
   console.log(`  ✓ Offices: ${offices.length}`);
 
+  // Register inventory module
+  await prisma.module.upsert({
+    where: { slug: "inventory" },
+    update: { name: "Инвентарь", description: "Учёт товаров: напитки, еда, аксессуары" },
+    create: { slug: "inventory", name: "Инвентарь", description: "Учёт товаров: напитки, еда, аксессуары" },
+  });
+  console.log("  ✓ Inventory module registered (items added via 'Приехал новый товар')");
+
   console.log("\n✅ Seed completed successfully!");
 }
 

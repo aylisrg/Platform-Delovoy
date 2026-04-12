@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bookingItemSchema } from "@/modules/inventory/validation";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -22,6 +23,7 @@ export const createPSBookingSchema = z.object({
   endTime: z.string().regex(timeRegex, "Формат времени: HH:mm"),
   playerCount: z.number().int().positive().optional(),
   comment: z.string().max(500).optional(),
+  items: z.array(bookingItemSchema).max(20).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }

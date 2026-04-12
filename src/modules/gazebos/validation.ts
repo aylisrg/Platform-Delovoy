@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bookingItemSchema } from "@/modules/inventory/validation";
 
 export const createResourceSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(100),
@@ -22,6 +23,7 @@ export const createBookingSchema = z.object({
   endTime: z.string().regex(timeRegex, "Формат времени: HH:mm"),
   guestCount: z.number().int().positive().optional(),
   comment: z.string().max(500).optional(),
+  items: z.array(bookingItemSchema).max(20).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }
@@ -49,6 +51,7 @@ export const adminCreateBookingSchema = z.object({
   comment: z.string().max(500).optional(),
   clientName: z.string().min(1, "Имя клиента обязательно").max(200),
   clientPhone: z.string().min(1, "Телефон клиента обязателен").max(30),
+  items: z.array(bookingItemSchema).max(20).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }

@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
+import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
 
 type TimeSlot = {
   startTime: string;
@@ -38,6 +39,7 @@ export function BookingFlow() {
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [guestCount, setGuestCount] = useState("");
   const [comment, setComment] = useState("");
+  const [selectedItems, setSelectedItems] = useState<BookingItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
@@ -114,8 +116,10 @@ export function BookingFlow() {
 
   function getTotalPrice() {
     const resource = getSelectedResource();
-    if (!resource?.resource.pricePerHour) return 0;
-    return selectedSlots.length * Number(resource.resource.pricePerHour);
+    const bookingPrice = resource?.resource.pricePerHour
+      ? selectedSlots.length * Number(resource.resource.pricePerHour)
+      : 0;
+    return bookingPrice;
   }
 
   async function submitBooking() {
@@ -133,6 +137,7 @@ export function BookingFlow() {
           endTime: timeRange.endTime,
           ...(guestCount && { guestCount: parseInt(guestCount, 10) }),
           ...(comment && { comment }),
+          items: itemsToPayload(selectedItems),
         }),
       });
       const data = await res.json();
@@ -155,6 +160,7 @@ export function BookingFlow() {
     setSelectedSlots([]);
     setGuestCount("");
     setComment("");
+    setSelectedItems([]);
     setAvailability([]);
   }
 
@@ -353,19 +359,22 @@ export function BookingFlow() {
                   ["Беседка", selectedResource.resource.name],
                   ["Дата", formatDate(date)],
                   ["Время", `${timeRange.startTime}–${timeRange.endTime} (${selectedSlots.length} ч.)`],
-                ].map(([label, value]) => (
+                ].map(([label, val]) => (
                   <div key={label} className="flex justify-between text-sm font-[family-name:var(--font-inter)]">
                     <span className="text-[#86868b]">{label}</span>
-                    <span className="text-[#1d1d1f] font-medium">{value}</span>
+                    <span className="text-[#1d1d1f] font-medium">{val}</span>
                   </div>
                 ))}
                 {totalPrice > 0 && (
                   <div className="flex justify-between text-sm font-[family-name:var(--font-inter)] pt-2 border-t border-black/[0.04] mt-2">
-                    <span className="text-[#86868b]">Итого</span>
-                    <span className="text-[#1d1d1f] font-bold">{totalPrice} ₽</span>
+                    <span className="text-[#86868b]">Аренда беседки</span>
+                    <span className="text-[#1d1d1f] font-medium">{totalPrice} ₽</span>
                   </div>
                 )}
               </div>
+
+              {/* Inventory item picker */}
+              <InventoryItemPicker value={selectedItems} onChange={setSelectedItems} />
 
               {/* Guest count */}
               <div>
@@ -407,6 +416,7 @@ export function BookingFlow() {
                   className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors resize-none"
                 />
               </div>
+
 
               {/* Actions */}
               <div className="flex gap-3">

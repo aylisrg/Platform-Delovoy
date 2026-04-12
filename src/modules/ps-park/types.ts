@@ -1,4 +1,5 @@
 import type { Booking, Resource, BookingStatus } from "@prisma/client";
+import type { BookingItemInput } from "@/modules/inventory/types";
 
 export type PSTableResource = Pick<
   Resource,
@@ -31,6 +32,7 @@ export type CreatePSBookingInput = {
   endTime: string;
   playerCount?: number;
   comment?: string;
+  items?: BookingItemInput[];
 };
 
 export type PSBookingFilter = {
