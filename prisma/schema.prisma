@@ -347,6 +347,52 @@ model AuditLog {
   @@index([createdAt])
 }
 
+// === INVENTORY ===
+
+model InventorySku {
+  id                String   @id @default(cuid())
+  name              String
+  category          String
+  unit              String   @default("шт")
+  price             Decimal
+  stockQuantity     Int      @default(0)
+  lowStockThreshold Int      @default(5)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  transactions InventoryTransaction[]
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model InventoryTransaction {
+  id            String                   @id @default(cuid())
+  skuId         String
+  sku           InventorySku             @relation(fields: [skuId], references: [id])
+  type          InventoryTransactionType
+  quantity      Int
+  bookingId     String?
+  moduleSlug    String?
+  performedById String
+  note          String?
+  isVoided      Boolean                  @default(false)
+  createdAt     DateTime                 @default(now())
+
+  @@index([skuId, createdAt])
+  @@index([bookingId])
+  @@index([type, isVoided])
+}
+
+enum InventoryTransactionType {
+  INITIAL
+  RECEIPT
+  SALE
+  RETURN
+  ADJUSTMENT
+}
+
 // === NOTIFICATIONS ===
 
 model NotificationPreference {

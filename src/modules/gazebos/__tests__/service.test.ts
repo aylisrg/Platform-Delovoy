@@ -9,6 +9,12 @@ vi.mock("@/lib/google-calendar", () => ({
   deleteCalendarEvent: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+vi.mock("@/modules/inventory/service", () => ({
+  validateAndSnapshotItems: vi.fn().mockResolvedValue({ snapshots: [], itemsTotal: 0 }),
+  saleBookingItems: vi.fn().mockResolvedValue(undefined),
+  returnBookingItems: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -25,6 +31,16 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      // Delegate tx calls to the top-level prisma mocks so existing assertions work
+      const { prisma: p } = await import("@/lib/db");
+      const tx = {
+        booking: p.booking,
+        inventoryTransaction: { create: vi.fn() },
+        inventorySku: { update: vi.fn(), findUnique: vi.fn().mockResolvedValue({ stockQuantity: 100, isActive: true }) },
+      };
+      return fn(tx);
+    }),
   },
 }));
 

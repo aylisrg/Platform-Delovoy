@@ -5,6 +5,12 @@ import {
   createCalendarEvent,
   deleteCalendarEvent,
 } from "@/lib/google-calendar";
+import {
+  validateAndSnapshotItems,
+  saleBookingItems,
+  returnBookingItems,
+} from "@/modules/inventory/service";
+import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -107,7 +113,7 @@ export async function getBooking(id: string) {
 }
 
 export async function createBooking(userId: string, input: CreateBookingInput) {
-  const { resourceId, date, startTime, endTime, guestCount, comment } = input;
+  const { resourceId, date, startTime, endTime, guestCount, comment, items } = input;
 
   // Verify resource exists and is active
   const resource = await prisma.resource.findFirst({
@@ -152,6 +158,15 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
     throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
+  // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED)
+  let itemSnapshots: BookingItemSnapshot[] = [];
+  let itemsTotal = 0;
+  if (items && items.length > 0) {
+    const result = await validateAndSnapshotItems(items);
+    itemSnapshots = result.snapshots;
+    itemsTotal = result.itemsTotal;
+  }
+
   const booking = await prisma.booking.create({
     data: {
       moduleSlug: MODULE_SLUG,
@@ -164,6 +179,10 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
       metadata: {
         ...(guestCount && { guestCount }),
         ...(comment && { comment }),
+        ...(itemSnapshots.length > 0 && {
+          items: itemSnapshots,
+          itemsTotal: itemsTotal.toFixed(2),
+        }),
       },
     },
   });
@@ -186,7 +205,7 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
  * Client info stored in metadata (no user account required).
  */
 export async function createAdminBooking(adminId: string, input: AdminCreateBookingInput) {
-  const { resourceId, date, startTime, endTime, guestCount, comment, clientName, clientPhone } = input;
+  const { resourceId, date, startTime, endTime, guestCount, comment, clientName, clientPhone, items } = input;
 
   const resource = await prisma.resource.findFirst({
     where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -224,6 +243,15 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
+  // Validate items snapshot (admin booking is auto-CONFIRMED, so deduct immediately)
+  let itemSnapshots: BookingItemSnapshot[] = [];
+  let itemsTotal = 0;
+  if (items && items.length > 0) {
+    const result = await validateAndSnapshotItems(items);
+    itemSnapshots = result.snapshots;
+    itemsTotal = result.itemsTotal;
+  }
+
   // Google Calendar sync for admin-created (auto-confirmed) bookings
   let googleEventId: string | undefined;
   if (resource.googleCalendarId) {
@@ -238,24 +266,37 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     }
   }
 
-  const booking = await prisma.booking.create({
-    data: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      userId: adminId,
-      date: bookingDate,
-      startTime: start,
-      endTime: end,
-      status: "CONFIRMED",
-      clientName,
-      clientPhone,
-      ...(googleEventId && { googleEventId }),
-      metadata: {
-        bookedByAdmin: true,
-        ...(guestCount && { guestCount }),
-        ...(comment && { comment }),
+  // Admin booking is auto-CONFIRMED, so deduct inventory atomically
+  const booking = await prisma.$transaction(async (tx) => {
+    const b = await tx.booking.create({
+      data: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        userId: adminId,
+        date: bookingDate,
+        startTime: start,
+        endTime: end,
+        status: "CONFIRMED",
+        clientName,
+        clientPhone,
+        ...(googleEventId && { googleEventId }),
+        metadata: {
+          bookedByAdmin: true,
+          ...(guestCount && { guestCount }),
+          ...(comment && { comment }),
+          ...(itemSnapshots.length > 0 && {
+            items: itemSnapshots,
+            itemsTotal: itemsTotal.toFixed(2),
+          }),
+        },
       },
-    },
+    });
+
+    if (itemSnapshots.length > 0) {
+      await saleBookingItems(tx, b.id, MODULE_SLUG, itemSnapshots, adminId);
+    }
+
+    return b;
   });
 
   enqueueNotification({
@@ -327,15 +368,55 @@ export async function updateBookingStatus(
     googleEventId = null;
   }
 
-  const updated = await prisma.booking.update({
-    where: { id },
-    data: {
-      status,
-      ...(managerId && { managerId }),
-      ...(cancelReason && { cancelReason }),
-      ...(googleEventId !== booking.googleEventId && { googleEventId }),
-    },
-  });
+  // Extract booking items snapshot from metadata
+  const metadata = booking.metadata as Record<string, unknown> | null;
+  const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  const performedById = managerId ?? booking.userId;
+
+  let updated;
+
+  if (status === "CONFIRMED" && items.length > 0) {
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(googleEventId !== booking.googleEventId && { googleEventId }),
+        },
+      });
+      await saleBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      return b;
+    });
+  } else if (
+    status === "CANCELLED" &&
+    booking.status === "CONFIRMED" &&
+    items.length > 0
+  ) {
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(cancelReason && { cancelReason }),
+          ...(googleEventId !== booking.googleEventId && { googleEventId }),
+        },
+      });
+      await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      return b;
+    });
+  } else {
+    updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        status,
+        ...(managerId && { managerId }),
+        ...(cancelReason && { cancelReason }),
+        ...(googleEventId !== booking.googleEventId && { googleEventId }),
+      },
+    });
+  }
 
   const dateStr = booking.date.toISOString().split("T")[0];
   const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });

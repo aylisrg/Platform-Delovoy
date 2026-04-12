@@ -1,4 +1,5 @@
 import type { Booking, Resource, BookingStatus } from "@prisma/client";
+import type { BookingItemInput } from "@/modules/inventory/types";
 
 // === Resource Types ===
 
@@ -35,6 +36,7 @@ export type CreateBookingInput = {
   endTime: string; // HH:mm
   guestCount?: number;
   comment?: string;
+  items?: BookingItemInput[];
 };
 
 export type BookingFilter = {
@@ -54,6 +56,7 @@ export type AdminCreateBookingInput = {
   comment?: string;
   clientName: string;
   clientPhone: string;
+  items?: BookingItemInput[];
 };
 
 // === Availability ===

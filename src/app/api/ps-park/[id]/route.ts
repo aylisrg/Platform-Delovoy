@@ -41,6 +41,11 @@ export async function PATCH(
       return apiValidationError(parsed.error.issues[0].message);
     }
 
+    // Only SUPERADMIN can change pricePerHour
+    if (parsed.data.pricePerHour !== undefined && session.user.role !== "SUPERADMIN") {
+      return apiForbidden("Изменение цены доступно только администратору");
+    }
+
     const existing = await getTable(id);
     if (!existing) return apiNotFound("Стол не найден");
 
