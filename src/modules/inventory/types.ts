@@ -1,4 +1,20 @@
-import type { InventorySku, InventoryTransaction, InventoryTransactionType } from "@prisma/client";
+import type {
+  InventorySku,
+  InventoryTransaction,
+  InventoryTransactionType,
+  MovementType,
+  ReferenceType,
+  WriteOffReason,
+  AuditStatus,
+  Supplier,
+  StockBatch,
+  StockReceipt,
+  StockReceiptItem,
+  StockMovement,
+  WriteOff,
+  InventoryAudit,
+  InventoryAuditCount,
+} from "@prisma/client";
 
 export type SkuSummary = Pick<
   InventorySku,
@@ -107,4 +123,143 @@ export type InventoryAnalytics = {
     revenue: string;
   }>;
   period: { from: string; to: string };
+};
+
+// === V2 TYPES ===
+
+export type { MovementType, ReferenceType, WriteOffReason, AuditStatus };
+
+// Supplier
+export type SupplierSummary = Pick<
+  Supplier,
+  "id" | "name" | "contactName" | "phone" | "email" | "isActive" | "createdAt"
+>;
+
+export type CreateSupplierInput = {
+  name: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  inn?: string;
+  notes?: string;
+};
+
+export type UpdateSupplierInput = Partial<CreateSupplierInput> & {
+  isActive?: boolean;
+};
+
+// Stock Receipt
+export type StockReceiptItemInput = {
+  skuId: string;
+  quantity: number;
+  costPerUnit?: number;
+  expiresAt?: string;
+};
+
+export type CreateStockReceiptInput = {
+  supplierId?: string;
+  invoiceNumber?: string;
+  receivedAt: string;
+  notes?: string;
+  items: StockReceiptItemInput[];
+};
+
+export type StockReceiptWithItems = StockReceipt & {
+  supplier: Pick<Supplier, "id" | "name"> | null;
+  items: (StockReceiptItem & {
+    sku: Pick<InventorySku, "id" | "name" | "unit">;
+  })[];
+};
+
+// Stock Batch
+export type StockBatchSummary = Pick<
+  StockBatch,
+  | "id"
+  | "skuId"
+  | "initialQty"
+  | "remainingQty"
+  | "costPerUnit"
+  | "receiptDate"
+  | "expiresAt"
+  | "isExhausted"
+>;
+
+// Stock Movement
+export type StockMovementRow = Pick<
+  StockMovement,
+  | "id"
+  | "skuId"
+  | "batchId"
+  | "type"
+  | "delta"
+  | "balanceAfter"
+  | "referenceType"
+  | "referenceId"
+  | "performedById"
+  | "note"
+  | "createdAt"
+> & {
+  sku: Pick<InventorySku, "name">;
+};
+
+export type MovementFilter = {
+  skuId?: string;
+  type?: MovementType;
+  referenceType?: ReferenceType;
+  performedById?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  perPage?: number;
+};
+
+// Write-off
+export type CreateWriteOffInput = {
+  skuId: string;
+  quantity: number;
+  reason: WriteOffReason;
+  note?: string;
+  batchId?: string;
+};
+
+export type WriteOffWithSku = WriteOff & {
+  sku: Pick<InventorySku, "id" | "name" | "unit">;
+};
+
+// Inventory Audit
+export type CreateAuditInput = {
+  notes?: string;
+};
+
+export type AuditCountInput = {
+  skuId: string;
+  actualQty: number;
+};
+
+export type SubmitAuditInput = {
+  counts: AuditCountInput[];
+};
+
+export type AuditWithCounts = InventoryAudit & {
+  counts: (InventoryAuditCount & {
+    sku: Pick<InventorySku, "id" | "name" | "unit">;
+  })[];
+};
+
+// Expiring batches
+export type ExpiringBatchRow = {
+  batchId: string;
+  skuId: string;
+  skuName: string;
+  skuUnit: string;
+  remainingQty: number;
+  expiresAt: string;
+  daysUntilExpiry: number;
+};
+
+// FIFO deduction result
+export type FifoDeductResult = {
+  movementIds: string[];
+  newStockQuantity: number;
+  batchesAffected: number;
 };

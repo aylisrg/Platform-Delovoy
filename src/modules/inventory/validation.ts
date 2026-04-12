@@ -90,3 +90,104 @@ export const bookingItemSchema = z.object({
 export const bookingItemsArraySchema = z
   .array(bookingItemSchema)
   .max(20, "Не более 20 позиций товаров");
+
+// === V2 SCHEMAS ===
+
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+export const createSupplierSchema = z.object({
+  name: z.string().min(1, "Название обязательно").max(200),
+  contactName: z.string().max(200).optional(),
+  phone: z.string().max(50).optional(),
+  email: z.string().email("Некорректный email").optional().or(z.literal("")),
+  inn: z.string().max(20).optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+export const updateSupplierSchema = createSupplierSchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
+
+export const supplierFilterSchema = z.object({
+  search: z.string().optional(),
+  isActive: z.coerce.boolean().optional(),
+});
+
+const stockReceiptItemSchema = z.object({
+  skuId: z.string().min(1, "ID товара обязателен"),
+  quantity: z.number().int().positive("Количество должно быть положительным"),
+  costPerUnit: z.number().positive("Цена закупки должна быть положительной").optional(),
+  expiresAt: z.string().regex(dateRegex, "Дата в формате YYYY-MM-DD").optional(),
+});
+
+export const createStockReceiptSchema = z.object({
+  supplierId: z.string().optional(),
+  invoiceNumber: z.string().max(100).optional(),
+  receivedAt: z.string().regex(dateRegex, "Дата в формате YYYY-MM-DD"),
+  notes: z.string().max(1000).optional(),
+  items: z.array(stockReceiptItemSchema).min(1, "Минимум одна позиция").max(100),
+});
+
+export const receiptFilterSchema = z.object({
+  supplierId: z.string().optional(),
+  skuId: z.string().optional(),
+  dateFrom: z.string().regex(dateRegex).optional(),
+  dateTo: z.string().regex(dateRegex).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().positive().max(100).default(50),
+});
+
+export const createWriteOffSchema = z.object({
+  skuId: z.string().min(1, "ID товара обязателен"),
+  quantity: z.number().int().positive("Количество должно быть положительным"),
+  reason: z.enum(["EXPIRED", "DAMAGED", "LOST", "OTHER"]),
+  note: z.string().max(1000).optional(),
+  batchId: z.string().optional(),
+}).refine(
+  (data) => data.reason !== "OTHER" || (data.note && data.note.length > 0),
+  { message: "Причина 'Иное' требует комментария", path: ["note"] }
+);
+
+export const batchWriteOffSchema = z.object({
+  items: z.array(createWriteOffSchema).min(1, "Минимум одна позиция"),
+});
+
+export const writeOffFilterSchema = z.object({
+  skuId: z.string().optional(),
+  reason: z.enum(["EXPIRED", "DAMAGED", "LOST", "OTHER"]).optional(),
+  performedById: z.string().optional(),
+  dateFrom: z.string().regex(dateRegex).optional(),
+  dateTo: z.string().regex(dateRegex).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().positive().max(100).default(50),
+});
+
+export const createAuditSchema = z.object({
+  notes: z.string().max(1000).optional(),
+});
+
+export const auditCountsSchema = z.object({
+  counts: z.array(z.object({
+    skuId: z.string().min(1),
+    actualQty: z.number().int().nonnegative("Количество не может быть отрицательным"),
+  })).min(1, "Минимум одна позиция"),
+});
+
+export const movementFilterSchema = z.object({
+  skuId: z.string().optional(),
+  type: z.enum(["RECEIPT", "SALE", "RESERVATION", "RELEASE", "WRITE_OFF", "AUDIT_ADJUSTMENT", "MANUAL_CORRECTION"]).optional(),
+  referenceType: z.enum(["BOOKING", "ORDER", "RECEIPT", "WRITE_OFF", "AUDIT", "MANUAL"]).optional(),
+  performedById: z.string().optional(),
+  dateFrom: z.string().regex(dateRegex).optional(),
+  dateTo: z.string().regex(dateRegex).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().positive().max(100).default(50),
+});
+
+export const expiringFilterSchema = z.object({
+  days: z.coerce.number().int().positive().max(365).default(7),
+});
+
+export const linkMenuItemSchema = z.object({
+  inventorySkuId: z.string().nullable(),
+});
