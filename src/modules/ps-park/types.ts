@@ -43,7 +43,7 @@ export type AdminCreatePSBookingInput = {
   playerCount?: number;
   comment?: string;
   clientName: string;
-  clientPhone: string;
+  clientPhone?: string;
   items?: BookingItemInput[];
 };
 

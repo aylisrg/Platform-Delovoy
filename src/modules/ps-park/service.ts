@@ -10,7 +10,7 @@ import {
   saleBookingItems,
   returnBookingItems,
 } from "@/modules/inventory/service";
-import type { BookingItemSnapshot } from "@/modules/inventory/types";
+import type { BookingItemSnapshot, BookingItemInput } from "@/modules/inventory/types";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -427,6 +427,29 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
+  // Find or create client User record so they appear in the Clients section
+  let clientUserId: string;
+  if (clientPhone) {
+    const existingUser = await prisma.user.findFirst({ where: { phone: clientPhone } });
+    if (existingUser) {
+      // Update name if it changed
+      if (existingUser.name !== clientName) {
+        await prisma.user.update({ where: { id: existingUser.id }, data: { name: clientName } });
+      }
+      clientUserId = existingUser.id;
+    } else {
+      const newUser = await prisma.user.create({
+        data: { name: clientName, phone: clientPhone, role: "USER" },
+      });
+      clientUserId = newUser.id;
+    }
+  } else {
+    const newUser = await prisma.user.create({
+      data: { name: clientName, role: "USER" },
+    });
+    clientUserId = newUser.id;
+  }
+
   let itemSnapshots: BookingItemSnapshot[] = [];
   let itemsTotal = 0;
   if (items && items.length > 0) {
@@ -439,7 +462,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
   if (resource.googleCalendarId) {
     const calResult = await createCalendarEvent(resource.googleCalendarId, {
       summary: `${resource.name} — ${clientName}`,
-      description: `Телефон: ${clientPhone}`,
+      description: clientPhone ? `Телефон: ${clientPhone}` : clientName,
       startTime: start,
       endTime: end,
     });
@@ -453,13 +476,14 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
       data: {
         moduleSlug: MODULE_SLUG,
         resourceId,
-        userId: adminId,
+        userId: clientUserId,
+        managerId: adminId,
         date: bookingDate,
         startTime: start,
         endTime: end,
         status: "CONFIRMED",
         clientName,
-        clientPhone,
+        ...(clientPhone && { clientPhone }),
         ...(googleEventId && { googleEventId }),
         metadata: {
           bookedByAdmin: true,
@@ -484,12 +508,72 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     type: "booking.confirmed",
     moduleSlug: MODULE_SLUG,
     entityId: booking.id,
-    userId: adminId,
+    userId: clientUserId,
     actor: "admin",
     data: { resourceName: resource.name, date, startTime, endTime },
   });
 
   return booking;
+}
+
+export async function addItemsToBooking(
+  bookingId: string,
+  managerId: string,
+  newItems: BookingItemInput[]
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+  });
+
+  if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  if (booking.status !== "PENDING" && booking.status !== "CONFIRMED") {
+    throw new PSBookingError("INVALID_STATUS", "Товары можно добавлять только к активным бронированиям");
+  }
+
+  const { snapshots, itemsTotal: newItemsTotal } = await validateAndSnapshotItems(newItems);
+
+  const metadata = (booking.metadata as Record<string, unknown>) ?? {};
+  const existingItems = (metadata.items ?? []) as BookingItemSnapshot[];
+  const existingTotal = Number(metadata.itemsTotal ?? 0);
+
+  // Merge: add quantity if same SKU already exists, otherwise append
+  const mergedMap = new Map<string, BookingItemSnapshot>();
+  for (const item of existingItems) {
+    mergedMap.set(item.skuId, { ...item });
+  }
+  for (const snap of snapshots) {
+    const existing = mergedMap.get(snap.skuId);
+    if (existing) {
+      mergedMap.set(snap.skuId, { ...existing, quantity: existing.quantity + snap.quantity });
+    } else {
+      mergedMap.set(snap.skuId, snap);
+    }
+  }
+
+  const newMetadata = {
+    ...metadata,
+    items: Array.from(mergedMap.values()),
+    itemsTotal: (existingTotal + newItemsTotal).toFixed(2),
+  };
+
+  if (booking.status === "CONFIRMED") {
+    // Already confirmed — deduct stock immediately
+    return prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id: bookingId },
+        data: { metadata: newMetadata },
+      });
+      await saleBookingItems(tx, bookingId, MODULE_SLUG, snapshots, managerId);
+      return b;
+    });
+  }
+
+  // PENDING — snapshot only; stock deducted on confirmation
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: { metadata: newMetadata },
+  });
 }
 
 // === AVAILABILITY ===

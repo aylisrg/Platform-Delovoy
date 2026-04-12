@@ -8,6 +8,7 @@ import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
 import { AdminBookingForm } from "@/components/admin/ps-park/admin-booking-form";
+import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
 
 export const dynamic = "force-dynamic";
 
@@ -25,23 +26,55 @@ const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "
   COMPLETED: "info",
 };
 
-export default async function PSParkManagerPage() {
-  const today = new Date(new Date().toISOString().split("T")[0]);
+function formatTime(dt: Date) {
+  return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
 
-  const [resources, bookings, todayCount, pendingCount] = await Promise.all([
+function formatDate(dt: Date) {
+  return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function getClientDisplay(b: {
+  clientName: string | null;
+  clientPhone: string | null;
+  user: { name: string | null; email: string | null; phone: string | null };
+  metadata: unknown;
+}) {
+  const name = b.clientName ?? b.user.name ?? b.user.email ?? "—";
+  const phone = b.clientPhone ?? b.user.phone;
+  return { name, phone };
+}
+
+export default async function PSParkManagerPage() {
+  // Server time — used to split bookings into current/upcoming
+  const now = new Date();
+  const today = new Date(now.toISOString().split("T")[0]);
+
+  const [resources, activeBookings, recentCompleted, todayCount, pendingCount] = await Promise.all([
     prisma.resource.findMany({
       where: { moduleSlug: "ps-park" },
       orderBy: { name: "asc" },
     }),
+    // Active bookings: PENDING or CONFIRMED, from today onwards
     prisma.booking.findMany({
       where: {
         moduleSlug: "ps-park",
         date: { gte: today },
         status: { in: ["PENDING", "CONFIRMED"] },
       },
-      include: { user: { select: { name: true, email: true } } },
+      include: { user: { select: { name: true, email: true, phone: true } } },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
-      take: 50,
+      take: 100,
+    }),
+    // Recent completed/cancelled for the history section
+    prisma.booking.findMany({
+      where: {
+        moduleSlug: "ps-park",
+        status: { in: ["COMPLETED", "CANCELLED"] },
+      },
+      include: { user: { select: { name: true, email: true, phone: true } } },
+      orderBy: [{ date: "desc" }, { startTime: "desc" }],
+      take: 20,
     }),
     prisma.booking.count({
       where: { moduleSlug: "ps-park", date: today, status: { in: ["PENDING", "CONFIRMED"] } },
@@ -50,6 +83,20 @@ export default async function PSParkManagerPage() {
       where: { moduleSlug: "ps-park", status: "PENDING" },
     }),
   ]);
+
+  // Build resource name map for display
+  const resourceMap = new Map(resources.map((r) => [r.id, r.name]));
+
+  // Split active bookings by time context
+  const currentBookings = activeBookings.filter(
+    (b) =>
+      b.status === "CONFIRMED" &&
+      b.startTime <= now &&
+      b.endTime > now
+  );
+  const upcomingBookings = activeBookings.filter(
+    (b) => !currentBookings.includes(b)
+  );
 
   return (
     <>
@@ -117,65 +164,133 @@ export default async function PSParkManagerPage() {
           </CardContent>
         </Card>
 
-        {/* Bookings */}
-        <Card>
+        {/* Current bookings (in progress right now) */}
+        {currentBookings.length > 0 && (
+          <Card className="mb-6 border-amber-200 bg-amber-50/30">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <h2 className="font-semibold text-zinc-900">Текущие бронирования</h2>
+                <span className="text-xs text-zinc-500 ml-1">— идут прямо сейчас</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <BookingTable
+                bookings={currentBookings}
+                resourceMap={resourceMap}
+                showAddItems
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Upcoming bookings */}
+        <Card className="mb-6">
           <CardHeader>
             <h2 className="font-semibold text-zinc-900">Предстоящие бронирования</h2>
           </CardHeader>
           <CardContent>
-            {bookings.length === 0 ? (
+            {upcomingBookings.length === 0 ? (
               <p className="text-sm text-zinc-400">Нет предстоящих бронирований</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Дата</th>
-                    <th className="pb-3 font-medium">Время</th>
-                    <th className="pb-3 font-medium">Клиент</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bookings.map((b) => (
-                    <tr key={b.id} className="border-b border-zinc-50">
-                      <td className="py-3 text-zinc-900">
-                        {new Date(b.date).toLocaleDateString("ru-RU")}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {new Date(b.startTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                        {" — "}
-                        {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
-                          <span>
-                            {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
-                            <span className="text-xs text-zinc-400 ml-1">(админ)</span>
-                          </span>
-                        ) : (
-                          b.user.name ?? b.user.email ?? "—"
-                        )}
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={statusVariant[b.status]}>
-                          {statusLabel[b.status]}
-                        </Badge>
-                      </td>
-                      <td className="py-3">
-                        <BookingActions
-                          bookingId={b.id}
-                          currentStatus={b.status}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <BookingTable
+                bookings={upcomingBookings}
+                resourceMap={resourceMap}
+                showAddItems
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Completed / cancelled history */}
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">Завершённые бронирования</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Последние 20</p>
+          </CardHeader>
+          <CardContent>
+            {recentCompleted.length === 0 ? (
+              <p className="text-sm text-zinc-400">Нет завершённых бронирований</p>
+            ) : (
+              <BookingTable bookings={recentCompleted} resourceMap={resourceMap} />
             )}
           </CardContent>
         </Card>
       </div>
     </>
+  );
+}
+
+// ─── Shared booking table sub-component ────────────────────────────────────
+
+type BookingRow = {
+  id: string;
+  date: Date;
+  startTime: Date;
+  endTime: Date;
+  status: BookingStatus;
+  clientName: string | null;
+  clientPhone: string | null;
+  metadata: unknown;
+  user: { name: string | null; email: string | null; phone: string | null };
+  resourceId: string;
+};
+
+function BookingTable({
+  bookings,
+  resourceMap,
+  showAddItems = false,
+}: {
+  bookings: BookingRow[];
+  resourceMap: Map<string, string>;
+  showAddItems?: boolean;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-zinc-100 text-left text-zinc-500">
+          <th className="pb-3 font-medium">Дата</th>
+          <th className="pb-3 font-medium">Время</th>
+          <th className="pb-3 font-medium">Стол</th>
+          <th className="pb-3 font-medium">Клиент</th>
+          <th className="pb-3 font-medium">Статус</th>
+          <th className="pb-3 font-medium">Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {bookings.map((b) => {
+          const { name, phone } = getClientDisplay(b);
+          const tableName = resourceMap.get(b.resourceId) ?? "—";
+          return (
+            <tr key={b.id} className="border-b border-zinc-50">
+              <td className="py-3 text-zinc-900">{formatDate(b.date)}</td>
+              <td className="py-3 text-zinc-600 whitespace-nowrap">
+                {formatTime(b.startTime)}–{formatTime(b.endTime)}
+              </td>
+              <td className="py-3 text-zinc-600">{tableName}</td>
+              <td className="py-3 text-zinc-700">
+                <div className="font-medium leading-tight">{name}</div>
+                {phone && (
+                  <div className="text-xs text-zinc-400 mt-0.5">{phone}</div>
+                )}
+              </td>
+              <td className="py-3">
+                <Badge variant={statusVariant[b.status]}>
+                  {statusLabel[b.status]}
+                </Badge>
+              </td>
+              <td className="py-3">
+                <div className="flex items-center gap-3">
+                  <BookingActions bookingId={b.id} currentStatus={b.status} />
+                  {showAddItems && (
+                    <AddItemsButton bookingId={b.id} />
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

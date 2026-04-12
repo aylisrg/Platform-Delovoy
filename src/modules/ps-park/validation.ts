@@ -37,7 +37,7 @@ export const adminCreatePSBookingSchema = z.object({
   playerCount: z.number().int().positive().optional(),
   comment: z.string().max(500).optional(),
   clientName: z.string().min(1, "Имя клиента обязательно").max(200),
-  clientPhone: z.string().min(1, "Телефон клиента обязателен").max(30),
+  clientPhone: z.string().min(1).max(30).optional(),
   items: z.array(bookingItemSchema).max(20).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
@@ -55,4 +55,8 @@ export const psBookingFilterSchema = z.object({
 export const psAvailabilityQuerySchema = z.object({
   resourceId: z.string().optional(),
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
+});
+
+export const addBookingItemsSchema = z.object({
+  items: z.array(bookingItemSchema).min(1, "Нужно выбрать хотя бы один товар").max(20),
 });

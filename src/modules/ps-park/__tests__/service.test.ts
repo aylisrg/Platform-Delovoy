@@ -4,6 +4,17 @@ vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
 }));
 
+vi.mock("@/modules/inventory/service", () => ({
+  validateAndSnapshotItems: vi.fn(),
+  saleBookingItems: vi.fn(),
+  returnBookingItems: vi.fn(),
+}));
+
+vi.mock("@/lib/google-calendar", () => ({
+  createCalendarEvent: vi.fn(),
+  deleteCalendarEvent: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -20,6 +31,12 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    user: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -28,8 +45,10 @@ import {
   updateBookingStatus,
   cancelBooking,
   getAvailability,
+  addItemsToBooking,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
+import { validateAndSnapshotItems, saleBookingItems } from "@/modules/inventory/service";
 
 const FUTURE_DATE = "2030-08-20";
 const PAST_DATE = "2020-03-01";
@@ -239,6 +258,107 @@ describe("cancelBooking", () => {
 
     await expect(cancelBooking("nonexistent", "user-1")).rejects.toMatchObject({
       code: "BOOKING_NOT_FOUND",
+    });
+  });
+});
+
+// ===== addItemsToBooking =====
+
+describe("addItemsToBooking", () => {
+  const newItems = [{ skuId: "sku-1", quantity: 2 }];
+  const snapshot = { skuId: "sku-1", skuName: "Cola", quantity: 2, priceAtBooking: 150 };
+
+  it("adds items to a PENDING booking (snapshot only, no transaction)", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", metadata: {} }) as never
+    );
+    vi.mocked(validateAndSnapshotItems).mockResolvedValue({
+      snapshots: [snapshot],
+      itemsTotal: 300,
+    } as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await addItemsToBooking("booking-1", "manager-1", newItems);
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "booking-1" } })
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("uses a transaction to deduct stock for CONFIRMED booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", metadata: {} }) as never
+    );
+    vi.mocked(validateAndSnapshotItems).mockResolvedValue({
+      snapshots: [snapshot],
+      itemsTotal: 300,
+    } as never);
+    const updatedBooking = mockBooking({ status: "CONFIRMED" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const mockTx = {
+        booking: { update: vi.fn().mockResolvedValue(updatedBooking) },
+      };
+      return fn(mockTx);
+    });
+
+    await addItemsToBooking("booking-1", "manager-1", newItems);
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(saleBookingItems).toHaveBeenCalled();
+  });
+
+  it("merges quantities when the same SKU already exists in metadata", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "PENDING",
+        metadata: {
+          items: [{ skuId: "sku-1", skuName: "Cola", quantity: 1, priceAtBooking: 150 }],
+          itemsTotal: "150.00",
+        },
+      }) as never
+    );
+    vi.mocked(validateAndSnapshotItems).mockResolvedValue({
+      snapshots: [{ ...snapshot, quantity: 2 }],
+      itemsTotal: 300,
+    } as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await addItemsToBooking("booking-1", "manager-1", newItems);
+
+    const updateCall = vi.mocked(prisma.booking.update).mock.calls[0][0];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metadata = (updateCall as unknown as { data: { metadata: { items: { skuId: string; quantity: number }[] } } }).data.metadata;
+    const mergedItem = metadata.items.find((i: { skuId: string }) => i.skuId === "sku-1");
+    expect(mergedItem?.quantity).toBe(3); // 1 existing + 2 new
+  });
+
+  it("throws BOOKING_NOT_FOUND for unknown booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(addItemsToBooking("bad-id", "manager-1", newItems)).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+  });
+
+  it("throws INVALID_STATUS for COMPLETED booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+
+    await expect(addItemsToBooking("booking-1", "manager-1", newItems)).rejects.toMatchObject({
+      code: "INVALID_STATUS",
+    });
+  });
+
+  it("throws INVALID_STATUS for CANCELLED booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CANCELLED" }) as never
+    );
+
+    await expect(addItemsToBooking("booking-1", "manager-1", newItems)).rejects.toMatchObject({
+      code: "INVALID_STATUS",
     });
   });
 });
