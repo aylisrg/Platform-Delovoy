@@ -163,7 +163,7 @@ describe("createBooking", () => {
     expect(prisma.booking.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          metadata: { playerCount: 2, comment: "Турнир" },
+          metadata: expect.objectContaining({ playerCount: 2, comment: "Турнир" }),
         }),
       })
     );

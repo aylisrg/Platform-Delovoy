@@ -11,6 +11,12 @@ import {
   returnBookingItems,
 } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
+import { assertValidTransition } from "@/modules/booking/state-machine";
+import { computeCancellationPenalty } from "@/modules/booking/cancellation";
+import { computeBookingPricing } from "@/modules/booking/pricing";
+import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
+import type { CancellationPolicy, BookingMetadata } from "@/modules/booking/types";
+import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -167,6 +173,13 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
     itemsTotal = result.itemsTotal;
   }
 
+  const pricing = computeBookingPricing(
+    start,
+    end,
+    resource.pricePerHour ? Number(resource.pricePerHour) : null,
+    itemsTotal
+  );
+
   const booking = await prisma.booking.create({
     data: {
       moduleSlug: MODULE_SLUG,
@@ -183,6 +196,9 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
           items: itemSnapshots,
           itemsTotal: itemsTotal.toFixed(2),
         }),
+        basePrice: pricing.basePrice,
+        pricePerHour: pricing.pricePerHour,
+        totalPrice: pricing.totalPrice,
       },
     },
   });
@@ -252,6 +268,13 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     itemsTotal = result.itemsTotal;
   }
 
+  const adminPricing = computeBookingPricing(
+    start,
+    end,
+    resource.pricePerHour ? Number(resource.pricePerHour) : null,
+    itemsTotal
+  );
+
   // Google Calendar sync for admin-created (auto-confirmed) bookings
   let googleEventId: string | undefined;
   if (resource.googleCalendarId) {
@@ -288,6 +311,9 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
             items: itemSnapshots,
             itemsTotal: itemsTotal.toFixed(2),
           }),
+          basePrice: adminPricing.basePrice,
+          pricePerHour: adminPricing.pricePerHour,
+          totalPrice: adminPricing.totalPrice,
         },
       },
     });
@@ -325,19 +351,18 @@ export async function updateBookingStatus(
     throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
   }
 
-  // Validate status transitions
-  const validTransitions: Record<BookingStatus, BookingStatus[]> = {
-    PENDING: ["CONFIRMED", "CANCELLED"],
-    CONFIRMED: ["COMPLETED", "CANCELLED"],
-    CANCELLED: [],
-    COMPLETED: [],
-  };
-
-  if (!validTransitions[booking.status].includes(status)) {
-    throw new BookingError(
-      "INVALID_STATUS_TRANSITION",
-      `Нельзя перевести из ${booking.status} в ${status}`
-    );
+  try {
+    assertValidTransition({
+      currentStatus: booking.status,
+      targetStatus: status,
+      actorRole: "MANAGER",
+      now: new Date(),
+      startTime: booking.startTime,
+      noShowThresholdMinutes: 30,
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string; message?: string };
+    throw new BookingError(e.code ?? "INVALID_STATUS_TRANSITION", e.message ?? "Недопустимый переход");
   }
 
   const resource = await prisma.resource.findUnique({
@@ -441,7 +466,13 @@ export async function updateBookingStatus(
   return updated;
 }
 
-export async function cancelBooking(id: string, userId: string, cancelReason?: string) {
+export async function cancelBooking(
+  id: string,
+  userId: string,
+  cancelReason?: string,
+  confirmPenalty = false,
+  policy: CancellationPolicy = DEFAULT_CANCELLATION_POLICY
+): Promise<{ penaltyRequired: true; penaltyAmount: number; basePrice: number } | { penaltyRequired: false; booking: ReturnType<typeof prisma.booking.update> extends Promise<infer T> ? T : never }> {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
   });
@@ -458,6 +489,25 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
     throw new BookingError("INVALID_STATUS_TRANSITION", "Бронирование уже завершено или отменено");
   }
 
+  const metadata = booking.metadata as BookingMetadata | null;
+  const basePrice = Number(metadata?.basePrice ?? 0);
+
+  const cancellationResult = computeCancellationPenalty(
+    booking.startTime,
+    new Date(),
+    basePrice,
+    policy,
+    false
+  );
+
+  if (cancellationResult.penaltyApplied && !confirmPenalty) {
+    return {
+      penaltyRequired: true,
+      penaltyAmount: cancellationResult.penaltyAmount,
+      basePrice: cancellationResult.basePrice,
+    };
+  }
+
   // Delete from Google Calendar if synced
   const resourceForCal = await prisma.resource.findUnique({
     where: { id: booking.resourceId },
@@ -469,8 +519,21 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
 
   // Return inventory if booking was CONFIRMED and had items
   const wasConfirmed = booking.status === "CONFIRMED";
-  const metadata = booking.metadata as Record<string, unknown> | null;
-  const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  const metadataForItems = booking.metadata as BookingMetadata | null;
+  const items = (metadataForItems?.items ?? []) as BookingItemSnapshot[];
+
+  const penaltyMetadata =
+    cancellationResult.penaltyApplied
+      ? {
+          cancelPenalty: {
+            amount: cancellationResult.penaltyAmount.toFixed(2),
+            reason: "late_cancellation",
+            appliedAt: new Date().toISOString(),
+          },
+        }
+      : {};
+
+  const updatedMetadata = { ...metadataForItems, ...penaltyMetadata };
 
   let updated;
   if (wasConfirmed && items.length > 0) {
@@ -481,6 +544,7 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
           status: "CANCELLED",
           googleEventId: null,
           ...(cancelReason && { cancelReason }),
+          metadata: updatedMetadata,
         },
       });
       await returnBookingItems(tx, id, MODULE_SLUG, items, userId);
@@ -493,6 +557,7 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
         status: "CANCELLED",
         googleEventId: null,
         ...(cancelReason && { cancelReason }),
+        metadata: updatedMetadata,
       },
     });
   }
@@ -511,7 +576,90 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 
-  return updated;
+  return { penaltyRequired: false, booking: updated };
+}
+
+// === CHECK-IN ===
+
+export async function checkInBooking(bookingId: string, managerId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const now = new Date();
+
+  try {
+    assertValidTransition({
+      currentStatus: booking.status,
+      targetStatus: "CHECKED_IN",
+      actorRole: "MANAGER",
+      now,
+      startTime: booking.startTime,
+      noShowThresholdMinutes: 30,
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string; message?: string };
+    throw new BookingError(e.code ?? "INVALID_STATUS_TRANSITION", e.message ?? "Недопустимый переход");
+  }
+
+  const checkinData = buildCheckInMetadata(managerId, now);
+  const existingMetadata = (booking.metadata as BookingMetadata | null) ?? {};
+
+  const isFromNoShow = booking.status === "NO_SHOW";
+  const newMetadata = isFromNoShow
+    ? { ...existingMetadata, lateCheckedInAt: checkinData.checkedInAt, checkedInBy: managerId }
+    : { ...existingMetadata, ...checkinData };
+
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: "CHECKED_IN",
+      managerId,
+      metadata: newMetadata,
+    },
+  });
+}
+
+// === MARK NO-SHOW ===
+
+export async function markNoShow(
+  bookingId: string,
+  actorId: string,
+  reason: "manual" | "auto" = "manual"
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const now = new Date();
+  const actorRole = reason === "auto" ? "CRON" : "MANAGER";
+
+  try {
+    assertValidTransition({
+      currentStatus: booking.status,
+      targetStatus: "NO_SHOW",
+      actorRole,
+      now,
+      startTime: booking.startTime,
+      noShowThresholdMinutes: 30,
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string; message?: string };
+    throw new BookingError(e.code ?? "INVALID_STATUS_TRANSITION", e.message ?? "Недопустимый переход");
+  }
+
+  const noShowData = buildNoShowMetadata(reason, now);
+  const existingMetadata = (booking.metadata as BookingMetadata | null) ?? {};
+
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: "NO_SHOW",
+      metadata: { ...existingMetadata, ...noShowData },
+    },
+  });
 }
 
 // === AVAILABILITY ===

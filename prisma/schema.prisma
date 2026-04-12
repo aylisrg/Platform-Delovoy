@@ -144,8 +144,10 @@ model Booking {
 enum BookingStatus {
   PENDING
   CONFIRMED
-  CANCELLED
+  CHECKED_IN
   COMPLETED
+  CANCELLED
+  NO_SHOW
 }
 
 // === BOOKABLE RESOURCES (беседки, столы PS) ===
