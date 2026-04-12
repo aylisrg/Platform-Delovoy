@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ReceiptHistoryRow } from "@/modules/inventory/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -199,17 +199,10 @@ function InventoryReceiptsTable({ refreshKey }: { refreshKey: number }) {
     }
   }, []);
 
-  // Load on mount and when refreshKey changes
-  useState(() => { load(); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  if (refreshKey) { /* triggers re-render; actual load via useCallback below */ }
-
-  // Trigger reload when refreshKey changes
-  const [lastKey, setLastKey] = useState(refreshKey);
-  if (refreshKey !== lastKey) {
-    setLastKey(refreshKey);
+  // Load on mount and whenever refreshKey changes
+  useEffect(() => {
     load();
-  }
+  }, [load, refreshKey]);
 
   if (loading) {
     return (
