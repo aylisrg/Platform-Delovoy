@@ -29,6 +29,21 @@ export const createPSBookingSchema = z.object({
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }
 );
 
+export const adminCreatePSBookingSchema = z.object({
+  resourceId: z.string().min(1, "ID стола обязателен"),
+  date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
+  startTime: z.string().regex(timeRegex, "Формат времени: HH:mm"),
+  endTime: z.string().regex(timeRegex, "Формат времени: HH:mm"),
+  playerCount: z.number().int().positive().optional(),
+  comment: z.string().max(500).optional(),
+  clientName: z.string().min(1, "Имя клиента обязательно").max(200),
+  clientPhone: z.string().min(1, "Телефон клиента обязателен").max(30),
+  items: z.array(bookingItemSchema).max(20).optional(),
+}).refine(
+  (data) => data.startTime < data.endTime,
+  { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }
+);
+
 export const psBookingFilterSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED"]).optional(),
   resourceId: z.string().optional(),
