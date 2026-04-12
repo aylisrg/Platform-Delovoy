@@ -4,6 +4,11 @@ vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
 }));
 
+vi.mock("@/lib/google-calendar", () => ({
+  createCalendarEvent: vi.fn().mockResolvedValue({ success: false }),
+  deleteCalendarEvent: vi.fn().mockResolvedValue({ success: true }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
