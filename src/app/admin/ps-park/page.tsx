@@ -5,6 +5,7 @@ import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
+import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,11 @@ export default async function PSParkManagerPage() {
     <>
       <AdminHeader title="Управление PlayStation Park" />
       <div className="p-8">
+        {/* Inventory action */}
+        <div className="mb-6 flex justify-end">
+          <ReceiveStockButton />
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-8">
           <StatusWidget

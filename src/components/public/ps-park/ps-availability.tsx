@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AuthModal } from "@/components/ui/auth-modal";
+import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
 
 type TimeSlot = {
   startTime: string;
@@ -36,6 +37,7 @@ export function PSAvailability() {
   const [error, setError] = useState<string | null>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [selectedItems, setSelectedItems] = useState<BookingItem[]>([]);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
 
@@ -87,6 +89,7 @@ export function PSAvailability() {
           date,
           startTime: sorted[0],
           endTime,
+          items: itemsToPayload(selectedItems),
         }),
       });
       const data = await res.json();
@@ -94,6 +97,7 @@ export function PSAvailability() {
         setBookingSuccess(true);
         setSelectedResourceId(null);
         setSelectedSlots([]);
+        setSelectedItems([]);
       } else {
         setError(data.error?.message ?? "Ошибка при бронировании");
       }
@@ -207,27 +211,42 @@ export function PSAvailability() {
 
           {/* Booking action */}
           {selectedResourceId && selectedSlots.length > 0 && (
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-blue-50 border border-blue-200 p-4">
-              <div className="text-sm text-zinc-700">
-                <span className="font-medium">
-                  {availability.find((a) => a.resource.id === selectedResourceId)?.resource.name}
-                </span>
-                <span className="text-zinc-400 mx-2">·</span>
-                <span>{selectedSlots.length} ч.</span>
-                {(() => {
-                  const price = availability.find((a) => a.resource.id === selectedResourceId)?.resource.pricePerHour;
-                  if (!price) return null;
-                  return (
-                    <>
-                      <span className="text-zinc-400 mx-2">·</span>
-                      <span className="font-semibold">{selectedSlots.length * Number(price)} ₽</span>
-                    </>
-                  );
-                })()}
+            <div className="mt-4 space-y-3">
+              {/* Items picker */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <InventoryItemPicker
+                  value={selectedItems}
+                  onChange={setSelectedItems}
+                  variant="compact"
+                />
               </div>
-              <Button onClick={submitBooking} disabled={bookingLoading}>
-                {bookingLoading ? "Отправка..." : "Забронировать"}
-              </Button>
+
+              {/* Summary + submit */}
+              <div className="flex items-center justify-between rounded-xl bg-blue-50 border border-blue-200 p-4">
+                <div className="text-sm text-zinc-700">
+                  <span className="font-medium">
+                    {availability.find((a) => a.resource.id === selectedResourceId)?.resource.name}
+                  </span>
+                  <span className="text-zinc-400 mx-2">·</span>
+                  <span>{selectedSlots.length} ч.</span>
+                  {(() => {
+                    const price = availability.find((a) => a.resource.id === selectedResourceId)?.resource.pricePerHour;
+                    if (!price) return null;
+                    return (
+                      <>
+                        <span className="text-zinc-400 mx-2">·</span>
+                        <span className="font-semibold">{selectedSlots.length * Number(price)} ₽</span>
+                      </>
+                    );
+                  })()}
+                  {selectedItems.length > 0 && (
+                    <span className="text-zinc-400 ml-2">+ товары</span>
+                  )}
+                </div>
+                <Button onClick={submitBooking} disabled={bookingLoading}>
+                  {bookingLoading ? "Отправка..." : "Забронировать"}
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

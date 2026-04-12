@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toast } from "@/components/ui/toast";
+import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
 
 type TimeSlot = {
   startTime: string;
@@ -42,6 +43,9 @@ export function AdminBookingForm() {
   const [clientPhone, setClientPhone] = useState("");
   const [guestCount, setGuestCount] = useState("");
   const [comment, setComment] = useState("");
+
+  // Items
+  const [selectedItems, setSelectedItems] = useState<BookingItem[]>([]);
 
   // Submit
   const [submitting, setSubmitting] = useState(false);
@@ -139,6 +143,7 @@ export function AdminBookingForm() {
           clientPhone,
           ...(guestCount && { guestCount: parseInt(guestCount, 10) }),
           ...(comment && { comment }),
+          items: itemsToPayload(selectedItems),
         }),
       });
 
@@ -151,6 +156,7 @@ export function AdminBookingForm() {
         setClientPhone("");
         setGuestCount("");
         setComment("");
+        setSelectedItems([]);
         setSelectedResourceId(null);
         setSelectedSlots([]);
         setShowSlots(false);
@@ -322,6 +328,13 @@ export function AdminBookingForm() {
                 />
               </div>
             </div>
+
+            {/* Items */}
+            <InventoryItemPicker
+              value={selectedItems}
+              onChange={setSelectedItems}
+              variant="compact"
+            />
 
             <Button
               type="submit"
