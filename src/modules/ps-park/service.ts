@@ -20,6 +20,10 @@ import type {
   DayAvailability,
   TimeSlot,
   PSTableResource,
+  TimelineData,
+  ActiveSession,
+  BookingBill,
+  BookingItemSnapshotWithSubtotal,
 } from "./types";
 
 const MODULE_SLUG = "ps-park";
@@ -613,6 +617,198 @@ export async function getAvailability(date: string, resourceId?: string): Promis
 
     return { date, resource, slots };
   });
+}
+
+// === TIMELINE ===
+
+export async function getTimeline(date: string): Promise<TimelineData> {
+  const resources = await prisma.resource.findMany({
+    where: { moduleSlug: MODULE_SLUG, isActive: true },
+    orderBy: { name: "asc" },
+  });
+
+  const bookingDate = new Date(date);
+  const bookings = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      date: bookingDate,
+      status: { in: ["PENDING", "CONFIRMED"] },
+    },
+    select: {
+      id: true,
+      resourceId: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      clientName: true,
+      clientPhone: true,
+      metadata: true,
+    },
+    orderBy: { startTime: "asc" },
+  });
+
+  const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) =>
+    `${(OPEN_HOUR + i).toString().padStart(2, "0")}:00`
+  );
+
+  return {
+    date,
+    resources,
+    bookings: bookings.map((b) => ({
+      id: b.id,
+      resourceId: b.resourceId,
+      startTime: b.startTime.toISOString(),
+      endTime: b.endTime.toISOString(),
+      status: b.status as "PENDING" | "CONFIRMED",
+      clientName: b.clientName,
+      clientPhone: b.clientPhone,
+      metadata: b.metadata as Record<string, unknown> | null,
+    })),
+    hours,
+  };
+}
+
+// === ACTIVE SESSIONS ===
+
+export async function getActiveSessions(): Promise<ActiveSession[]> {
+  const now = new Date();
+  const today = new Date(now.toISOString().split("T")[0]);
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      status: "CONFIRMED",
+      date: today,
+      startTime: { lte: now },
+      endTime: { gt: now },
+    },
+    orderBy: { startTime: "asc" },
+  });
+
+  const resourceIds = [...new Set(bookings.map((b) => b.resourceId))];
+  const resources = await prisma.resource.findMany({
+    where: { id: { in: resourceIds } },
+  });
+  const resourceMap = new Map(resources.map((r) => [r.id, r]));
+
+  return bookings.map((b) => {
+    const resource = resourceMap.get(b.resourceId);
+    const metadata = b.metadata as Record<string, unknown> | null;
+    const pricePerHour = Number(resource?.pricePerHour ?? 0);
+    const hoursBooked = Math.ceil(
+      (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60)
+    );
+    const hoursCost = hoursBooked * pricePerHour;
+    const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
+    const itemsTotal = Number(metadata?.itemsTotal ?? 0);
+
+    return {
+      bookingId: b.id,
+      resourceId: b.resourceId,
+      resourceName: resource?.name ?? "—",
+      clientName: b.clientName ?? "—",
+      clientPhone: b.clientPhone,
+      startTime: b.startTime.toISOString(),
+      endTime: b.endTime.toISOString(),
+      status: "CONFIRMED" as const,
+      pricePerHour,
+      hoursBooked,
+      hoursCost,
+      items: rawItems.map((i) => ({
+        skuId: i.skuId,
+        skuName: i.skuName,
+        quantity: i.quantity,
+        price: Number(i.priceAtBooking),
+        subtotal: i.quantity * Number(i.priceAtBooking),
+      })),
+      itemsTotal,
+      totalBill: hoursCost + itemsTotal,
+    };
+  });
+}
+
+// === EXTEND BOOKING ===
+
+export async function extendBooking(bookingId: string, managerId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+  });
+
+  if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  if (booking.status !== "CONFIRMED") {
+    throw new PSBookingError("INVALID_STATUS", "Продлить можно только подтверждённое бронирование");
+  }
+
+  const newEndTime = new Date(booking.endTime.getTime() + 60 * 60 * 1000);
+  const endHour = newEndTime.getHours();
+  // Handle midnight wrap (0) or exceeding close hour
+  const beyondClosing = endHour > CLOSE_HOUR || endHour < OPEN_HOUR || (endHour === CLOSE_HOUR && newEndTime.getMinutes() > 0);
+  if (beyondClosing) {
+    throw new PSBookingError("BEYOND_CLOSING", "Нельзя продлить за пределы рабочего времени (до 23:00)");
+  }
+
+  const conflict = await prisma.booking.findFirst({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      resourceId: booking.resourceId,
+      id: { not: bookingId },
+      status: { in: ["PENDING", "CONFIRMED"] },
+      date: booking.date,
+      startTime: { lt: newEndTime },
+      endTime: { gt: booking.endTime },
+    },
+  });
+
+  if (conflict) {
+    throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
+  }
+
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: { endTime: newEndTime, managerId },
+  });
+}
+
+// === BOOKING BILL ===
+
+export async function getBookingBill(bookingId: string): Promise<BookingBill> {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId } });
+  const metadata = booking.metadata as Record<string, unknown> | null;
+  const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
+  const pricePerHour = Number(resource?.pricePerHour ?? 0);
+  const hoursBooked = Math.ceil(
+    (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
+  );
+  const hoursCost = hoursBooked * pricePerHour;
+
+  const items: BookingItemSnapshotWithSubtotal[] = rawItems.map((i) => ({
+    skuId: i.skuId,
+    skuName: i.skuName,
+    quantity: i.quantity,
+    price: Number(i.priceAtBooking),
+    subtotal: i.quantity * Number(i.priceAtBooking),
+  }));
+  const itemsTotal = items.reduce((sum, i) => sum + i.subtotal, 0);
+
+  return {
+    bookingId: booking.id,
+    resourceName: resource?.name ?? "—",
+    clientName: booking.clientName ?? "—",
+    date: booking.date.toISOString().split("T")[0],
+    startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+    endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+    hoursBooked,
+    pricePerHour,
+    hoursCost,
+    items,
+    itemsTotal,
+    totalBill: hoursCost + itemsTotal,
+  };
 }
 
 // === HELPERS ===

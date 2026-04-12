@@ -60,3 +60,7 @@ export const psAvailabilityQuerySchema = z.object({
 export const addBookingItemsSchema = z.object({
   items: z.array(bookingItemSchema).min(1, "Нужно выбрать хотя бы один товар").max(20),
 });
+
+export const timelineQuerySchema = z.object({
+  date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
+});

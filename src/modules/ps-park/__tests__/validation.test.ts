@@ -6,6 +6,7 @@ import {
   psBookingFilterSchema,
   adminCreatePSBookingSchema,
   addBookingItemsSchema,
+  timelineQuerySchema,
 } from "@/modules/ps-park/validation";
 
 describe("createTableSchema", () => {
@@ -166,6 +167,28 @@ describe("addBookingItemsSchema", () => {
     const result = addBookingItemsSchema.safeParse({
       items: [{ skuId: "sku-1", quantity: 0 }],
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("timelineQuerySchema", () => {
+  it("accepts valid date", () => {
+    const result = timelineQuerySchema.safeParse({ date: "2030-08-20" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid date format", () => {
+    const result = timelineQuerySchema.safeParse({ date: "20/08/2030" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing date", () => {
+    const result = timelineQuerySchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty string", () => {
+    const result = timelineQuerySchema.safeParse({ date: "" });
     expect(result.success).toBe(false);
   });
 });

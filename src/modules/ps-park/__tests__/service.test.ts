@@ -46,6 +46,10 @@ import {
   cancelBooking,
   getAvailability,
   addItemsToBooking,
+  getTimeline,
+  getActiveSessions,
+  extendBooking,
+  getBookingBill,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
 import { validateAndSnapshotItems, saleBookingItems } from "@/modules/inventory/service";
@@ -359,6 +363,255 @@ describe("addItemsToBooking", () => {
 
     await expect(addItemsToBooking("booking-1", "manager-1", newItems)).rejects.toMatchObject({
       code: "INVALID_STATUS",
+    });
+  });
+});
+
+// ===== getTimeline =====
+
+describe("getTimeline", () => {
+  it("returns resources, bookings, and 15 hours array", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      {
+        id: "b-1",
+        resourceId: "table-1",
+        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T12:00:00`),
+        status: "CONFIRMED",
+        clientName: "Иван",
+        clientPhone: "+79001234567",
+        metadata: {},
+      },
+    ] as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.date).toBe(FUTURE_DATE);
+    expect(result.resources).toHaveLength(1);
+    expect(result.bookings).toHaveLength(1);
+    expect(result.hours).toHaveLength(15);
+    expect(result.hours[0]).toBe("08:00");
+    expect(result.hours[14]).toBe("22:00");
+  });
+
+  it("returns empty bookings when none exist", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+
+    const result = await getTimeline(FUTURE_DATE);
+    expect(result.bookings).toHaveLength(0);
+  });
+
+  it("serializes booking times to ISO strings", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      {
+        id: "b-1",
+        resourceId: "table-1",
+        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T12:00:00`),
+        status: "CONFIRMED",
+        clientName: null,
+        clientPhone: null,
+        metadata: null,
+      },
+    ] as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+    expect(result.bookings[0].startTime).toContain(FUTURE_DATE);
+    expect(typeof result.bookings[0].startTime).toBe("string");
+  });
+});
+
+// ===== getActiveSessions =====
+
+describe("getActiveSessions", () => {
+  it("returns empty array when no active sessions", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([]);
+
+    const result = await getActiveSessions();
+    expect(result).toHaveLength(0);
+  });
+
+  it("calculates bill summary correctly", async () => {
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 60 * 1000); // 30 min ago
+    const end = new Date(now.getTime() + 30 * 60 * 1000); // 30 min from now
+
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      {
+        id: "b-active",
+        resourceId: "table-1",
+        status: "CONFIRMED",
+        date: new Date(now.toISOString().split("T")[0]),
+        startTime: start,
+        endTime: end,
+        clientName: "Иван",
+        clientPhone: "+79001234567",
+        userId: "user-1",
+        metadata: {
+          items: [{ skuId: "sku-1", skuName: "Cola", quantity: 2, priceAtBooking: "150" }],
+          itemsTotal: "300",
+        },
+      },
+    ] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([
+      mockTable({ pricePerHour: 500 }),
+    ] as never);
+
+    const result = await getActiveSessions();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].pricePerHour).toBe(500);
+    expect(result[0].hoursBooked).toBe(1);
+    expect(result[0].hoursCost).toBe(500);
+    expect(result[0].itemsTotal).toBe(300);
+    expect(result[0].totalBill).toBe(800);
+    expect(result[0].items).toHaveLength(1);
+    expect(result[0].items[0].subtotal).toBe(300);
+  });
+});
+
+// ===== extendBooking =====
+
+describe("extendBooking", () => {
+  it("extends booking endTime by 1 hour when next slot is free", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({
+          status: "CONFIRMED",
+          endTime: new Date(`${FUTURE_DATE}T13:00:00`),
+        }) as never
+      )
+      .mockResolvedValueOnce(null); // no conflict
+
+    vi.mocked(prisma.booking.update).mockResolvedValue(
+      mockBooking({ endTime: new Date(`${FUTURE_DATE}T14:00:00`) }) as never
+    );
+
+    const result = await extendBooking("booking-1", "manager-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          endTime: new Date(`${FUTURE_DATE}T14:00:00`),
+        }),
+      })
+    );
+    expect(result).toBeDefined();
+  });
+
+  it("throws BOOKING_NOT_FOUND when booking does not exist", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(extendBooking("bad-id", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+  });
+
+  it("throws INVALID_STATUS when booking is not CONFIRMED", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING" }) as never
+    );
+
+    await expect(extendBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "INVALID_STATUS",
+    });
+  });
+
+  it("throws BEYOND_CLOSING when extension would go past 23:00", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        endTime: new Date(`${FUTURE_DATE}T23:00:00`),
+      }) as never
+    );
+
+    await expect(extendBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BEYOND_CLOSING",
+    });
+  });
+
+  it("throws BOOKING_CONFLICT when next slot is occupied", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({
+          status: "CONFIRMED",
+          endTime: new Date(`${FUTURE_DATE}T13:00:00`),
+        }) as never
+      )
+      .mockResolvedValueOnce(
+        mockBooking({ id: "other-booking" }) as never
+      ); // conflict
+
+    await expect(extendBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_CONFLICT",
+    });
+  });
+});
+
+// ===== getBookingBill =====
+
+describe("getBookingBill", () => {
+  it("calculates bill correctly", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T12:00:00`),
+        clientName: "Иван",
+        metadata: {
+          items: [
+            { skuId: "sku-1", skuName: "Cola", quantity: 2, priceAtBooking: "80" },
+            { skuId: "sku-2", skuName: "Chips", quantity: 1, priceAtBooking: "190" },
+          ],
+          itemsTotal: "350",
+        },
+      }) as never
+    );
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(
+      mockTable({ pricePerHour: 500 }) as never
+    );
+
+    const bill = await getBookingBill("booking-1");
+
+    expect(bill.hoursBooked).toBe(2);
+    expect(bill.pricePerHour).toBe(500);
+    expect(bill.hoursCost).toBe(1000);
+    expect(bill.items).toHaveLength(2);
+    expect(bill.items[0].subtotal).toBe(160); // 2 x 80
+    expect(bill.items[1].subtotal).toBe(190); // 1 x 190
+    expect(bill.itemsTotal).toBe(350);
+    expect(bill.totalBill).toBe(1350);
+    expect(bill.clientName).toBe("Иван");
+  });
+
+  it("returns 0 for items when no items in metadata", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T11:00:00`),
+        metadata: {},
+      }) as never
+    );
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(
+      mockTable({ pricePerHour: 300 }) as never
+    );
+
+    const bill = await getBookingBill("booking-1");
+    expect(bill.items).toHaveLength(0);
+    expect(bill.itemsTotal).toBe(0);
+    expect(bill.totalBill).toBe(300);
+  });
+
+  it("throws BOOKING_NOT_FOUND when booking does not exist", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(getBookingBill("bad-id")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
     });
   });
 });
