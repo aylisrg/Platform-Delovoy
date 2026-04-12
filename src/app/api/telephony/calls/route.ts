@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import {
   apiResponse,
   apiUnauthorized,
+  apiForbidden,
   apiServerError,
   requireAdminSection,
 } from "@/lib/api-response";
@@ -36,12 +37,13 @@ export async function GET(request: NextRequest) {
 
     const filter = parsed.data;
 
-    // MANAGER can only see their own module's calls
+    // MANAGER must provide moduleSlug and can only see their own module's calls
     if (!hasRole(session.user as { role: import("@prisma/client").Role }, "SUPERADMIN")) {
-      if (filter.moduleSlug) {
-        const denied = await requireAdminSection(session, filter.moduleSlug);
-        if (denied) return denied;
+      if (!filter.moduleSlug) {
+        return apiForbidden("Необходимо указать moduleSlug");
       }
+      const denied = await requireAdminSection(session, filter.moduleSlug);
+      if (denied) return denied;
     }
 
     const result = await listCalls(filter);

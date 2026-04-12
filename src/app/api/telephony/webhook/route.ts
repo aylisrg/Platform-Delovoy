@@ -15,12 +15,14 @@ export async function POST(request: NextRequest) {
     const signature = request.headers.get("X-Novofon-Signature");
     const webhookSecret = process.env.NOVOFON_WEBHOOK_SECRET ?? "";
 
-    // Verify signature if secret is configured
-    if (webhookSecret) {
-      const isValid = await verifyNovofonSignature(rawBody, signature, webhookSecret);
-      if (!isValid) {
-        return apiError("INVALID_SIGNATURE", "Подпись вебхука недействительна", 401);
-      }
+    // Always verify signature — reject if secret not configured (fail-secure)
+    if (!webhookSecret) {
+      return apiError("WEBHOOK_NOT_CONFIGURED", "Вебхук не настроен (NOVOFON_WEBHOOK_SECRET отсутствует)", 503);
+    }
+
+    const isValid = await verifyNovofonSignature(rawBody, signature, webhookSecret);
+    if (!isValid) {
+      return apiError("INVALID_SIGNATURE", "Подпись вебхука недействительна", 401);
     }
 
     const body = JSON.parse(rawBody) as unknown;

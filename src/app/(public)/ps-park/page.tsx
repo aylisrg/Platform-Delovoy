@@ -203,7 +203,7 @@ export default async function PSParkPage() {
           </h1>
 
           <p className="mt-6 text-zinc-400 font-[family-name:var(--font-inter)] text-lg max-w-lg leading-relaxed">
-            PS5, большие экраны, комфортные кресла. Аренда по часам — забронируйте стол прямо сейчас.
+            PS5, большой экран, кресло как дома. Приходи — мы не осудим, если немного прогуливаешь работу.
           </p>
 
           {/* CTAs */}
@@ -228,7 +228,8 @@ export default async function PSParkPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                 </svg>
-                {phoneInfo.displayPhone}
+                Позвонить
+                <span className="text-zinc-400 text-sm">{phoneInfo.displayPhone}</span>
               </a>
             )}
           </div>
@@ -274,7 +275,7 @@ export default async function PSParkPage() {
         </div>
 
         {tables.length === 0 ? (
-          <p className="text-zinc-600 py-8">Столы пока не добавлены</p>
+          <p className="text-zinc-600 py-8">Консоли ещё в пути. Скоро тут будет шум и победные кричалки.</p>
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {tables.map((table, i) => (
@@ -296,7 +297,7 @@ export default async function PSParkPage() {
                   </svg>
                 ),
                 title: "Аренда от 1 часа",
-                desc: "Минимальная аренда — 60 минут. Оплата по факту.",
+                desc: "Минимум час. Но ты же знаешь, что час — это «ещё одна игра».",
               },
               {
                 icon: (
