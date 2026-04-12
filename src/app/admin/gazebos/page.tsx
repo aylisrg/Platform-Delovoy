@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AdminHeader } from "@/components/admin/header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +72,21 @@ export default async function GazebosManagerPage() {
             value={pendingCount}
             status={pendingCount > 0 ? "warning" : "success"}
           />
+        </div>
+
+        {/* Marketing & Analytics link */}
+        <div className="mb-8">
+          <Link href="/admin/gazebos/marketing">
+            <Card className="hover:border-zinc-300 transition-colors cursor-pointer">
+              <CardContent className="flex items-center justify-between py-4">
+                <div>
+                  <p className="font-semibold text-zinc-900">📊 Реклама и аналитика</p>
+                  <p className="text-sm text-zinc-500 mt-0.5">Авито · Яндекс Директ · Яндекс Бизнес</p>
+                </div>
+                <span className="text-zinc-400 text-lg">→</span>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Admin booking form */}
