@@ -28,6 +28,20 @@ export type ReceiveInput = {
   skuId: string;
   quantity: number;
   note?: string;
+  receivedAt?: Date;
+};
+
+export type ReceiptHistoryRow = {
+  id: string;
+  skuId: string;
+  skuName: string;
+  type: "RECEIPT" | "INITIAL";
+  quantity: number;
+  note: string | null;
+  performedById: string;
+  performedByName: string | null;
+  receivedAt: string;
+  createdAt: string;
 };
 
 export type AdjustInput = {

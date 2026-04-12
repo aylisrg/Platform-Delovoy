@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     inventorySku: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -16,6 +17,9 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    user: {
+      findMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -25,6 +29,8 @@ import {
   listPublicSkus,
   createSku,
   receiveStock,
+  receiveStockByName,
+  listReceipts,
   adjustStock,
   voidTransaction,
   validateAndSnapshotItems,
@@ -35,6 +41,7 @@ import {
 const mockPrisma = prisma as unknown as {
   inventorySku: {
     findMany: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -46,6 +53,9 @@ const mockPrisma = prisma as unknown as {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+  };
+  user: {
+    findMany: ReturnType<typeof vi.fn>;
   };
   $transaction: ReturnType<typeof vi.fn>;
 };
@@ -308,6 +318,135 @@ describe("validateAndSnapshotItems", () => {
       priceAtBooking: "150",
     });
     expect(result.itemsTotal).toBe(300);
+  });
+});
+
+describe("receiveStockByName", () => {
+  it("creates RECEIPT for existing SKU and passes receivedAt", async () => {
+    const existingSku = { id: "sku1", name: "Cola" };
+    mockPrisma.inventorySku.findFirst.mockResolvedValue(existingSku);
+
+    const txCreate = vi.fn().mockResolvedValue({ id: "txn1" });
+    const txUpdate = vi.fn().mockResolvedValue({ stockQuantity: 30 });
+
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      return fn({
+        inventoryTransaction: { create: txCreate },
+        inventorySku: { update: txUpdate, create: vi.fn() },
+      });
+    });
+
+    const receivedAt = new Date("2026-04-11");
+    const result = await receiveStockByName("Cola", 10, undefined, "user1", receivedAt);
+
+    expect(txCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: "RECEIPT",
+          quantity: 10,
+          receivedAt,
+        }),
+      })
+    );
+    expect(result.isNewSku).toBe(false);
+    expect(result.newStockQuantity).toBe(30);
+  });
+
+  it("creates new SKU with INITIAL transaction when not found", async () => {
+    mockPrisma.inventorySku.findFirst.mockResolvedValue(null);
+
+    const newSku = { id: "sku2", name: "Pepsi", stockQuantity: 20 };
+    const txSkuCreate = vi.fn().mockResolvedValue(newSku);
+    const txCreate = vi.fn().mockResolvedValue({ id: "txn2" });
+
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      return fn({
+        inventorySku: { create: txSkuCreate, update: vi.fn() },
+        inventoryTransaction: { create: txCreate },
+      });
+    });
+
+    const result = await receiveStockByName("Pepsi", 20, "Первая поставка", "user1");
+
+    expect(txSkuCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: "Pepsi" }) })
+    );
+    expect(txCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: "INITIAL", quantity: 20 }),
+      })
+    );
+    expect(result.isNewSku).toBe(true);
+  });
+
+  it("uses current date when receivedAt is not provided", async () => {
+    const existingSku = { id: "sku1", name: "Cola" };
+    mockPrisma.inventorySku.findFirst.mockResolvedValue(existingSku);
+
+    const txCreate = vi.fn().mockResolvedValue({ id: "txn1" });
+    const txUpdate = vi.fn().mockResolvedValue({ stockQuantity: 10 });
+
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      return fn({
+        inventoryTransaction: { create: txCreate },
+        inventorySku: { update: txUpdate },
+      });
+    });
+
+    const before = new Date();
+    await receiveStockByName("Cola", 5, undefined, "user1");
+    const after = new Date();
+
+    const receivedAtArg = txCreate.mock.calls[0][0].data.receivedAt as Date;
+    expect(receivedAtArg.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(receivedAtArg.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+});
+
+describe("listReceipts", () => {
+  it("returns receipts with receivedAt as fallback to createdAt for null rows", async () => {
+    const now = new Date("2026-04-12T10:00:00Z");
+    const past = new Date("2026-04-11T08:00:00Z");
+
+    mockPrisma.inventoryTransaction.findMany.mockResolvedValue([
+      {
+        id: "t1",
+        skuId: "sku1",
+        sku: { name: "Cola" },
+        type: "RECEIPT",
+        quantity: 10,
+        note: "Note A",
+        performedById: "user1",
+        receivedAt: past,
+        createdAt: now,
+      },
+      {
+        id: "t2",
+        skuId: "sku2",
+        sku: { name: "Pepsi" },
+        type: "INITIAL",
+        quantity: 5,
+        note: null,
+        performedById: "user1",
+        receivedAt: null, // fallback
+        createdAt: now,
+      },
+    ]);
+
+    mockPrisma.user.findMany.mockResolvedValue([{ id: "user1", name: "Иван" }]);
+
+    const rows = await listReceipts();
+
+    expect(rows).toHaveLength(2);
+
+    // Row with explicit receivedAt
+    expect(rows[0].receivedAt).toBe(past.toISOString());
+
+    // Row with null receivedAt → falls back to createdAt
+    expect(rows[1].receivedAt).toBe(now.toISOString());
+
+    expect(rows[0].performedByName).toBe("Иван");
+    expect(rows[1].note).toBeNull();
   });
 });
 
