@@ -17,7 +17,7 @@ export const updateSkuSchema = createSkuSchema
   });
 
 export const receiveSchema = z.object({
-  skuId: z.string().min(1, "ID товара обязателен"),
+  name: z.string().min(1, "Название обязательно").max(200),
   quantity: z.number().int().positive("Количество должно быть положительным"),
   note: z.string().max(500).optional(),
 });

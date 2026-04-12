@@ -9,7 +9,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
-import { receiveStock, InventoryError } from "@/modules/inventory/service";
+import { receiveStockByName, InventoryError } from "@/modules/inventory/service";
 import { receiveSchema } from "@/modules/inventory/validation";
 
 /**
@@ -32,17 +32,23 @@ export async function POST(request: NextRequest) {
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    const result = await receiveStock(parsed.data, session.user.id);
+    const result = await receiveStockByName(
+      parsed.data.name,
+      parsed.data.quantity,
+      parsed.data.note,
+      session.user.id
+    );
 
     await logAudit(
       session.user.id,
       "inventory.receive",
-      "InventoryTransaction",
-      result.transactionId,
+      "InventorySku",
+      result.skuId,
       {
-        skuId: parsed.data.skuId,
+        name: parsed.data.name,
         quantity: parsed.data.quantity,
         note: parsed.data.note,
+        newStockQuantity: result.newStockQuantity,
       }
     );
 

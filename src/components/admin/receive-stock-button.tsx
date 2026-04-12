@@ -1,40 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
-
-type SkuSummary = {
-  id: string;
-  name: string;
-  category: string;
-  unit: string;
-  price: number;
-  stockQuantity: number;
-};
+import { useState } from "react";
 
 export function ReceiveStockButton() {
   const [open, setOpen] = useState(false);
-  const [skus, setSkus] = useState<SkuSummary[]>([]);
-  const [loadingSkus, setLoadingSkus] = useState(false);
-
-  const [skuId, setSkuId] = useState("");
+  const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Load SKU list when modal opens
-  useEffect(() => {
-    if (!open) return;
-    setLoadingSkus(true);
-    fetch("/api/inventory/sku")
-      .then((r) => r.json())
-      .then((d) => { if (d.success) setSkus(d.data); })
-      .catch(() => {})
-      .finally(() => setLoadingSkus(false));
-  }, [open]);
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   function resetForm() {
-    setSkuId("");
+    setName("");
     setQuantity("");
     setNote("");
     setResult(null);
@@ -47,7 +33,7 @@ export function ReceiveStockButton() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!skuId || !quantity) return;
+    if (!name.trim() || !quantity) return;
     setSubmitting(true);
     setResult(null);
     try {
@@ -55,26 +41,20 @@ export function ReceiveStockButton() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          skuId,
+          name: name.trim(),
           quantity: parseInt(quantity, 10),
-          note: note || undefined,
+          note: note.trim() || undefined,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        const sku = skus.find((s) => s.id === skuId);
         setResult({
           ok: true,
-          message: `Добавлено ${quantity} ${sku?.unit ?? "шт"} — «${sku?.name ?? ""}»`,
+          message: `Записано: «${name.trim()}» — ${quantity} шт.`,
         });
         resetForm();
-        // Refresh SKUs to show updated stock
-        fetch("/api/inventory/sku")
-          .then((r) => r.json())
-          .then((d) => { if (d.success) setSkus(d.data); })
-          .catch(() => {});
       } else {
-        setResult({ ok: false, message: data.error?.message ?? "Ошибка при добавлении" });
+        setResult({ ok: false, message: data.error?.message ?? "Ошибка при записи" });
       }
     } catch {
       setResult({ ok: false, message: "Не удалось отправить запрос" });
@@ -83,19 +63,12 @@ export function ReceiveStockButton() {
     }
   }
 
-  const selectedSku = skus.find((s) => s.id === skuId);
-
-  // Group by category for select
-  const byCategory = skus.reduce<Record<string, SkuSummary[]>>((acc, sku) => {
-    (acc[sku.category] ??= []).push(sku);
-    return acc;
-  }, {});
-
   return (
     <>
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+        className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
+        style={{ backgroundColor: "#16a34a", color: "#ffffff" }}
       >
         <span>📦</span>
         Приехал новый товар
@@ -105,7 +78,7 @@ export function ReceiveStockButton() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/50"
             onClick={handleClose}
           />
 
@@ -123,6 +96,12 @@ export function ReceiveStockButton() {
               </button>
             </div>
 
+            {/* Date label */}
+            <div className="mb-4 flex items-center gap-2 text-xs text-zinc-400">
+              <span>🗓</span>
+              <span>Дата записи: <span className="font-medium text-zinc-600">{dateLabel}</span></span>
+            </div>
+
             {result && (
               <div
                 className={`mb-4 rounded-lg px-4 py-3 text-sm font-medium ${
@@ -136,42 +115,30 @@ export function ReceiveStockButton() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* SKU select */}
+              {/* Name */}
               <div>
-                <label htmlFor="receive-sku" className="block text-sm font-medium text-zinc-700 mb-1">
-                  Товар *
+                <label htmlFor="receive-name" className="block text-sm font-medium text-zinc-700 mb-1">
+                  Название товара *
                 </label>
-                {loadingSkus ? (
-                  <div className="h-10 rounded-lg bg-zinc-100 animate-pulse" />
-                ) : (
-                  <select
-                    id="receive-sku"
-                    required
-                    value={skuId}
-                    onChange={(e) => setSkuId(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">— Выберите товар —</option>
-                    {Object.entries(byCategory).map(([cat, items]) => (
-                      <optgroup key={cat} label={cat}>
-                        {items.map((sku) => (
-                          <option key={sku.id} value={sku.id}>
-                            {sku.name} (в наличии: {sku.stockQuantity} {sku.unit})
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                )}
+                <input
+                  id="receive-name"
+                  type="text"
+                  required
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Coca-Cola 0.5л, Пепперони, Наушники..."
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-zinc-400">
+                  Если товар уже есть в системе — остаток будет обновлён
+                </p>
               </div>
 
               {/* Quantity */}
               <div>
                 <label htmlFor="receive-qty" className="block text-sm font-medium text-zinc-700 mb-1">
-                  Количество *
-                  {selectedSku && (
-                    <span className="ml-1 font-normal text-zinc-400">({selectedSku.unit})</span>
-                  )}
+                  Количество (шт) *
                 </label>
                 <input
                   id="receive-qty"
@@ -181,7 +148,7 @@ export function ReceiveStockButton() {
                   max="9999"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="Например: 24"
+                  placeholder="24"
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -189,7 +156,7 @@ export function ReceiveStockButton() {
               {/* Note */}
               <div>
                 <label htmlFor="receive-note" className="block text-sm font-medium text-zinc-700 mb-1">
-                  Примечание
+                  Примечание <span className="font-normal text-zinc-400">(необязательно)</span>
                 </label>
                 <input
                   id="receive-note"
@@ -201,17 +168,6 @@ export function ReceiveStockButton() {
                 />
               </div>
 
-              {/* Stock preview */}
-              {selectedSku && quantity && parseInt(quantity) > 0 && (
-                <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2 text-sm text-zinc-700">
-                  Будет:{" "}
-                  <span className="font-semibold text-green-700">
-                    {selectedSku.stockQuantity + parseInt(quantity)} {selectedSku.unit}
-                  </span>
-                  {" "}(было {selectedSku.stockQuantity})
-                </div>
-              )}
-
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
@@ -222,8 +178,9 @@ export function ReceiveStockButton() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting || !skuId || !quantity}
-                  className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                  disabled={submitting || !name.trim() || !quantity}
+                  className="flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50"
+                  style={{ backgroundColor: submitting ? "#4ade80" : "#16a34a" }}
                 >
                   {submitting ? "Сохранение..." : "Записать приход"}
                 </button>

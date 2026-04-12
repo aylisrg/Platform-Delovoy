@@ -63,18 +63,28 @@ describe("updateSkuSchema", () => {
 });
 
 describe("receiveSchema", () => {
-  it("accepts valid receipt", () => {
-    const result = receiveSchema.safeParse({ skuId: "abc", quantity: 10 });
+  it("accepts valid receipt with name", () => {
+    const result = receiveSchema.safeParse({ name: "Coca-Cola 0.5л", quantity: 10 });
     expect(result.success).toBe(true);
   });
 
+  it("accepts receipt with optional note", () => {
+    const result = receiveSchema.safeParse({ name: "Pepsi", quantity: 24, note: "Накладная №5" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty name", () => {
+    const result = receiveSchema.safeParse({ name: "", quantity: 10 });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects zero quantity", () => {
-    const result = receiveSchema.safeParse({ skuId: "abc", quantity: 0 });
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: 0 });
     expect(result.success).toBe(false);
   });
 
   it("rejects negative quantity", () => {
-    const result = receiveSchema.safeParse({ skuId: "abc", quantity: -5 });
+    const result = receiveSchema.safeParse({ name: "Вода", quantity: -5 });
     expect(result.success).toBe(false);
   });
 });

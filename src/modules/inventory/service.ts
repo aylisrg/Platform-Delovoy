@@ -142,6 +142,60 @@ export async function receiveStock(input: ReceiveInput, performedById: string) {
   return result;
 }
 
+/**
+ * Receive stock by free-text name.
+ * Finds existing SKU by name (case-insensitive) or creates a new one.
+ * Date is captured automatically via InventoryTransaction.createdAt.
+ */
+export async function receiveStockByName(
+  name: string,
+  quantity: number,
+  note: string | undefined,
+  performedById: string
+) {
+  const existing = await prisma.inventorySku.findFirst({
+    where: { name: { equals: name, mode: "insensitive" } },
+  });
+
+  return prisma.$transaction(async (tx) => {
+    let skuId: string;
+    let newStockQuantity: number;
+
+    if (existing) {
+      // SKU exists — record RECEIPT and increment stock
+      skuId = existing.id;
+      await tx.inventoryTransaction.create({
+        data: { skuId, type: "RECEIPT", quantity, performedById, note },
+      });
+      const updated = await tx.inventorySku.update({
+        where: { id: skuId },
+        data: { stockQuantity: { increment: quantity } },
+        select: { stockQuantity: true },
+      });
+      newStockQuantity = updated.stockQuantity;
+    } else {
+      // New item — create SKU + INITIAL transaction
+      const sku = await tx.inventorySku.create({
+        data: {
+          name,
+          category: "Товары",
+          unit: "шт",
+          price: 0,
+          stockQuantity: quantity,
+          lowStockThreshold: 5,
+        },
+      });
+      skuId = sku.id;
+      await tx.inventoryTransaction.create({
+        data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход" },
+      });
+      newStockQuantity = quantity;
+    }
+
+    return { skuId, newStockQuantity, name };
+  });
+}
+
 // === ADJUSTMENT (inventory correction) ===
 
 export async function adjustStock(input: AdjustInput, performedById: string) {
