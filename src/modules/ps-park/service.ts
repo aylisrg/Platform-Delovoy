@@ -301,8 +301,15 @@ export async function updateBookingStatus(
   const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
+  const notificationType =
+    status === "CONFIRMED"
+      ? "booking.confirmed"
+      : status === "CANCELLED"
+      ? "booking.cancelled"
+      : "booking.completed";
+
   enqueueNotification({
-    type: `booking.${status === "CONFIRMED" ? "confirmed" : status === "CANCELLED" ? "cancelled" : "confirmed"}`,
+    type: notificationType,
     moduleSlug: MODULE_SLUG,
     entityId: id,
     userId: booking.userId,
@@ -325,26 +332,45 @@ export async function cancelBooking(id: string, userId: string, cancelReason?: s
   }
 
   // Delete from Google Calendar if synced
-  if (booking.googleEventId) {
-    const resource = await prisma.resource.findUnique({
-      where: { id: booking.resourceId },
-      select: { googleCalendarId: true },
-    });
-    if (resource?.googleCalendarId) {
-      await deleteCalendarEvent(resource.googleCalendarId, booking.googleEventId);
-    }
+  const resourceForCal = await prisma.resource.findUnique({
+    where: { id: booking.resourceId },
+    select: { googleCalendarId: true, name: true },
+  });
+  if (booking.googleEventId && resourceForCal?.googleCalendarId) {
+    await deleteCalendarEvent(resourceForCal.googleCalendarId, booking.googleEventId);
   }
 
-  const updated = await prisma.booking.update({
-    where: { id },
-    data: {
-      status: "CANCELLED",
-      googleEventId: null,
-      ...(cancelReason && { cancelReason }),
-    },
-  });
+  // Return inventory if booking was CONFIRMED and had items
+  const wasConfirmed = booking.status === "CONFIRMED";
+  const metadata = booking.metadata as Record<string, unknown> | null;
+  const items = (metadata?.items ?? []) as BookingItemSnapshot[];
 
-  const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId }, select: { name: true } });
+  let updated;
+  if (wasConfirmed && items.length > 0) {
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          googleEventId: null,
+          ...(cancelReason && { cancelReason }),
+        },
+      });
+      await returnBookingItems(tx, id, MODULE_SLUG, items, userId);
+      return b;
+    });
+  } else {
+    updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        googleEventId: null,
+        ...(cancelReason && { cancelReason }),
+      },
+    });
+  }
+
+  const resource = resourceForCal;
   const dateStr = booking.date.toISOString().split("T")[0];
   const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { createBooking, BookingError } from "@/modules/gazebos/service";
 import { createBookingSchema } from "@/modules/gazebos/validation";
+import { InventoryError } from "@/modules/inventory/service";
 
 /**
  * POST /api/gazebos/book — create a new booking
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof BookingError) {
       return apiError(error.code, error.message);
+    }
+    if (error instanceof InventoryError) {
+      return apiError(error.code, error.message, 400);
     }
     return apiServerError();
   }
