@@ -23,7 +23,7 @@ type Props = {
 
 export function EventsTable({ events }: Props) {
   if (events.length === 0) {
-    return <p className="text-sm text-zinc-400 py-4">Нет событий</p>;
+    return <p className="text-sm text-zinc-400 py-4">Всё тихо. Слишком тихо... (это хорошо, не переживайте)</p>;
   }
 
   return (

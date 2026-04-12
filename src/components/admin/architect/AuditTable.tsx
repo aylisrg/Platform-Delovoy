@@ -6,7 +6,7 @@ type Props = {
 
 export function AuditTable({ logs }: Props) {
   if (logs.length === 0) {
-    return <p className="text-sm text-zinc-400 py-4">Нет записей аудита</p>;
+    return <p className="text-sm text-zinc-400 py-4">Чистый лог. Либо никто ничего не делал, либо кто-то хорошо прячется.</p>;
   }
 
   return (

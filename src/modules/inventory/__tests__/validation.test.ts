@@ -7,6 +7,11 @@ import {
   transactionFilterSchema,
   bookingItemSchema,
   bookingItemsArraySchema,
+  createSupplierSchema,
+  createStockReceiptSchema,
+  createWriteOffSchema,
+  auditCountsSchema,
+  movementFilterSchema,
 } from "../validation";
 
 describe("createSkuSchema", () => {
@@ -194,5 +199,152 @@ describe("bookingItemsArraySchema", () => {
     }));
     const result = bookingItemsArraySchema.safeParse(items);
     expect(result.success).toBe(false);
+  });
+});
+
+// ============================================================
+// V2 Schemas
+// ============================================================
+
+describe("createSupplierSchema", () => {
+  it("accepts valid supplier", () => {
+    const result = createSupplierSchema.safeParse({
+      name: "ООО Снабжение",
+      contactName: "Иванов",
+      phone: "+79001234567",
+      email: "info@supply.ru",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty name", () => {
+    const result = createSupplierSchema.safeParse({ name: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid email", () => {
+    const result = createSupplierSchema.safeParse({ name: "Поставщик", email: "not-an-email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts empty string email (treated as optional)", () => {
+    const result = createSupplierSchema.safeParse({ name: "Поставщик", email: "" });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("createStockReceiptSchema", () => {
+  it("accepts valid receipt with one item", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "2026-04-10",
+      items: [{ skuId: "sku1", quantity: 10, costPerUnit: 50 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty items array", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "2026-04-10",
+      items: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid date format", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "10/04/2026",
+      items: [{ skuId: "sku1", quantity: 5 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects zero quantity in item", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "2026-04-10",
+      items: [{ skuId: "sku1", quantity: 0 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createWriteOffSchema", () => {
+  it("accepts valid write-off", () => {
+    const result = createWriteOffSchema.safeParse({
+      skuId: "sku1",
+      quantity: 3,
+      reason: "EXPIRED",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects reason OTHER without note", () => {
+    const result = createWriteOffSchema.safeParse({
+      skuId: "sku1",
+      quantity: 1,
+      reason: "OTHER",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts reason OTHER with note", () => {
+    const result = createWriteOffSchema.safeParse({
+      skuId: "sku1",
+      quantity: 1,
+      reason: "OTHER",
+      note: "Причина указана",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid reason", () => {
+    const result = createWriteOffSchema.safeParse({
+      skuId: "sku1",
+      quantity: 1,
+      reason: "STOLEN",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("auditCountsSchema", () => {
+  it("accepts valid counts", () => {
+    const result = auditCountsSchema.safeParse({
+      counts: [
+        { skuId: "sku1", actualQty: 10 },
+        { skuId: "sku2", actualQty: 0 },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty counts array", () => {
+    const result = auditCountsSchema.safeParse({ counts: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects negative actualQty", () => {
+    const result = auditCountsSchema.safeParse({
+      counts: [{ skuId: "sku1", actualQty: -1 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("movementFilterSchema", () => {
+  it("accepts valid movement type", () => {
+    const result = movementFilterSchema.safeParse({ type: "SALE" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid movement type", () => {
+    const result = movementFilterSchema.safeParse({ type: "UNKNOWN" });
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults page and perPage", () => {
+    const result = movementFilterSchema.safeParse({});
+    expect(result.success).toBe(true);
+    expect(result.data?.page).toBe(1);
+    expect(result.data?.perPage).toBe(50);
   });
 });

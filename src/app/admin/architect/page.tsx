@@ -43,7 +43,8 @@ export default async function ArchitectPage() {
 
         {modules.length === 0 ? (
           <div className="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-400">
-            Нет зарегистрированных модулей
+            <p>Нет зарегистрированных модулей.</p>
+            <p className="text-sm text-zinc-300 mt-2">Звучит как утренний дашборд после планёрки.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

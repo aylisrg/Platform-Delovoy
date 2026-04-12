@@ -13,6 +13,9 @@ export default function ForbiddenPage() {
           <br />
           Обратитесь к администратору для получения доступа.
         </p>
+        <p className="mt-3 text-xs text-zinc-400">
+          Охранник сказал нет — значит, нет.
+        </p>
         <div className="mt-6 flex items-center justify-center gap-4">
           <Link
             href="/"

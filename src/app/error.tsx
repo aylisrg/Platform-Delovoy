@@ -21,8 +21,11 @@ export default function Error({ error, reset }: ErrorProps) {
       <h1 className="font-manrope text-4xl md:text-6xl font-bold text-white tracking-tighter mb-6">
         Что-то пошло не так
       </h1>
-      <p className="text-zinc-400 text-lg max-w-md mb-10">
+      <p className="text-zinc-400 text-lg max-w-md mb-4">
         Произошла непредвиденная ошибка. Попробуйте ещё раз или вернитесь на главную.
+      </p>
+      <p className="text-zinc-600 text-sm max-w-sm mb-10">
+        Мы уже чиним. Примерно как сантехник — «скоро буду».
       </p>
       <div className="flex gap-4">
         <button

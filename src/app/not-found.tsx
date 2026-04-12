@@ -15,8 +15,11 @@ export default function NotFound() {
       <h1 className="font-manrope text-4xl md:text-6xl font-bold text-white tracking-tighter mb-6">
         Страница не найдена
       </h1>
-      <p className="text-zinc-400 text-lg max-w-md mb-10">
+      <p className="text-zinc-400 text-lg max-w-md mb-4">
         Такой страницы не существует или она была перемещена.
+      </p>
+      <p className="text-zinc-600 text-sm max-w-sm mb-10">
+        Здесь ничего нет. Как в холодильнике за три дня до зарплаты.
       </p>
       <Link
         href="/"

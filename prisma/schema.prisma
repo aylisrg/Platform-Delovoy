@@ -136,6 +136,8 @@ model Booking {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  callLogs        CallLog[]
+
   @@index([moduleSlug, date])
   @@index([userId])
   @@index([resourceId])
@@ -204,19 +206,23 @@ model OrderItem {
 }
 
 model MenuItem {
-  id          String   @id @default(cuid())
-  moduleSlug  String   @default("cafe")
-  category    String
-  name        String
-  description String?
-  price       Decimal
-  imageUrl    String?
-  isAvailable Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String       @id @default(cuid())
+  moduleSlug          String       @default("cafe")
+  category            String
+  name                String
+  description         String?
+  price               Decimal
+  imageUrl            String?
+  isAvailable         Boolean      @default(true)
+  sortOrder           Int          @default(0)
+  inventorySkuId      String?
+  inventorySku        InventorySku? @relation(fields: [inventorySkuId], references: [id])
+  autoDisabledByStock Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
   @@index([moduleSlug, category])
+  @@index([inventorySkuId])
 }
 
 // === B2B: RENTAL ===
@@ -364,6 +370,12 @@ model InventorySku {
   updatedAt         DateTime @updatedAt
 
   transactions InventoryTransaction[]
+  batches      StockBatch[]
+  movements    StockMovement[]
+  writeOffs    WriteOff[]
+  receiptItems StockReceiptItem[]
+  auditCounts  InventoryAuditCount[]
+  menuItems    MenuItem[]
 
   @@index([category])
   @@index([isActive])
@@ -395,6 +407,177 @@ enum InventoryTransactionType {
   SALE
   RETURN
   ADJUSTMENT
+}
+
+// === INVENTORY V2 ===
+
+enum MovementType {
+  RECEIPT
+  SALE
+  RESERVATION
+  RELEASE
+  WRITE_OFF
+  AUDIT_ADJUSTMENT
+  MANUAL_CORRECTION
+}
+
+enum ReferenceType {
+  BOOKING
+  ORDER
+  RECEIPT
+  WRITE_OFF
+  AUDIT
+  MANUAL
+}
+
+enum WriteOffReason {
+  EXPIRED
+  DAMAGED
+  LOST
+  OTHER
+}
+
+enum AuditStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String?
+  phone       String?
+  email       String?
+  inn         String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  receipts StockReceipt[]
+
+  @@index([isActive])
+}
+
+model StockReceipt {
+  id            String    @id @default(cuid())
+  supplierId    String?
+  supplier      Supplier? @relation(fields: [supplierId], references: [id])
+  invoiceNumber String?
+  receivedAt    DateTime
+  notes         String?
+  performedById String
+  createdAt     DateTime  @default(now())
+
+  items StockReceiptItem[]
+
+  @@index([supplierId])
+  @@index([receivedAt])
+}
+
+model StockReceiptItem {
+  id          String       @id @default(cuid())
+  receiptId   String
+  receipt     StockReceipt @relation(fields: [receiptId], references: [id])
+  skuId       String
+  sku         InventorySku @relation(fields: [skuId], references: [id])
+  quantity    Int
+  costPerUnit Decimal?
+  expiresAt   DateTime?
+  batchId     String?
+
+  @@index([receiptId])
+  @@index([skuId])
+}
+
+model StockBatch {
+  id            String       @id @default(cuid())
+  skuId         String
+  sku           InventorySku @relation(fields: [skuId], references: [id])
+  receiptItemId String?
+  initialQty    Int
+  remainingQty  Int
+  costPerUnit   Decimal?
+  receiptDate   DateTime
+  expiresAt     DateTime?
+  isExhausted   Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  movements StockMovement[]
+
+  @@index([skuId, isExhausted, expiresAt, receiptDate])
+  @@index([expiresAt])
+}
+
+model StockMovement {
+  id            String        @id @default(cuid())
+  skuId         String
+  sku           InventorySku  @relation(fields: [skuId], references: [id])
+  batchId       String?
+  batch         StockBatch?   @relation(fields: [batchId], references: [id])
+  type          MovementType
+  delta         Int
+  balanceAfter  Int
+  referenceType ReferenceType
+  referenceId   String?
+  reversalOf    String?
+  performedById String
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  writeOff WriteOff? @relation("WriteOffMovements", fields: [referenceId], references: [id])
+
+  @@index([skuId, createdAt])
+  @@index([batchId])
+  @@index([type])
+  @@index([referenceType, referenceId])
+  @@index([reversalOf])
+}
+
+model WriteOff {
+  id            String         @id @default(cuid())
+  skuId         String
+  sku           InventorySku   @relation(fields: [skuId], references: [id])
+  batchId       String?
+  quantity      Int
+  reason        WriteOffReason
+  note          String?
+  performedById String
+  createdAt     DateTime       @default(now())
+
+  movements StockMovement[] @relation("WriteOffMovements")
+
+  @@index([skuId])
+  @@index([reason, createdAt])
+}
+
+model InventoryAudit {
+  id            String      @id @default(cuid())
+  status        AuditStatus @default(IN_PROGRESS)
+  startedById   String
+  completedById String?
+  notes         String?
+  startedAt     DateTime    @default(now())
+  completedAt   DateTime?
+
+  counts InventoryAuditCount[]
+
+  @@index([status, startedAt])
+}
+
+model InventoryAuditCount {
+  id          String         @id @default(cuid())
+  auditId     String
+  audit       InventoryAudit @relation(fields: [auditId], references: [id])
+  skuId       String
+  sku         InventorySku   @relation(fields: [skuId], references: [id])
+  expectedQty Int
+  actualQty   Int
+  delta       Int
+  isConfirmed Boolean        @default(false)
+
+  @@unique([auditId, skuId])
+  @@index([auditId])
 }
 
 // === NOTIFICATIONS ===
@@ -445,4 +628,45 @@ enum NotificationStatus {
   SENT
   FAILED
   SKIPPED
+}
+
+// === TELEPHONY ===
+
+model CallLog {
+  id             String        @id @default(cuid())
+  bookingId      String?
+  booking        Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  moduleSlug     String?
+  direction      CallDirection
+  status         CallStatus    @default(INITIATED)
+  clientPhone    String
+  managerPhone   String?
+  initiatedBy    String?
+  externalCallId String?
+  duration       Int?
+  recordingUrl   String?
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([bookingId])
+  @@index([clientPhone])
+  @@index([moduleSlug, createdAt])
+  @@index([externalCallId])
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  ANSWERED
+  NO_ANSWER
+  BUSY
+  FAILED
+  COMPLETED
 }

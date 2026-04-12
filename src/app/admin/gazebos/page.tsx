@@ -9,6 +9,7 @@ import { BookingActions } from "@/components/admin/gazebos/booking-actions";
 import { AdminBookingForm } from "@/components/admin/gazebos/admin-booking-form";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 import { ResourceEditor } from "@/components/admin/gazebos/resource-editor";
+import { CallButton } from "@/components/admin/telephony/call-button";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,8 @@ const statusLabel: Record<BookingStatus, string> = {
   CONFIRMED: "Подтверждено",
   CANCELLED: "Отменено",
   COMPLETED: "Завершено",
+  CHECKED_IN: "Заехал",
+  NO_SHOW: "Не явился",
 };
 
 const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "info"> = {
@@ -24,6 +27,8 @@ const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "
   CONFIRMED: "success",
   CANCELLED: "default",
   COMPLETED: "info",
+  CHECKED_IN: "success",
+  NO_SHOW: "warning",
 };
 
 export default async function GazebosManagerPage() {
@@ -38,9 +43,9 @@ export default async function GazebosManagerPage() {
       where: {
         moduleSlug: "gazebos",
         date: { gte: today },
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
       },
-      include: { user: { select: { name: true, email: true } } },
+      include: { user: { select: { name: true, email: true, phone: true } } },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       take: 50,
     }),
@@ -140,7 +145,7 @@ export default async function GazebosManagerPage() {
           </CardHeader>
           <CardContent>
             {bookings.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет предстоящих бронирований</p>
+              <p className="text-sm text-zinc-400">Сегодня никто не бронировал. Может, все на шашлыках без нас?</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -148,44 +153,62 @@ export default async function GazebosManagerPage() {
                     <th className="pb-3 font-medium">Дата</th>
                     <th className="pb-3 font-medium">Время</th>
                     <th className="pb-3 font-medium">Клиент</th>
+                    <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Статус</th>
                     <th className="pb-3 font-medium">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.map((b) => (
-                    <tr key={b.id} className="border-b border-zinc-50">
-                      <td className="py-3 text-zinc-900">
-                        {new Date(b.date).toLocaleDateString("ru-RU")}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {new Date(b.startTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                        {" — "}
-                        {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
-                          <span>
-                            {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
-                            <span className="text-xs text-zinc-400 ml-1">(админ)</span>
-                          </span>
-                        ) : (
-                          b.user.name ?? b.user.email ?? "—"
-                        )}
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={statusVariant[b.status]}>
-                          {statusLabel[b.status]}
-                        </Badge>
-                      </td>
-                      <td className="py-3">
-                        <BookingActions
-                          bookingId={b.id}
-                          currentStatus={b.status}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                  {bookings.map((b) => {
+                    const phone = b.clientPhone ?? b.user?.phone ?? null;
+                    return (
+                      <tr key={b.id} className="border-b border-zinc-50">
+                        <td className="py-3 text-zinc-900">
+                          {new Date(b.date).toLocaleDateString("ru-RU")}
+                        </td>
+                        <td className="py-3 text-zinc-600">
+                          {new Date(b.startTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                          {" — "}
+                          {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td className="py-3 text-zinc-600">
+                          {(b.metadata as Record<string, unknown>)?.bookedByAdmin ? (
+                            <span>
+                              {(b.metadata as Record<string, unknown>)?.clientName as string ?? "—"}
+                              <span className="text-xs text-zinc-400 ml-1">(админ)</span>
+                            </span>
+                          ) : (
+                            b.user.name ?? b.user.email ?? "—"
+                          )}
+                        </td>
+                        <td className="py-3 text-zinc-600">
+                          {phone ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs">{phone}</span>
+                              <CallButton
+                                bookingId={b.id}
+                                moduleSlug="gazebos"
+                                clientPhone={phone}
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-zinc-400 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <Badge variant={statusVariant[b.status]}>
+                            {statusLabel[b.status]}
+                          </Badge>
+                        </td>
+                        <td className="py-3">
+                          <BookingActions
+                            bookingId={b.id}
+                            currentStatus={b.status}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

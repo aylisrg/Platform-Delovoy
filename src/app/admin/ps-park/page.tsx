@@ -11,6 +11,7 @@ import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
 import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
+import { CallButton } from "@/components/admin/telephony/call-button";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,8 @@ const statusLabel: Record<BookingStatus, string> = {
   CONFIRMED: "Подтверждено",
   CANCELLED: "Отменено",
   COMPLETED: "Завершено",
+  CHECKED_IN: "Идёт сеанс",
+  NO_SHOW: "Не явился",
 };
 
 const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "info"> = {
@@ -26,6 +29,8 @@ const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "
   CONFIRMED: "success",
   CANCELLED: "default",
   COMPLETED: "info",
+  CHECKED_IN: "success",
+  NO_SHOW: "default",
 };
 
 function formatTime(dt: Date) {
@@ -202,7 +207,7 @@ export default async function PSParkManagerPage() {
           </CardHeader>
           <CardContent>
             {recentCompleted.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет завершённых бронирований</p>
+              <p className="text-sm text-zinc-400">Тишина. Все геймеры сегодня дома. Или у конкурентов. Надеемся, что дома.</p>
             ) : (
               <BookingTable bookings={recentCompleted} resourceMap={resourceMap} />
             )}
@@ -264,6 +269,15 @@ function BookingTable({
                 <div className="font-medium leading-tight">{name}</div>
                 {phone && (
                   <div className="text-xs text-zinc-400 mt-0.5">{phone}</div>
+                )}
+                {phone && (
+                  <div className="mt-1">
+                    <CallButton
+                      bookingId={b.id}
+                      moduleSlug="ps-park"
+                      clientPhone={phone}
+                    />
+                  </div>
                 )}
               </td>
               <td className="py-3">

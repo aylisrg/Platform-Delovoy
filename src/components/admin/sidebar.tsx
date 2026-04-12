@@ -116,7 +116,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-zinc-200 p-4 space-y-3">
-        <div className="flex items-center gap-2 px-1">
+        <div className="relative group/logo flex items-center gap-2 px-1">
           <video
             src="/media/logo-animated.mp4"
             autoPlay
@@ -126,6 +126,9 @@ export function Sidebar() {
             className="h-6 w-6 rounded object-cover"
           />
           <span className="text-xs text-zinc-400 font-medium">Деловой Парк</span>
+          <span className="pointer-events-none absolute bottom-full left-0 mb-2 whitespace-nowrap rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 shadow-sm opacity-0 transition-opacity group-hover/logo:opacity-100">
+            Работает на кофе и дедлайнах ☕
+          </span>
         </div>
         <Link
           href="/"

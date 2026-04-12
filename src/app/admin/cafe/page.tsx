@@ -119,7 +119,7 @@ export default async function CafeManagerPage() {
           </CardHeader>
           <CardContent>
             {orders.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет заказов за сегодня</p>
+              <p className="text-sm text-zinc-400">Заказов нет. Повар отдыхает, можете тоже.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
