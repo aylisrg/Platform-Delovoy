@@ -31,12 +31,12 @@ export default function Error({ error, reset }: ErrorProps) {
         >
           Попробовать снова
         </button>
-        <a
+        <Link
           href="/"
           className="inline-flex items-center bg-zinc-800 text-white font-semibold px-8 py-3 rounded-full hover:bg-zinc-700 transition-colors"
         >
           На главную
-        </a>
+        </Link>
       </div>
     </div>
   );
