@@ -36,6 +36,8 @@ import {
   getAvailability,
 } from "@/modules/gazebos/service";
 import { prisma } from "@/lib/db";
+import { createCalendarEvent } from "@/lib/google-calendar";
+import { enqueueNotification } from "@/modules/notifications/queue";
 
 // Future date safe for all tests
 const FUTURE_DATE = "2030-06-15";
