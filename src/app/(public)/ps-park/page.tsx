@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listTables } from "@/modules/ps-park/service";
+import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { TableList } from "@/components/public/ps-park/table-list";
-import { PSAvailability } from "@/components/public/ps-park/ps-availability";
+import { PublicAvailabilityGrid } from "@/components/public/ps-park/public-availability-grid";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,11 @@ export const metadata: Metadata = {
 };
 
 export default async function PSParkPage() {
-  const tables = await listTables(true);
+  const today = new Date().toISOString().split("T")[0];
+  const [tables, initialAvailability] = await Promise.all([
+    listTables(true),
+    getAvailability(today),
+  ]);
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -30,7 +34,7 @@ export default async function PSParkPage() {
         <div className="max-w-6xl mx-auto px-4 py-8">
           <nav className="mb-4">
             <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Главная
+              &larr; Главная
             </Link>
           </nav>
           <h1 className="text-3xl font-bold text-zinc-900">PlayStation Park</h1>
@@ -47,8 +51,11 @@ export default async function PSParkPage() {
         </section>
 
         <section className="mt-12">
-          <h2 className="text-xl font-semibold text-zinc-900 mb-4">Проверить доступность</h2>
-          <PSAvailability />
+          <h2 className="text-xl font-semibold text-zinc-900 mb-4">Доступность и бронирование</h2>
+          <PublicAvailabilityGrid
+            initialAvailability={initialAvailability}
+            initialDate={today}
+          />
         </section>
       </main>
     </div>

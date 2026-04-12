@@ -7,8 +7,10 @@ import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
-import { AdminBookingForm } from "@/components/admin/ps-park/admin-booking-form";
 import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
+import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
+import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
+import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,6 @@ function getClientDisplay(b: {
   clientName: string | null;
   clientPhone: string | null;
   user: { name: string | null; email: string | null; phone: string | null };
-  metadata: unknown;
 }) {
   const name = b.clientName ?? b.user.name ?? b.user.email ?? "—";
   const phone = b.clientPhone ?? b.user.phone;
@@ -46,25 +47,34 @@ function getClientDisplay(b: {
 }
 
 export default async function PSParkManagerPage() {
-  // Server time — used to split bookings into current/upcoming
   const now = new Date();
   const today = new Date(now.toISOString().split("T")[0]);
+  const todayStr = today.toISOString().split("T")[0];
 
-  const [resources, activeBookings, recentCompleted, todayCount, pendingCount] = await Promise.all([
+  const [
+    resources,
+    timelineData,
+    activeSessions,
+    pendingBookings,
+    recentCompleted,
+    todayCount,
+    pendingCount,
+  ] = await Promise.all([
     prisma.resource.findMany({
       where: { moduleSlug: "ps-park" },
       orderBy: { name: "asc" },
     }),
-    // Active bookings: PENDING or CONFIRMED, from today onwards
+    getTimeline(todayStr),
+    getActiveSessions(),
+    // Pending bookings that need manager attention
     prisma.booking.findMany({
       where: {
         moduleSlug: "ps-park",
-        date: { gte: today },
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: "PENDING",
       },
       include: { user: { select: { name: true, email: true, phone: true } } },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
-      take: 100,
+      take: 20,
     }),
     // Recent completed/cancelled for the history section
     prisma.booking.findMany({
@@ -84,26 +94,14 @@ export default async function PSParkManagerPage() {
     }),
   ]);
 
-  // Build resource name map for display
   const resourceMap = new Map(resources.map((r) => [r.id, r.name]));
-
-  // Split active bookings by time context
-  const currentBookings = activeBookings.filter(
-    (b) =>
-      b.status === "CONFIRMED" &&
-      b.startTime <= now &&
-      b.endTime > now
-  );
-  const upcomingBookings = activeBookings.filter(
-    (b) => !currentBookings.includes(b)
-  );
 
   return (
     <>
-      <AdminHeader title="Управление PlayStation Park" actions={<ReceiveStockButton />} />
+      <AdminHeader title="PlayStation Park" actions={<ReceiveStockButton />} />
       <div className="p-8">
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-8">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-6">
           <StatusWidget
             title="Столы"
             value={resources.length}
@@ -122,61 +120,34 @@ export default async function PSParkManagerPage() {
           />
         </div>
 
-        {/* Admin booking form */}
-        <div className="mb-8">
-          <AdminBookingForm />
-        </div>
+        {/* Active Sessions Panel */}
+        <ActiveSessionsPanel initialSessions={activeSessions} />
 
-        {/* Resources */}
-        <Card className="mb-8">
+        {/* Timeline Grid */}
+        <Card className="mb-6">
           <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Столы</h2>
+            <h2 className="font-semibold text-zinc-900">Расписание</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Кликните на свободный слот для быстрого бронирования
+            </p>
           </CardHeader>
           <CardContent>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                  <th className="pb-3 font-medium">Название</th>
-                  <th className="pb-3 font-medium">Игроков</th>
-                  <th className="pb-3 font-medium">Цена/час</th>
-                  <th className="pb-3 font-medium">Статус</th>
-                  <th className="pb-3 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {resources.map((r) => (
-                  <tr key={r.id} className="border-b border-zinc-50">
-                    <td className="py-3 text-zinc-900 font-medium">{r.name}</td>
-                    <td className="py-3 text-zinc-600">{r.capacity ?? "—"} чел.</td>
-                    <td className="py-3 text-zinc-600">{r.pricePerHour ? `${Number(r.pricePerHour)} ₽` : "—"}</td>
-                    <td className="py-3">
-                      <Badge variant={r.isActive ? "success" : "default"}>
-                        {r.isActive ? "Активен" : "Отключен"}
-                      </Badge>
-                    </td>
-                    <td className="py-3">
-                      <TableEditor table={{ ...r, pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null }} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TimelineGrid initialData={timelineData} initialDate={todayStr} />
           </CardContent>
         </Card>
 
-        {/* Current bookings (in progress right now) */}
-        {currentBookings.length > 0 && (
+        {/* Pending bookings requiring attention */}
+        {pendingBookings.length > 0 && (
           <Card className="mb-6 border-amber-200 bg-amber-50/30">
             <CardHeader>
               <div className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                <h2 className="font-semibold text-zinc-900">Текущие бронирования</h2>
-                <span className="text-xs text-zinc-500 ml-1">— идут прямо сейчас</span>
+                <h2 className="font-semibold text-zinc-900">Ожидают подтверждения</h2>
+                <Badge variant="warning">{pendingBookings.length}</Badge>
               </div>
             </CardHeader>
             <CardContent>
               <BookingTable
-                bookings={currentBookings}
+                bookings={pendingBookings}
                 resourceMap={resourceMap}
                 showAddItems
               />
@@ -184,29 +155,50 @@ export default async function PSParkManagerPage() {
           </Card>
         )}
 
-        {/* Upcoming bookings */}
-        <Card className="mb-6">
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Предстоящие бронирования</h2>
-          </CardHeader>
-          <CardContent>
-            {upcomingBookings.length === 0 ? (
-              <p className="text-sm text-zinc-400">Нет предстоящих бронирований</p>
-            ) : (
-              <BookingTable
-                bookings={upcomingBookings}
-                resourceMap={resourceMap}
-                showAddItems
-              />
-            )}
-          </CardContent>
-        </Card>
+        {/* Resources (collapsible) */}
+        <details className="mb-6">
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-700 hover:text-zinc-900 mb-3">
+            Управление столами ({resources.length})
+          </summary>
+          <Card>
+            <CardContent>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                    <th className="pb-3 font-medium">Название</th>
+                    <th className="pb-3 font-medium">Игроков</th>
+                    <th className="pb-3 font-medium">Цена/час</th>
+                    <th className="pb-3 font-medium">Статус</th>
+                    <th className="pb-3 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resources.map((r) => (
+                    <tr key={r.id} className="border-b border-zinc-50">
+                      <td className="py-3 text-zinc-900 font-medium">{r.name}</td>
+                      <td className="py-3 text-zinc-600">{r.capacity ?? "—"} чел.</td>
+                      <td className="py-3 text-zinc-600">{r.pricePerHour ? `${Number(r.pricePerHour)} ₽` : "—"}</td>
+                      <td className="py-3">
+                        <Badge variant={r.isActive ? "success" : "default"}>
+                          {r.isActive ? "Активен" : "Отключен"}
+                        </Badge>
+                      </td>
+                      <td className="py-3">
+                        <TableEditor table={{ ...r, pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </details>
 
         {/* Completed / cancelled history */}
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Завершённые бронирования</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Последние 20</p>
+            <h2 className="font-semibold text-zinc-900">История</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Последние 20 завершённых/отменённых</p>
           </CardHeader>
           <CardContent>
             {recentCompleted.length === 0 ? (
