@@ -220,7 +220,7 @@ async function showGazeboList(ctx: BotContext, edit = false) {
     }
     keyboard.text("← Главное меню", "menu:main");
 
-    const text = "🏕 <b>Беседки бизнес-парка «Деловой»</b>\n\nВыберите беседку:";
+    const text = "🏕 <b>Барбекю Парк «Деловой»</b>\n\nВыберите беседку:";
     const opts = { parse_mode: "HTML" as const, reply_markup: keyboard };
 
     if (edit) await ctx.editMessageText(text, opts);
@@ -234,7 +234,7 @@ async function showGazeboList(ctx: BotContext, edit = false) {
 
 function backToGazebos() {
   return new InlineKeyboard()
-    .text("← Беседки", "gazebos:list")
+    .text("← Барбекю Парк", "gazebos:list")
     .text("← Меню", "menu:main");
 }
 

@@ -42,8 +42,8 @@ type SidebarLayout = {
 
 const ALL_NAVIGATION: NavItem[] = [
   { label: "Дашборд", href: "/admin/dashboard", icon: "📊", section: "dashboard" },
-  { label: "Беседки", href: "/admin/gazebos", icon: "🏕", section: "gazebos" },
-  { label: "PS Park", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
+  { label: "Барбекю Парк", href: "/admin/gazebos", icon: "🏕", section: "gazebos" },
+  { label: "Плей Парк", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
   { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },

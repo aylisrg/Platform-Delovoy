@@ -103,7 +103,7 @@ export default async function PSParkManagerPage() {
 
   return (
     <>
-      <AdminHeader title="PlayStation Park" actions={<ReceiveStockButton />} />
+      <AdminHeader title="Плей Парк" actions={<ReceiveStockButton />} />
       <div className="p-8">
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-6">

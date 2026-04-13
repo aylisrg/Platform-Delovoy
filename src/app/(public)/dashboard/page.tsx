@@ -44,8 +44,8 @@ const orderStatusVariant: Record<OrderStatus, "warning" | "success" | "default" 
 };
 
 const moduleLabels: Record<string, string> = {
-  gazebos: "Беседки",
-  "ps-park": "PS Park",
+  gazebos: "Барбекю Парк",
+  "ps-park": "Плей Парк",
 };
 
 export default async function DashboardPage() {

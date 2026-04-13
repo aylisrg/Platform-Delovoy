@@ -10,7 +10,7 @@ describe("renderBrowserNotification", () => {
       endTime: "12:00",
     });
     expect(result).not.toBeNull();
-    expect(result!.title).toContain("Беседки");
+    expect(result!.title).toContain("Барбекю Парк");
     expect(result!.body).toContain("Беседка №1");
   });
 
@@ -22,7 +22,7 @@ describe("renderBrowserNotification", () => {
       endTime: "16:00",
     });
     expect(result).not.toBeNull();
-    expect(result!.title).toContain("PS Park");
+    expect(result!.title).toContain("Плей Парк");
     expect(result!.body).toContain("Стол PS5 №2");
   });
 

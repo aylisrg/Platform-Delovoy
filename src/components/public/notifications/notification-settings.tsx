@@ -115,7 +115,7 @@ export function NotificationSettings() {
         </label>
         <div className="space-y-2">
           {[
-            { key: "enableBooking" as const, label: "Бронирования", desc: "Подтверждения и отмены бронирований беседок и PS Park" },
+            { key: "enableBooking" as const, label: "Бронирования", desc: "Подтверждения и отмены бронирований Барбекю Парк и Плей Парк" },
             { key: "enableOrder" as const, label: "Заказы", desc: "Статус заказов в кафе (готовится, готов, доставлен)" },
             { key: "enableReminder" as const, label: "Напоминания", desc: "Напоминания за 1 час до бронирования" },
           ].map((item) => (

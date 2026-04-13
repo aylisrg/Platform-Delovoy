@@ -3,7 +3,7 @@ import { apiResponse, apiServerError } from "@/lib/api-response";
 import { listTables } from "@/modules/ps-park/service";
 
 /**
- * GET /api/ps-park — list all active PS Park tables
+ * GET /api/ps-park — list all active Плей Парк tables
  */
 export async function GET(request: NextRequest) {
   try {

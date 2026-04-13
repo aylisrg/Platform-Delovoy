@@ -10,21 +10,21 @@ type BrowserTemplateFn = (d: TemplateData) => BrowserTemplate;
 const templates: Record<string, Record<string, BrowserTemplateFn>> = {
   gazebos: {
     "booking.created": (d) => ({
-      title: "Новое бронирование — Беседки",
+      title: "Новое бронирование — Барбекю Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
     }),
     "booking.cancelled": (d) => ({
-      title: "Бронирование отменено — Беседки",
+      title: "Бронирование отменено — Барбекю Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
     }),
   },
   "ps-park": {
     "booking.created": (d) => ({
-      title: "Новое бронирование — PS Park",
+      title: "Новое бронирование — Плей Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
     }),
     "booking.cancelled": (d) => ({
-      title: "Бронирование отменено — PS Park",
+      title: "Бронирование отменено — Плей Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
     }),
   },

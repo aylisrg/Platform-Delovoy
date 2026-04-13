@@ -10,15 +10,15 @@ import { Footer } from "@landing/components/footer";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Беседки с мангалом",
+  title: "Барбекю Парк",
   description:
-    "Аренда беседок с мангалом в бизнес-парке Деловой, Селятино. Комфортные беседки до 20 человек. Онлайн-бронирование. Мангал, дрова, зона отдыха.",
+    "Барбекю Парк в бизнес-парке Деловой, Селятино. Комфортные беседки до 20 человек. Онлайн-бронирование. Мангал, дрова, зона отдыха.",
   alternates: {
     canonical: "/gazebos",
   },
   openGraph: {
-    title: "Беседки с мангалом — Деловой Парк",
-    description: "Аренда беседок с мангалом до 20 человек. Селятино, Московская область. Онлайн-бронирование.",
+    title: "Барбекю Парк — Деловой Парк",
+    description: "Барбекю Парк — беседки с мангалом до 20 человек. Селятино, Московская область. Онлайн-бронирование.",
     url: "/gazebos",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
@@ -65,7 +65,7 @@ export default async function GazebosPage() {
               lineHeight: 0.95,
             }}
           >
-            Беседки
+            Барбекю Парк
           </h1>
           <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
             Беседки с мангалом. Запах шашлыка, друзья рядом — это и есть план.

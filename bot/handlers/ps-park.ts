@@ -6,7 +6,7 @@ import { botFetch, API_URL } from "../lib/api";
 type BotContext = Context;
 
 /**
- * Register PlayStation Park booking handlers.
+ * Register Плей Парк booking handlers.
  */
 export function registerPSParkHandlers(bot: Bot<BotContext>) {
   // Menu entry + command
@@ -110,7 +110,7 @@ export function registerPSParkHandlers(bot: Bot<BotContext>) {
 
     await ctx.editMessageText(
       `📋 <b>Подтвердите бронирование</b>\n\n` +
-        `🎮 PlayStation Park\n` +
+        `🎮 Плей Парк\n` +
         `📅 ${formatDate(date)}\n` +
         `🕐 ${startTime} — ${endTime}\n\n` +
         `Забронировать?`,
@@ -163,7 +163,7 @@ export function registerPSParkHandlers(bot: Bot<BotContext>) {
       if (data.success) {
         await ctx.editMessageText(
           `✅ <b>Бронирование создано!</b>\n\n` +
-            `🎮 PlayStation Park\n` +
+            `🎮 Плей Парк\n` +
             `📅 ${formatDate(date)}\n` +
             `🕐 ${startTime} — ${endTime}\n\n` +
             `Статус: ожидает подтверждения.\n` +
@@ -215,7 +215,7 @@ async function showPSList(ctx: BotContext, edit = false) {
     }
     keyboard.text("← Главное меню", "menu:main");
 
-    const text = "🎮 <b>PlayStation Park</b>\n\nВыберите стол:";
+    const text = "🎮 <b>Плей Парк</b>\n\nВыберите стол:";
     const opts = { parse_mode: "HTML" as const, reply_markup: keyboard };
 
     if (edit) await ctx.editMessageText(text, opts);
@@ -229,7 +229,7 @@ async function showPSList(ctx: BotContext, edit = false) {
 
 function backToPS() {
   return new InlineKeyboard()
-    .text("← PlayStation", "pspark:list")
+    .text("← Плей Парк", "pspark:list")
     .text("← Меню", "menu:main");
 }
 
