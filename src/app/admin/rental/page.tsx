@@ -62,7 +62,20 @@ export default async function RentalManagerPage() {
       prisma.tenant.findMany({
         where: { isDeleted: false },
         orderBy: { companyName: "asc" },
-        include: { _count: { select: { contracts: true } } },
+        include: {
+          _count: { select: { contracts: true } },
+          contracts: {
+            include: {
+              office: {
+                select: {
+                  id: true, number: true, floor: true, building: true,
+                  area: true, officeType: true,
+                },
+              },
+            },
+            orderBy: { endDate: "desc" },
+          },
+        },
       }),
       prisma.rentalContract.findMany({
         include: {
@@ -393,6 +406,23 @@ export default async function RentalManagerPage() {
                       ...t,
                       phonesExtra: t.phonesExtra as string[] | null,
                       emailsExtra: t.emailsExtra as string[] | null,
+                      contracts: t.contracts.map((c) => ({
+                        id: c.id,
+                        status: c.status,
+                        startDate: c.startDate.toISOString(),
+                        endDate: c.endDate.toISOString(),
+                        pricePerSqm: c.pricePerSqm ? Number(c.pricePerSqm) : null,
+                        monthlyRate: Number(c.monthlyRate),
+                        documentUrl: c.documentUrl,
+                        office: {
+                          id: c.office.id,
+                          number: c.office.number,
+                          floor: c.office.floor,
+                          building: c.office.building,
+                          area: Number(c.office.area),
+                          officeType: c.office.officeType,
+                        },
+                      })),
                     }))}
                   />
                 </CardContent>
