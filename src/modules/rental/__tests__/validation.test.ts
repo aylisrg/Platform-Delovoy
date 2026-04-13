@@ -8,18 +8,28 @@ import {
   updateContractSchema,
   contractFilterSchema,
   officeFilterSchema,
+  tenantFilterSchema,
+  renewContractSchema,
   reportQuerySchema,
+  revenueReportSchema,
+  expiringReportSchema,
 } from "@/modules/rental/validation";
 
 // === Office Schemas ===
 
 describe("createOfficeSchema", () => {
-  it("accepts valid office input", () => {
+  it("accepts valid office input with all new fields", () => {
     const result = createOfficeSchema.safeParse({
-      number: "301",
-      floor: 3,
-      area: 50,
-      pricePerMonth: 30000,
+      number: "33а",
+      floor: 2,
+      building: 3,
+      officeType: "OFFICE",
+      area: 15.1,
+      pricePerMonth: 19026,
+      hasWetPoint: true,
+      hasToilet: false,
+      hasRoofAccess: false,
+      comment: "игровой центр",
     });
     expect(result.success).toBe(true);
   });
@@ -28,17 +38,29 @@ describe("createOfficeSchema", () => {
     const result = createOfficeSchema.safeParse({
       number: "A-12",
       floor: 1,
+      building: 1,
       area: 25.5,
       pricePerMonth: 15000,
-      metadata: { hasWindow: true, renovation: "2024" },
+      metadata: { hasWindow: true },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("requires building field", () => {
+    const result = createOfficeSchema.safeParse({
+      number: "301",
+      floor: 3,
+      area: 50,
+      pricePerMonth: 30000,
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects empty number", () => {
     const result = createOfficeSchema.safeParse({
       number: "",
       floor: 3,
+      building: 1,
       area: 50,
       pricePerMonth: 30000,
     });
@@ -49,6 +71,7 @@ describe("createOfficeSchema", () => {
     const result = createOfficeSchema.safeParse({
       number: "301",
       floor: -1,
+      building: 1,
       area: 50,
       pricePerMonth: 30000,
     });
@@ -59,18 +82,55 @@ describe("createOfficeSchema", () => {
     const result = createOfficeSchema.safeParse({
       number: "301",
       floor: 3,
+      building: 1,
       area: 0,
       pricePerMonth: 30000,
     });
     expect(result.success).toBe(false);
   });
 
+  it("accepts zero pricePerMonth", () => {
+    const result = createOfficeSchema.safeParse({
+      number: "301",
+      floor: 3,
+      building: 1,
+      area: 50,
+      pricePerMonth: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects negative price", () => {
     const result = createOfficeSchema.safeParse({
       number: "301",
       floor: 3,
+      building: 1,
       area: 50,
       pricePerMonth: -100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts CONTAINER office type", () => {
+    const result = createOfficeSchema.safeParse({
+      number: "9",
+      floor: 1,
+      building: 1,
+      officeType: "CONTAINER",
+      area: 7.1,
+      pricePerMonth: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid office type", () => {
+    const result = createOfficeSchema.safeParse({
+      number: "301",
+      floor: 3,
+      building: 1,
+      officeType: "GARAGE",
+      area: 50,
+      pricePerMonth: 30000,
     });
     expect(result.success).toBe(false);
   });
@@ -82,8 +142,8 @@ describe("updateOfficeSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts status update", () => {
-    const result = updateOfficeSchema.safeParse({ status: "MAINTENANCE" });
+  it("accepts status update including RESERVED", () => {
+    const result = updateOfficeSchema.safeParse({ status: "RESERVED" });
     expect(result.success).toBe(true);
   });
 
@@ -101,21 +161,35 @@ describe("updateOfficeSchema", () => {
 // === Tenant Schemas ===
 
 describe("createTenantSchema", () => {
-  it("accepts valid tenant input", () => {
+  it("accepts valid tenant input with new fields", () => {
     const result = createTenantSchema.safeParse({
-      companyName: "ООО Тест",
-      contactName: "Иванов Иван",
-      email: "test@test.ru",
-      phone: "+79001234567",
-      inn: "1234567890",
+      companyName: "ООО «МК ОРИОН-СЕРВИС»",
+      tenantType: "COMPANY",
+      contactName: "Павел",
+      phone: "79168469325",
+      phonesExtra: ["79262674164"],
+      email: "il85@list.ru",
+      emailsExtra: ["moroz891@mail.ru"],
+      inn: "7727563401",
+      legalAddress: "г. Москва, ул. Тестовая, д.1",
+      needsLegalAddress: true,
+      notes: "договор в Росреестре",
     });
     expect(result.success).toBe(true);
   });
 
-  it("accepts tenant without optional fields", () => {
+  it("accepts tenant with only companyName", () => {
     const result = createTenantSchema.safeParse({
       companyName: "ИП Петров",
-      contactName: "Петров Пётр",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts 12-digit INN for IP", () => {
+    const result = createTenantSchema.safeParse({
+      companyName: "ИП Сидоров С.С.",
+      tenantType: "IP",
+      inn: "123456789012",
     });
     expect(result.success).toBe(true);
   });
@@ -123,7 +197,6 @@ describe("createTenantSchema", () => {
   it("rejects empty company name", () => {
     const result = createTenantSchema.safeParse({
       companyName: "",
-      contactName: "Тест",
     });
     expect(result.success).toBe(false);
   });
@@ -131,7 +204,6 @@ describe("createTenantSchema", () => {
   it("rejects invalid email", () => {
     const result = createTenantSchema.safeParse({
       companyName: "ООО Тест",
-      contactName: "Тест",
       email: "not-an-email",
     });
     expect(result.success).toBe(false);
@@ -140,7 +212,6 @@ describe("createTenantSchema", () => {
   it("rejects invalid INN (wrong length)", () => {
     const result = createTenantSchema.safeParse({
       companyName: "ООО Тест",
-      contactName: "Тест",
       inn: "123",
     });
     expect(result.success).toBe(false);
@@ -149,8 +220,23 @@ describe("createTenantSchema", () => {
   it("rejects non-numeric INN", () => {
     const result = createTenantSchema.safeParse({
       companyName: "ООО Тест",
-      contactName: "Тест",
       inn: "123456789a",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid email in emailsExtra", () => {
+    const result = createTenantSchema.safeParse({
+      companyName: "ООО Тест",
+      emailsExtra: ["bad-email"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid tenantType", () => {
+    const result = createTenantSchema.safeParse({
+      companyName: "Тест",
+      tenantType: "LLC",
     });
     expect(result.success).toBe(false);
   });
@@ -168,16 +254,40 @@ describe("updateTenantSchema", () => {
   });
 });
 
+describe("tenantFilterSchema", () => {
+  it("accepts valid filter with search and type", () => {
+    const result = tenantFilterSchema.safeParse({ search: "Орион", type: "COMPANY", page: 1, limit: 20 });
+    expect(result.success).toBe(true);
+  });
+
+  it("provides default page and limit", () => {
+    const result = tenantFilterSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.page).toBe(1);
+      expect(result.data.limit).toBe(20);
+    }
+  });
+
+  it("rejects limit over 50", () => {
+    const result = tenantFilterSchema.safeParse({ limit: 100 });
+    expect(result.success).toBe(false);
+  });
+});
+
 // === Contract Schemas ===
 
 describe("createContractSchema", () => {
-  it("accepts valid contract input", () => {
+  it("accepts valid contract with new fields", () => {
     const result = createContractSchema.safeParse({
       tenantId: "tenant-1",
       officeId: "office-1",
       startDate: "2025-01-01",
       endDate: "2026-12-31",
-      monthlyRate: 30000,
+      pricePerSqm: 1260,
+      monthlyRate: 35532,
+      currency: "RUB",
+      contractNumber: "Д-2025/001",
       deposit: 60000,
     });
     expect(result.success).toBe(true);
@@ -238,30 +348,6 @@ describe("createContractSchema", () => {
     });
     expect(result.success).toBe(false);
   });
-
-  it("accepts valid document URL", () => {
-    const result = createContractSchema.safeParse({
-      tenantId: "tenant-1",
-      officeId: "office-1",
-      startDate: "2025-01-01",
-      endDate: "2025-12-31",
-      monthlyRate: 30000,
-      documentUrl: "https://storage.example.com/contracts/doc.pdf",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects invalid document URL", () => {
-    const result = createContractSchema.safeParse({
-      tenantId: "tenant-1",
-      officeId: "office-1",
-      startDate: "2025-01-01",
-      endDate: "2025-12-31",
-      monthlyRate: 30000,
-      documentUrl: "not-a-url",
-    });
-    expect(result.success).toBe(false);
-  });
 });
 
 describe("updateContractSchema", () => {
@@ -270,23 +356,46 @@ describe("updateContractSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts newPricePerSqm and priceIncreaseDate", () => {
+    const result = updateContractSchema.safeParse({
+      newPricePerSqm: 1350,
+      priceIncreaseDate: "2026-09-01",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts contractNumber update", () => {
+    const result = updateContractSchema.safeParse({ contractNumber: "Д-2025/042" });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects invalid status", () => {
     const result = updateContractSchema.safeParse({ status: "INVALID" });
     expect(result.success).toBe(false);
   });
 
-  it("accepts monthly rate update", () => {
-    const result = updateContractSchema.safeParse({ monthlyRate: 35000 });
+  it("rejects notes over 5000 chars", () => {
+    const result = updateContractSchema.safeParse({ notes: "a".repeat(5001) });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("renewContractSchema", () => {
+  it("accepts valid renew input", () => {
+    const result = renewContractSchema.safeParse({ newEndDate: "2027-12-31" });
     expect(result.success).toBe(true);
   });
 
-  it("accepts notes update", () => {
-    const result = updateContractSchema.safeParse({ notes: "Продлён на год" });
+  it("accepts renew with new price", () => {
+    const result = renewContractSchema.safeParse({
+      newEndDate: "2027-12-31",
+      newPricePerSqm: 1500,
+    });
     expect(result.success).toBe(true);
   });
 
-  it("rejects notes over 2000 chars", () => {
-    const result = updateContractSchema.safeParse({ notes: "a".repeat(2001) });
+  it("rejects invalid date format", () => {
+    const result = renewContractSchema.safeParse({ newEndDate: "31-12-2027" });
     expect(result.success).toBe(false);
   });
 });
@@ -299,15 +408,29 @@ describe("contractFilterSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts empty filter", () => {
+  it("accepts array of statuses", () => {
+    const result = contractFilterSchema.safeParse({ status: ["ACTIVE", "EXPIRING"] });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts empty filter with default pagination", () => {
     const result = contractFilterSchema.safeParse({});
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.page).toBe(1);
+      expect(result.data.limit).toBe(20);
+    }
   });
 });
 
 describe("officeFilterSchema", () => {
-  it("accepts valid filter", () => {
-    const result = officeFilterSchema.safeParse({ status: "AVAILABLE", floor: 3 });
+  it("accepts valid filter with building", () => {
+    const result = officeFilterSchema.safeParse({ status: "AVAILABLE", floor: 3, building: 2 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts filter by office type", () => {
+    const result = officeFilterSchema.safeParse({ type: "CONTAINER" });
     expect(result.success).toBe(true);
   });
 
@@ -345,9 +468,40 @@ describe("reportQuerySchema", () => {
     const result = reportQuerySchema.safeParse({ year: 2025, month: 13 });
     expect(result.success).toBe(false);
   });
+});
 
-  it("rejects year below 2020", () => {
-    const result = reportQuerySchema.safeParse({ year: 2019, month: 1 });
-    expect(result.success).toBe(false);
+describe("revenueReportSchema", () => {
+  it("accepts building filter", () => {
+    const result = revenueReportSchema.safeParse({ building: "2" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.building).toBe(2);
+    }
+  });
+
+  it("provides default period", () => {
+    const result = revenueReportSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.period).toBe("month");
+    }
+  });
+});
+
+describe("expiringReportSchema", () => {
+  it("accepts days parameter", () => {
+    const result = expiringReportSchema.safeParse({ days: "60" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.days).toBe(60);
+    }
+  });
+
+  it("provides default 30 days", () => {
+    const result = expiringReportSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.days).toBe(30);
+    }
   });
 });

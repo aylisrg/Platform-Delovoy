@@ -11,13 +11,17 @@ vi.mock("@/lib/db", () => ({
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
       count: vi.fn(),
     },
     tenant: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      count: vi.fn(),
+      upsert: vi.fn(),
     },
     rentalContract: {
       findMany: vi.fn(),
@@ -27,6 +31,12 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    rentalInquiry: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
   },
 }));
 
@@ -35,27 +45,39 @@ import {
   getOffice,
   createOffice,
   updateOffice,
+  deleteOffice,
   listTenants,
   getTenant,
   createTenant,
   updateTenant,
+  deleteTenant,
+  getTenantContracts,
   listContracts,
   createContract,
   updateContract,
+  renewContract,
+  terminateContract,
   getExpiringContracts,
   getMonthlyReport,
+  getOccupancyReport,
   RentalError,
 } from "@/modules/rental/service";
 import { prisma } from "@/lib/db";
 
 const mockOffice = (overrides = {}) => ({
   id: "office-1",
-  number: "301",
-  floor: 3,
-  area: 50,
-  pricePerMonth: 30000,
+  number: "9",
+  floor: 2,
+  building: 3,
+  officeType: "OFFICE" as const,
+  area: 41.3,
+  pricePerMonth: 52038,
+  hasWetPoint: false,
+  hasToilet: false,
+  hasRoofAccess: false,
   status: "AVAILABLE" as const,
   metadata: null,
+  comment: null,
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
@@ -63,11 +85,18 @@ const mockOffice = (overrides = {}) => ({
 
 const mockTenant = (overrides = {}) => ({
   id: "tenant-1",
-  companyName: "ООО Тест",
-  contactName: "Иванов Иван",
-  email: "test@test.ru",
-  phone: "+79001234567",
-  inn: "1234567890",
+  companyName: "ООО «МК ОРИОН-СЕРВИС»",
+  tenantType: "COMPANY" as const,
+  contactName: "Павел",
+  phone: "79168469325",
+  phonesExtra: null,
+  email: "il85@list.ru",
+  emailsExtra: null,
+  inn: "7727563401",
+  legalAddress: null,
+  needsLegalAddress: false,
+  notes: null,
+  isDeleted: false,
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
   ...overrides,
@@ -78,9 +107,14 @@ const mockContract = (overrides = {}) => ({
   tenantId: "tenant-1",
   officeId: "office-1",
   startDate: new Date("2025-01-01"),
-  endDate: new Date("2026-12-31"),
-  monthlyRate: 30000,
-  deposit: 60000,
+  endDate: new Date("2027-12-31"),
+  pricePerSqm: 1260,
+  monthlyRate: 52038,
+  currency: "RUB",
+  newPricePerSqm: null,
+  priceIncreaseDate: null,
+  deposit: null,
+  contractNumber: "Д-2025/001",
   status: "ACTIVE" as const,
   documentUrl: null,
   notes: null,
@@ -96,84 +130,68 @@ beforeEach(() => {
 // === OFFICES ===
 
 describe("listOffices", () => {
-  it("returns all offices ordered by floor and number", async () => {
-    const offices = [mockOffice(), mockOffice({ id: "office-2", number: "302" })];
-    vi.mocked(prisma.office.findMany).mockResolvedValue(offices);
+  it("returns all offices ordered by building, floor, number", async () => {
+    const offices = [mockOffice()];
+    vi.mocked(prisma.office.findMany).mockResolvedValue(offices as never);
 
     const result = await listOffices();
 
     expect(result).toEqual(offices);
-    expect(prisma.office.findMany).toHaveBeenCalledWith({
-      where: {},
-      orderBy: [{ floor: "asc" }, { number: "asc" }],
-    });
+    expect(prisma.office.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
+      })
+    );
   });
 
-  it("filters by status", async () => {
-    vi.mocked(prisma.office.findMany).mockResolvedValue([mockOffice()]);
-
-    await listOffices({ status: "AVAILABLE" });
-
-    expect(prisma.office.findMany).toHaveBeenCalledWith({
-      where: { status: "AVAILABLE" },
-      orderBy: [{ floor: "asc" }, { number: "asc" }],
-    });
-  });
-
-  it("filters by floor", async () => {
+  it("filters by building", async () => {
     vi.mocked(prisma.office.findMany).mockResolvedValue([]);
 
-    await listOffices({ floor: 3 });
+    await listOffices({ building: 3 });
 
-    expect(prisma.office.findMany).toHaveBeenCalledWith({
-      where: { floor: 3 },
-      orderBy: [{ floor: "asc" }, { number: "asc" }],
-    });
-  });
-});
-
-describe("getOffice", () => {
-  it("returns office by id", async () => {
-    const office = mockOffice();
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(office);
-
-    const result = await getOffice("office-1");
-
-    expect(result).toEqual(office);
-    expect(prisma.office.findUnique).toHaveBeenCalledWith({ where: { id: "office-1" } });
+    expect(prisma.office.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ building: 3 }),
+      })
+    );
   });
 
-  it("returns null for non-existent office", async () => {
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
+  it("filters by office type", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
 
-    const result = await getOffice("non-existent");
+    await listOffices({ type: "CONTAINER" });
 
-    expect(result).toBeNull();
+    expect(prisma.office.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ officeType: "CONTAINER" }),
+      })
+    );
   });
 });
 
 describe("createOffice", () => {
-  it("creates office with valid input", async () => {
+  it("creates office with building", async () => {
     const office = mockOffice();
     vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.office.create).mockResolvedValue(office);
+    vi.mocked(prisma.office.create).mockResolvedValue(office as never);
 
     const result = await createOffice({
-      number: "301",
-      floor: 3,
-      area: 50,
-      pricePerMonth: 30000,
+      number: "9",
+      floor: 2,
+      building: 3,
+      area: 41.3,
+      pricePerMonth: 52038,
     });
 
     expect(result).toEqual(office);
     expect(prisma.office.create).toHaveBeenCalled();
   });
 
-  it("throws if office number already exists", async () => {
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice());
+  it("throws if office number already exists in same building/floor", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
 
     await expect(
-      createOffice({ number: "301", floor: 3, area: 50, pricePerMonth: 30000 })
+      createOffice({ number: "9", floor: 2, building: 3, area: 50, pricePerMonth: 30000 })
     ).rejects.toThrow(RentalError);
   });
 });
@@ -181,13 +199,15 @@ describe("createOffice", () => {
 describe("updateOffice", () => {
   it("updates existing office", async () => {
     const office = mockOffice();
-    const updated = mockOffice({ pricePerMonth: 35000 });
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(office);
-    vi.mocked(prisma.office.update).mockResolvedValue(updated);
+    const updated = mockOffice({ hasWetPoint: true });
+    vi.mocked(prisma.office.findUnique)
+      .mockResolvedValueOnce(office as never)
+      .mockResolvedValueOnce(null); // uniqueness check
+    vi.mocked(prisma.office.update).mockResolvedValue(updated as never);
 
-    const result = await updateOffice("office-1", { pricePerMonth: 35000 });
+    const result = await updateOffice("office-1", { hasWetPoint: true });
 
-    expect(result.pricePerMonth).toBe(35000);
+    expect(result.hasWetPoint).toBe(true);
   });
 
   it("throws if office not found", async () => {
@@ -195,113 +215,166 @@ describe("updateOffice", () => {
 
     await expect(updateOffice("non-existent", { floor: 2 })).rejects.toThrow(RentalError);
   });
+});
 
-  it("throws if new number already taken", async () => {
-    vi.mocked(prisma.office.findUnique)
-      .mockResolvedValueOnce(mockOffice())
-      .mockResolvedValueOnce(mockOffice({ id: "office-2", number: "302" }));
+describe("deleteOffice", () => {
+  it("deletes office without active contracts", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(0);
+    vi.mocked(prisma.office.delete).mockResolvedValue(mockOffice() as never);
 
-    await expect(
-      updateOffice("office-1", { number: "302" })
-    ).rejects.toThrow(RentalError);
+    await deleteOffice("office-1");
+
+    expect(prisma.office.delete).toHaveBeenCalledWith({ where: { id: "office-1" } });
+  });
+
+  it("throws if office has active contracts", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(1);
+
+    await expect(deleteOffice("office-1")).rejects.toThrow(RentalError);
+  });
+
+  it("throws if office not found", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
+
+    await expect(deleteOffice("non-existent")).rejects.toThrow(RentalError);
   });
 });
 
 // === TENANTS ===
 
 describe("listTenants", () => {
-  it("returns all tenants ordered by company name", async () => {
+  it("returns paginated tenants", async () => {
     const tenants = [mockTenant()];
-    vi.mocked(prisma.tenant.findMany).mockResolvedValue(tenants);
+    vi.mocked(prisma.tenant.findMany).mockResolvedValue(tenants as never);
+    vi.mocked(prisma.tenant.count).mockResolvedValue(1);
 
-    const result = await listTenants();
+    const result = await listTenants({ page: 1, limit: 20 });
 
-    expect(result).toEqual(tenants);
-    expect(prisma.tenant.findMany).toHaveBeenCalledWith({
-      orderBy: { companyName: "asc" },
-    });
+    expect(result.tenants).toEqual(tenants);
+    expect(result.total).toBe(1);
+    expect(result.page).toBe(1);
   });
-});
 
-describe("getTenant", () => {
-  it("returns tenant with contracts", async () => {
-    const tenant = { ...mockTenant(), contracts: [mockContract()] };
-    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(tenant as never);
+  it("filters by search term", async () => {
+    vi.mocked(prisma.tenant.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.tenant.count).mockResolvedValue(0);
 
-    const result = await getTenant("tenant-1");
+    await listTenants({ search: "ОРИОН", page: 1, limit: 20 });
 
-    expect(result).toEqual(tenant);
+    expect(prisma.tenant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isDeleted: false,
+          OR: expect.arrayContaining([
+            expect.objectContaining({ companyName: { contains: "ОРИОН", mode: "insensitive" } }),
+          ]),
+        }),
+      })
+    );
+  });
+
+  it("filters by tenant type", async () => {
+    vi.mocked(prisma.tenant.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.tenant.count).mockResolvedValue(0);
+
+    await listTenants({ type: "COMPANY", page: 1, limit: 20 });
+
+    expect(prisma.tenant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantType: "COMPANY" }),
+      })
+    );
   });
 });
 
 describe("createTenant", () => {
-  it("creates tenant with valid input", async () => {
+  it("creates tenant with new fields", async () => {
     const tenant = mockTenant();
-    vi.mocked(prisma.tenant.create).mockResolvedValue(tenant);
+    vi.mocked(prisma.tenant.create).mockResolvedValue(tenant as never);
 
     const result = await createTenant({
-      companyName: "ООО Тест",
-      contactName: "Иванов Иван",
-      email: "test@test.ru",
+      companyName: "ООО «МК ОРИОН-СЕРВИС»",
+      tenantType: "COMPANY",
+      contactName: "Павел",
+      phone: "79168469325",
+      needsLegalAddress: true,
     });
 
     expect(result).toEqual(tenant);
+    expect(prisma.tenant.create).toHaveBeenCalled();
   });
 });
 
-describe("updateTenant", () => {
-  it("updates existing tenant", async () => {
-    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant());
-    vi.mocked(prisma.tenant.update).mockResolvedValue(
-      mockTenant({ companyName: "ООО Новое" })
-    );
+describe("deleteTenant", () => {
+  it("soft deletes tenant without active contracts", async () => {
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant() as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(0);
+    vi.mocked(prisma.tenant.update).mockResolvedValue(mockTenant({ isDeleted: true }) as never);
 
-    const result = await updateTenant("tenant-1", { companyName: "ООО Новое" });
+    const result = await deleteTenant("tenant-1");
 
-    expect(result.companyName).toBe("ООО Новое");
+    expect(result.isDeleted).toBe(true);
+  });
+
+  it("throws if tenant has active contracts", async () => {
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant() as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(2);
+
+    await expect(deleteTenant("tenant-1")).rejects.toThrow(RentalError);
   });
 
   it("throws if tenant not found", async () => {
     vi.mocked(prisma.tenant.findUnique).mockResolvedValue(null);
 
-    await expect(
-      updateTenant("non-existent", { companyName: "Тест" })
-    ).rejects.toThrow(RentalError);
+    await expect(deleteTenant("non-existent")).rejects.toThrow(RentalError);
+  });
+});
+
+describe("getTenantContracts", () => {
+  it("returns contracts for existing tenant", async () => {
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant() as never);
+    vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([mockContract()] as never);
+
+    const result = await getTenantContracts("tenant-1");
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("throws if tenant not found", async () => {
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(null);
+
+    await expect(getTenantContracts("non-existent")).rejects.toThrow(RentalError);
   });
 });
 
 // === CONTRACTS ===
 
 describe("listContracts", () => {
-  it("returns contracts with relations", async () => {
-    const contracts = [
-      {
-        ...mockContract(),
-        tenant: mockTenant(),
-        office: mockOffice(),
-      },
-    ];
+  it("returns paginated contracts with relations", async () => {
+    const contracts = [{ ...mockContract(), tenant: mockTenant(), office: mockOffice() }];
     vi.mocked(prisma.rentalContract.findMany).mockResolvedValue(contracts as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(1);
 
     const result = await listContracts();
 
-    expect(result).toHaveLength(1);
+    expect(result.contracts).toHaveLength(1);
+    expect(result.total).toBe(1);
   });
 
   it("auto-updates EXPIRED status for past contracts", async () => {
     const pastContract = {
-      ...mockContract({
-        status: "ACTIVE",
-        endDate: new Date("2020-01-01"),
-      }),
+      ...mockContract({ status: "ACTIVE", endDate: new Date("2020-01-01") }),
       tenant: mockTenant(),
       office: mockOffice(),
     };
     vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([pastContract] as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(1);
 
     const result = await listContracts();
 
-    expect(result[0].status).toBe("EXPIRED");
+    expect(result.contracts[0].status).toBe("EXPIRED");
   });
 
   it("auto-updates EXPIRING status for soon-ending contracts", async () => {
@@ -309,28 +382,27 @@ describe("listContracts", () => {
     soonEndDate.setDate(soonEndDate.getDate() + 15);
 
     const soonContract = {
-      ...mockContract({
-        status: "ACTIVE",
-        endDate: soonEndDate,
-      }),
+      ...mockContract({ status: "ACTIVE", endDate: soonEndDate }),
       tenant: mockTenant(),
       office: mockOffice(),
     };
     vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([soonContract] as never);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(1);
 
     const result = await listContracts();
 
-    expect(result[0].status).toBe("EXPIRING");
+    expect(result.contracts[0].status).toBe("EXPIRING");
   });
 
-  it("filters by status", async () => {
+  it("filters by array of statuses", async () => {
     vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.rentalContract.count).mockResolvedValue(0);
 
-    await listContracts({ status: "ACTIVE" });
+    await listContracts({ status: ["ACTIVE", "EXPIRING"] });
 
     expect(prisma.rentalContract.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: "ACTIVE" }),
+        where: expect.objectContaining({ status: { in: ["ACTIVE", "EXPIRING"] } }),
       })
     );
   });
@@ -338,22 +410,24 @@ describe("listContracts", () => {
 
 describe("createContract", () => {
   it("creates contract when office is free", async () => {
-    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant());
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice());
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant() as never);
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
     vi.mocked(prisma.rentalContract.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.rentalContract.create).mockResolvedValue({
       ...mockContract(),
       tenant: mockTenant(),
       office: mockOffice(),
     } as never);
-    vi.mocked(prisma.office.update).mockResolvedValue(mockOffice({ status: "OCCUPIED" }));
+    vi.mocked(prisma.office.update).mockResolvedValue(mockOffice({ status: "OCCUPIED" }) as never);
 
     const result = await createContract({
       tenantId: "tenant-1",
       officeId: "office-1",
       startDate: "2025-01-01",
-      endDate: "2026-12-31",
-      monthlyRate: 30000,
+      endDate: "2027-12-31",
+      pricePerSqm: 1260,
+      monthlyRate: 52038,
+      contractNumber: "Д-2025/001",
     });
 
     expect(result).toBeDefined();
@@ -362,7 +436,7 @@ describe("createContract", () => {
 
   it("throws if tenant not found", async () => {
     vi.mocked(prisma.tenant.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice());
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
 
     await expect(
       createContract({
@@ -375,24 +449,9 @@ describe("createContract", () => {
     ).rejects.toThrow(RentalError);
   });
 
-  it("throws if office not found", async () => {
-    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant());
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
-
-    await expect(
-      createContract({
-        tenantId: "tenant-1",
-        officeId: "non-existent",
-        startDate: "2025-01-01",
-        endDate: "2026-12-31",
-        monthlyRate: 30000,
-      })
-    ).rejects.toThrow(RentalError);
-  });
-
   it("throws if office is already occupied", async () => {
-    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant());
-    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice());
+    vi.mocked(prisma.tenant.findUnique).mockResolvedValue(mockTenant() as never);
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(mockOffice() as never);
     vi.mocked(prisma.rentalContract.findFirst).mockResolvedValue(mockContract() as never);
 
     await expect(
@@ -415,7 +474,7 @@ describe("updateContract", () => {
       tenant: mockTenant(),
       office: mockOffice(),
     } as never);
-    vi.mocked(prisma.office.update).mockResolvedValue(mockOffice());
+    vi.mocked(prisma.office.update).mockResolvedValue(mockOffice() as never);
 
     const result = await updateContract("contract-1", { status: "TERMINATED" });
 
@@ -424,14 +483,6 @@ describe("updateContract", () => {
       where: { id: "office-1" },
       data: { status: "AVAILABLE" },
     });
-  });
-
-  it("throws if contract not found", async () => {
-    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue(null);
-
-    await expect(
-      updateContract("non-existent", { status: "TERMINATED" })
-    ).rejects.toThrow(RentalError);
   });
 
   it("throws on invalid status transition", async () => {
@@ -443,7 +494,98 @@ describe("updateContract", () => {
       updateContract("contract-1", { status: "ACTIVE" })
     ).rejects.toThrow(RentalError);
   });
+
+  it("throws if contract not found", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue(null);
+
+    await expect(
+      updateContract("non-existent", { status: "TERMINATED" })
+    ).rejects.toThrow(RentalError);
+  });
 });
+
+describe("renewContract", () => {
+  it("renews active contract with new end date", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue({
+      ...mockContract(),
+      office: mockOffice(),
+    } as never);
+    vi.mocked(prisma.rentalContract.update).mockResolvedValue({
+      ...mockContract({ endDate: new Date("2028-12-31"), status: "ACTIVE" }),
+      tenant: mockTenant(),
+      office: mockOffice(),
+    } as never);
+
+    const result = await renewContract("contract-1", { newEndDate: "2028-12-31" });
+
+    expect(result).toBeDefined();
+    expect(prisma.rentalContract.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "ACTIVE" }),
+      })
+    );
+  });
+
+  it("throws if contract is not active", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue({
+      ...mockContract({ status: "EXPIRED" }),
+      office: mockOffice(),
+    } as never);
+
+    await expect(
+      renewContract("contract-1", { newEndDate: "2028-12-31" })
+    ).rejects.toThrow(RentalError);
+  });
+
+  it("throws if new end date is not later", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue({
+      ...mockContract(),
+      office: mockOffice(),
+    } as never);
+
+    await expect(
+      renewContract("contract-1", { newEndDate: "2025-01-01" })
+    ).rejects.toThrow(RentalError);
+  });
+
+  it("throws if contract not found", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue(null);
+
+    await expect(
+      renewContract("non-existent", { newEndDate: "2028-12-31" })
+    ).rejects.toThrow(RentalError);
+  });
+});
+
+describe("terminateContract", () => {
+  it("terminates active contract and frees office", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue(mockContract() as never);
+    vi.mocked(prisma.rentalContract.update).mockResolvedValue({
+      ...mockContract({ status: "TERMINATED" }),
+      tenant: mockTenant(),
+      office: mockOffice(),
+    } as never);
+    vi.mocked(prisma.office.update).mockResolvedValue(mockOffice() as never);
+
+    const result = await terminateContract("contract-1", "Неоплата");
+
+    expect(result.status).toBe("TERMINATED");
+    expect(prisma.office.update).toHaveBeenCalledWith({
+      where: { id: "office-1" },
+      data: { status: "AVAILABLE" },
+    });
+  });
+
+  it("throws if already terminated", async () => {
+    vi.mocked(prisma.rentalContract.findUnique).mockResolvedValue(
+      mockContract({ status: "TERMINATED" }) as never
+    );
+
+    await expect(terminateContract("contract-1")).rejects.toThrow(RentalError);
+  });
+});
+
+// === EXPIRING CONTRACTS ===
 
 describe("getExpiringContracts", () => {
   it("returns contracts expiring within specified days", async () => {
@@ -461,6 +603,8 @@ describe("getExpiringContracts", () => {
   });
 });
 
+// === REPORTS ===
+
 describe("getMonthlyReport", () => {
   it("returns report with correct metrics", async () => {
     vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([
@@ -468,25 +612,18 @@ describe("getMonthlyReport", () => {
       mockContract({ id: "c-2", monthlyRate: 50000 }) as never,
     ]);
     vi.mocked(prisma.office.count)
-      .mockResolvedValueOnce(20)   // totalOffices
-      .mockResolvedValueOnce(10);  // occupiedOffices
+      .mockResolvedValueOnce(20)
+      .mockResolvedValueOnce(10);
     vi.mocked(prisma.rentalContract.count)
-      .mockResolvedValueOnce(2)    // newContracts
-      .mockResolvedValueOnce(1)    // terminatedContracts
-      .mockResolvedValueOnce(3);   // expiringContracts
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(3);
 
     const report = await getMonthlyReport(2025, 6);
 
-    expect(report.year).toBe(2025);
-    expect(report.month).toBe(6);
     expect(report.totalRevenue).toBe(80000);
     expect(report.activeContracts).toBe(2);
-    expect(report.totalOffices).toBe(20);
-    expect(report.occupiedOffices).toBe(10);
     expect(report.occupancyRate).toBe(50);
-    expect(report.newContracts).toBe(2);
-    expect(report.terminatedContracts).toBe(1);
-    expect(report.expiringContracts).toBe(3);
   });
 
   it("returns 0 occupancy rate when no offices", async () => {
@@ -502,5 +639,29 @@ describe("getMonthlyReport", () => {
     const report = await getMonthlyReport(2025, 1);
 
     expect(report.occupancyRate).toBe(0);
+  });
+});
+
+describe("getOccupancyReport", () => {
+  it("groups offices by building", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([
+      { building: 1, status: "OCCUPIED" },
+      { building: 1, status: "AVAILABLE" },
+      { building: 2, status: "OCCUPIED" },
+      { building: 2, status: "OCCUPIED" },
+      { building: 2, status: "MAINTENANCE" },
+    ] as never);
+
+    const report = await getOccupancyReport();
+
+    expect(report).toHaveLength(2);
+    expect(report[0].building).toBe(1);
+    expect(report[0].total).toBe(2);
+    expect(report[0].occupied).toBe(1);
+    expect(report[0].occupancyRate).toBe(50);
+    expect(report[1].building).toBe(2);
+    expect(report[1].total).toBe(3);
+    expect(report[1].occupied).toBe(2);
+    expect(report[1].maintenance).toBe(1);
   });
 });

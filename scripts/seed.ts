@@ -25,8 +25,8 @@ async function main() {
   // === MODULES ===
   const modules = [
     { slug: "cafe", name: "Кафе", description: "Кафе бизнес-парка — меню, заказы, доставка в офис" },
-    { slug: "ps-park", name: "PlayStation Park", description: "Бронирование столов PlayStation, напитки и пицца" },
-    { slug: "gazebos", name: "Беседки", description: "Бронирование беседок на территории парка" },
+    { slug: "ps-park", name: "Плей Парк", description: "Бронирование столов PlayStation, напитки и пицца" },
+    { slug: "gazebos", name: "Барбекю Парк", description: "Бронирование беседок на территории парка" },
     { slug: "parking", name: "Парковка", description: "Информация о парковке, в будущем — управление шлагбаумом" },
     { slug: "rental", name: "Аренда офисов", description: "Каталог офисов, CRM арендаторов, управление договорами" },
   ];
@@ -40,7 +40,7 @@ async function main() {
   }
   console.log(`  ✓ Modules: ${modules.map((m) => m.slug).join(", ")}`);
 
-  // === RESOURCES: Беседки (5 шт) ===
+  // === RESOURCES: Барбекю Парк (5 шт) ===
   const gazebos = [
     { moduleSlug: "gazebos", name: "Беседка №1", description: "Большая беседка на 12 человек", capacity: 12, pricePerHour: 1500, googleCalendarId: "eaefb36cdf5caba883230fa46c17ac4b22b637090e065803e5deeea46de1de18@group.calendar.google.com" },
     { moduleSlug: "gazebos", name: "Беседка №2", description: "Средняя беседка на 8 человек", capacity: 8, pricePerHour: 1000, googleCalendarId: "1bd7f0bbf9e8b25566be8f25208fdb9ef5b9e7d39a534798599f053a53a62de0@group.calendar.google.com" },
@@ -80,7 +80,7 @@ async function main() {
       await prisma.resource.create({ data: t });
     }
   }
-  console.log(`  ✓ PS Park tables: ${psTables.length}`);
+  console.log(`  ✓ Плей Парк tables: ${psTables.length}`);
 
   // === MENU ITEMS: Кафе ===
   const menuItems = [
@@ -108,17 +108,17 @@ async function main() {
 
   // === OFFICES ===
   const offices = [
-    { number: "101", floor: 1, area: 25, pricePerMonth: 35000 },
-    { number: "102", floor: 1, area: 40, pricePerMonth: 55000 },
-    { number: "201", floor: 2, area: 30, pricePerMonth: 42000 },
-    { number: "202", floor: 2, area: 50, pricePerMonth: 70000 },
-    { number: "301", floor: 3, area: 35, pricePerMonth: 48000 },
+    { number: "101", floor: 1, building: 1, area: 25, pricePerMonth: 35000 },
+    { number: "102", floor: 1, building: 1, area: 40, pricePerMonth: 55000 },
+    { number: "201", floor: 2, building: 1, area: 30, pricePerMonth: 42000 },
+    { number: "202", floor: 2, building: 1, area: 50, pricePerMonth: 70000 },
+    { number: "301", floor: 3, building: 1, area: 35, pricePerMonth: 48000 },
   ];
 
   for (const office of offices) {
     await prisma.office.upsert({
-      where: { number: office.number },
-      update: { floor: office.floor, area: office.area, pricePerMonth: office.pricePerMonth },
+      where: { building_floor_number: { building: office.building, floor: office.floor, number: office.number } },
+      update: { area: office.area, pricePerMonth: office.pricePerMonth },
       create: office,
     });
   }

@@ -3,10 +3,11 @@ import { apiResponse, apiError, apiNotFound, apiUnauthorized, apiForbidden, apiV
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { getContract, updateContract, RentalError } from "@/modules/rental/service";
+import { logRentalChanges } from "@/modules/rental/changelog";
 import { updateContractSchema } from "@/modules/rental/validation";
 
 /**
- * GET /api/rental/contracts/:id — get contract (MANAGER/SUPERADMIN)
+ * GET /api/rental/contracts/:id — get contract details (MANAGER/SUPERADMIN)
  */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,9 +25,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /**
- * PATCH /api/rental/contracts/:id — update contract status/data (MANAGER/SUPERADMIN)
+ * PUT /api/rental/contracts/:id — update contract (MANAGER/SUPERADMIN)
  */
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
@@ -39,7 +40,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return apiValidationError(parsed.error.issues[0].message);
     }
 
+    const before = await getContract(id);
+    if (!before) return apiNotFound("Договор не найден");
+
     const contract = await updateContract(id, parsed.data);
+
+    // Log every field change for financial audit
+    await logRentalChanges(
+      session.user.id,
+      "RentalContract",
+      id,
+      before as unknown as Record<string, unknown>,
+      parsed.data as Record<string, unknown>,
+      undefined,
+      request.headers.get("x-forwarded-for") ?? undefined
+    );
 
     await logAudit(session.user.id, "contract.update", "RentalContract", id, parsed.data);
 

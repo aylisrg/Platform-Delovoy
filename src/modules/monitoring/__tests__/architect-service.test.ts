@@ -133,7 +133,7 @@ describe("getSystemMap", () => {
   it("handles multiple modules concurrently", async () => {
     vi.mocked(prisma.module.findMany).mockResolvedValue([
       mockModule({ id: "m1", slug: "cafe", name: "Кафе" }),
-      mockModule({ id: "m2", slug: "gazebos", name: "Беседки" }),
+      mockModule({ id: "m2", slug: "gazebos", name: "Барбекю Парк" }),
     ] as never);
     vi.mocked(fetch).mockResolvedValue({
       ok: true,

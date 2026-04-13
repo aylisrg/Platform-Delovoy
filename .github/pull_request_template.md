@@ -14,8 +14,8 @@
 
 - [ ] Auth / RBAC
 - [ ] Café
-- [ ] Беседки (Gazebos)
-- [ ] PS Park
+- [ ] Барбекю Парк (Gazebos)
+- [ ] Плей Парк
 - [ ] Аренда офисов (Rental)
 - [ ] Парковка
 - [ ] Admin / Architect dashboard

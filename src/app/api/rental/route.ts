@@ -6,7 +6,7 @@ import { listOffices, createOffice, RentalError } from "@/modules/rental/service
 import { createOfficeSchema, officeFilterSchema } from "@/modules/rental/validation";
 
 /**
- * GET /api/rental — list offices (public)
+ * GET /api/rental — list offices (public, backward-compatible)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/rental — create office (MANAGER/SUPERADMIN)
+ * POST /api/rental — create office (MANAGER/SUPERADMIN, backward-compatible)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -41,6 +41,8 @@ export async function POST(request: NextRequest) {
 
     await logAudit(session.user.id, "office.create", "Office", office.id, {
       number: parsed.data.number,
+      building: parsed.data.building,
+      floor: parsed.data.floor,
     });
 
     return apiResponse(office, undefined, 201);

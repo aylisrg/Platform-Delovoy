@@ -227,59 +227,98 @@ model MenuItem {
 
 // === B2B: RENTAL ===
 
+enum TenantType {
+  COMPANY
+  IP
+  INDIVIDUAL
+}
+
+enum OfficeType {
+  OFFICE
+  CONTAINER
+  MEETING_ROOM
+}
+
 model Tenant {
-  id          String   @id @default(cuid())
-  companyName String
-  contactName String
-  email       String?
-  phone       String?
-  inn         String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String     @id @default(cuid())
+  companyName       String
+  tenantType        TenantType @default(INDIVIDUAL)
+  contactName       String?
+  phone             String?
+  phonesExtra       Json?
+  email             String?
+  emailsExtra       Json?
+  inn               String?
+  legalAddress      String?
+  needsLegalAddress Boolean    @default(false)
+  notes             String?    @db.Text
+  isDeleted         Boolean    @default(false)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   contracts RentalContract[]
+
+  @@index([tenantType])
+  @@index([isDeleted])
 }
 
 model Office {
   id            String       @id @default(cuid())
-  number        String       @unique
+  number        String
   floor         Int
+  building      Int          @default(1)
+  officeType    OfficeType   @default(OFFICE)
   area          Decimal
   pricePerMonth Decimal
+  hasWetPoint   Boolean      @default(false)
+  hasToilet     Boolean      @default(false)
+  hasRoofAccess Boolean      @default(false)
   status        OfficeStatus @default(AVAILABLE)
   metadata      Json?
+  comment       String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   contracts RentalContract[]
   inquiries RentalInquiry[]
+
+  @@unique([building, floor, number])
+  @@index([building])
+  @@index([status])
 }
 
 enum OfficeStatus {
   AVAILABLE
   OCCUPIED
   MAINTENANCE
+  RESERVED
 }
 
 model RentalContract {
-  id          String         @id @default(cuid())
-  tenantId    String
-  tenant      Tenant         @relation(fields: [tenantId], references: [id])
-  officeId    String
-  office      Office         @relation(fields: [officeId], references: [id])
-  startDate   DateTime
-  endDate     DateTime
-  monthlyRate Decimal
-  deposit     Decimal?
-  status      ContractStatus @default(ACTIVE)
-  documentUrl String?
-  notes       String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  tenantId          String
+  tenant            Tenant         @relation(fields: [tenantId], references: [id])
+  officeId          String
+  office            Office         @relation(fields: [officeId], references: [id])
+  startDate         DateTime
+  endDate           DateTime
+  pricePerSqm       Decimal?
+  monthlyRate       Decimal
+  currency          String         @default("RUB")
+  newPricePerSqm    Decimal?
+  priceIncreaseDate DateTime?
+  deposit           Decimal?
+  contractNumber    String?
+  status            ContractStatus @default(ACTIVE)
+  documentUrl       String?
+  notes             String?        @db.Text
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([tenantId])
   @@index([officeId])
   @@index([status, endDate])
+  @@index([contractNumber])
 }
 
 enum ContractStatus {
@@ -317,6 +356,26 @@ model RentalInquiry {
 
   @@index([status, createdAt])
   @@index([isRead])
+}
+
+// === RENTAL CHANGE LOG (financial audit trail) ===
+
+model RentalChangeLog {
+  id          String   @id @default(cuid())
+  userId      String
+  entity      String            // "Tenant", "Office", "RentalContract"
+  entityId    String
+  field       String            // "monthlyRate", "pricePerSqm", "status", etc.
+  oldValue    String?           // JSON-serialized previous value
+  newValue    String?           // JSON-serialized new value
+  reason      String?           // optional justification
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entity, field, createdAt])
 }
 
 // === MONITORING ===

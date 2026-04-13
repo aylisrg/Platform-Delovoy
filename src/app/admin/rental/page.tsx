@@ -3,9 +3,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
-import type { ContractStatus, OfficeStatus, InquiryStatus } from "@prisma/client";
-import { ContractActions } from "@/components/admin/rental/contract-actions";
+import type { ContractStatus, InquiryStatus } from "@prisma/client";
 import { InquiryActions } from "@/components/admin/rental/inquiry-actions";
+import { RentalTabs } from "@/components/admin/rental/rental-tabs";
+import { TenantList } from "@/components/admin/rental/tenant-list";
+import { OfficeList } from "@/components/admin/rental/office-list";
+import { ContractList } from "@/components/admin/rental/contract-list";
 
 export const dynamic = "force-dynamic";
 
@@ -39,34 +42,51 @@ const contractStatusVariant: Record<ContractStatus, "warning" | "success" | "def
   TERMINATED: "danger",
 };
 
-const officeStatusLabel: Record<OfficeStatus, string> = {
-  AVAILABLE: "Свободен",
-  OCCUPIED: "Занят",
-  MAINTENANCE: "Обслуживание",
-};
-
-const officeStatusVariant: Record<OfficeStatus, "success" | "default" | "warning"> = {
-  AVAILABLE: "success",
-  OCCUPIED: "default",
-  MAINTENANCE: "warning",
-};
-
 export default async function RentalManagerPage() {
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [offices, tenants, contracts, expiringCount, newThisMonth, totalRevenue, inquiries] =
+  const [offices, tenants, contracts, allContracts, expiringCount, newThisMonth, totalRevenue, inquiries] =
     await Promise.all([
-      prisma.office.findMany({ orderBy: [{ floor: "asc" }, { number: "asc" }] }),
+      prisma.office.findMany({
+        orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
+        include: {
+          contracts: {
+            where: { status: { in: ["ACTIVE", "EXPIRING"] } },
+            include: { tenant: { select: { id: true, companyName: true } } },
+            take: 1,
+          },
+        },
+      }),
       prisma.tenant.findMany({
+        where: { isDeleted: false },
         orderBy: { companyName: "asc" },
-        include: { _count: { select: { contracts: true } } },
+        include: {
+          _count: { select: { contracts: true } },
+          contracts: {
+            include: {
+              office: {
+                select: {
+                  id: true, number: true, floor: true, building: true,
+                  area: true, officeType: true,
+                },
+              },
+            },
+            orderBy: { endDate: "desc" },
+          },
+        },
       }),
       prisma.rentalContract.findMany({
-        include: { tenant: true, office: true },
+        include: {
+          tenant: { select: { companyName: true } },
+          office: { select: { number: true, floor: true, building: true } },
+        },
         orderBy: { createdAt: "desc" },
-        take: 50,
+      }),
+      prisma.rentalContract.findMany({
+        where: { status: { in: ["ACTIVE", "EXPIRING"] } },
+        select: { monthlyRate: true },
       }),
       prisma.rentalContract.count({
         where: {
@@ -82,320 +102,368 @@ export default async function RentalManagerPage() {
         select: { monthlyRate: true },
       }),
       prisma.rentalInquiry.findMany({
-        include: { office: { select: { number: true, floor: true } } },
+        include: { office: { select: { number: true, floor: true, building: true } } },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
     ]);
 
   const newInquiries = inquiries.filter((i) => !i.isRead).length;
-
-  const monthlyRevenue = totalRevenue.reduce(
-    (sum, c) => sum + Number(c.monthlyRate),
-    0
-  );
-  const activeContracts = contracts.filter((c) =>
-    ["ACTIVE", "EXPIRING"].includes(c.status)
-  ).length;
+  const monthlyRevenue = totalRevenue.reduce((sum, c) => sum + Number(c.monthlyRate), 0);
+  const activeContracts = allContracts.length;
   const occupiedOffices = offices.filter((o) => o.status === "OCCUPIED").length;
+
+  // Auto-update contract statuses in-memory
+  const contractsForUI = contracts.map((c) => {
+    let status = c.status;
+    if (status === "ACTIVE" || status === "EXPIRING") {
+      const endDate = new Date(c.endDate);
+      if (endDate < now) status = "EXPIRED";
+      else if (endDate < in30Days) status = "EXPIRING";
+    }
+    return {
+      ...c,
+      status,
+      startDate: c.startDate.toISOString(),
+      endDate: c.endDate.toISOString(),
+      pricePerSqm: c.pricePerSqm ? Number(c.pricePerSqm) : null,
+      monthlyRate: Number(c.monthlyRate),
+      newPricePerSqm: c.newPricePerSqm ? Number(c.newPricePerSqm) : null,
+      priceIncreaseDate: c.priceIncreaseDate ? c.priceIncreaseDate.toISOString() : null,
+      deposit: c.deposit ? Number(c.deposit) : null,
+    };
+  });
+
+  // Occupancy by building
+  const buildingStats = new Map<number, { total: number; occupied: number }>();
+  for (const o of offices) {
+    if (!buildingStats.has(o.building)) buildingStats.set(o.building, { total: 0, occupied: 0 });
+    const s = buildingStats.get(o.building)!;
+    s.total++;
+    if (o.status === "OCCUPIED") s.occupied++;
+  }
+
+  // Expiring contracts list
+  const expiringContracts = contractsForUI
+    .filter((c) => c.status === "EXPIRING")
+    .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime())
+    .slice(0, 10);
 
   return (
     <>
-      <AdminHeader title="Аренда офисов" />
-      <div className="p-8">
-        {/* Stats */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
-          <StatusWidget
-            title="Офисов занято"
-            value={`${occupiedOffices} / ${offices.length}`}
-            status="info"
-            description={`${Math.round((occupiedOffices / (offices.length || 1)) * 100)}% занятость`}
-          />
-          <StatusWidget
-            title="Выручка/месяц"
-            value={`${monthlyRevenue.toLocaleString("ru-RU")} ₽`}
-            status="success"
-            description={`${activeContracts} активных договоров`}
-          />
-          <StatusWidget
-            title="Истекают (30 дней)"
-            value={expiringCount}
-            status={expiringCount > 0 ? "warning" : "success"}
-          />
-          <StatusWidget
-            title="Новых договоров"
-            value={newThisMonth}
-            status="info"
-            description="в этом месяце"
-          />
-          <StatusWidget
-            title="Заявки на аренду"
-            value={newInquiries}
-            status={newInquiries > 0 ? "warning" : "success"}
-            description={`${inquiries.length} всего`}
-          />
-        </div>
+      <AdminHeader title="Аренда — CRM" />
+      <div className="p-6 lg:p-8">
+        <RentalTabs>
+          {{
+            overview: (
+              <div className="space-y-6">
+                {/* === KPI Widgets === */}
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+                  <StatusWidget
+                    title="Помещений занято"
+                    value={`${occupiedOffices} / ${offices.length}`}
+                    status="info"
+                    description={`${Math.round((occupiedOffices / (offices.length || 1)) * 100)}% занятость`}
+                  />
+                  <StatusWidget
+                    title="Выручка/мес"
+                    value={`${monthlyRevenue.toLocaleString("ru-RU")} ₽`}
+                    status="success"
+                    description={`${activeContracts} активных`}
+                  />
+                  <StatusWidget
+                    title="Истекают (30 дн.)"
+                    value={expiringCount}
+                    status={expiringCount > 0 ? "warning" : "success"}
+                  />
+                  <StatusWidget
+                    title="Новых/мес"
+                    value={newThisMonth}
+                    status="info"
+                    description={now.toLocaleDateString("ru-RU", { month: "long" })}
+                  />
+                  <StatusWidget
+                    title="Заявки"
+                    value={newInquiries}
+                    status={newInquiries > 0 ? "warning" : "success"}
+                    description="непрочитанных"
+                  />
+                </div>
 
-        {/* === INQUIRIES === */}
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">
-                Заявки на аренду
-                {newInquiries > 0 && (
-                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
-                    {newInquiries}
-                  </span>
+                {/* === Occupancy by Building === */}
+                <Card>
+                  <CardHeader>
+                    <h2 className="font-semibold text-zinc-900">Заполняемость по корпусам</h2>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {Array.from(buildingStats.entries())
+                        .sort(([a], [b]) => a - b)
+                        .map(([building, s]) => {
+                          const pct = s.total > 0 ? Math.round((s.occupied / s.total) * 100) : 0;
+                          return (
+                            <div key={building} className="rounded-lg border border-zinc-100 p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-semibold text-zinc-900">Корпус {building}</span>
+                                <span className="text-sm text-zinc-500">{s.occupied}/{s.total}</span>
+                              </div>
+                              <div className="w-full h-3 bg-zinc-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    pct > 80 ? "bg-green-500" : pct > 50 ? "bg-blue-500" : "bg-amber-500"
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-xs text-zinc-400">{pct}% занято</p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* === Expiring Contracts Alert === */}
+                {expiringContracts.length > 0 && (
+                  <Card className="border-amber-200">
+                    <CardHeader className="bg-amber-50/50">
+                      <h2 className="font-semibold text-amber-900">
+                        ⚠ Истекающие договоры
+                        <span className="ml-2 text-sm font-normal text-amber-600">
+                          ({expiringContracts.length})
+                        </span>
+                      </h2>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {expiringContracts.map((c) => {
+                          const daysLeft = Math.ceil(
+                            (new Date(c.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+                          );
+                          return (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between py-2 px-3 rounded-lg bg-amber-50/50 text-sm"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="font-medium text-zinc-900">
+                                  К{c.office.building}·{c.office.number}
+                                </span>
+                                <span className="text-zinc-600">{c.tenant.companyName}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-zinc-500">
+                                  {Number(c.monthlyRate).toLocaleString("ru-RU")} ₽/мес
+                                </span>
+                                <Badge variant={daysLeft <= 7 ? "danger" : "warning"}>
+                                  {daysLeft} дн.
+                                </Badge>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
-              </h2>
-              <span className="text-sm text-zinc-500">{inquiries.length} всего</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {inquiries.length === 0 ? (
-              <p className="text-sm text-zinc-400">Заявок пока нет</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Дата</th>
-                    <th className="pb-3 font-medium">Имя</th>
-                    <th className="pb-3 font-medium">Телефон</th>
-                    <th className="pb-3 font-medium">Компания</th>
-                    <th className="pb-3 font-medium">Офис</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inquiries.map((inq) => (
-                    <tr key={inq.id} className={`border-b border-zinc-50 ${!inq.isRead ? "bg-blue-50/50" : ""}`}>
-                      <td className="py-3 text-zinc-500 whitespace-nowrap">
-                        {new Date(inq.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                      </td>
-                      <td className="py-3 font-medium text-zinc-900">
-                        {!inq.isRead && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2" />}
-                        {inq.name}
-                      </td>
-                      <td className="py-3">
-                        <a href={`tel:${inq.phone}`} className="text-blue-600 hover:underline">{inq.phone}</a>
-                      </td>
-                      <td className="py-3 text-zinc-600">{inq.companyName || "—"}</td>
-                      <td className="py-3 text-zinc-600">
-                        {inq.office ? `№${inq.office.number} (${inq.office.floor} эт.)` : "Общий"}
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={inquiryStatusVariant[inq.status]}>
-                          {inquiryStatusLabel[inq.status]}
-                        </Badge>
-                      </td>
-                      <td className="py-3">
-                        <InquiryActions inquiryId={inq.id} currentStatus={inq.status} isRead={inq.isRead} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* === OFFICES === */}
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">Офисы</h2>
-              <span className="text-sm text-zinc-500">{offices.length} всего</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {offices.length === 0 ? (
-              <p className="text-sm text-zinc-400">Офисы не добавлены</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Номер</th>
-                    <th className="pb-3 font-medium">Этаж</th>
-                    <th className="pb-3 font-medium">Площадь</th>
-                    <th className="pb-3 font-medium">Цена/месяц</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {offices.map((office) => (
-                    <tr key={office.id} className="border-b border-zinc-50">
-                      <td className="py-3 font-medium text-zinc-900">№{office.number}</td>
-                      <td className="py-3 text-zinc-600">{office.floor} эт.</td>
-                      <td className="py-3 text-zinc-600">{Number(office.area)} м²</td>
-                      <td className="py-3 text-zinc-600">
-                        {Number(office.pricePerMonth).toLocaleString("ru-RU")} ₽
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={officeStatusVariant[office.status]}>
-                          {officeStatusLabel[office.status]}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* === TENANTS (CRM) === */}
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">Арендаторы</h2>
-              <span className="text-sm text-zinc-500">{tenants.length} компаний</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {tenants.length === 0 ? (
-              <p className="text-sm text-zinc-400">Арендаторы не добавлены</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Компания</th>
-                    <th className="pb-3 font-medium">Контакт</th>
-                    <th className="pb-3 font-medium">Телефон</th>
-                    <th className="pb-3 font-medium">Email</th>
-                    <th className="pb-3 font-medium">ИНН</th>
-                    <th className="pb-3 font-medium">Договоров</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((tenant) => (
-                    <tr key={tenant.id} className="border-b border-zinc-50">
-                      <td className="py-3 font-medium text-zinc-900">{tenant.companyName}</td>
-                      <td className="py-3 text-zinc-600">{tenant.contactName}</td>
-                      <td className="py-3 text-zinc-600">
-                        {tenant.phone ? (
-                          <a href={`tel:${tenant.phone}`} className="text-blue-600 hover:underline">
-                            {tenant.phone}
-                          </a>
-                        ) : (
-                          "—"
+                {/* === Inquiries === */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-semibold text-zinc-900">
+                        Заявки на аренду
+                        {newInquiries > 0 && (
+                          <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                            {newInquiries}
+                          </span>
                         )}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {tenant.email ? (
-                          <a href={`mailto:${tenant.email}`} className="text-blue-600 hover:underline">
-                            {tenant.email}
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="py-3 text-zinc-600">{tenant.inn ?? "—"}</td>
-                      <td className="py-3 text-zinc-600">{tenant._count.contracts}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
+                      </h2>
+                      <span className="text-sm text-zinc-500">{inquiries.length} всего</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {inquiries.length === 0 ? (
+                      <p className="text-sm text-zinc-400">Заявок пока нет</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                              <th className="pb-3 pr-3 font-medium">Дата</th>
+                              <th className="pb-3 pr-3 font-medium">Имя</th>
+                              <th className="pb-3 pr-3 font-medium">Телефон</th>
+                              <th className="pb-3 pr-3 font-medium">Компания</th>
+                              <th className="pb-3 pr-3 font-medium">Помещение</th>
+                              <th className="pb-3 pr-3 font-medium">Статус</th>
+                              <th className="pb-3 font-medium">Действия</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {inquiries.slice(0, 10).map((inq) => (
+                              <tr
+                                key={inq.id}
+                                className={`border-b border-zinc-50 ${!inq.isRead ? "bg-blue-50/50" : ""}`}
+                              >
+                                <td className="py-3 pr-3 text-zinc-500 whitespace-nowrap text-xs">
+                                  {new Date(inq.createdAt).toLocaleDateString("ru-RU", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </td>
+                                <td className="py-3 pr-3 font-medium text-zinc-900">
+                                  {!inq.isRead && (
+                                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2" />
+                                  )}
+                                  {inq.name}
+                                </td>
+                                <td className="py-3 pr-3">
+                                  <a href={`tel:${inq.phone}`} className="text-blue-600 hover:underline">
+                                    {inq.phone}
+                                  </a>
+                                </td>
+                                <td className="py-3 pr-3 text-zinc-600">{inq.companyName || "—"}</td>
+                                <td className="py-3 pr-3 text-zinc-600">
+                                  {inq.office
+                                    ? `К${inq.office.building}·${inq.office.number} (${inq.office.floor} эт.)`
+                                    : "Общий"}
+                                </td>
+                                <td className="py-3 pr-3">
+                                  <Badge variant={inquiryStatusVariant[inq.status]}>
+                                    {inquiryStatusLabel[inq.status]}
+                                  </Badge>
+                                </td>
+                                <td className="py-3">
+                                  <InquiryActions
+                                    inquiryId={inq.id}
+                                    currentStatus={inq.status}
+                                    isRead={inq.isRead}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-        {/* === CONTRACTS === */}
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">Договоры</h2>
-              <span className="text-sm text-zinc-500">{contracts.length} записей</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {contracts.length === 0 ? (
-              <p className="text-sm text-zinc-400">Договоры не добавлены</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Офис</th>
-                    <th className="pb-3 font-medium">Арендатор</th>
-                    <th className="pb-3 font-medium">Период</th>
-                    <th className="pb-3 font-medium">Ставка/мес</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contracts.map((c) => (
-                    <tr key={c.id} className="border-b border-zinc-50">
-                      <td className="py-3 font-medium text-zinc-900">
-                        №{c.office.number}
-                        <span className="text-zinc-400 font-normal"> ({c.office.floor} эт.)</span>
-                      </td>
-                      <td className="py-3 text-zinc-600">{c.tenant.companyName}</td>
-                      <td className="py-3 text-zinc-600 whitespace-nowrap">
-                        {new Date(c.startDate).toLocaleDateString("ru-RU")}
-                        {" — "}
-                        {new Date(c.endDate).toLocaleDateString("ru-RU")}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {Number(c.monthlyRate).toLocaleString("ru-RU")} ₽
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={contractStatusVariant[c.status]}>
-                          {contractStatusLabel[c.status]}
-                        </Badge>
-                      </td>
-                      <td className="py-3">
-                        <ContractActions contractId={c.id} currentStatus={c.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
+                {/* === Financial Summary === */}
+                <Card>
+                  <CardHeader>
+                    <h2 className="font-semibold text-zinc-900">
+                      Финансы — {now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
+                    </h2>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                      <div className="rounded-lg bg-zinc-50 p-4">
+                        <p className="text-zinc-500 text-xs">Выручка (прогноз)</p>
+                        <p className="text-xl font-bold text-zinc-900 mt-1">
+                          {monthlyRevenue.toLocaleString("ru-RU")} ₽
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-zinc-50 p-4">
+                        <p className="text-zinc-500 text-xs">Занятость</p>
+                        <p className="text-xl font-bold text-zinc-900 mt-1">
+                          {Math.round((occupiedOffices / (offices.length || 1)) * 100)}%
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-zinc-50 p-4">
+                        <p className="text-zinc-500 text-xs">Активных договоров</p>
+                        <p className="text-xl font-bold text-zinc-900 mt-1">{activeContracts}</p>
+                      </div>
+                      <div className="rounded-lg bg-zinc-50 p-4">
+                        <p className="text-zinc-500 text-xs">Истекают скоро</p>
+                        <p
+                          className={`text-xl font-bold mt-1 ${
+                            expiringCount > 0 ? "text-amber-600" : "text-zinc-900"
+                          }`}
+                        >
+                          {expiringCount}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ),
 
-        {/* === FINANCIAL REPORT PREVIEW === */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">
-              Отчёт за{" "}
-              {now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
-              <div className="rounded-lg bg-zinc-50 p-4">
-                <p className="text-zinc-500">Выручка (прогноз)</p>
-                <p className="text-xl font-bold text-zinc-900 mt-1">
-                  {monthlyRevenue.toLocaleString("ru-RU")} ₽
-                </p>
-              </div>
-              <div className="rounded-lg bg-zinc-50 p-4">
-                <p className="text-zinc-500">Занятость</p>
-                <p className="text-xl font-bold text-zinc-900 mt-1">
-                  {Math.round((occupiedOffices / (offices.length || 1)) * 100)}%
-                </p>
-              </div>
-              <div className="rounded-lg bg-zinc-50 p-4">
-                <p className="text-zinc-500">Активных договоров</p>
-                <p className="text-xl font-bold text-zinc-900 mt-1">{activeContracts}</p>
-              </div>
-              <div className="rounded-lg bg-zinc-50 p-4">
-                <p className="text-zinc-500">Истекают скоро</p>
-                <p className={`text-xl font-bold mt-1 ${expiringCount > 0 ? "text-amber-600" : "text-zinc-900"}`}>
-                  {expiringCount}
-                </p>
-              </div>
-            </div>
-            <p className="mt-4 text-xs text-zinc-400">
-              Полный отчёт доступен через API:{" "}
-              <code className="font-mono bg-zinc-100 px-1 rounded">
-                GET /api/rental/reports?year={now.getFullYear()}&amp;month={now.getMonth() + 1}
-              </code>
-            </p>
-          </CardContent>
-        </Card>
+            tenants: (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-zinc-900">Арендаторы</h2>
+                    <span className="text-sm text-zinc-500">{tenants.length} всего</span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <TenantList
+                    tenants={tenants.map((t) => ({
+                      ...t,
+                      phonesExtra: t.phonesExtra as string[] | null,
+                      emailsExtra: t.emailsExtra as string[] | null,
+                      contracts: t.contracts.map((c) => ({
+                        id: c.id,
+                        status: c.status,
+                        startDate: c.startDate.toISOString(),
+                        endDate: c.endDate.toISOString(),
+                        pricePerSqm: c.pricePerSqm ? Number(c.pricePerSqm) : null,
+                        monthlyRate: Number(c.monthlyRate),
+                        documentUrl: c.documentUrl,
+                        office: {
+                          id: c.office.id,
+                          number: c.office.number,
+                          floor: c.office.floor,
+                          building: c.office.building,
+                          area: Number(c.office.area),
+                          officeType: c.office.officeType,
+                        },
+                      })),
+                    }))}
+                  />
+                </CardContent>
+              </Card>
+            ),
+
+            offices: (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-zinc-900">Помещения</h2>
+                    <span className="text-sm text-zinc-500">{offices.length} всего</span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <OfficeList
+                    offices={offices.map((o) => ({
+                      ...o,
+                      area: Number(o.area),
+                      pricePerMonth: Number(o.pricePerMonth),
+                    }))}
+                  />
+                </CardContent>
+              </Card>
+            ),
+
+            contracts: (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-zinc-900">Договоры</h2>
+                    <span className="text-sm text-zinc-500">{contracts.length} всего</span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ContractList contracts={contractsForUI} />
+                </CardContent>
+              </Card>
+            ),
+          }}
+        </RentalTabs>
       </div>
     </>
   );

@@ -6,13 +6,13 @@ import { getOffice, updateOffice, RentalError } from "@/modules/rental/service";
 import { updateOfficeSchema } from "@/modules/rental/validation";
 
 /**
- * GET /api/rental/:id — get office by ID
+ * GET /api/rental/:id — get office by ID (backward-compatible)
  */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const office = await getOffice(id);
-    if (!office) return apiNotFound("Офис не найден");
+    if (!office) return apiNotFound("Помещение не найдено");
     return apiResponse(office);
   } catch {
     return apiServerError();
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /**
- * PATCH /api/rental/:id — update office (MANAGER/SUPERADMIN)
+ * PATCH /api/rental/:id — update office (MANAGER/SUPERADMIN, backward-compatible)
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {

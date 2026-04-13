@@ -7,8 +7,8 @@ import { useSession, signOut } from "next-auth/react";
 const navLinks = [
   { label: "О парке", href: "#advantages" },
   { label: "Офисы", href: "#offices" },
-  { label: "Беседки", href: "/gazebos" },
-  { label: "PS Park", href: "/ps-park" },
+  { label: "Барбекю Парк", href: "/gazebos" },
+  { label: "Плей Парк", href: "/ps-park" },
   { label: "Кафе", href: "/cafe" },
   { label: "Контакты", href: "#contacts" },
 ];

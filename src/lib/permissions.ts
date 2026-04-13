@@ -14,8 +14,8 @@ export type SessionUser = {
  */
 export const ADMIN_SECTIONS = [
   { slug: "dashboard", label: "Дашборд", icon: "📊" },
-  { slug: "gazebos", label: "Беседки", icon: "🏕" },
-  { slug: "ps-park", label: "PS Park", icon: "🎮" },
+  { slug: "gazebos", label: "Барбекю Парк", icon: "🏕" },
+  { slug: "ps-park", label: "Плей Парк", icon: "🎮" },
   { slug: "cafe", label: "Кафе", icon: "☕" },
   { slug: "rental", label: "Аренда", icon: "🏢" },
   { slug: "modules", label: "Модули", icon: "📦" },

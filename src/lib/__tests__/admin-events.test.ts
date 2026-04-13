@@ -10,7 +10,7 @@ const mockEvent: AdminBrowserEvent = {
   type: "booking.created",
   moduleSlug: "gazebos",
   entityId: "booking-123",
-  title: "Новое бронирование — Беседки",
+  title: "Новое бронирование — Барбекю Парк",
   body: "Беседка №1\n2026-04-15 10:00–12:00",
   timestamp: new Date().toISOString(),
 };

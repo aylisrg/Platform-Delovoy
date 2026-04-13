@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DateNavigator } from "./date-navigator";
 import { QuickBookingPopover } from "./quick-booking-popover";
+import { BookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
 
 type TimelineGridProps = {
@@ -26,6 +27,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [popover, setPopover] = useState<PopoverState>(null);
+  const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(null);
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -125,6 +127,26 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     loadTimeline(date);
   }
 
+  function handleBookingClick(booking: TimelineBooking, e: React.MouseEvent) {
+    e.stopPropagation();
+    setSelectedBooking(selectedBooking?.id === booking.id ? null : booking);
+    setPopover(null);
+  }
+
+  function handleBookingStatusChanged() {
+    setSelectedBooking(null);
+    loadTimeline(date);
+  }
+
+  function getResourceName(resourceId: string): string {
+    return data.resources.find((r) => r.id === resourceId)?.name ?? "—";
+  }
+
+  function getResourcePrice(resourceId: string): number | null {
+    const r = data.resources.find((r) => r.id === resourceId);
+    return r?.pricePerHour ? Number(r.pricePerHour) : null;
+  }
+
   // Check if a booking is currently active (happening right now)
   function isActiveNow(booking: TimelineBooking): boolean {
     const now = new Date();
@@ -210,21 +232,25 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
                     const style = getBookingStyle(booking);
                     const active = isActiveNow(booking);
                     const isPending = booking.status === "PENDING";
+                    const isSelected = selectedBooking?.id === booking.id;
                     const meta = booking.metadata as Record<string, unknown> | null;
                     const playerCount = meta?.playerCount as number | undefined;
 
                     return (
                       <div
                         key={booking.id}
-                        className={`absolute top-1 bottom-1 rounded-lg px-2 py-1 overflow-hidden text-xs leading-tight transition-all ${
-                          active
-                            ? "bg-emerald-100 border-2 border-emerald-400 shadow-sm"
+                        className={`absolute top-1 bottom-1 rounded-lg px-2 py-1 overflow-hidden text-xs leading-tight transition-all cursor-pointer select-none ${
+                          isSelected
+                            ? "bg-blue-100 border-2 border-blue-500 shadow-md ring-2 ring-blue-300/50 z-20"
+                            : active
+                            ? "bg-emerald-100 border-2 border-emerald-400 shadow-sm hover:shadow-md hover:brightness-95"
                             : isPending
-                            ? "bg-amber-50 border border-dashed border-amber-300"
-                            : "bg-emerald-50 border border-emerald-200"
+                            ? "bg-amber-50 border border-dashed border-amber-300 hover:bg-amber-100/70"
+                            : "bg-emerald-50 border border-emerald-200 hover:bg-emerald-100/70"
                         }`}
                         style={style}
-                        title={`${booking.clientName ?? "—"} ${booking.status}`}
+                        title={`${booking.clientName ?? "—"} · Нажмите для подробностей`}
+                        onClick={(e) => handleBookingClick(booking, e)}
                       >
                         <div className="flex items-center gap-1">
                           {active && (
@@ -262,6 +288,18 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           </div>
         )}
       </div>
+
+      {/* Booking detail card */}
+      {selectedBooking && (
+        <BookingDetailCard
+          booking={selectedBooking}
+          resourceName={getResourceName(selectedBooking.resourceId)}
+          pricePerHour={getResourcePrice(selectedBooking.resourceId)}
+          isActiveNow={isActiveNow(selectedBooking)}
+          onClose={() => setSelectedBooking(null)}
+          onStatusChanged={handleBookingStatusChanged}
+        />
+      )}
 
       {/* Quick booking popover */}
       {popover && (

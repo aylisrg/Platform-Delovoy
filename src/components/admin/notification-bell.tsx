@@ -13,8 +13,8 @@ type AdminEvent = {
 };
 
 const MODULE_LABELS: Record<string, string> = {
-  gazebos: "Беседки",
-  "ps-park": "PS Park",
+  gazebos: "Барбекю Парк",
+  "ps-park": "Плей Парк",
   cafe: "Кафе",
   rental: "Аренда",
 };

@@ -70,8 +70,8 @@ export default async function DashboardPage() {
             title="Бронирования сегодня"
             value={stats.bookingsToday}
             subLinks={[
-              { label: "Беседки", href: "/admin/gazebos", count: stats.gazeboBookingsToday },
-              { label: "PS Park", href: "/admin/ps-park", count: stats.psParkBookingsToday },
+              { label: "Барбекю Парк", href: "/admin/gazebos", count: stats.gazeboBookingsToday },
+              { label: "Плей Парк", href: "/admin/ps-park", count: stats.psParkBookingsToday },
             ]}
           />
           <StatusWidget

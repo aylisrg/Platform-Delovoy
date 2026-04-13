@@ -220,8 +220,8 @@ export function ClientsPageContent() {
           className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none"
         >
           <option value="">Все модули</option>
-          <option value="gazebos">Беседки</option>
-          <option value="ps-park">PS Park</option>
+          <option value="gazebos">Барбекю Парк</option>
+          <option value="ps-park">Плей Парк</option>
           <option value="cafe">Кафе</option>
         </select>
 

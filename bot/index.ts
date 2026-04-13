@@ -2,7 +2,7 @@
  * Telegram Bot — @DelovoyPark_bot
  *
  * Main entry point for the Platform Delovoy Telegram bot.
- * Handles: bookings (gazebos, PS Park), cafe menu, notifications, admin alerts.
+ * Handles: bookings (gazebos, Плей Парк), cafe menu, notifications, admin alerts.
  *
  * Usage:
  *   npx tsx bot/index.ts
@@ -80,8 +80,8 @@ export async function sendAlert(
  */
 function mainMenuKeyboard() {
   return new InlineKeyboard()
-    .text("🏕 Беседки", "menu:gazebos")
-    .text("🎮 PlayStation", "menu:ps-park")
+    .text("🏕 Барбекю Парк", "menu:gazebos")
+    .text("🎮 Плей Парк", "menu:ps-park")
     .row()
     .text("☕ Кафе", "menu:cafe")
     .text("📋 Мои брони", "menu:my-bookings")
@@ -107,7 +107,7 @@ async function startBot() {
     // Handle deep links
     if (deepLink === "gazebos") {
       await ctx.reply(
-        "🏕 *Беседки бизнес\\-парка «Деловой»*\n\nВыберите действие:",
+        "🏕 *Барбекю Парк бизнес\\-парка «Деловой»*\n\nВыберите действие:",
         {
           parse_mode: "MarkdownV2",
           reply_markup: new InlineKeyboard()
@@ -121,7 +121,7 @@ async function startBot() {
 
     if (deepLink === "ps-park" || deepLink === "ps") {
       await ctx.reply(
-        "🎮 *PlayStation Park*\n\nВыберите действие:",
+        "🎮 *Плей Парк*\n\nВыберите действие:",
         {
           parse_mode: "MarkdownV2",
           reply_markup: new InlineKeyboard()
@@ -153,8 +153,8 @@ async function startBot() {
       `Привет, ${userName}! 👋\n\n` +
         `Я бот бизнес-парка <b>«Деловой»</b> (Селятино).\n\n` +
         `Через меня можно:\n` +
-        `🏕 Забронировать беседку\n` +
-        `🎮 Забронировать стол в PlayStation Park\n` +
+        `🏕 Забронировать беседку в Барбекю Парке\n` +
+        `🎮 Забронировать стол в Плей Парке\n` +
         `☕ Посмотреть меню кафе\n` +
         `📋 Проверить свои бронирования\n\n` +
         `Выберите, что вас интересует:`,
@@ -170,8 +170,8 @@ async function startBot() {
     await ctx.reply(
       `<b>Команды бота:</b>\n\n` +
         `/start — Главное меню\n` +
-        `/gazebos — Бронирование беседок\n` +
-        `/ps — Бронирование PlayStation\n` +
+        `/gazebos — Барбекю Парк\n` +
+        `/ps — Плей Парк\n` +
         `/cafe — Меню кафе\n` +
         `/mybookings — Мои бронирования\n` +
         `/help — Эта справка\n\n` +

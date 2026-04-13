@@ -41,14 +41,14 @@ export default async function GazebosMarketingPage() {
 
   return (
     <>
-      <AdminHeader title="Реклама и аналитика — Беседки" />
+      <AdminHeader title="Реклама и аналитика — Барбекю Парк" />
       <div className="p-8">
         {/* Back link */}
         <Link
           href="/admin/gazebos"
           className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900 mb-8"
         >
-          ← Беседки
+          ← Барбекю Парк
         </Link>
 
         {/* Date range info */}

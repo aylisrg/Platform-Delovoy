@@ -9,14 +9,14 @@ import type { DayAvailability } from "@/modules/ps-park/types";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "PlayStation Park",
+  title: "Плей Парк",
   description:
-    "PlayStation Park в бизнес-парке Деловой, Селятино. PS5, FIFA, гоночные симуляторы. Аренда столов с PlayStation по часам. Онлайн-бронирование.",
+    "Плей Парк в бизнес-парке Деловой, Селятино. PS5, FIFA, гоночные симуляторы. Аренда столов с PlayStation по часам. Онлайн-бронирование.",
   alternates: {
     canonical: "/ps-park",
   },
   openGraph: {
-    title: "PlayStation Park — Деловой Парк",
+    title: "Плей Парк — Деловой Парк",
     description: "Аренда PS5 по часам. Селятино, Московская область. Онлайн-бронирование столов.",
     url: "/ps-park",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
@@ -172,13 +172,13 @@ export default async function PSParkPage() {
               letterSpacing: "clamp(-2px, -0.04em, -5px)",
             }}
           >
-            PlayStation
+            Плей
             <br />
             <span
               className="text-transparent bg-clip-text"
               style={{ backgroundImage: "linear-gradient(135deg, #a855f7, #6366f1)" }}
             >
-              Park
+              Парк
             </span>
           </h1>
 
@@ -335,7 +335,7 @@ export default async function PSParkPage() {
       <footer className="border-t border-zinc-800 bg-zinc-900/40">
         <div className="max-w-6xl mx-auto px-4 py-8 flex items-center justify-between gap-4 flex-wrap">
           <p className="text-zinc-600 text-sm">
-            PlayStation Park · Бизнес-парк Деловой, Селятино
+            Плей Парк · Бизнес-парк Деловой, Селятино
           </p>
           <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
             ← На главную

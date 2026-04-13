@@ -21,8 +21,8 @@ assignees: aylisrg
 ## Затронутые модули / Компоненты
 
 - [ ] Café
-- [ ] Беседки (Gazebos)
-- [ ] PS Park
+- [ ] Барбекю Парк (Gazebos)
+- [ ] Плей Парк
 - [ ] Аренда офисов (Rental)
 - [ ] Admin Dashboard
 - [ ] Telegram Bot

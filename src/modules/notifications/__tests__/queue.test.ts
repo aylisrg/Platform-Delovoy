@@ -37,7 +37,7 @@ describe("enqueueNotification", () => {
         type: "booking.created",
         moduleSlug: "gazebos",
         entityId: "booking-1",
-        title: expect.stringContaining("Беседки"),
+        title: expect.stringContaining("Барбекю Парк"),
         body: expect.stringContaining("Беседка №1"),
       })
     );

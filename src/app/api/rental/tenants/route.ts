@@ -3,19 +3,25 @@ import { apiResponse, apiError, apiUnauthorized, apiForbidden, apiValidationErro
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { listTenants, createTenant, RentalError } from "@/modules/rental/service";
-import { createTenantSchema } from "@/modules/rental/validation";
+import { createTenantSchema, tenantFilterSchema } from "@/modules/rental/validation";
 
 /**
- * GET /api/rental/tenants — list tenants (MANAGER/SUPERADMIN)
+ * GET /api/rental/tenants — list tenants with search and pagination (MANAGER/SUPERADMIN)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!["MANAGER", "SUPERADMIN"].includes(session.user.role ?? "")) return apiForbidden();
 
-    const tenants = await listTenants();
-    return apiResponse(tenants);
+    const params = Object.fromEntries(request.nextUrl.searchParams.entries());
+    const parsed = tenantFilterSchema.safeParse(params);
+    if (!parsed.success) {
+      return apiValidationError(parsed.error.issues[0].message);
+    }
+
+    const result = await listTenants(parsed.data);
+    return apiResponse(result.tenants, { page: result.page, perPage: result.limit, total: result.total });
   } catch {
     return apiServerError();
   }

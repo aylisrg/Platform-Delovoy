@@ -59,12 +59,12 @@ export default async function GazebosManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Управление беседками" actions={<ReceiveStockButton />} />
+      <AdminHeader title="Барбекю Парк" actions={<ReceiveStockButton />} />
       <div className="p-8">
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-8">
           <StatusWidget
-            title="Беседки"
+            title="Барбекю Парк"
             value={resources.length}
             status="info"
             description={`${resources.filter((r) => r.isActive).length} активных`}

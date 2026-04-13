@@ -12,8 +12,8 @@ import type {
 import type { ClientFilterInput } from "./validation";
 
 const MODULE_NAMES: Record<string, string> = {
-  gazebos: "Беседки",
-  "ps-park": "PS Park",
+  gazebos: "Барбекю Парк",
+  "ps-park": "Плей Парк",
   cafe: "Кафе",
 };
 
@@ -608,12 +608,12 @@ export async function getClientStats(): Promise<ClientStats> {
   const moduleBreakdown = [
     {
       moduleSlug: "gazebos",
-      moduleName: "Беседки",
+      moduleName: "Барбекю Парк",
       clientCount: gazeboUsers.length,
     },
     {
       moduleSlug: "ps-park",
-      moduleName: "PS Park",
+      moduleName: "Плей Парк",
       clientCount: psParkUsers.length,
     },
     {

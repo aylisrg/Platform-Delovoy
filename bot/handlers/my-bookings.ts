@@ -13,8 +13,8 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const MODULE_LABELS: Record<string, string> = {
-  gazebos: "🏕 Беседка",
-  "ps-park": "🎮 PlayStation",
+  gazebos: "🏕 Барбекю Парк",
+  "ps-park": "🎮 Плей Парк",
 };
 
 /**
@@ -110,10 +110,10 @@ async function showBookings(ctx: BotContext, edit = false) {
     const data = await res.json();
 
     if (!data.success || data.data.length === 0) {
-      const text = "📋 У вас пока нет бронирований.\n\nЗабронируйте беседку или стол PlayStation!";
+      const text = "📋 У вас пока нет бронирований.\n\nЗабронируйте беседку или стол в Плей Парке!";
       const keyboard = new InlineKeyboard()
-        .text("🏕 Беседки", "gazebos:list")
-        .text("🎮 PlayStation", "pspark:list")
+        .text("🏕 Барбекю Парк", "gazebos:list")
+        .text("🎮 Плей Парк", "pspark:list")
         .row()
         .text("← Главное меню", "menu:main");
 
