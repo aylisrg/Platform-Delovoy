@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ActiveSession } from "@/modules/ps-park/types";
 import { ActiveSessionCard } from "./active-session-card";
+import { playSessionEndingAlert } from "@/lib/sound";
+
+const SESSION_ALERT_THRESHOLD_MINUTES = 10;
 
 type ActiveSessionsPanelProps = {
   initialSessions: ActiveSession[];
@@ -12,16 +15,58 @@ export function ActiveSessionsPanel({
   initialSessions,
 }: ActiveSessionsPanelProps) {
   const [sessions, setSessions] = useState(initialSessions);
+  // Track which bookings have already triggered the 10-min alert
+  const alertedRef = useRef<Set<string>>(new Set());
+
+  const checkSessionAlerts = useCallback((sessionList: ActiveSession[]) => {
+    const now = Date.now();
+
+    for (const session of sessionList) {
+      if (alertedRef.current.has(session.bookingId)) continue;
+
+      const endMs = new Date(session.endTime).getTime();
+      const remaining = Math.round((endMs - now) / 60_000);
+
+      if (remaining > 0 && remaining <= SESSION_ALERT_THRESHOLD_MINUTES) {
+        alertedRef.current.add(session.bookingId);
+
+        // Sound alert in admin browser
+        playSessionEndingAlert();
+
+        // Telegram alert to admin chat
+        fetch("/api/ps-park/session-ending-alert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingId: session.bookingId,
+            resourceName: session.resourceName,
+            clientName: session.clientName,
+            remainingMinutes: remaining,
+          }),
+        }).catch(() => {
+          // Non-critical — don't break the UI if Telegram fails
+        });
+      }
+    }
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch("/api/ps-park/active-sessions");
       const data = await res.json();
-      if (data.success) setSessions(data.data);
+      if (data.success) {
+        setSessions(data.data);
+        checkSessionAlerts(data.data);
+      }
     } catch {
       // keep old data on failure
     }
-  }, []);
+  }, [checkSessionAlerts]);
+
+  // Check alerts for initial sessions on mount
+  useEffect(() => {
+    checkSessionAlerts(initialSessions);
+  }, [initialSessions, checkSessionAlerts]);
 
   useEffect(() => {
     const interval = setInterval(fetchSessions, 30_000);

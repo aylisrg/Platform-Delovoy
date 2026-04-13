@@ -12,6 +12,7 @@ import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 import { CallButton } from "@/components/admin/telephony/call-button";
+import { TestAlertsButton } from "@/components/admin/ps-park/test-alerts-button";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +104,7 @@ export default async function PSParkManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Плей Парк" actions={<ReceiveStockButton />} />
+      <AdminHeader title="Плей Парк" actions={<><TestAlertsButton /><ReceiveStockButton /></>} />
       <div className="p-8">
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-6">
