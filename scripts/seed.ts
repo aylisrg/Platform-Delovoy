@@ -108,17 +108,17 @@ async function main() {
 
   // === OFFICES ===
   const offices = [
-    { number: "101", floor: 1, area: 25, pricePerMonth: 35000 },
-    { number: "102", floor: 1, area: 40, pricePerMonth: 55000 },
-    { number: "201", floor: 2, area: 30, pricePerMonth: 42000 },
-    { number: "202", floor: 2, area: 50, pricePerMonth: 70000 },
-    { number: "301", floor: 3, area: 35, pricePerMonth: 48000 },
+    { number: "101", floor: 1, building: 1, area: 25, pricePerMonth: 35000 },
+    { number: "102", floor: 1, building: 1, area: 40, pricePerMonth: 55000 },
+    { number: "201", floor: 2, building: 1, area: 30, pricePerMonth: 42000 },
+    { number: "202", floor: 2, building: 1, area: 50, pricePerMonth: 70000 },
+    { number: "301", floor: 3, building: 1, area: 35, pricePerMonth: 48000 },
   ];
 
   for (const office of offices) {
     await prisma.office.upsert({
-      where: { number: office.number },
-      update: { floor: office.floor, area: office.area, pricePerMonth: office.pricePerMonth },
+      where: { building_floor_number: { building: office.building, floor: office.floor, number: office.number } },
+      update: { area: office.area, pricePerMonth: office.pricePerMonth },
       create: office,
     });
   }

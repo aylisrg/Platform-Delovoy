@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { ContractStatus, OfficeStatus } from "@prisma/client";
+import type { ContractStatus, OfficeStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import type {
   CreateOfficeInput,
@@ -7,10 +7,14 @@ import type {
   OfficeFilter,
   CreateTenantInput,
   UpdateTenantInput,
+  TenantFilter,
   CreateContractInput,
   UpdateContractInput,
   ContractFilter,
+  RenewContractInput,
   MonthlyReport,
+  OccupancyReport,
+  ImportResult,
   CreateInquiryInput,
   UpdateInquiryInput,
   InquiryFilter,
@@ -27,78 +31,45 @@ export class RentalError extends Error {
   }
 }
 
-// === OFFICES ===
-
-export async function listOffices(filter?: OfficeFilter) {
-  return prisma.office.findMany({
-    where: {
-      ...(filter?.status && { status: filter.status }),
-      ...(filter?.floor && { floor: filter.floor }),
-    },
-    orderBy: [{ floor: "asc" }, { number: "asc" }],
-  });
-}
-
-export async function getOffice(id: string) {
-  return prisma.office.findUnique({ where: { id } });
-}
-
-export async function createOffice(input: CreateOfficeInput) {
-  const existing = await prisma.office.findUnique({ where: { number: input.number } });
-  if (existing) {
-    throw new RentalError("OFFICE_NUMBER_EXISTS", `Офис с номером ${input.number} уже существует`);
-  }
-
-  return prisma.office.create({
-    data: {
-      number: input.number,
-      floor: input.floor,
-      area: input.area,
-      pricePerMonth: input.pricePerMonth,
-      metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : undefined,
-    },
-  });
-}
-
-export async function updateOffice(id: string, input: UpdateOfficeInput) {
-  const office = await prisma.office.findUnique({ where: { id } });
-  if (!office) {
-    throw new RentalError("OFFICE_NOT_FOUND", "Офис не найден");
-  }
-
-  if (input.number && input.number !== office.number) {
-    const existing = await prisma.office.findUnique({ where: { number: input.number } });
-    if (existing) {
-      throw new RentalError("OFFICE_NUMBER_EXISTS", `Офис с номером ${input.number} уже существует`);
-    }
-  }
-
-  return prisma.office.update({
-    where: { id },
-    data: {
-      ...(input.number !== undefined && { number: input.number }),
-      ...(input.floor !== undefined && { floor: input.floor }),
-      ...(input.area !== undefined && { area: input.area }),
-      ...(input.pricePerMonth !== undefined && { pricePerMonth: input.pricePerMonth }),
-      ...(input.status !== undefined && { status: input.status as OfficeStatus }),
-      ...(input.metadata !== undefined && {
-        metadata: JSON.parse(JSON.stringify(input.metadata)),
-      }),
-    },
-  });
-}
-
 // === TENANTS ===
 
-export async function listTenants() {
-  return prisma.tenant.findMany({
-    orderBy: { companyName: "asc" },
-  });
+export async function listTenants(filter?: TenantFilter) {
+  const page = filter?.page ?? 1;
+  const limit = filter?.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.TenantWhereInput = {
+    isDeleted: false,
+    ...(filter?.type && { tenantType: filter.type }),
+  };
+
+  if (filter?.search) {
+    const search = filter.search;
+    where.OR = [
+      { companyName: { contains: search, mode: "insensitive" } },
+      { contactName: { contains: search, mode: "insensitive" } },
+      { phone: { contains: search } },
+      { email: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  const [tenants, total] = await Promise.all([
+    prisma.tenant.findMany({
+      where,
+      orderBy: { companyName: "asc" },
+      skip,
+      take: limit,
+      include: { _count: { select: { contracts: true } } },
+    }),
+    prisma.tenant.count({ where }),
+  ]);
+
+  return { tenants, total, page, limit };
 }
 
 export async function getTenant(id: string) {
   return prisma.tenant.findUnique({
-    where: { id },
+    where: { id, isDeleted: false },
     include: {
       contracts: {
         include: { office: true },
@@ -112,16 +83,22 @@ export async function createTenant(input: CreateTenantInput) {
   return prisma.tenant.create({
     data: {
       companyName: input.companyName,
+      tenantType: input.tenantType,
       contactName: input.contactName,
-      email: input.email,
       phone: input.phone,
+      phonesExtra: input.phonesExtra ?? undefined,
+      email: input.email,
+      emailsExtra: input.emailsExtra ?? undefined,
       inn: input.inn,
+      legalAddress: input.legalAddress,
+      needsLegalAddress: input.needsLegalAddress,
+      notes: input.notes,
     },
   });
 }
 
 export async function updateTenant(id: string, input: UpdateTenantInput) {
-  const tenant = await prisma.tenant.findUnique({ where: { id } });
+  const tenant = await prisma.tenant.findUnique({ where: { id, isDeleted: false } });
   if (!tenant) {
     throw new RentalError("TENANT_NOT_FOUND", "Арендатор не найден");
   }
@@ -130,41 +107,231 @@ export async function updateTenant(id: string, input: UpdateTenantInput) {
     where: { id },
     data: {
       ...(input.companyName !== undefined && { companyName: input.companyName }),
+      ...(input.tenantType !== undefined && { tenantType: input.tenantType }),
       ...(input.contactName !== undefined && { contactName: input.contactName }),
-      ...(input.email !== undefined && { email: input.email }),
       ...(input.phone !== undefined && { phone: input.phone }),
+      ...(input.phonesExtra !== undefined && { phonesExtra: input.phonesExtra }),
+      ...(input.email !== undefined && { email: input.email }),
+      ...(input.emailsExtra !== undefined && { emailsExtra: input.emailsExtra }),
       ...(input.inn !== undefined && { inn: input.inn }),
+      ...(input.legalAddress !== undefined && { legalAddress: input.legalAddress }),
+      ...(input.needsLegalAddress !== undefined && { needsLegalAddress: input.needsLegalAddress }),
+      ...(input.notes !== undefined && { notes: input.notes }),
     },
   });
 }
 
-// === CONTRACTS ===
+export async function deleteTenant(id: string) {
+  const tenant = await prisma.tenant.findUnique({ where: { id, isDeleted: false } });
+  if (!tenant) {
+    throw new RentalError("TENANT_NOT_FOUND", "Арендатор не найден");
+  }
 
-export async function listContracts(filter?: ContractFilter) {
-  const contracts = await prisma.rentalContract.findMany({
-    where: {
-      ...(filter?.tenantId && { tenantId: filter.tenantId }),
-      ...(filter?.officeId && { officeId: filter.officeId }),
-      ...(filter?.status && { status: filter.status }),
-    },
-    include: {
-      tenant: true,
-      office: true,
-    },
+  const activeContracts = await prisma.rentalContract.count({
+    where: { tenantId: id, status: { in: ["ACTIVE", "EXPIRING"] } },
+  });
+  if (activeContracts > 0) {
+    throw new RentalError("TENANT_HAS_ACTIVE_CONTRACTS", "Нельзя удалить арендатора с активными договорами");
+  }
+
+  return prisma.tenant.update({
+    where: { id },
+    data: { isDeleted: true },
+  });
+}
+
+export async function getTenantContracts(tenantId: string) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId, isDeleted: false } });
+  if (!tenant) {
+    throw new RentalError("TENANT_NOT_FOUND", "Арендатор не найден");
+  }
+
+  return prisma.rentalContract.findMany({
+    where: { tenantId },
+    include: { office: true },
     orderBy: { createdAt: "desc" },
   });
+}
+
+// === OFFICES ===
+
+export async function listOffices(filter?: OfficeFilter) {
+  return prisma.office.findMany({
+    where: {
+      ...(filter?.status && { status: filter.status }),
+      ...(filter?.floor && { floor: filter.floor }),
+      ...(filter?.building && { building: filter.building }),
+      ...(filter?.type && { officeType: filter.type }),
+    },
+    orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
+    include: {
+      contracts: {
+        where: { status: { in: ["ACTIVE", "EXPIRING"] } },
+        include: { tenant: { select: { id: true, companyName: true } } },
+        take: 1,
+      },
+    },
+  });
+}
+
+export async function getOffice(id: string) {
+  return prisma.office.findUnique({
+    where: { id },
+    include: {
+      contracts: {
+        include: { tenant: true },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      },
+    },
+  });
+}
+
+export async function createOffice(input: CreateOfficeInput) {
+  const existing = await prisma.office.findUnique({
+    where: {
+      building_floor_number: {
+        building: input.building,
+        floor: input.floor,
+        number: input.number,
+      },
+    },
+  });
+  if (existing) {
+    throw new RentalError(
+      "OFFICE_NUMBER_EXISTS",
+      `Помещение ${input.number} (корп. ${input.building}, этаж ${input.floor}) уже существует`
+    );
+  }
+
+  return prisma.office.create({
+    data: {
+      number: input.number,
+      floor: input.floor,
+      building: input.building,
+      officeType: input.officeType,
+      area: input.area,
+      pricePerMonth: input.pricePerMonth,
+      hasWetPoint: input.hasWetPoint,
+      hasToilet: input.hasToilet,
+      hasRoofAccess: input.hasRoofAccess,
+      metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : undefined,
+      comment: input.comment,
+    },
+  });
+}
+
+export async function updateOffice(id: string, input: UpdateOfficeInput) {
+  const office = await prisma.office.findUnique({ where: { id } });
+  if (!office) {
+    throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
+  }
+
+  // Check uniqueness if number/floor/building changed
+  const newNumber = input.number ?? office.number;
+  const newFloor = input.floor ?? office.floor;
+  const newBuilding = input.building ?? office.building;
+
+  if (newNumber !== office.number || newFloor !== office.floor || newBuilding !== office.building) {
+    const existing = await prisma.office.findUnique({
+      where: { building_floor_number: { building: newBuilding, floor: newFloor, number: newNumber } },
+    });
+    if (existing && existing.id !== id) {
+      throw new RentalError(
+        "OFFICE_NUMBER_EXISTS",
+        `Помещение ${newNumber} (корп. ${newBuilding}, этаж ${newFloor}) уже существует`
+      );
+    }
+  }
+
+  return prisma.office.update({
+    where: { id },
+    data: {
+      ...(input.number !== undefined && { number: input.number }),
+      ...(input.floor !== undefined && { floor: input.floor }),
+      ...(input.building !== undefined && { building: input.building }),
+      ...(input.officeType !== undefined && { officeType: input.officeType }),
+      ...(input.area !== undefined && { area: input.area }),
+      ...(input.pricePerMonth !== undefined && { pricePerMonth: input.pricePerMonth }),
+      ...(input.hasWetPoint !== undefined && { hasWetPoint: input.hasWetPoint }),
+      ...(input.hasToilet !== undefined && { hasToilet: input.hasToilet }),
+      ...(input.hasRoofAccess !== undefined && { hasRoofAccess: input.hasRoofAccess }),
+      ...(input.status !== undefined && { status: input.status as OfficeStatus }),
+      ...(input.metadata !== undefined && { metadata: JSON.parse(JSON.stringify(input.metadata)) }),
+      ...(input.comment !== undefined && { comment: input.comment }),
+    },
+  });
+}
+
+export async function deleteOffice(id: string) {
+  const office = await prisma.office.findUnique({ where: { id } });
+  if (!office) {
+    throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
+  }
+
+  const activeContracts = await prisma.rentalContract.count({
+    where: { officeId: id, status: { in: ["ACTIVE", "EXPIRING"] } },
+  });
+  if (activeContracts > 0) {
+    throw new RentalError("OFFICE_HAS_ACTIVE_CONTRACTS", "Нельзя удалить помещение с активными договорами");
+  }
+
+  return prisma.office.delete({ where: { id } });
+}
+
+// === CONTRACTS ===
+
+function autoContractStatus(startDate: Date, endDate: Date): ContractStatus {
+  const now = new Date();
+  const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  if (endDate < now) return "EXPIRED";
+  if (startDate > now) return "DRAFT";
+  if (endDate < in30Days) return "EXPIRING";
+  return "ACTIVE";
+}
+
+export async function listContracts(filter?: ContractFilter) {
+  const page = filter?.page ?? 1;
+  const limit = filter?.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  const statusFilter = filter?.status
+    ? Array.isArray(filter.status)
+      ? { in: filter.status }
+      : filter.status
+    : undefined;
+
+  const where: Prisma.RentalContractWhereInput = {
+    ...(statusFilter && { status: statusFilter }),
+    ...(filter?.tenantId && { tenantId: filter.tenantId }),
+    ...(filter?.officeId && { officeId: filter.officeId }),
+  };
+
+  const [contracts, total] = await Promise.all([
+    prisma.rentalContract.findMany({
+      where,
+      include: { tenant: true, office: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.rentalContract.count({ where }),
+  ]);
 
   // Auto-update statuses in-memory
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  return contracts.map((c) => {
+  const mapped = contracts.map((c) => {
     if (c.status === "ACTIVE" || c.status === "EXPIRING") {
       if (c.endDate < now) return { ...c, status: "EXPIRED" as ContractStatus };
       if (c.endDate < in30Days) return { ...c, status: "EXPIRING" as ContractStatus };
     }
     return c;
   });
+
+  return { contracts: mapped, total, page, limit };
 }
 
 export async function getContract(id: string) {
@@ -175,7 +342,6 @@ export async function getContract(id: string) {
 
   if (!contract) return null;
 
-  // Auto-update status in-memory
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -189,14 +355,13 @@ export async function getContract(id: string) {
 
 export async function createContract(input: CreateContractInput) {
   const [tenant, office] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: input.tenantId } }),
+    prisma.tenant.findUnique({ where: { id: input.tenantId, isDeleted: false } }),
     prisma.office.findUnique({ where: { id: input.officeId } }),
   ]);
 
   if (!tenant) throw new RentalError("TENANT_NOT_FOUND", "Арендатор не найден");
-  if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Офис не найден");
+  if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
 
-  // Check office is not already occupied by an active contract
   const activeContract = await prisma.rentalContract.findFirst({
     where: {
       officeId: input.officeId,
@@ -205,20 +370,12 @@ export async function createContract(input: CreateContractInput) {
   });
 
   if (activeContract) {
-    throw new RentalError("OFFICE_OCCUPIED", "У этого офиса уже есть действующий договор аренды");
+    throw new RentalError("OFFICE_OCCUPIED", "У этого помещения уже есть действующий договор аренды");
   }
 
   const startDate = new Date(input.startDate);
   const endDate = new Date(input.endDate);
-  const now = new Date();
-  const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-  let status: ContractStatus = "DRAFT";
-  if (startDate <= now) {
-    if (endDate < now) status = "EXPIRED";
-    else if (endDate < in30Days) status = "EXPIRING";
-    else status = "ACTIVE";
-  }
+  const status = autoContractStatus(startDate, endDate);
 
   const contract = await prisma.rentalContract.create({
     data: {
@@ -226,8 +383,11 @@ export async function createContract(input: CreateContractInput) {
       officeId: input.officeId,
       startDate,
       endDate,
+      pricePerSqm: input.pricePerSqm,
       monthlyRate: input.monthlyRate,
+      currency: input.currency ?? "RUB",
       deposit: input.deposit,
+      contractNumber: input.contractNumber,
       status,
       documentUrl: input.documentUrl,
       notes: input.notes,
@@ -235,7 +395,6 @@ export async function createContract(input: CreateContractInput) {
     include: { tenant: true, office: true },
   });
 
-  // Mark office as occupied if contract is active
   if (status === "ACTIVE" || status === "EXPIRING") {
     await prisma.office.update({
       where: { id: input.officeId },
@@ -265,7 +424,6 @@ export async function updateContract(id: string, input: UpdateContractInput) {
     throw new RentalError("CONTRACT_NOT_FOUND", "Договор не найден");
   }
 
-  // Validate status transitions
   if (input.status) {
     const validTransitions: Record<ContractStatus, ContractStatus[]> = {
       DRAFT: ["ACTIVE", "TERMINATED"],
@@ -286,9 +444,15 @@ export async function updateContract(id: string, input: UpdateContractInput) {
   const updated = await prisma.rentalContract.update({
     where: { id },
     data: {
+      ...(input.startDate !== undefined && { startDate: new Date(input.startDate) }),
       ...(input.endDate !== undefined && { endDate: new Date(input.endDate) }),
+      ...(input.pricePerSqm !== undefined && { pricePerSqm: input.pricePerSqm }),
       ...(input.monthlyRate !== undefined && { monthlyRate: input.monthlyRate }),
+      ...(input.currency !== undefined && { currency: input.currency }),
+      ...(input.newPricePerSqm !== undefined && { newPricePerSqm: input.newPricePerSqm }),
+      ...(input.priceIncreaseDate !== undefined && { priceIncreaseDate: new Date(input.priceIncreaseDate) }),
       ...(input.deposit !== undefined && { deposit: input.deposit }),
+      ...(input.contractNumber !== undefined && { contractNumber: input.contractNumber }),
       ...(input.status !== undefined && { status: input.status as ContractStatus }),
       ...(input.documentUrl !== undefined && { documentUrl: input.documentUrl }),
       ...(input.notes !== undefined && { notes: input.notes }),
@@ -296,7 +460,6 @@ export async function updateContract(id: string, input: UpdateContractInput) {
     include: { tenant: true, office: true },
   });
 
-  // Sync office status
   if (input.status === "TERMINATED" || input.status === "EXPIRED") {
     await prisma.office.update({
       where: { id: contract.officeId },
@@ -308,6 +471,69 @@ export async function updateContract(id: string, input: UpdateContractInput) {
       data: { status: "OCCUPIED" },
     });
   }
+
+  return updated;
+}
+
+export async function renewContract(id: string, input: RenewContractInput) {
+  const contract = await prisma.rentalContract.findUnique({
+    where: { id },
+    include: { office: true },
+  });
+  if (!contract) {
+    throw new RentalError("CONTRACT_NOT_FOUND", "Договор не найден");
+  }
+  if (!["ACTIVE", "EXPIRING"].includes(contract.status)) {
+    throw new RentalError("INVALID_STATUS_TRANSITION", "Продлить можно только активный или истекающий договор");
+  }
+
+  const newEndDate = new Date(input.newEndDate);
+  if (newEndDate <= contract.endDate) {
+    throw new RentalError("INVALID_DATE", "Новая дата окончания должна быть позже текущей");
+  }
+
+  const data: Prisma.RentalContractUpdateInput = {
+    endDate: newEndDate,
+    status: "ACTIVE",
+  };
+
+  if (input.newPricePerSqm) {
+    data.newPricePerSqm = input.newPricePerSqm;
+    data.priceIncreaseDate = contract.endDate;
+    if (contract.office) {
+      data.monthlyRate = input.newPricePerSqm * Number(contract.office.area);
+    }
+  }
+
+  return prisma.rentalContract.update({
+    where: { id },
+    data,
+    include: { tenant: true, office: true },
+  });
+}
+
+export async function terminateContract(id: string, reason?: string) {
+  const contract = await prisma.rentalContract.findUnique({ where: { id } });
+  if (!contract) {
+    throw new RentalError("CONTRACT_NOT_FOUND", "Договор не найден");
+  }
+  if (["EXPIRED", "TERMINATED"].includes(contract.status)) {
+    throw new RentalError("INVALID_STATUS_TRANSITION", "Договор уже завершён или расторгнут");
+  }
+
+  const updated = await prisma.rentalContract.update({
+    where: { id },
+    data: {
+      status: "TERMINATED",
+      notes: reason ? `${contract.notes ? contract.notes + "\n" : ""}Причина расторжения: ${reason}` : contract.notes,
+    },
+    include: { tenant: true, office: true },
+  });
+
+  await prisma.office.update({
+    where: { id: contract.officeId },
+    data: { status: "AVAILABLE" },
+  });
 
   return updated;
 }
@@ -328,7 +554,65 @@ export async function getExpiringContracts(daysAhead = 30) {
   });
 }
 
-// === MONTHLY REPORT ===
+// === REPORTS ===
+
+export async function getRevenueReport(building?: number): Promise<MonthlyReport> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const officeWhere = building ? { building } : {};
+
+  const [allContracts, totalOffices, newContracts, terminatedContracts, expiringContracts] =
+    await Promise.all([
+      prisma.rentalContract.findMany({
+        where: {
+          status: { in: ["ACTIVE", "EXPIRING"] },
+          ...(building && { office: { building } }),
+        },
+      }),
+      prisma.office.count({ where: officeWhere }),
+      prisma.rentalContract.count({
+        where: {
+          startDate: { gte: monthStart, lte: monthEnd },
+          ...(building && { office: { building } }),
+        },
+      }),
+      prisma.rentalContract.count({
+        where: {
+          status: { in: ["TERMINATED", "EXPIRED"] },
+          updatedAt: { gte: monthStart, lte: monthEnd },
+          ...(building && { office: { building } }),
+        },
+      }),
+      prisma.rentalContract.count({
+        where: {
+          status: { in: ["ACTIVE", "EXPIRING"] },
+          endDate: { gte: now, lte: in30Days },
+          ...(building && { office: { building } }),
+        },
+      }),
+    ]);
+
+  const totalRevenue = allContracts.reduce((sum, c) => sum + Number(c.monthlyRate), 0);
+  const occupiedOffices = await prisma.office.count({
+    where: { ...officeWhere, status: "OCCUPIED" },
+  });
+
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    totalRevenue,
+    activeContracts: allContracts.length,
+    occupiedOffices,
+    totalOffices,
+    occupancyRate: totalOffices > 0 ? Math.round((occupiedOffices / totalOffices) * 100) : 0,
+    newContracts,
+    terminatedContracts,
+    expiringContracts,
+  };
+}
 
 export async function getMonthlyReport(year: number, month: number): Promise<MonthlyReport> {
   const monthStart = new Date(year, month - 1, 1);
@@ -336,38 +620,30 @@ export async function getMonthlyReport(year: number, month: number): Promise<Mon
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  const [
-    allContracts,
-    totalOffices,
-    newContracts,
-    terminatedContracts,
-    expiringContracts,
-  ] = await Promise.all([
-    prisma.rentalContract.findMany({
-      where: { status: { in: ["ACTIVE", "EXPIRING"] } },
-    }),
-    prisma.office.count(),
-    prisma.rentalContract.count({
-      where: { startDate: { gte: monthStart, lte: monthEnd } },
-    }),
-    prisma.rentalContract.count({
-      where: {
-        status: { in: ["TERMINATED", "EXPIRED"] },
-        updatedAt: { gte: monthStart, lte: monthEnd },
-      },
-    }),
-    prisma.rentalContract.count({
-      where: {
-        status: { in: ["ACTIVE", "EXPIRING"] },
-        endDate: { gte: now, lte: in30Days },
-      },
-    }),
-  ]);
+  const [allContracts, totalOffices, newContracts, terminatedContracts, expiringContracts] =
+    await Promise.all([
+      prisma.rentalContract.findMany({
+        where: { status: { in: ["ACTIVE", "EXPIRING"] } },
+      }),
+      prisma.office.count(),
+      prisma.rentalContract.count({
+        where: { startDate: { gte: monthStart, lte: monthEnd } },
+      }),
+      prisma.rentalContract.count({
+        where: {
+          status: { in: ["TERMINATED", "EXPIRED"] },
+          updatedAt: { gte: monthStart, lte: monthEnd },
+        },
+      }),
+      prisma.rentalContract.count({
+        where: {
+          status: { in: ["ACTIVE", "EXPIRING"] },
+          endDate: { gte: now, lte: in30Days },
+        },
+      }),
+    ]);
 
-  const totalRevenue = allContracts.reduce(
-    (sum, c) => sum + Number(c.monthlyRate),
-    0
-  );
+  const totalRevenue = allContracts.reduce((sum, c) => sum + Number(c.monthlyRate), 0);
   const occupiedOffices = await prisma.office.count({ where: { status: "OCCUPIED" } });
 
   return {
@@ -384,6 +660,219 @@ export async function getMonthlyReport(year: number, month: number): Promise<Mon
   };
 }
 
+export async function getOccupancyReport(): Promise<OccupancyReport[]> {
+  const offices = await prisma.office.findMany({
+    select: { building: true, status: true },
+  });
+
+  const buildingMap = new Map<number, { total: number; occupied: number; available: number; maintenance: number; reserved: number }>();
+
+  for (const office of offices) {
+    if (!buildingMap.has(office.building)) {
+      buildingMap.set(office.building, { total: 0, occupied: 0, available: 0, maintenance: 0, reserved: 0 });
+    }
+    const stats = buildingMap.get(office.building)!;
+    stats.total++;
+    if (office.status === "OCCUPIED") stats.occupied++;
+    else if (office.status === "AVAILABLE") stats.available++;
+    else if (office.status === "MAINTENANCE") stats.maintenance++;
+    else if (office.status === "RESERVED") stats.reserved++;
+  }
+
+  return Array.from(buildingMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([building, stats]) => ({
+      building,
+      ...stats,
+      occupancyRate: stats.total > 0 ? Math.round((stats.occupied / stats.total) * 100) : 0,
+    }));
+}
+
+// === IMPORT ===
+
+interface ImportTenant {
+  companyName: string;
+  tenantType?: string;
+  contactName?: string;
+  phone?: string;
+  phonesExtra?: string[];
+  email?: string;
+  emailsExtra?: string[];
+  inn?: string;
+  legalAddress?: string;
+  needsLegalAddress?: boolean;
+  notes?: string;
+}
+
+interface ImportOffice {
+  number: string;
+  floor: number;
+  building: number;
+  officeType?: string;
+  area: number;
+  pricePerMonth?: number;
+  hasWetPoint?: boolean;
+  hasToilet?: boolean;
+  hasRoofAccess?: boolean;
+  comment?: string;
+}
+
+interface ImportContract {
+  tenantRef: string; // companyName to match
+  officeRef: string; // "building-floor-number" to match
+  startDate: string;
+  endDate: string;
+  pricePerSqm?: number;
+  monthlyRate: number;
+  currency?: string;
+  deposit?: number;
+  contractNumber?: string;
+  newPricePerSqm?: number;
+  priceIncreaseDate?: string;
+  notes?: string;
+}
+
+interface ImportData {
+  tenants: ImportTenant[];
+  offices: ImportOffice[];
+  contracts: ImportContract[];
+}
+
+export async function importFromJson(data: ImportData): Promise<ImportResult> {
+  const result: ImportResult = { tenants: 0, offices: 0, contracts: 0, errors: [] };
+  const tenantMap = new Map<string, string>(); // companyName → id
+  const officeMap = new Map<string, string>(); // "building-floor-number" → id
+
+  // Import tenants
+  for (const t of data.tenants) {
+    try {
+      const tenant = await prisma.tenant.upsert({
+        where: {
+          id: (await prisma.tenant.findFirst({ where: { companyName: t.companyName } }))?.id ?? "nonexistent",
+        },
+        update: {
+          tenantType: (t.tenantType as "COMPANY" | "IP" | "INDIVIDUAL") ?? "INDIVIDUAL",
+          contactName: t.contactName,
+          phone: t.phone,
+          phonesExtra: t.phonesExtra ?? undefined,
+          email: t.email,
+          emailsExtra: t.emailsExtra ?? undefined,
+          inn: t.inn,
+          legalAddress: t.legalAddress,
+          needsLegalAddress: t.needsLegalAddress ?? false,
+          notes: t.notes,
+        },
+        create: {
+          companyName: t.companyName,
+          tenantType: (t.tenantType as "COMPANY" | "IP" | "INDIVIDUAL") ?? "INDIVIDUAL",
+          contactName: t.contactName,
+          phone: t.phone,
+          phonesExtra: t.phonesExtra ?? undefined,
+          email: t.email,
+          emailsExtra: t.emailsExtra ?? undefined,
+          inn: t.inn,
+          legalAddress: t.legalAddress,
+          needsLegalAddress: t.needsLegalAddress ?? false,
+          notes: t.notes,
+        },
+      });
+      tenantMap.set(t.companyName, tenant.id);
+      result.tenants++;
+    } catch (err) {
+      result.errors.push(`Tenant "${t.companyName}": ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Import offices
+  for (const o of data.offices) {
+    try {
+      const office = await prisma.office.upsert({
+        where: {
+          building_floor_number: { building: o.building, floor: o.floor, number: o.number },
+        },
+        update: {
+          officeType: (o.officeType as "OFFICE" | "CONTAINER" | "MEETING_ROOM") ?? "OFFICE",
+          area: o.area,
+          pricePerMonth: o.pricePerMonth ?? 0,
+          hasWetPoint: o.hasWetPoint ?? false,
+          hasToilet: o.hasToilet ?? false,
+          hasRoofAccess: o.hasRoofAccess ?? false,
+          comment: o.comment,
+        },
+        create: {
+          number: o.number,
+          floor: o.floor,
+          building: o.building,
+          officeType: (o.officeType as "OFFICE" | "CONTAINER" | "MEETING_ROOM") ?? "OFFICE",
+          area: o.area,
+          pricePerMonth: o.pricePerMonth ?? 0,
+          hasWetPoint: o.hasWetPoint ?? false,
+          hasToilet: o.hasToilet ?? false,
+          hasRoofAccess: o.hasRoofAccess ?? false,
+          comment: o.comment,
+        },
+      });
+      officeMap.set(`${o.building}-${o.floor}-${o.number}`, office.id);
+      result.offices++;
+    } catch (err) {
+      result.errors.push(`Office ${o.building}-${o.floor}-${o.number}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Import contracts
+  for (const c of data.contracts) {
+    try {
+      const tenantId = tenantMap.get(c.tenantRef);
+      if (!tenantId) {
+        result.errors.push(`Contract: арендатор "${c.tenantRef}" не найден`);
+        continue;
+      }
+
+      const officeId = officeMap.get(c.officeRef);
+      if (!officeId) {
+        result.errors.push(`Contract: помещение "${c.officeRef}" не найдено`);
+        continue;
+      }
+
+      const startDate = new Date(c.startDate);
+      const endDate = new Date(c.endDate);
+      const status = autoContractStatus(startDate, endDate);
+
+      await prisma.rentalContract.create({
+        data: {
+          tenantId,
+          officeId,
+          startDate,
+          endDate,
+          pricePerSqm: c.pricePerSqm,
+          monthlyRate: c.monthlyRate,
+          currency: c.currency ?? "RUB",
+          deposit: c.deposit,
+          contractNumber: c.contractNumber,
+          newPricePerSqm: c.newPricePerSqm,
+          priceIncreaseDate: c.priceIncreaseDate ? new Date(c.priceIncreaseDate) : undefined,
+          status,
+          notes: c.notes,
+        },
+      });
+
+      // Sync office status
+      if (status === "ACTIVE" || status === "EXPIRING") {
+        await prisma.office.update({
+          where: { id: officeId },
+          data: { status: "OCCUPIED" },
+        });
+      }
+
+      result.contracts++;
+    } catch (err) {
+      result.errors.push(`Contract ${c.tenantRef} → ${c.officeRef}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return result;
+}
+
 // === INQUIRIES ===
 
 export async function listInquiries(filter?: InquiryFilter) {
@@ -392,7 +881,7 @@ export async function listInquiries(filter?: InquiryFilter) {
       ...(filter?.status && { status: filter.status }),
       ...(filter?.isRead !== undefined && { isRead: filter.isRead }),
     },
-    include: { office: { select: { id: true, number: true, floor: true } } },
+    include: { office: { select: { id: true, number: true, floor: true, building: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -409,7 +898,7 @@ export async function getInquiry(id: string) {
 export async function createInquiry(input: CreateInquiryInput) {
   if (input.officeId) {
     const office = await prisma.office.findUnique({ where: { id: input.officeId } });
-    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Офис не найден");
+    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
   }
 
   const inquiry = await prisma.rentalInquiry.create({
@@ -464,6 +953,6 @@ export async function updateInquiry(id: string, input: UpdateInquiryInput) {
       ...(input.adminNotes !== undefined && { adminNotes: input.adminNotes }),
       ...(input.convertedToId !== undefined && { convertedToId: input.convertedToId }),
     },
-    include: { office: { select: { id: true, number: true, floor: true } } },
+    include: { office: { select: { id: true, number: true, floor: true, building: true } } },
   });
 }

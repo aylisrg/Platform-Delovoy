@@ -27,12 +27,14 @@ const statusLabel: Record<OfficeStatus, string> = {
   AVAILABLE: "Свободен",
   OCCUPIED: "Занят",
   MAINTENANCE: "На обслуживании",
+  RESERVED: "Зарезервирован",
 };
 
 const statusVariant: Record<OfficeStatus, "success" | "default" | "warning"> = {
   AVAILABLE: "success",
   OCCUPIED: "default",
   MAINTENANCE: "warning",
+  RESERVED: "warning",
 };
 
 export default async function RentalPage() {
