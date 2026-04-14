@@ -301,8 +301,8 @@ export async function updateBookingStatus(
       resourceName: resource?.name ?? "—",
       clientName: booking.clientName ?? "—",
       date: booking.date.toISOString().split("T")[0],
-      startTime: `${booking.startTime.getUTCHours().toString().padStart(2, "0")}:${booking.startTime.getUTCMinutes().toString().padStart(2, "0")}`,
-      endTime: `${booking.endTime.getUTCHours().toString().padStart(2, "0")}:${booking.endTime.getUTCMinutes().toString().padStart(2, "0")}`,
+      startTime: formatMoscowTime(booking.startTime),
+      endTime: formatMoscowTime(booking.endTime),
       durationMin,
       billedHours: completedBilledHours,
       pricePerHour: completedPricePerHour,
@@ -977,7 +977,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
   }
 
   const newEndTime = new Date(booking.endTime.getTime() + 60 * 60 * 1000);
-  const endHour = newEndTime.getHours();
+  const endHour = getMoscowHour(newEndTime);
   // Handle midnight wrap (0) or exceeding close hour
   const beyondClosing = endHour > CLOSE_HOUR || endHour < OPEN_HOUR || (endHour === CLOSE_HOUR && newEndTime.getMinutes() > 0);
   if (beyondClosing) {
@@ -1036,8 +1036,8 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     resourceName: resource?.name ?? "—",
     clientName: booking.clientName ?? "—",
     date: booking.date.toISOString().split("T")[0],
-    startTime: `${booking.startTime.getUTCHours().toString().padStart(2, "0")}:${booking.startTime.getUTCMinutes().toString().padStart(2, "0")}`,
-    endTime: `${booking.endTime.getUTCHours().toString().padStart(2, "0")}:${booking.endTime.getUTCMinutes().toString().padStart(2, "0")}`,
+    startTime: formatMoscowTime(booking.startTime),
+    endTime: formatMoscowTime(booking.endTime),
     durationMin,
     billedHours: billed,
     pricePerHour,
@@ -1050,8 +1050,27 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
 
 // === HELPERS ===
 
+/** Parse a date+time string as Moscow local time (UTC+3). */
 function parseDatetime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00Z`);
+  return new Date(`${date}T${time}:00+03:00`);
+}
+
+/** Format a UTC Date object as HH:MM in Moscow timezone. */
+function formatMoscowTime(d: Date): string {
+  return d.toLocaleTimeString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** Get the hour (0-23) of a Date in Moscow timezone. */
+function getMoscowHour(d: Date): number {
+  return parseInt(
+    d.toLocaleString("en-US", { timeZone: "Europe/Moscow", hour: "numeric", hour12: false }),
+    10
+  );
 }
 
 /**
