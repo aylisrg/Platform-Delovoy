@@ -105,10 +105,8 @@ export default async function PSParkManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Плей Парк" actions={<TestAlertsButton />} />
-      <div className="p-8">
-        {/* Shift panel */}
-        <ShiftPanel date={todayStr} />
+      {/* Shift panel */}
+      <ShiftPanel date={todayStr} />
 
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-6">
@@ -234,7 +232,6 @@ export default async function PSParkManagerPage() {
             )}
           </CardContent>
         </Card>
-      </div>
     </>
   );
 }

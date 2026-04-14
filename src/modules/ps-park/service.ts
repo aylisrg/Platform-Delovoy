@@ -1220,6 +1220,150 @@ export async function closeShift(
   };
 }
 
+// === ANALYTICS ===
+
+export type PSAnalytics = {
+  totalBookings: number;
+  completedBookings: number;
+  cancelledBookings: number;
+  totalRevenue: number;
+  averageCheck: number;
+  occupancyRate: number;
+  byDay: { date: string; bookings: number; revenue: number }[];
+  byResource: { resourceId: string; resourceName: string; bookings: number; revenue: number }[];
+  topHours: { hour: number; bookings: number }[];
+};
+
+export async function getAnalytics(period: "week" | "month" | "quarter"): Promise<PSAnalytics> {
+  const now = new Date();
+  const dateFrom = new Date(now);
+  if (period === "week") dateFrom.setDate(dateFrom.getDate() - 7);
+  else if (period === "month") dateFrom.setMonth(dateFrom.getMonth() - 1);
+  else dateFrom.setMonth(dateFrom.getMonth() - 3);
+
+  const resources = await prisma.resource.findMany({
+    where: { moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  const resourceMap = new Map(resources.map((r) => [r.id, r]));
+
+  const bookings = await prisma.booking.findMany({
+    where: { moduleSlug: MODULE_SLUG, date: { gte: dateFrom } },
+  });
+
+  const completed = bookings.filter((b) => b.status === "COMPLETED");
+  const cancelled = bookings.filter((b) => b.status === "CANCELLED");
+
+  // Revenue from financial transactions (more accurate for PS Park)
+  const transactions = await prisma.financialTransaction.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      type: "SESSION_PAYMENT",
+      createdAt: { gte: dateFrom },
+    },
+  });
+  const totalRevenue = transactions.reduce((sum, t) => sum + Number(t.totalAmount), 0);
+  const averageCheck = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
+
+  const totalSlots = resources.length * (CLOSE_HOUR - OPEN_HOUR) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
+  const bookedSlots = bookings.filter((b) => ["CONFIRMED", "COMPLETED", "CHECKED_IN"].includes(b.status)).length;
+  const occupancyRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) / 100 : 0;
+
+  const byDayMap = new Map<string, { bookings: number; revenue: number }>();
+  for (const b of bookings) {
+    const day = b.date.toISOString().split("T")[0];
+    const entry = byDayMap.get(day) ?? { bookings: 0, revenue: 0 };
+    entry.bookings++;
+    byDayMap.set(day, entry);
+  }
+  for (const t of transactions) {
+    const day = t.createdAt.toISOString().split("T")[0];
+    const entry = byDayMap.get(day) ?? { bookings: 0, revenue: 0 };
+    entry.revenue += Number(t.totalAmount);
+    byDayMap.set(day, entry);
+  }
+  const byDay = Array.from(byDayMap.entries())
+    .map(([date, data]) => ({ date, ...data }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const byResourceMap = new Map<string, { resourceName: string; bookings: number; revenue: number }>();
+  for (const b of bookings) {
+    const resource = resourceMap.get(b.resourceId);
+    const entry = byResourceMap.get(b.resourceId) ?? {
+      resourceName: resource?.name ?? "—",
+      bookings: 0, revenue: 0,
+    };
+    entry.bookings++;
+    byResourceMap.set(b.resourceId, entry);
+  }
+  const byResource = Array.from(byResourceMap.entries())
+    .map(([resourceId, data]) => ({ resourceId, ...data }))
+    .sort((a, b) => b.bookings - a.bookings);
+
+  const hourCounts = new Map<number, number>();
+  for (const b of bookings) {
+    const hour = b.startTime.getHours();
+    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
+  }
+  const topHours = Array.from(hourCounts.entries())
+    .map(([hour, bookings]) => ({ hour, bookings }))
+    .sort((a, b) => b.bookings - a.bookings);
+
+  return {
+    totalBookings: bookings.length,
+    completedBookings: completed.length,
+    cancelledBookings: cancelled.length,
+    totalRevenue, averageCheck, occupancyRate,
+    byDay, byResource, topHours,
+  };
+}
+
+// === PAGINATED BOOKINGS ===
+
+export async function listBookingsPaginated(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  resourceId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  const page = params.page ?? 1;
+  const perPage = params.perPage ?? 20;
+  const skip = (page - 1) * perPage;
+
+  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG };
+  if (params.status) where.status = params.status;
+  if (params.resourceId) where.resourceId = params.resourceId;
+  if (params.dateFrom || params.dateTo) {
+    const dateFilter: Record<string, Date> = {};
+    if (params.dateFrom) dateFilter.gte = new Date(params.dateFrom);
+    if (params.dateTo) dateFilter.lte = new Date(params.dateTo);
+    where.date = dateFilter;
+  }
+
+  const [rawBookings, total, resources] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      include: {
+        user: { select: { name: true, phone: true, email: true } },
+      },
+      orderBy: { date: "desc" },
+      skip,
+      take: perPage,
+    }),
+    prisma.booking.count({ where }),
+    prisma.resource.findMany({ where: { moduleSlug: MODULE_SLUG } }),
+  ]);
+
+  const resourceMap = new Map(resources.map((r) => [r.id, r]));
+  const bookings = rawBookings.map((b) => ({
+    ...b,
+    resource: resourceMap.get(b.resourceId) ?? null,
+  }));
+
+  return { bookings, total, page, perPage };
+}
+
 export class PSBookingError extends Error {
   code: string;
   constructor(code: string, message: string) {

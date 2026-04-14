@@ -137,11 +137,13 @@ model Booking {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  deletedAt       DateTime?
   callLogs        CallLog[]
 
   @@index([moduleSlug, date])
   @@index([userId])
   @@index([resourceId])
+  @@index([deletedAt])
 }
 
 enum BookingStatus {
@@ -221,10 +223,12 @@ model Resource {
   isActive         Boolean  @default(true)
   googleCalendarId String?
   metadata         Json?
+  deletedAt        DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   @@index([moduleSlug])
+  @@index([deletedAt])
 }
 
 // === ORDERS (кафе) ===
@@ -238,6 +242,7 @@ model Order {
   totalAmount Decimal
   deliveryTo  String?
   items       OrderItem[]
+  deletedAt   DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -275,6 +280,7 @@ model MenuItem {
   inventorySkuId      String?
   inventorySku        InventorySku? @relation(fields: [inventorySkuId], references: [id])
   autoDisabledByStock Boolean      @default(false)
+  deletedAt           DateTime?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
