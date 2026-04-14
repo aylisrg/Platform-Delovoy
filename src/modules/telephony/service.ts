@@ -13,14 +13,14 @@ import type { CallFilter } from "./validation";
 export async function getTelephonyConfig(
   moduleSlug: string
 ): Promise<TelephonyModuleConfig | null> {
-  const module = await prisma.module.findUnique({
+  const dbModule = await prisma.module.findUnique({
     where: { slug: moduleSlug },
     select: { config: true, isActive: true },
   });
 
-  if (!module?.isActive) return null;
+  if (!dbModule?.isActive) return null;
 
-  const config = module.config as Record<string, unknown> | null;
+  const config = dbModule.config as Record<string, unknown> | null;
   const telephony = config?.telephony as Partial<TelephonyModuleConfig> | undefined;
 
   if (!telephony?.enabled) return null;

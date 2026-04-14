@@ -620,15 +620,15 @@ export async function getAnalytics(
   > = {};
 
   for (const t of salesTransactions) {
-    const module = t.moduleSlug ?? "unknown";
+    const modSlug = t.moduleSlug ?? "unknown";
     const price = Number(t.sku.price);
     const revenue = price * t.quantity;
 
-    if (!salesByModule[module]) {
-      salesByModule[module] = { totalItems: 0, totalRevenue: 0 };
+    if (!salesByModule[modSlug]) {
+      salesByModule[modSlug] = { totalItems: 0, totalRevenue: 0 };
     }
-    salesByModule[module].totalItems += t.quantity;
-    salesByModule[module].totalRevenue += revenue;
+    salesByModule[modSlug].totalItems += t.quantity;
+    salesByModule[modSlug].totalRevenue += revenue;
 
     if (!skuSales[t.skuId]) {
       skuSales[t.skuId] = {
