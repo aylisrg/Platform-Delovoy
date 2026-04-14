@@ -29,8 +29,7 @@ export function PSAvailability() {
   const { data: session, status: sessionStatus } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [date, setDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split("T")[0];
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
   });
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
   const [loading, setLoading] = useState(false);
@@ -141,7 +140,7 @@ export function PSAvailability() {
                 type="date"
                 value={date}
                 onChange={(e) => { setDate(e.target.value); setBookingSuccess(false); }}
-                min={new Date().toISOString().split("T")[0]}
+                min={new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" })}
                 className="mt-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>

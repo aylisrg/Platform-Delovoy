@@ -3,8 +3,16 @@ name: CI — Lint, Test, Build
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,51 +25,45 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - run: npm install
-
+      - uses: ./.github/actions/setup-node
       - run: npm run lint
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - run: npm install
-
+      - uses: ./.github/actions/setup-node
       - run: npm test
 
   typecheck:
     name: TypeScript Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - run: npm install
-
+      - uses: ./.github/actions/setup-node
       - run: npx tsc --noEmit
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - name: npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [lint, test, typecheck]
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +76,31 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: platform-delovoy:ci-${{ github.sha }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: platform-delovoy:ci-${{ github.sha }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          timeout: 5m
+
+  notify-failure:
+    name: Notify CI Failure
+    if: failure() && github.ref == 'refs/heads/main'
+    needs: [lint, test, typecheck, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Telegram alert
+        run: |
+          COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | head -1)
+          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}" \
+            -d "text=⚠️ CI FAILED on main: ${COMMIT_MSG}" \
+            -d "parse_mode=HTML" || true

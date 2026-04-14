@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { reachGoal } from "@/lib/metrika";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
@@ -127,6 +128,7 @@ export function BookingFlow() {
     const timeRange = getTimeRange();
     if (!selectedResourceId || !timeRange) return;
     setSubmitting(true);
+    reachGoal("gazebo_booking_submit");
     try {
       const res = await fetch("/api/gazebos/book", {
         method: "POST",
@@ -143,6 +145,7 @@ export function BookingFlow() {
       });
       const data = await res.json();
       if (data.success) {
+        reachGoal("gazebo_booking_success");
         setStep("done");
         showToast(pickRandom(TOAST_BOOKING_SUCCESS), "success");
       } else {

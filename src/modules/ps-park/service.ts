@@ -30,6 +30,9 @@ import type {
   ActiveSession,
   BookingBill,
   BookingItemSnapshotWithSubtotal,
+  DayReport,
+  ShiftHandoverData,
+  FinancialTransactionRecord,
 } from "./types";
 
 const MODULE_SLUG = "ps-park";
@@ -216,7 +219,9 @@ export async function updateBookingStatus(
   id: string,
   status: BookingStatus,
   managerId?: string,
-  cancelReason?: string
+  cancelReason?: string,
+  cashAmount?: number,
+  cardAmount?: number
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -273,12 +278,16 @@ export async function updateBookingStatus(
 
   // Build bill snapshot when completing a session
   let billSnapshot: Record<string, unknown> | undefined;
+  let completedBilledHours = 0;
+  let completedPricePerHour = 0;
+  let completedItemsTotal = 0;
+  let completedTotalBill = 0;
+
   if (status === "COMPLETED") {
-    const pricePerHour = Number(resource?.pricePerHour ?? 0);
-    const hoursBooked = Math.ceil(
-      (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
-    );
-    const hoursCost = hoursBooked * pricePerHour;
+    completedPricePerHour = Number(resource?.pricePerHour ?? 0);
+    completedBilledHours = billedHours(booking.startTime, booking.endTime);
+    const hoursCost = completedBilledHours * completedPricePerHour;
+    const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
     const billItems = items.map((i) => ({
       skuId: i.skuId,
       skuName: i.skuName,
@@ -286,19 +295,21 @@ export async function updateBookingStatus(
       price: Number(i.priceAtBooking),
       subtotal: i.quantity * Number(i.priceAtBooking),
     }));
-    const itemsTotal = billItems.reduce((sum, i) => sum + i.subtotal, 0);
+    completedItemsTotal = billItems.reduce((sum, i) => sum + i.subtotal, 0);
+    completedTotalBill = hoursCost + completedItemsTotal;
     billSnapshot = {
       resourceName: resource?.name ?? "—",
       clientName: booking.clientName ?? "—",
       date: booking.date.toISOString().split("T")[0],
-      startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-      endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-      hoursBooked,
-      pricePerHour,
+      startTime: formatMoscowTime(booking.startTime),
+      endTime: formatMoscowTime(booking.endTime),
+      durationMin,
+      billedHours: completedBilledHours,
+      pricePerHour: completedPricePerHour,
       hoursCost,
       items: billItems,
-      itemsTotal,
-      totalBill: hoursCost + itemsTotal,
+      itemsTotal: completedItemsTotal,
+      totalBill: completedTotalBill,
       completedAt: new Date().toISOString(),
     };
   }
@@ -340,6 +351,44 @@ export async function updateBookingStatus(
         },
       });
       await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      return b;
+    });
+  } else if (status === "COMPLETED") {
+    const resolvedCash = cashAmount ?? completedTotalBill;
+    const resolvedCard = cardAmount ?? 0;
+    const managerUser = managerId
+      ? await prisma.user.findUnique({ where: { id: managerId }, select: { name: true, email: true } })
+      : null;
+    const managerName = managerUser?.name ?? managerUser?.email ?? "Менеджер";
+
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+        },
+      });
+
+      // Financial ledger — immutable record
+      await tx.financialTransaction.create({
+        data: {
+          moduleSlug: MODULE_SLUG,
+          type: "SESSION_PAYMENT",
+          bookingId: id,
+          totalAmount: completedTotalBill,
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+          performedById: managerId ?? booking.userId,
+          performedByName: managerName,
+          description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
+          metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
+        },
+      });
+
       return b;
     });
   } else {
@@ -883,10 +932,9 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
     const resource = resourceMap.get(b.resourceId);
     const metadata = b.metadata as Record<string, unknown> | null;
     const pricePerHour = Number(resource?.pricePerHour ?? 0);
-    const hoursBooked = Math.ceil(
-      (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60)
-    );
-    const hoursCost = hoursBooked * pricePerHour;
+    const billed = billedHours(b.startTime, b.endTime);
+    const durationMin = Math.round((b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60));
+    const hoursCost = billed * pricePerHour;
     const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
     const itemsTotal = Number(metadata?.itemsTotal ?? 0);
 
@@ -900,7 +948,8 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
       endTime: b.endTime.toISOString(),
       status: "CONFIRMED" as const,
       pricePerHour,
-      hoursBooked,
+      durationMin,
+      billedHours: billed,
       hoursCost,
       items: rawItems.map((i) => ({
         skuId: i.skuId,
@@ -928,7 +977,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
   }
 
   const newEndTime = new Date(booking.endTime.getTime() + 60 * 60 * 1000);
-  const endHour = newEndTime.getHours();
+  const endHour = getMoscowHour(newEndTime);
   // Handle midnight wrap (0) or exceeding close hour
   const beyondClosing = endHour > CLOSE_HOUR || endHour < OPEN_HOUR || (endHour === CLOSE_HOUR && newEndTime.getMinutes() > 0);
   if (beyondClosing) {
@@ -969,10 +1018,9 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
   const metadata = booking.metadata as Record<string, unknown> | null;
   const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
   const pricePerHour = Number(resource?.pricePerHour ?? 0);
-  const hoursBooked = Math.ceil(
-    (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
-  );
-  const hoursCost = hoursBooked * pricePerHour;
+  const billed = billedHours(booking.startTime, booking.endTime);
+  const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
+  const hoursCost = billed * pricePerHour;
 
   const items: BookingItemSnapshotWithSubtotal[] = rawItems.map((i) => ({
     skuId: i.skuId,
@@ -988,9 +1036,10 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     resourceName: resource?.name ?? "—",
     clientName: booking.clientName ?? "—",
     date: booking.date.toISOString().split("T")[0],
-    startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-    endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-    hoursBooked,
+    startTime: formatMoscowTime(booking.startTime),
+    endTime: formatMoscowTime(booking.endTime),
+    durationMin,
+    billedHours: billed,
     pricePerHour,
     hoursCost,
     items,
@@ -1001,8 +1050,174 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
 
 // === HELPERS ===
 
+/** Parse a date+time string as Moscow local time (UTC+3). */
 function parseDatetime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00`);
+  return new Date(`${date}T${time}:00+03:00`);
+}
+
+/** Format a UTC Date object as HH:MM in Moscow timezone. */
+function formatMoscowTime(d: Date): string {
+  return d.toLocaleTimeString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** Get the hour (0-23) of a Date in Moscow timezone. */
+function getMoscowHour(d: Date): number {
+  return parseInt(
+    d.toLocaleString("en-US", { timeZone: "Europe/Moscow", hour: "numeric", hour12: false }),
+    10
+  );
+}
+
+/**
+ * Rounds duration up to the nearest 30-minute increment for billing.
+ * e.g. 1h 01min → 1.5h, 1h 31min → 2h, 30min → 0.5h
+ */
+function billedHours(startTime: Date, endTime: Date): number {
+  const durationMs = endTime.getTime() - startTime.getTime();
+  const durationMin = durationMs / (1000 * 60);
+  return Math.ceil(durationMin / 30) * 0.5;
+}
+
+// === DAY REPORT & SHIFT HANDOVER ===
+
+export async function getDayReport(date: string): Promise<DayReport> {
+  const dayStart = new Date(`${date}T00:00:00Z`);
+  const dayEnd = new Date(`${date}T23:59:59.999Z`);
+
+  const txs = await prisma.financialTransaction.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      type: "SESSION_PAYMENT",
+      createdAt: { gte: dayStart, lte: dayEnd },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const cashTotal = txs.reduce((s, t) => s + Number(t.cashAmount), 0);
+  const cardTotal = txs.reduce((s, t) => s + Number(t.cardAmount), 0);
+  const cashCount = txs.filter((t) => Number(t.cashAmount) > 0).length;
+  const cardCount = txs.filter((t) => Number(t.cardAmount) > 0).length;
+
+  return {
+    date,
+    totalSessions: txs.length,
+    cashTotal,
+    cardTotal,
+    totalRevenue: cashTotal + cardTotal,
+    cashCount,
+    cardCount,
+    transactions: txs.map((t) => ({
+      id: t.id,
+      bookingId: t.bookingId ?? null,
+      totalAmount: Number(t.totalAmount),
+      cashAmount: Number(t.cashAmount),
+      cardAmount: Number(t.cardAmount),
+      performedByName: t.performedByName,
+      description: t.description,
+      createdAt: t.createdAt.toISOString(),
+    })),
+  };
+}
+
+export async function getTodayShift(date: string): Promise<ShiftHandoverData | null> {
+  const shift = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!shift) return null;
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: shift.closedAt?.toISOString() ?? null,
+    closedById: shift.closedById ?? null,
+    closedByName: shift.closedByName ?? null,
+    notes: shift.notes ?? null,
+  };
+}
+
+export async function openShift(
+  date: string,
+  managerId: string,
+  managerName: string
+): Promise<ShiftHandoverData> {
+  const existing = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (existing) {
+    throw new PSBookingError("SHIFT_ALREADY_OPEN", "Смена на эту дату уже открыта");
+  }
+  const shift = await prisma.shiftHandover.create({
+    data: {
+      moduleSlug: MODULE_SLUG,
+      date,
+      openedById: managerId,
+      openedByName: managerName,
+      status: "OPEN",
+    },
+  });
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: null,
+    closedById: null,
+    closedByName: null,
+    notes: null,
+  };
+}
+
+export async function closeShift(
+  date: string,
+  managerId: string,
+  managerName: string,
+  notes?: string
+): Promise<ShiftHandoverData> {
+  const existing = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!existing) {
+    throw new PSBookingError("SHIFT_NOT_FOUND", "Смена не найдена");
+  }
+  if (existing.status === "CLOSED") {
+    throw new PSBookingError("SHIFT_ALREADY_CLOSED", "Смена уже закрыта");
+  }
+  const report = await getDayReport(date);
+
+  const shift = await prisma.shiftHandover.update({
+    where: { id: existing.id },
+    data: {
+      status: "CLOSED",
+      closedAt: new Date(),
+      closedById: managerId,
+      closedByName: managerName,
+      cashTotal: report.cashTotal,
+      cardTotal: report.cardTotal,
+      ...(notes && { notes }),
+    },
+  });
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: shift.closedAt?.toISOString() ?? null,
+    closedById: shift.closedById ?? null,
+    closedByName: shift.closedByName ?? null,
+    notes: shift.notes ?? null,
+  };
 }
 
 export class PSBookingError extends Error {

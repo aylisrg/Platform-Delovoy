@@ -1,0 +1,410 @@
+name: "Timeweb: Provision & Setup VPS"
+
+# One-click: создание сервера, SSH-ключ, DNS, firewall, настройка Docker/Nginx/SSL
+# Запуск: gh workflow run timeweb-provision.yml -f preset_id=2453 -f ssh_public_key="ssh-ed25519 AAAA..."
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        required: true
+        type: choice
+        options:
+          - full-provision      # Создать сервер + настроить всё
+          - create-server-only  # Только создать сервер
+          - setup-server        # Настроить уже созданный сервер (Docker, Nginx, SSL)
+          - add-ssh-key         # Добавить SSH-ключ в Timeweb
+          - setup-dns           # Настроить DNS для домена
+          - setup-firewall      # Создать firewall-группу
+          - status              # Показать статус сервера
+      preset_id:
+        description: "Server preset ID (2453=2cpu/4gb/50gb 1000р, 2455=4cpu/8gb/80gb 1800р)"
+        required: false
+        default: "2453"
+      os_id:
+        description: "OS ID (99=Ubuntu 24.04, 79=Ubuntu 22.04, 95=Debian 12)"
+        required: false
+        default: "99"
+      server_id:
+        description: "Server ID (for setup-server/status — leave empty for auto-detect)"
+        required: false
+      ssh_public_key:
+        description: "SSH public key (for add-ssh-key action)"
+        required: false
+      domain:
+        description: "Domain name"
+        required: false
+        default: "delovoy-park.ru"
+
+env:
+  TIMEWEB_API: "https://api.timeweb.cloud"
+  PROJECT_ID: "2360937"
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # === Step 1: Add SSH key to Timeweb (if provided) ===
+      - name: Add SSH Key
+        if: inputs.action == 'add-ssh-key' || inputs.action == 'full-provision'
+        id: ssh_key
+        run: |
+          # Check if key already exists
+          EXISTING=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/ssh-keys" | jq '.ssh_keys | length')
+
+          if [ "$EXISTING" -gt 0 ]; then
+            KEY_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/ssh-keys" | jq '.ssh_keys[0].id')
+            echo "SSH key already exists: $KEY_ID"
+            echo "ssh_key_id=$KEY_ID" >> $GITHUB_OUTPUT
+          else
+            if [ -z "${{ inputs.ssh_public_key }}" ]; then
+              # Generate a new key pair for deploy
+              ssh-keygen -t ed25519 -f /tmp/deploy_key -N "" -C "deploy@delovoy-park"
+              PUB_KEY=$(cat /tmp/deploy_key.pub)
+              echo "::warning::Generated new SSH key pair. SAVE THE PRIVATE KEY as VPS_SSH_KEY secret!"
+              echo "--- PRIVATE KEY (save as GitHub Secret VPS_SSH_KEY) ---"
+              cat /tmp/deploy_key
+              echo "--- END PRIVATE KEY ---"
+            else
+              PUB_KEY="${{ inputs.ssh_public_key }}"
+            fi
+
+            RESULT=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\": \"deploy-delovoy\", \"body\": \"$PUB_KEY\"}" \
+              "${{ env.TIMEWEB_API }}/api/v1/ssh-keys")
+            KEY_ID=$(echo "$RESULT" | jq '.ssh_key.id')
+            echo "SSH key created: $KEY_ID"
+            echo "ssh_key_id=$KEY_ID" >> $GITHUB_OUTPUT
+          fi
+
+      # === Step 2: Create Server ===
+      - name: Create Server
+        if: inputs.action == 'create-server-only' || inputs.action == 'full-provision'
+        id: create_server
+        run: |
+          # Get SSH key ID
+          SSH_KEY_ID="${{ steps.ssh_key.outputs.ssh_key_id }}"
+          if [ -z "$SSH_KEY_ID" ] || [ "$SSH_KEY_ID" = "null" ]; then
+            SSH_KEY_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/ssh-keys" | jq '.ssh_keys[0].id // empty')
+          fi
+
+          SSH_KEYS_ARG=""
+          if [ -n "$SSH_KEY_ID" ]; then
+            SSH_KEYS_ARG="\"ssh_keys_ids\": [$SSH_KEY_ID],"
+          fi
+
+          echo "Creating server: preset=${{ inputs.preset_id }}, os=${{ inputs.os_id }}"
+          RESULT=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"name\": \"delovoy-park-prod\",
+              \"comment\": \"Platform Delovoy — production server\",
+              \"preset_id\": ${{ inputs.preset_id }},
+              \"os_id\": ${{ inputs.os_id }},
+              \"project_id\": ${{ env.PROJECT_ID }},
+              ${SSH_KEYS_ARG}
+              \"is_ddos_guard\": true
+            }" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers")
+
+          echo "$RESULT" | jq '.'
+
+          SERVER_ID=$(echo "$RESULT" | jq '.server.id')
+          SERVER_IP=$(echo "$RESULT" | jq -r '.server.networks[0].ips[0].ip // "pending"')
+          echo "server_id=$SERVER_ID" >> $GITHUB_OUTPUT
+          echo "server_ip=$SERVER_IP" >> $GITHUB_OUTPUT
+
+          echo "Server created! ID=$SERVER_ID"
+
+          # Wait for server to become active (up to 5 minutes)
+          echo "Waiting for server to boot..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/servers/$SERVER_ID" | jq -r '.server.status')
+            IP=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/servers/$SERVER_ID" | jq -r '.server.networks[0].ips[0].ip // "pending"')
+
+            echo "  Attempt $i/30: status=$STATUS ip=$IP"
+
+            if [ "$STATUS" = "on" ] && [ "$IP" != "pending" ] && [ "$IP" != "null" ]; then
+              echo "Server is ready! IP=$IP"
+              echo "server_ip=$IP" >> $GITHUB_OUTPUT
+              break
+            fi
+            sleep 10
+          done
+
+      # === Step 3: Setup Firewall ===
+      - name: Setup Firewall
+        if: inputs.action == 'setup-firewall' || inputs.action == 'full-provision'
+        run: |
+          SERVER_ID="${{ steps.create_server.outputs.server_id || inputs.server_id }}"
+
+          # Auto-detect server if not provided
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
+            SERVER_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/servers" | jq '.servers[0].id')
+          fi
+
+          echo "Setting up firewall for server $SERVER_ID"
+
+          # Create firewall group
+          FW_GROUP=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "delovoy-park-fw", "description": "Firewall for Delovoy Park production"}' \
+            "${{ env.TIMEWEB_API }}/api/v1/firewall/groups")
+
+          FW_ID=$(echo "$FW_GROUP" | jq '.group.id')
+          echo "Firewall group created: $FW_ID"
+
+          # Add rules: SSH, HTTP, HTTPS
+          for PORT in 22 80 443; do
+            PROTO="tcp"
+            DESC="Allow port $PORT"
+            curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"direction\": \"ingress\", \"protocol\": \"$PROTO\", \"port\": $PORT, \"cidr\": \"0.0.0.0/0\", \"description\": \"$DESC\"}" \
+              "${{ env.TIMEWEB_API }}/api/v1/firewall/groups/$FW_ID/rules" | jq '.rule.id'
+          done
+
+          # Link firewall to server
+          if [ -n "$SERVER_ID" ] && [ "$SERVER_ID" != "null" ]; then
+            curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"server_id\": $SERVER_ID}" \
+              "${{ env.TIMEWEB_API }}/api/v1/firewall/groups/$FW_ID/resources" | jq '.'
+            echo "Firewall linked to server $SERVER_ID"
+          fi
+
+      # === Step 4: Setup DNS ===
+      - name: Setup DNS
+        if: inputs.action == 'setup-dns' || inputs.action == 'full-provision'
+        run: |
+          DOMAIN="${{ inputs.domain }}"
+          SERVER_IP="${{ steps.create_server.outputs.server_ip || '' }}"
+
+          if [ -z "$SERVER_IP" ] || [ "$SERVER_IP" = "pending" ] || [ "$SERVER_IP" = "null" ]; then
+            # Try to get IP from existing server
+            SERVER_IP=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/servers" | jq -r '.servers[0].networks[0].ips[0].ip // empty')
+          fi
+
+          if [ -z "$SERVER_IP" ]; then
+            echo "::warning::No server IP available yet. DNS setup skipped."
+            echo "Run 'setup-dns' again after server is created."
+            exit 0
+          fi
+
+          echo "Setting up DNS for $DOMAIN → $SERVER_IP"
+
+          # Add domain to Timeweb
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"fqdn\": \"$DOMAIN\"}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains" | jq '.' || true
+
+          # Add A record for root domain
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\": \"A\", \"value\": \"$SERVER_IP\", \"subdomain\": \"@\"}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains/$DOMAIN/dns-records" | jq '.'
+
+          # Add A record for www
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\": \"A\", \"value\": \"$SERVER_IP\", \"subdomain\": \"www\"}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains/$DOMAIN/dns-records" | jq '.'
+
+          echo "DNS records created: $DOMAIN → $SERVER_IP, www.$DOMAIN → $SERVER_IP"
+
+      # === Step 5: Setup Server (Docker, Nginx, SSL) ===
+      - name: Setup Server via SSH
+        if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -e
+            echo "=== Delovoy Park — Full Server Setup ==="
+
+            # --- System packages ---
+            apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              docker.io docker-compose-plugin \
+              nginx certbot python3-certbot-nginx \
+              fail2ban ufw curl jq wget
+
+            # --- Firewall (UFW) ---
+            ufw default deny incoming
+            ufw default allow outgoing
+            ufw allow 22/tcp
+            ufw allow 80/tcp
+            ufw allow 443/tcp
+            ufw --force enable
+            echo "✓ Firewall configured"
+
+            # --- Deploy user ---
+            if ! id "deploy" &>/dev/null; then
+              useradd -m -s /bin/bash -G docker deploy
+              mkdir -p /home/deploy/.ssh
+              cp /root/.ssh/authorized_keys /home/deploy/.ssh/ 2>/dev/null || true
+              chown -R deploy:deploy /home/deploy/.ssh
+              chmod 700 /home/deploy/.ssh
+              echo "✓ User 'deploy' created"
+            fi
+
+            # --- App directories ---
+            mkdir -p /opt/delovoy-park
+            mkdir -p /opt/backups
+            chown deploy:deploy /opt/delovoy-park /opt/backups
+
+            # --- Backup rotation ---
+            cat > /etc/cron.daily/cleanup-backups << 'CRON'
+            #!/bin/bash
+            find /opt/backups -name "*.sql.gz" -mtime +30 -delete
+            CRON
+            chmod +x /etc/cron.daily/cleanup-backups
+
+            # --- Docker log rotation ---
+            mkdir -p /etc/docker
+            cat > /etc/docker/daemon.json << 'DOCKER'
+            {
+              "log-driver": "json-file",
+              "log-opts": { "max-size": "10m", "max-file": "3" }
+            }
+            DOCKER
+            systemctl enable docker
+            systemctl restart docker
+            echo "✓ Docker configured"
+
+            # --- GHCR login for deploy user ---
+            echo "Note: GHCR auth will be configured on first deploy via CI/CD"
+
+            # --- Nginx ---
+            cat > /etc/nginx/sites-available/delovoy-park << 'NGINX'
+            server {
+                listen 80;
+                server_name delovoy-park.ru www.delovoy-park.ru;
+
+                location / {
+                    proxy_pass http://127.0.0.1:3000;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_read_timeout 60s;
+                    proxy_send_timeout 60s;
+
+                    add_header X-Frame-Options "SAMEORIGIN" always;
+                    add_header X-Content-Type-Options "nosniff" always;
+                    add_header X-XSS-Protection "1; mode=block" always;
+                    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+                }
+
+                location /_next/static/ {
+                    proxy_pass http://127.0.0.1:3000;
+                    expires 365d;
+                    add_header Cache-Control "public, immutable";
+                }
+
+                location /api/health {
+                    proxy_pass http://127.0.0.1:3000;
+                    access_log off;
+                }
+
+                client_max_body_size 20M;
+            }
+            NGINX
+
+            ln -sf /etc/nginx/sites-available/delovoy-park /etc/nginx/sites-enabled/
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t && systemctl enable nginx && systemctl reload nginx
+            echo "✓ Nginx configured"
+
+            echo ""
+            echo "=== Server setup complete ==="
+            echo "Next: SSL will be configured after DNS propagation"
+
+      # === Step 6: SSL Certificate ===
+      - name: Setup SSL
+        if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
+        continue-on-error: true  # DNS may not have propagated yet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            certbot --nginx -d delovoy-park.ru -d www.delovoy-park.ru \
+              --non-interactive --agree-tos --email admin@delovoy-park.ru \
+              --redirect || echo "SSL setup failed — DNS may not have propagated yet. Run manually later."
+
+      # === Step 7: Copy production files ===
+      - name: Deploy production config
+        if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/delovoy-park
+
+            # docker-compose.prod.yml will be pulled from repo on first deploy
+            # Create minimal .env for first boot
+            if [ ! -f .env ]; then
+              cat > .env << 'ENV'
+            NODE_ENV=production
+            NEXTAUTH_URL=https://delovoy-park.ru
+            NEXT_PUBLIC_APP_URL=https://delovoy-park.ru
+            ENV
+              chown deploy:deploy .env
+              echo "Created minimal .env — update with full secrets before first deploy"
+            fi
+
+      # === Status Check ===
+      - name: Show Status
+        if: always()
+        run: |
+          echo "=== Timeweb Account Status ==="
+
+          echo ""
+          echo "--- Servers ---"
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers" | jq '.servers[] | {id, name, status, ip: .networks[0].ips[0].ip, preset_id}'
+
+          echo ""
+          echo "--- SSH Keys ---"
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/ssh-keys" | jq '.ssh_keys[] | {id, name}'
+
+          echo ""
+          echo "--- Domains ---"
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains" | jq '.domains[] | {fqdn, linked_ip}'
+
+          echo ""
+          echo "--- Firewall Groups ---"
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/firewall/groups" | jq '.groups[] | {id, name, rules_count}'

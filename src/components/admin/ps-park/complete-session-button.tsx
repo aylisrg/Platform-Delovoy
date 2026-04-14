@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { SessionBillModal } from "./session-bill-modal";
+import { SessionBillModal, type PaymentSplit } from "./session-bill-modal";
 import type { BookingBill } from "@/modules/ps-park/types";
 
 type Props = {
@@ -35,13 +35,13 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
     }
   }
 
-  async function handleConfirm() {
+  async function handleConfirm({ cashAmount, cardAmount }: PaymentSplit) {
     setConfirming(true);
     try {
       const res = await fetch(`/api/ps-park/bookings/${bookingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "COMPLETED" }),
+        body: JSON.stringify({ status: "COMPLETED", cashAmount, cardAmount }),
       });
       const data = await res.json();
       if (data.success) {

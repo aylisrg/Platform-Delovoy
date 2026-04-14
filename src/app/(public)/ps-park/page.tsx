@@ -105,7 +105,7 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
 }
 
 export default async function PSParkPage() {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
   const [tables, rawAvailability, phoneInfo] = await Promise.all([
     listTables(true),
     getAvailability(today),
@@ -117,7 +117,7 @@ export default async function PSParkPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
+      <Navbar dark />
       <div className="pt-14">
 
       {/* ── HERO ── */}

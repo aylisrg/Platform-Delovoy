@@ -5,10 +5,10 @@ import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
-import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
 import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
 import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
+import { ShiftPanel } from "@/components/admin/ps-park/shift-panel";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 import { CallButton } from "@/components/admin/telephony/call-button";
@@ -105,8 +105,11 @@ export default async function PSParkManagerPage() {
 
   return (
     <>
-      <AdminHeader title="Плей Парк" actions={<><TestAlertsButton /><ReceiveStockButton /></>} />
+      <AdminHeader title="Плей Парк" actions={<TestAlertsButton />} />
       <div className="p-8">
+        {/* Shift panel */}
+        <ShiftPanel date={todayStr} />
+
         {/* Stats */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 mb-6">
           <StatusWidget

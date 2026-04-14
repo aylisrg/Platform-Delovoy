@@ -16,11 +16,31 @@ type PopoverState = {
   resourceName: string;
   startTime: string;
   pricePerHour: number | null;
-  availableConsecutiveSlots: number;
+  maxEndTime: string;
 } | null;
 
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 23;
+const MOSCOW_TZ = "Europe/Moscow";
+
+function getMoscowHour(d: Date): number {
+  return parseInt(
+    d.toLocaleString("en-US", { timeZone: MOSCOW_TZ, hour: "numeric", hour12: false }),
+    10
+  );
+}
+
+function getMoscowMinute(d: Date): number {
+  return d.getMinutes(); // minutes are timezone-independent (Moscow is exact +3h)
+}
+
+function getMoscowDateStr(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: MOSCOW_TZ }); // YYYY-MM-DD
+}
+
+function parseMoscowDatetime(date: string, hour: number): Date {
+  return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
+}
 
 export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const [date, setDate] = useState(initialDate);
@@ -37,12 +57,12 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   useEffect(() => {
     function updateNowMarker() {
       const now = new Date();
-      const today = now.toISOString().split("T")[0];
+      const today = getMoscowDateStr(now);
       if (date !== today) {
         setCurrentHourOffset(null);
         return;
       }
-      const totalMinutes = now.getHours() * 60 + now.getMinutes();
+      const totalMinutes = getMoscowHour(now) * 60 + getMoscowMinute(now);
       const openMinutes = OPEN_HOUR * 60;
       const closeMinutes = CLOSE_HOUR * 60;
       if (totalMinutes < openMinutes || totalMinutes > closeMinutes) {
@@ -80,8 +100,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   function getBookingStyle(booking: TimelineBooking) {
     const start = new Date(booking.startTime);
     const end = new Date(booking.endTime);
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
+    const startHour = getMoscowHour(start) + getMoscowMinute(start) / 60;
+    const endHour = getMoscowHour(end) + getMoscowMinute(end) / 60;
     const totalHours = CLOSE_HOUR - OPEN_HOUR;
     const left = ((startHour - OPEN_HOUR) / totalHours) * 100;
     const width = ((endHour - startHour) / totalHours) * 100;
@@ -89,8 +109,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   }
 
   function isSlotFree(resourceId: string, hour: number): boolean {
-    const slotStart = new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00`);
-    const slotEnd = new Date(`${date}T${(hour + 1).toString().padStart(2, "0")}:00:00`);
+    const slotStart = parseMoscowDatetime(date, hour);
+    const slotEnd = parseMoscowDatetime(date, hour + 1);
     return !data.bookings.some(
       (b) =>
         b.resourceId === resourceId &&
@@ -99,13 +119,14 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     );
   }
 
-  function countConsecutiveFreeSlots(resourceId: string, fromHour: number): number {
-    let count = 0;
-    for (let h = fromHour; h < CLOSE_HOUR; h++) {
-      if (isSlotFree(resourceId, h)) count++;
-      else break;
-    }
-    return count;
+  function getMaxEndTime(resourceId: string, clickedHour: number): string {
+    const clickedStart = parseMoscowDatetime(date, clickedHour);
+    const nextBooking = data.bookings
+      .filter((b) => b.resourceId === resourceId && new Date(b.startTime) > clickedStart)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
+    if (!nextBooking) return `${CLOSE_HOUR.toString().padStart(2, "0")}:00`;
+    const t = new Date(nextBooking.startTime);
+    return `${getMoscowHour(t).toString().padStart(2, "0")}:${getMoscowMinute(t).toString().padStart(2, "0")}`;
   }
 
   function handleSlotClick(resourceId: string, hour: number) {
@@ -118,7 +139,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
       resourceName: resource.name,
       startTime: `${hour.toString().padStart(2, "0")}:00`,
       pricePerHour: resource.pricePerHour ? Number(resource.pricePerHour) : null,
-      availableConsecutiveSlots: countConsecutiveFreeSlots(resourceId, hour),
+      maxEndTime: getMaxEndTime(resourceId, hour),
     });
   }
 
@@ -308,7 +329,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           resourceName={popover.resourceName}
           date={date}
           startTime={popover.startTime}
-          availableConsecutiveSlots={popover.availableConsecutiveSlots}
+          maxEndTime={popover.maxEndTime}
           pricePerHour={popover.pricePerHour}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}

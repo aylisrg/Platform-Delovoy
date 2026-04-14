@@ -131,7 +131,8 @@ model Booking {
   cancelReason    String?
   googleEventId   String?
   managerId       String?
-  paymentStatus   String?
+  cashAmount      Decimal?
+  cardAmount      Decimal?
   metadata        Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -150,6 +151,62 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+// === SHIFT HANDOVER (ps-park) ===
+
+model ShiftHandover {
+  id           String      @id @default(cuid())
+  moduleSlug   String      @default("ps-park")
+  date         String      // YYYY-MM-DD
+  openedAt     DateTime    @default(now())
+  openedById   String
+  openedByName String
+  closedAt     DateTime?
+  closedById   String?
+  closedByName String?
+  cashTotal    Decimal     @default(0)
+  cardTotal    Decimal     @default(0)
+  notes        String?
+  status       ShiftStatus @default(OPEN)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([moduleSlug, date])
+  @@index([moduleSlug, date])
+}
+
+// === FINANCIAL LEDGER ===
+
+model FinancialTransaction {
+  id              String          @id @default(cuid())
+  moduleSlug      String
+  type            FinancialTxType
+  bookingId       String?
+  totalAmount     Decimal
+  cashAmount      Decimal         @default(0)
+  cardAmount      Decimal         @default(0)
+  performedById   String
+  performedByName String
+  description     String
+  metadata        Json?           // bill snapshot at time of payment
+  createdAt       DateTime        @default(now())
+  // No updatedAt — immutable financial audit log
+
+  @@index([moduleSlug, createdAt])
+  @@index([bookingId])
+  @@index([type, createdAt])
+}
+
+enum FinancialTxType {
+  SESSION_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
 }
 
 // === BOOKABLE RESOURCES (беседки, столы PS) ===

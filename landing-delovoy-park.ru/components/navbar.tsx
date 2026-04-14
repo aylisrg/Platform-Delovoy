@@ -23,7 +23,7 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
     session?.user?.role === "SUPERADMIN" || session?.user?.role === "MANAGER";
 
   const headerCls = dark
-    ? "fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-zinc-950/80 border-b border-white/[0.06]"
+    ? "fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-zinc-950/50 border-b border-violet-500/[0.18]"
     : "fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-white/80 border-b border-black/[0.04]";
   const logoCls = dark
     ? "font-[family-name:var(--font-manrope)] font-semibold text-[17px] tracking-tight text-white"
@@ -160,9 +160,11 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
           onClick={() => setOpen(!open)}
           aria-label="Меню"
         >
-          <div className={barCls} style={{ marginBottom: 6 }} />
-          <div className={barCls} style={{ marginBottom: 6 }} />
-          <div className={barCls} />
+          <div className="flex flex-col gap-[5px]">
+            <div className={barCls} />
+            <div className={barCls} />
+            <div className={barCls} />
+          </div>
         </button>
       </div>
 

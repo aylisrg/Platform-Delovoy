@@ -8,10 +8,10 @@
 
 ### Вариант 1: Автономный пайплайн (рекомендуется)
 
-Запусти полный цикл разработки одной командой — PO → Architect → Developer → QA работают последовательно без участия человека:
+Запусти полный цикл разработки одной командой — PO → Architect → Developer → Reviewer → QA работают последовательно с автоматическим feedback loop:
 
 ```bash
-# Полный пайплайн: PO → Architect → Developer → QA
+# Полный пайплайн: PO → Architect → Developer → Reviewer → QA
 ./scripts/pipeline.sh "Сделать мега-лендинг с анимациями и waitlist-формой"
 
 # Только конкретные этапы
@@ -23,13 +23,16 @@
 # Dry run — посмотреть что будет запущено
 ./scripts/pipeline.sh --dry-run "Добавить тёмную тему"
 
-# Выбрать модель и бюджет
-./scripts/pipeline.sh --model opus --budget 10.00 "Переделать дашборд"
+# Без автоматического создания PR
+./scripts/pipeline.sh --no-pr "Рефакторинг модуля кафе"
+
+# Настроить макс. итераций QA-фидбека
+./scripts/pipeline.sh --max-iterations 5 "Критичная фича с жёстким QA"
 ```
 
 **Env-переменные:**
-- `PIPELINE_MODEL` — модель Claude (default: `sonnet`)
 - `PIPELINE_BUDGET` — макс. бюджет на этап в USD (default: `5.00`)
+- `PIPELINE_MAX_QA_ITERATIONS` — макс. итераций QA↔Developer (default: `3`)
 
 Артефакты сохраняются в `docs/` и логи в `docs/pipeline-runs/`.
 
@@ -46,13 +49,14 @@
 
 ## Агенты
 
-| Файл | Роль | Зона ответственности |
-|------|------|----------------------|
-| `po.md` | Product Owner | Требования, user stories, приоритизация, roadmap |
-| `architect.md` | System Architect | Архитектурные решения, схемы БД, API-дизайн, ADR |
-| `developer.md` | Senior Developer | Реализация фич, рефакторинг, code review, тесты |
-| `qa.md` | QA Engineer | Тест-планы, баг-репорты, регрессионное тестирование |
-| `analytics.md` | Product Analyst | Метрики, аналитика, дашборды, A/B тесты |
+| Файл | Роль | Модель | Зона ответственности |
+|------|------|--------|----------------------|
+| `po.md` | Product Owner | Sonnet | Требования, user stories, приоритизация, roadmap |
+| `architect.md` | System Architect | **Opus** | Архитектурные решения, схемы БД, API-дизайн, ADR |
+| `developer.md` | Senior Developer | **Opus** | Реализация фич, рефакторинг, code review, тесты |
+| `reviewer.md` | Code Reviewer (LLM-as-Judge) | Sonnet | Независимая проверка кода на соответствие PRD/ADR |
+| `qa.md` | QA Engineer | Sonnet | Тест-планы, баг-репорты, регрессионное тестирование |
+| `analytics.md` | Product Analyst | Sonnet | Метрики, аналитика, дашборды, A/B тесты |
 
 ---
 
@@ -62,8 +66,10 @@
 docs/
 ├── requirements/      ← PO: PRD, user stories, acceptance criteria
 ├── architecture/      ← Architect: ADR, диаграммы, API-спеки
-├── qa-reports/        ← QA: тест-планы, баг-репорты, отчёты
-└── analytics/         ← Analyst: метрики, отчёты, гипотезы
+├── qa-reports/        ← Reviewer: вердикты; QA: тест-планы, баг-репорты
+├── context/           ← Shared: контекстный лог решений между стейджами
+├── analytics/         ← Analyst: метрики, отчёты, гипотезы
+└── pipeline-runs/     ← Логи выполнения pipeline
 ```
 
 ---
@@ -73,20 +79,55 @@ docs/
 1. **Один агент — одна роль.** Не смешивай обязанности. PO не пишет код, Developer не приоритизирует фичи.
 2. **Артефакты в docs/.** Каждый агент создаёт документы в своей папке с датой в имени файла: `YYYY-MM-DD-название.md`.
 3. **CLAUDE.md — источник правды.** Все агенты следуют архитектуре, стеку и соглашениям из `CLAUDE.md`.
-4. **Передача между агентами.** PO формулирует требования → Architect проектирует решение → Developer реализует → QA проверяет → Analyst измеряет результат.
-5. **Контекст проекта.** Платформа "Деловой" — бизнес-парк (Селятино). Модули: кафе, Плей Парк, Барбекю Парк, парковка, аренда офисов. Стек: Next.js 15, Prisma, PostgreSQL, Redis.
+4. **Контекстный лог.** Каждый стейдж дописывает свои решения в `docs/context/{RUN_ID}-context.md`. Следующий стейдж читает его для полного контекста.
+5. **Feedback loop.** QA находит баги → Developer чинит → QA перепроверяет (до 3 итераций).
+6. **Auto PR.** После успешного завершения pipeline автоматически создаёт ветку и Pull Request.
+7. **Контекст проекта.** Платформа "Деловой" — бизнес-парк (Селятино). Модули: кафе, Плей Парк, Барбекю Парк, парковка, аренда офисов. Стек: Next.js 15, Prisma, PostgreSQL, Redis.
 
 ---
 
 ## Цепочка работы над фичей
 
 ```
-1. PO        → docs/requirements/YYYY-MM-DD-feature-name.md
-2. Architect → docs/architecture/YYYY-MM-DD-feature-name-adr.md
-3. Developer → код в src/ + тесты
-4. QA        → docs/qa-reports/YYYY-MM-DD-feature-name-test-report.md
-5. Analyst   → docs/analytics/YYYY-MM-DD-feature-name-metrics.md
+1. PO (Sonnet)     → docs/requirements/{id}-prd.md
+                     + docs/context/{id}-context.md (решения PO)
+                     │
+2. Architect (Opus) → docs/architecture/{id}-adr.md
+                     + docs/context/{id}-context.md (решения архитектора)
+                     │
+              ┌──── 3. Developer (Opus) → код в src/ + тесты
+              │      │
+              │     4. Reviewer (Sonnet) → docs/qa-reports/{id}-review.md
+              │      │                      PASS? → продолжаем
+              │      │                      NEEDS_CHANGES? → назад к Developer
+              │      │
+              │     5. QA (Sonnet) → docs/qa-reports/{id}-qa-report.md
+              │      │                PASS? → Auto PR
+              │      │                FAIL? → назад к Developer (max 3 итерации)
+              └──────┘
+                     │
+              6. Auto PR → feature/{id} → main
+                     │
+              7. CI → lint + test + typecheck + build
+                     │
+              8. Human review (CODEOWNERS)
+                     │
+              9. Merge → Auto deploy → VPS
 ```
+
+---
+
+## Модели по стейджам
+
+| Стейдж | Модель | Почему |
+|--------|--------|--------|
+| PO | Sonnet | Анализ, документация — Sonnet справляется отлично |
+| Architect | **Opus** | Критичные архитектурные решения требуют лучшего reasoning |
+| Developer | **Opus** | Качество генерируемого кода значительно выше на Opus |
+| Reviewer | Sonnet | Чеклист-ориентированная проверка — Sonnet достаточно |
+| QA | Sonnet | Тестирование и верификация — Sonnet достаточно |
+
+Это оптимизирует баланс стоимости и качества: Opus там, где ошибки дороже всего (архитектура и код).
 
 ---
 
@@ -95,5 +136,8 @@ docs/
 - Начинай с PO, если задача новая и нет чётких требований.
 - Используй Architect, если нужно принять техническое решение или изменить схему БД.
 - Developer — основной исполнитель. Передавай ему готовые требования и архитектуру.
+- Reviewer ловит scope creep и отклонения от PRD — самая частая проблема у AI-агентов.
 - QA полезен после реализации, но можно запускать параллельно для написания тест-плана.
 - Analyst подключается когда фича в продакшене или для обоснования приоритетов.
+- `--no-pr` полезен когда хочешь вручную проверить результат перед созданием PR.
+- `--max-iterations 1` — быстрый режим без повторных QA-проверок.

@@ -97,7 +97,8 @@ export type ActiveSession = {
   endTime: string;   // ISO
   status: "CONFIRMED";
   pricePerHour: number;
-  hoursBooked: number;
+  durationMin: number;   // booked duration in minutes
+  billedHours: number;   // rounded up to nearest 30 min
   hoursCost: number;
   items: BookingItemSnapshotWithSubtotal[];
   itemsTotal: number;
@@ -112,6 +113,44 @@ export type BookingItemSnapshotWithSubtotal = {
   subtotal: number;
 };
 
+// Financial transaction record
+export type FinancialTransactionRecord = {
+  id: string;
+  bookingId: string | null;
+  totalAmount: number;
+  cashAmount: number;
+  cardAmount: number;
+  performedByName: string;
+  description: string;
+  createdAt: string;
+};
+
+// Day report (shift summary)
+export type DayReport = {
+  date: string;
+  totalSessions: number;
+  cashTotal: number;
+  cardTotal: number;
+  totalRevenue: number;
+  cashCount: number;
+  cardCount: number;
+  transactions: FinancialTransactionRecord[];
+};
+
+// Shift handover
+export type ShiftHandoverData = {
+  id: string;
+  date: string;
+  status: "OPEN" | "CLOSED";
+  openedAt: string;
+  openedById: string;
+  openedByName: string;
+  closedAt: string | null;
+  closedById: string | null;
+  closedByName: string | null;
+  notes: string | null;
+};
+
 // Bill for session completion
 export type BookingBill = {
   bookingId: string;
@@ -120,7 +159,8 @@ export type BookingBill = {
   date: string;
   startTime: string;
   endTime: string;
-  hoursBooked: number;
+  durationMin: number;     // actual duration in minutes
+  billedHours: number;     // rounded up to nearest 30 min
   pricePerHour: number;
   hoursCost: number;
   items: BookingItemSnapshotWithSubtotal[];

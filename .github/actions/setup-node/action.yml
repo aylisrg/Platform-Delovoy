@@ -1,0 +1,20 @@
+name: Setup Node.js
+description: Checkout, setup Node.js, and install dependencies (reusable composite action)
+
+inputs:
+  node-version:
+    description: Node.js version to use
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+
+    - name: Install dependencies
+      run: npm install --no-fund --no-audit
+      shell: bash
