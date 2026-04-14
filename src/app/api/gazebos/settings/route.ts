@@ -15,12 +15,12 @@ export async function GET() {
     const denied = await requireAdminSection(session, "gazebos");
     if (denied) return denied;
 
-    const module = await prisma.module.findUnique({
+    const moduleRecord = await prisma.module.findUnique({
       where: { slug: MODULE_SLUG },
     });
-    if (!module) return apiNotFound("Модуль не найден");
+    if (!moduleRecord) return apiNotFound("Модуль не найден");
 
-    return apiResponse(module.config ?? {
+    return apiResponse(moduleRecord.config ?? {
       openHour: 8,
       closeHour: 23,
       minBookingHours: 1,
@@ -46,12 +46,12 @@ export async function PATCH(request: NextRequest) {
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    const module = await prisma.module.findUnique({
+    const moduleRecord = await prisma.module.findUnique({
       where: { slug: MODULE_SLUG },
     });
-    if (!module) return apiNotFound("Модуль не найден");
+    if (!moduleRecord) return apiNotFound("Модуль не найден");
 
-    const currentConfig = (module.config as Record<string, unknown>) ?? {};
+    const currentConfig = (moduleRecord.config as Record<string, unknown>) ?? {};
     const newConfig = { ...currentConfig, ...parsed.data };
 
     const updated = await prisma.module.update({
