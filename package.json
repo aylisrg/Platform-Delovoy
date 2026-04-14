@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "npx tsx scripts/seed.ts",
+    "setup:metrika": "node --env-file=.env --import tsx/esm scripts/setup-metrika-goals.ts",
     "clear-test-inventory": "npx tsx scripts/clear-test-inventory.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"

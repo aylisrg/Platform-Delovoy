@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { reachGoal } from "@/lib/metrika";
 
 type Office = {
   id: string;
@@ -26,7 +27,7 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
       e.preventDefault();
       setLoading(true);
       setResult(null);
-
+      reachGoal("office_inquiry_submit");
       try {
         const res = await fetch("/api/rental/inquiries", {
           method: "POST",
@@ -44,6 +45,7 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
         const data = await res.json();
 
         if (data.success) {
+          reachGoal("office_inquiry_success");
           setResult({ ok: true, message: "Заявка отправлена! Мы свяжемся с вами в ближайшее время." });
           setName("");
           setPhone("");

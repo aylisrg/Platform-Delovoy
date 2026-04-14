@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { reachGoal } from "@/lib/metrika";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { DarkDateNavigator } from "@/components/public/ps-park/dark-date-navigator";
 import type { DayAvailability } from "@/modules/ps-park/types";
@@ -87,6 +88,7 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
 
     setBookingLoading(true);
     setError(null);
+    reachGoal("pspark_booking_submit");
     try {
       const res = await fetch("/api/ps-park/book", {
         method: "POST",
@@ -100,6 +102,7 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
       });
       const data = await res.json();
       if (data.success) {
+        reachGoal("pspark_booking_success");
         setBookingSuccess(true);
         setBookingSuccessMsg(pickRandom(TOAST_PS_BOOKING_SUCCESS));
         setSelectedResourceId(null);
