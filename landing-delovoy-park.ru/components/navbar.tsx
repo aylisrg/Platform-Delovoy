@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 
 const navLinks = [
-  { label: "О парке", href: "#advantages" },
-  { label: "Офисы", href: "#offices" },
+  { label: "О парке", href: "/#advantages" },
+  { label: "Офисы", href: "/rental" },
   { label: "Барбекю Парк", href: "/gazebos" },
   { label: "Плей Парк", href: "/ps-park" },
   { label: "Кафе", href: "/cafe" },
-  { label: "Контакты", href: "#contacts" },
+  { label: "Контакты", href: "/#contacts" },
 ];
 
 export function Navbar() {
@@ -35,15 +35,25 @@ export function Navbar() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-7">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[13px] font-[family-name:var(--font-inter)] font-medium"
-            >
-              {link.label}
-            </a>
-          ))}
+          {navLinks.map((link) =>
+            !link.href.startsWith("/") || link.href.startsWith("/#") ? (
+              <a
+                key={link.href}
+                href={link.href}
+                className="text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[13px] font-[family-name:var(--font-inter)] font-medium"
+              >
+                {link.label}
+              </a>
+            ) : (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[13px] font-[family-name:var(--font-inter)] font-medium"
+              >
+                {link.label}
+              </Link>
+            )
+          )}
         </nav>
 
         {/* Right side: CTA + Auth */}
@@ -112,7 +122,7 @@ export function Navbar() {
 
         {/* Mobile burger */}
         <button
-          className="md:hidden text-[#1d1d1f] p-2"
+          className="md:hidden text-[#1d1d1f] min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2"
           onClick={() => setOpen(!open)}
           aria-label="Меню"
         >
@@ -125,16 +135,27 @@ export function Navbar() {
       {/* Mobile menu */}
       {open && (
         <div className="md:hidden bg-white/95 backdrop-blur-xl border-t border-black/[0.04] px-6 py-5 space-y-4">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              onClick={() => setOpen(false)}
-              className="block text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[15px] font-[family-name:var(--font-inter)]"
-            >
-              {link.label}
-            </a>
-          ))}
+          {navLinks.map((link) =>
+            !link.href.startsWith("/") || link.href.startsWith("/#") ? (
+              <a
+                key={link.href}
+                href={link.href}
+                onClick={() => setOpen(false)}
+                className="block text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[15px] font-[family-name:var(--font-inter)]"
+              >
+                {link.label}
+              </a>
+            ) : (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setOpen(false)}
+                className="block text-[#1d1d1f]/70 hover:text-[#1d1d1f] transition-colors text-[15px] font-[family-name:var(--font-inter)]"
+              >
+                {link.label}
+              </Link>
+            )
+          )}
           {!isLoggedIn && (
             <a
               href="#offices"

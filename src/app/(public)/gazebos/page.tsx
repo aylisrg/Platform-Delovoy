@@ -37,15 +37,23 @@ export default async function GazebosPage() {
       {/* Hero with video background */}
       <section className="relative h-[70vh] min-h-[500px] flex items-end overflow-hidden">
         {/* Video background */}
+        {/* Desktop: autoplay video */}
         <video
           autoPlay
           muted
           loop
           playsInline
-          className="absolute inset-0 w-full h-full object-cover"
+          preload="metadata"
+          poster="/media/IMG_3724_Custom.JPG.webp"
+          className="absolute inset-0 w-full h-full object-cover hidden md:block"
         >
           <source src="/media/gazebo.mp4" type="video/mp4" />
         </video>
+        {/* Mobile: static poster fallback */}
+        <div
+          className="absolute inset-0 md:hidden bg-zinc-800"
+          style={{ backgroundImage: "url('/media/IMG_3724_Custom.JPG.webp')", backgroundSize: "cover", backgroundPosition: "center" }}
+        />
         {/* Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />
 
@@ -58,7 +66,7 @@ export default async function GazebosPage() {
             ← Главная
           </Link>
           <h1
-            className="font-[family-name:var(--font-manrope)] font-[500] text-[#1d1d1f] mt-6"
+            className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-6"
             style={{
               fontSize: "clamp(36px, 5vw, 56px)",
               letterSpacing: "clamp(-1px, -0.03em, -2px)",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,11 @@ export function MenuList({ items, categories }: Props) {
   const [comment, setComment] = useState("");
   const [isOrdering, setIsOrdering] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const cartRef = useRef<HTMLDivElement>(null);
+
+  function scrollToCart() {
+    cartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const filtered = activeCategory
     ? items.filter((i) => i.category === activeCategory)
@@ -92,7 +97,24 @@ export function MenuList({ items, categories }: Props) {
     }
   }
 
+  const totalItems = cart.reduce((sum, c) => sum + c.quantity, 0);
+
   return (
+    <>
+    {/* Mobile sticky cart bar */}
+    {cart.length > 0 && (
+      <div className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-white border-t border-zinc-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] px-4 py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">{totalAmount} ₽</p>
+            <p className="text-xs text-zinc-500">{totalItems} позиц.</p>
+          </div>
+          <Button size="sm" onClick={scrollToCart}>
+            Перейти к заказу →
+          </Button>
+        </div>
+      </div>
+    )}
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
       {/* Menu */}
       <div className="lg:col-span-2">
@@ -100,7 +122,7 @@ export function MenuList({ items, categories }: Props) {
         <div className="flex flex-wrap gap-2 mb-6">
           <button
             onClick={() => setActiveCategory(null)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            className={`px-4 py-2.5 rounded-full text-sm font-medium transition-colors min-h-[44px] ${
               !activeCategory
                 ? "bg-blue-600 text-white"
                 : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
@@ -112,7 +134,7 @@ export function MenuList({ items, categories }: Props) {
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              className={`px-4 py-2.5 rounded-full text-sm font-medium transition-colors min-h-[44px] ${
                 activeCategory === cat
                   ? "bg-blue-600 text-white"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
@@ -150,7 +172,7 @@ export function MenuList({ items, categories }: Props) {
       </div>
 
       {/* Cart */}
-      <div>
+      <div ref={cartRef}>
         <Card>
           <CardContent>
             <h3 className="text-lg font-semibold text-zinc-900 mb-4">Корзина</h3>
@@ -170,14 +192,14 @@ export function MenuList({ items, categories }: Props) {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => removeFromCart(c.menuItem.id)}
-                          className="w-7 h-7 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 text-sm"
+                          className="w-9 h-9 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 text-sm flex items-center justify-center"
                         >
                           −
                         </button>
                         <span className="text-zinc-900 w-5 text-center">{c.quantity}</span>
                         <button
                           onClick={() => addToCart(c.menuItem)}
-                          className="w-7 h-7 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 text-sm"
+                          className="w-9 h-9 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 text-sm flex items-center justify-center"
                         >
                           +
                         </button>
@@ -232,5 +254,6 @@ export function MenuList({ items, categories }: Props) {
         </Card>
       </div>
     </div>
+    </>
   );
 }
