@@ -60,6 +60,8 @@ services:
       DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
       REDIS_URL: "redis://redis:6379"
       NODE_ENV: "production"
+      NEXTAUTH_URL: "http://localhost"
+      AUTH_TRUST_HOST: "true"
     depends_on:
       postgres:
         condition: service_healthy

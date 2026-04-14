@@ -394,6 +394,7 @@ export function Sidebar() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) setAllowedSections(data.data.sections);
+        else setAllowedSections([]);
       })
       .catch(() => setAllowedSections([]));
   }, []);
