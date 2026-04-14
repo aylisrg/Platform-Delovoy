@@ -539,7 +539,7 @@ describe("extendBooking", () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
       mockBooking({
         status: "CONFIRMED",
-        endTime: new Date(`${FUTURE_DATE}T23:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T23:00:00+03:00`),
       }) as never
     );
 
@@ -769,8 +769,8 @@ describe("getAvailability", () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       mockBooking({
-        startTime: new Date(`${FUTURE_DATE}T12:00:00Z`),
-        endTime: new Date(`${FUTURE_DATE}T13:00:00Z`),
+        startTime: new Date(`${FUTURE_DATE}T12:00:00+03:00`),
+        endTime: new Date(`${FUTURE_DATE}T13:00:00+03:00`),
         status: "PENDING",
       }),
     ] as never);
