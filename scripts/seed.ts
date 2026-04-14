@@ -61,13 +61,12 @@ async function main() {
   }
   console.log(`  ✓ Gazebo resources: ${gazebos.length}`);
 
-  // === RESOURCES: PlayStation столы (5 шт) ===
+  // === RESOURCES: PlayStation столы (4 шт) ===
   const psTables = [
     { moduleSlug: "ps-park", name: "Стол PlayStation 1", description: "PS5, 2 геймпада, монитор 55\"", capacity: 4, pricePerHour: 800, googleCalendarId: "400e4a4538a03f7d0c1a5833b451b89c540cb99254a6fb7340cbc9e47b38d132@group.calendar.google.com" },
     { moduleSlug: "ps-park", name: "Стол PlayStation 2", description: "PS5, 2 геймпада, монитор 55\"", capacity: 4, pricePerHour: 800, googleCalendarId: "c5044a44f9a8a6ee3f36a9bcb99ae873d0cc9f1117ef35dc175a403755d79f34@group.calendar.google.com" },
     { moduleSlug: "ps-park", name: "Стол PlayStation 3", description: "PS5, 4 геймпада, монитор 65\"", capacity: 6, pricePerHour: 1200, googleCalendarId: "062e0d92f42fb876f033fd7e651072d3fdd63f779012b8a054183693840e6d3e@group.calendar.google.com" },
     { moduleSlug: "ps-park", name: "Стол PlayStation 4", description: "PS5, 2 геймпада, монитор 55\"", capacity: 4, pricePerHour: 800, googleCalendarId: "372c10ef4d3cdc778abeffe95baaf4646b11cade1dc1b19af1d715f7b18b09d8@group.calendar.google.com" },
-    { moduleSlug: "ps-park", name: "Стол PlayStation 5", description: "PS5, 4 геймпада, монитор 65\"", capacity: 6, pricePerHour: 1200, googleCalendarId: "05505db305cb62e46071245655f37b9f43afb14a65e33e85f2f789f5da686489@group.calendar.google.com" },
   ];
 
   for (const t of psTables) {

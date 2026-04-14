@@ -39,17 +39,30 @@ function serializeAvailability(availability: DayAvailability[]): DayAvailability
   }));
 }
 
+const TABLE_PHOTOS = [
+  "/media/ps-park/IMG_4358.jpeg",
+  "/media/ps-park/IMG_4362.jpeg",
+  "/media/ps-park/IMG_4366.jpeg",
+  "/media/ps-park/IMG_4368.jpeg",
+  "/media/ps-park/IMG_4369.jpeg",
+];
+
 function TableCard({ resource, index }: { resource: PSTableResource; index: number }) {
+  const photo = TABLE_PHOTOS[index % TABLE_PHOTOS.length];
+
   return (
-    <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-900/20">
-      {/* Photo placeholder — replace with real <img> once /public/media/ps-park/table-N.jpg exists */}
-      <div className="relative w-full aspect-[4/3] bg-zinc-800 flex flex-col items-center justify-center gap-2">
-        <svg className="w-10 h-10 text-zinc-700" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M21 6H3a1 1 0 00-1 1v10a1 1 0 001 1h18a1 1 0 001-1V7a1 1 0 00-1-1zm-9 8.5a3 3 0 110-6 3 3 0 010 6zM5 8h2v2H5V8zm12 8h-2v-2h2v2z" />
-        </svg>
-        <span className="text-zinc-700 text-xs font-mono">table-{index + 1}.jpg</span>
-        {/* Bottom gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-900 to-transparent" />
+    <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-900/20 group">
+      {/* Photo */}
+      <div className="relative w-full aspect-[4/3] bg-zinc-800 overflow-hidden">
+        <Image
+          src={photo}
+          alt={resource.name}
+          fill
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          quality={75}
+        />
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-900 to-transparent" />
       </div>
 
       {/* Card content */}
@@ -87,37 +100,6 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
           </span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PhotoGallery() {
-  const photos = [
-    { src: "/media/ps-park/IMG_4358.jpeg", alt: "Плей Парк — игровая зона" },
-    { src: "/media/ps-park/IMG_4362.jpeg", alt: "Плей Парк — диваны и экраны" },
-    { src: "/media/ps-park/IMG_4366.jpeg", alt: "Плей Парк — интерьер" },
-    { src: "/media/ps-park/IMG_4368.jpeg", alt: "Плей Парк — зона отдыха" },
-    { src: "/media/ps-park/IMG_4369.jpeg", alt: "Плей Парк — игровые столы" },
-  ];
-
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-      {photos.map((photo) => (
-        <div
-          key={photo.src}
-          className="relative aspect-square rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 group"
-        >
-          <Image
-            src={photo.src}
-            alt={photo.alt}
-            fill
-            className="object-cover transition-transform duration-500 group-hover:scale-105"
-            sizes="(max-width: 768px) 50vw, 20vw"
-            quality={75}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-        </div>
-      ))}
     </div>
   );
 }
@@ -254,11 +236,6 @@ export default async function PSParkPage() {
         </div>
       </section>
 
-      {/* ── PHOTO GALLERY ── */}
-      <section className="max-w-6xl mx-auto px-4 pb-16">
-        <PhotoGallery />
-      </section>
-
       {/* ── TABLES ── */}
       <section id="tables" className="max-w-6xl mx-auto px-4 pb-20">
         <div className="mb-8">
@@ -276,7 +253,7 @@ export default async function PSParkPage() {
         {tables.length === 0 ? (
           <p className="text-zinc-600 py-8">Столы пока не добавлены</p>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {tables.map((table, i) => (
               <TableCard key={table.id} resource={table} index={i} />
             ))}
