@@ -6,6 +6,11 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    settings: {
+      // Pin React version explicitly so eslint-plugin-react skips auto-detection
+      // (auto-detection calls context.getFilename() which was removed in ESLint 10).
+      react: { version: "19" },
+    },
     rules: {
       // Downgrade to warning — existing code uses setState in effects for data loading
       "react-hooks/set-state-in-effect": "warn",
