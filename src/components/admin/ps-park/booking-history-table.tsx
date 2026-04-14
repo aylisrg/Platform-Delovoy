@@ -189,7 +189,7 @@ export function BookingHistoryTable({ bookings, resourceMap }: Props) {
                     <div>
                       <p className="text-zinc-900">{bill.resourceName}</p>
                       <p className="text-xs text-zinc-500">
-                        {bill.hoursBooked} ч. x {bill.pricePerHour.toLocaleString("ru-RU")} ₽/ч
+                        {bill.billedHours} ч. × {bill.pricePerHour.toLocaleString("ru-RU")} ₽/ч
                       </p>
                     </div>
                     <span className="font-medium text-zinc-900 tabular-nums">

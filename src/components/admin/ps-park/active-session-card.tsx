@@ -78,7 +78,13 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
 
       {/* Time */}
       <div className="text-xs text-zinc-500 mb-2">
-        {formatTime(session.startTime)} – {formatTime(session.endTime)} ({session.hoursBooked} ч.)
+        {formatTime(session.startTime)} – {formatTime(session.endTime)}
+        {" · "}
+        {(() => {
+          const h = Math.floor(session.durationMin / 60);
+          const m = session.durationMin % 60;
+          return h > 0 ? (m > 0 ? `${h}ч ${m}мин` : `${h}ч`) : `${m}мин`;
+        })()}
       </div>
 
       {/* Progress bar */}
@@ -98,7 +104,7 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
           <span className="tabular-nums">{session.hoursCost} ₽</span>
         </div>
         <div className="text-[10px] text-zinc-400 -mt-0.5 mb-0.5">
-          {session.hoursBooked} ч. x {session.pricePerHour} ₽/ч
+          тариф {session.billedHours} ч. × {session.pricePerHour} ₽/ч
         </div>
         {session.items.length > 0 && (
           <>

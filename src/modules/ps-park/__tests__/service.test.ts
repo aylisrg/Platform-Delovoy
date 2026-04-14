@@ -33,8 +33,13 @@ vi.mock("@/lib/db", () => ({
     },
     user: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+    },
+    financialTransaction: {
+      create: vi.fn(),
+      findMany: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -190,12 +195,16 @@ describe("updateBookingStatus", () => {
   });
 
   it("transitions CONFIRMED → COMPLETED", async () => {
+    const completedBooking = mockBooking({ status: "COMPLETED" });
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
       mockBooking({ status: "CONFIRMED" }) as never
     );
-    vi.mocked(prisma.booking.update).mockResolvedValue(
-      mockBooking({ status: "COMPLETED" }) as never
-    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Менеджер", email: null } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      return (fn as (tx: typeof prisma) => Promise<unknown>)(prisma);
+    });
+    vi.mocked(prisma.booking.update).mockResolvedValue(completedBooking as never);
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
 
     await updateBookingStatus("booking-1", "COMPLETED");
     expect(prisma.booking.update).toHaveBeenCalledWith(
@@ -203,6 +212,7 @@ describe("updateBookingStatus", () => {
         data: expect.objectContaining({ status: "COMPLETED" }),
       })
     );
+    expect(prisma.financialTransaction.create).toHaveBeenCalled();
   });
 
   it("throws INVALID_STATUS_TRANSITION for CANCELLED → CONFIRMED", async () => {
@@ -469,7 +479,7 @@ describe("getActiveSessions", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].pricePerHour).toBe(500);
-    expect(result[0].hoursBooked).toBe(1);
+    expect(result[0].billedHours).toBe(1);
     expect(result[0].hoursCost).toBe(500);
     expect(result[0].itemsTotal).toBe(300);
     expect(result[0].totalBill).toBe(800);
@@ -581,7 +591,7 @@ describe("getBookingBill", () => {
 
     const bill = await getBookingBill("booking-1");
 
-    expect(bill.hoursBooked).toBe(2);
+    expect(bill.billedHours).toBe(2);
     expect(bill.pricePerHour).toBe(500);
     expect(bill.hoursCost).toBe(1000);
     expect(bill.items).toHaveLength(2);

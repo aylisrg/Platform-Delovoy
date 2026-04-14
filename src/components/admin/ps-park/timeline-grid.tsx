@@ -16,7 +16,7 @@ type PopoverState = {
   resourceName: string;
   startTime: string;
   pricePerHour: number | null;
-  availableConsecutiveSlots: number;
+  maxEndTime: string;
 } | null;
 
 const OPEN_HOUR = 8;
@@ -99,13 +99,14 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     );
   }
 
-  function countConsecutiveFreeSlots(resourceId: string, fromHour: number): number {
-    let count = 0;
-    for (let h = fromHour; h < CLOSE_HOUR; h++) {
-      if (isSlotFree(resourceId, h)) count++;
-      else break;
-    }
-    return count;
+  function getMaxEndTime(resourceId: string, clickedHour: number): string {
+    const clickedStart = new Date(`${date}T${clickedHour.toString().padStart(2, "0")}:00:00Z`);
+    const nextBooking = data.bookings
+      .filter((b) => b.resourceId === resourceId && new Date(b.startTime) > clickedStart)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
+    if (!nextBooking) return `${CLOSE_HOUR.toString().padStart(2, "0")}:00`;
+    const t = new Date(nextBooking.startTime);
+    return `${t.getUTCHours().toString().padStart(2, "0")}:${t.getUTCMinutes().toString().padStart(2, "0")}`;
   }
 
   function handleSlotClick(resourceId: string, hour: number) {
@@ -118,7 +119,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
       resourceName: resource.name,
       startTime: `${hour.toString().padStart(2, "0")}:00`,
       pricePerHour: resource.pricePerHour ? Number(resource.pricePerHour) : null,
-      availableConsecutiveSlots: countConsecutiveFreeSlots(resourceId, hour),
+      maxEndTime: getMaxEndTime(resourceId, hour),
     });
   }
 
@@ -308,7 +309,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           resourceName={popover.resourceName}
           date={date}
           startTime={popover.startTime}
-          availableConsecutiveSlots={popover.availableConsecutiveSlots}
+          maxEndTime={popover.maxEndTime}
           pricePerHour={popover.pricePerHour}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}

@@ -32,8 +32,8 @@ import type {
   BookingItemSnapshotWithSubtotal,
   DayReport,
   ShiftHandoverData,
+  FinancialTransactionRecord,
 } from "./types";
-import type { PaymentMethod } from "@prisma/client";
 
 const MODULE_SLUG = "ps-park";
 
@@ -220,7 +220,8 @@ export async function updateBookingStatus(
   status: BookingStatus,
   managerId?: string,
   cancelReason?: string,
-  paymentMethod?: PaymentMethod
+  cashAmount?: number,
+  cardAmount?: number
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -277,12 +278,16 @@ export async function updateBookingStatus(
 
   // Build bill snapshot when completing a session
   let billSnapshot: Record<string, unknown> | undefined;
+  let completedBilledHours = 0;
+  let completedPricePerHour = 0;
+  let completedItemsTotal = 0;
+  let completedTotalBill = 0;
+
   if (status === "COMPLETED") {
-    const pricePerHour = Number(resource?.pricePerHour ?? 0);
-    const hoursBooked = Math.ceil(
-      (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
-    );
-    const hoursCost = hoursBooked * pricePerHour;
+    completedPricePerHour = Number(resource?.pricePerHour ?? 0);
+    completedBilledHours = billedHours(booking.startTime, booking.endTime);
+    const hoursCost = completedBilledHours * completedPricePerHour;
+    const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
     const billItems = items.map((i) => ({
       skuId: i.skuId,
       skuName: i.skuName,
@@ -290,19 +295,21 @@ export async function updateBookingStatus(
       price: Number(i.priceAtBooking),
       subtotal: i.quantity * Number(i.priceAtBooking),
     }));
-    const itemsTotal = billItems.reduce((sum, i) => sum + i.subtotal, 0);
+    completedItemsTotal = billItems.reduce((sum, i) => sum + i.subtotal, 0);
+    completedTotalBill = hoursCost + completedItemsTotal;
     billSnapshot = {
       resourceName: resource?.name ?? "—",
       clientName: booking.clientName ?? "—",
       date: booking.date.toISOString().split("T")[0],
-      startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-      endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-      hoursBooked,
-      pricePerHour,
+      startTime: `${booking.startTime.getUTCHours().toString().padStart(2, "0")}:${booking.startTime.getUTCMinutes().toString().padStart(2, "0")}`,
+      endTime: `${booking.endTime.getUTCHours().toString().padStart(2, "0")}:${booking.endTime.getUTCMinutes().toString().padStart(2, "0")}`,
+      durationMin,
+      billedHours: completedBilledHours,
+      pricePerHour: completedPricePerHour,
       hoursCost,
       items: billItems,
-      itemsTotal,
-      totalBill: hoursCost + itemsTotal,
+      itemsTotal: completedItemsTotal,
+      totalBill: completedTotalBill,
       completedAt: new Date().toISOString(),
     };
   }
@@ -346,6 +353,44 @@ export async function updateBookingStatus(
       await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
       return b;
     });
+  } else if (status === "COMPLETED") {
+    const resolvedCash = cashAmount ?? completedTotalBill;
+    const resolvedCard = cardAmount ?? 0;
+    const managerUser = managerId
+      ? await prisma.user.findUnique({ where: { id: managerId }, select: { name: true, email: true } })
+      : null;
+    const managerName = managerUser?.name ?? managerUser?.email ?? "Менеджер";
+
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+        },
+      });
+
+      // Financial ledger — immutable record
+      await tx.financialTransaction.create({
+        data: {
+          moduleSlug: MODULE_SLUG,
+          type: "SESSION_PAYMENT",
+          bookingId: id,
+          totalAmount: completedTotalBill,
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+          performedById: managerId ?? booking.userId,
+          performedByName: managerName,
+          description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
+          metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
+        },
+      });
+
+      return b;
+    });
   } else {
     updated = await prisma.booking.update({
       where: { id },
@@ -355,7 +400,6 @@ export async function updateBookingStatus(
         ...(cancelReason && { cancelReason }),
         ...(googleEventId !== booking.googleEventId && { googleEventId }),
         ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
-        ...(paymentMethod && status === "COMPLETED" && { paymentMethod }),
       },
     });
   }
@@ -888,10 +932,9 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
     const resource = resourceMap.get(b.resourceId);
     const metadata = b.metadata as Record<string, unknown> | null;
     const pricePerHour = Number(resource?.pricePerHour ?? 0);
-    const hoursBooked = Math.ceil(
-      (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60)
-    );
-    const hoursCost = hoursBooked * pricePerHour;
+    const billed = billedHours(b.startTime, b.endTime);
+    const durationMin = Math.round((b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60));
+    const hoursCost = billed * pricePerHour;
     const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
     const itemsTotal = Number(metadata?.itemsTotal ?? 0);
 
@@ -905,7 +948,8 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
       endTime: b.endTime.toISOString(),
       status: "CONFIRMED" as const,
       pricePerHour,
-      hoursBooked,
+      durationMin,
+      billedHours: billed,
       hoursCost,
       items: rawItems.map((i) => ({
         skuId: i.skuId,
@@ -974,10 +1018,9 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
   const metadata = booking.metadata as Record<string, unknown> | null;
   const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
   const pricePerHour = Number(resource?.pricePerHour ?? 0);
-  const hoursBooked = Math.ceil(
-    (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
-  );
-  const hoursCost = hoursBooked * pricePerHour;
+  const billed = billedHours(booking.startTime, booking.endTime);
+  const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
+  const hoursCost = billed * pricePerHour;
 
   const items: BookingItemSnapshotWithSubtotal[] = rawItems.map((i) => ({
     skuId: i.skuId,
@@ -993,9 +1036,10 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     resourceName: resource?.name ?? "—",
     clientName: booking.clientName ?? "—",
     date: booking.date.toISOString().split("T")[0],
-    startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-    endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
-    hoursBooked,
+    startTime: `${booking.startTime.getUTCHours().toString().padStart(2, "0")}:${booking.startTime.getUTCMinutes().toString().padStart(2, "0")}`,
+    endTime: `${booking.endTime.getUTCHours().toString().padStart(2, "0")}:${booking.endTime.getUTCMinutes().toString().padStart(2, "0")}`,
+    durationMin,
+    billedHours: billed,
     pricePerHour,
     hoursCost,
     items,
@@ -1010,60 +1054,54 @@ function parseDatetime(date: string, time: string): Date {
   return new Date(`${date}T${time}:00Z`);
 }
 
+/**
+ * Rounds duration up to the nearest 30-minute increment for billing.
+ * e.g. 1h 01min → 1.5h, 1h 31min → 2h, 30min → 0.5h
+ */
+function billedHours(startTime: Date, endTime: Date): number {
+  const durationMs = endTime.getTime() - startTime.getTime();
+  const durationMin = durationMs / (1000 * 60);
+  return Math.ceil(durationMin / 30) * 0.5;
+}
+
 // === DAY REPORT & SHIFT HANDOVER ===
 
 export async function getDayReport(date: string): Promise<DayReport> {
   const dayStart = new Date(`${date}T00:00:00Z`);
-  const dayEnd = new Date(`${date}T23:59:59Z`);
+  const dayEnd = new Date(`${date}T23:59:59.999Z`);
 
-  const bookings = await prisma.booking.findMany({
+  const txs = await prisma.financialTransaction.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
-      status: "COMPLETED",
-      date: { gte: dayStart, lte: dayEnd },
+      type: "SESSION_PAYMENT",
+      createdAt: { gte: dayStart, lte: dayEnd },
     },
-    select: {
-      id: true,
-      paymentMethod: true,
-      metadata: true,
-      clientName: true,
-    },
+    orderBy: { createdAt: "asc" },
   });
 
-  let cashTotal = 0;
-  let cardTotal = 0;
-  let unknownTotal = 0;
-  let cashCount = 0;
-  let cardCount = 0;
-  let unknownCount = 0;
-
-  for (const b of bookings) {
-    const meta = b.metadata as Record<string, unknown> | null;
-    const bill = meta?.bill as Record<string, unknown> | null;
-    const total = typeof bill?.totalBill === "number" ? bill.totalBill : 0;
-
-    if (b.paymentMethod === "CASH") {
-      cashTotal += total;
-      cashCount++;
-    } else if (b.paymentMethod === "CARD") {
-      cardTotal += total;
-      cardCount++;
-    } else {
-      unknownTotal += total;
-      unknownCount++;
-    }
-  }
+  const cashTotal = txs.reduce((s, t) => s + Number(t.cashAmount), 0);
+  const cardTotal = txs.reduce((s, t) => s + Number(t.cardAmount), 0);
+  const cashCount = txs.filter((t) => Number(t.cashAmount) > 0).length;
+  const cardCount = txs.filter((t) => Number(t.cardAmount) > 0).length;
 
   return {
     date,
-    totalSessions: bookings.length,
+    totalSessions: txs.length,
     cashTotal,
     cardTotal,
-    unknownTotal,
-    totalRevenue: cashTotal + cardTotal + unknownTotal,
+    totalRevenue: cashTotal + cardTotal,
     cashCount,
     cardCount,
-    unknownCount,
+    transactions: txs.map((t) => ({
+      id: t.id,
+      bookingId: t.bookingId ?? null,
+      totalAmount: Number(t.totalAmount),
+      cashAmount: Number(t.cashAmount),
+      cardAmount: Number(t.cardAmount),
+      performedByName: t.performedByName,
+      description: t.description,
+      createdAt: t.createdAt.toISOString(),
+    })),
   };
 }
 
@@ -1135,6 +1173,8 @@ export async function closeShift(
   if (existing.status === "CLOSED") {
     throw new PSBookingError("SHIFT_ALREADY_CLOSED", "Смена уже закрыта");
   }
+  const report = await getDayReport(date);
+
   const shift = await prisma.shiftHandover.update({
     where: { id: existing.id },
     data: {
@@ -1142,6 +1182,8 @@ export async function closeShift(
       closedAt: new Date(),
       closedById: managerId,
       closedByName: managerName,
+      cashTotal: report.cashTotal,
+      cardTotal: report.cardTotal,
       ...(notes && { notes }),
     },
   });

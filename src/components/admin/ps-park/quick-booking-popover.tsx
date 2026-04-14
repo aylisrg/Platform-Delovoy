@@ -1,44 +1,83 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 type QuickBookingPopoverProps = {
   resourceId: string;
   resourceName: string;
   date: string;
-  startTime: string; // "10:00"
-  availableConsecutiveSlots: number; // max hours available from startTime
+  startTime: string;   // "HH:00" — pre-filled from clicked slot
+  maxEndTime: string;  // "HH:MM" — earliest next booking start or close hour
   pricePerHour: number | null;
   onClose: () => void;
   onCreated: () => void;
 };
+
+const CLOSE_TIME = "23:00";
+
+/** Round up duration to nearest 30-min increment for billing */
+function billedHours(startHHMM: string, endHHMM: string): number {
+  const [sh, sm] = startHHMM.split(":").map(Number);
+  const [eh, em] = endHHMM.split(":").map(Number);
+  const durationMin = (eh * 60 + em) - (sh * 60 + sm);
+  if (durationMin <= 0) return 0;
+  return Math.ceil(durationMin / 30) * 0.5;
+}
+
+function durationLabel(startHHMM: string, endHHMM: string): string {
+  const [sh, sm] = startHHMM.split(":").map(Number);
+  const [eh, em] = endHHMM.split(":").map(Number);
+  const durationMin = (eh * 60 + em) - (sh * 60 + sm);
+  if (durationMin <= 0) return "—";
+  const h = Math.floor(durationMin / 60);
+  const m = durationMin % 60;
+  return h > 0 ? (m > 0 ? `${h}ч ${m}мин` : `${h}ч`) : `${m}мин`;
+}
+
+function addOneHour(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const next = h + 1;
+  if (next >= 23) return CLOSE_TIME;
+  return `${String(next).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 export function QuickBookingPopover({
   resourceId,
   resourceName,
   date,
   startTime,
-  availableConsecutiveSlots,
+  maxEndTime,
   pricePerHour,
   onClose,
   onCreated,
 }: QuickBookingPopoverProps) {
   const router = useRouter();
 
+  const defaultEnd = addOneHour(startTime) <= maxEndTime ? addOneHour(startTime) : maxEndTime;
+
+  const [startInput, setStartInput] = useState(startTime);
+  const [endInput, setEndInput] = useState(defaultEnd);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
-  const [duration, setDuration] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const maxDuration = Math.min(availableConsecutiveSlots, 5);
-  const endHour = parseInt(startTime.split(":")[0], 10) + duration;
-  const endTime = `${endHour.toString().padStart(2, "0")}:00`;
-  const totalPrice = pricePerHour ? duration * pricePerHour : null;
+  const billed = billedHours(startInput, endInput);
+  const totalPrice = pricePerHour && billed > 0 ? billed * pricePerHour : null;
+  const duration = durationLabel(startInput, endInput);
+  const isValid = startInput < endInput && endInput <= maxEndTime;
+
+  useEffect(() => {
+    if (endInput <= startInput) {
+      const next = addOneHour(startInput);
+      setEndInput(next <= maxEndTime ? next : maxEndTime);
+    }
+  }, [startInput, endInput, maxEndTime]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValid) return;
     setSubmitting(true);
     setError(null);
 
@@ -49,15 +88,14 @@ export function QuickBookingPopover({
         body: JSON.stringify({
           resourceId,
           date,
-          startTime,
-          endTime,
+          startTime: startInput,
+          endTime: endInput,
           clientName,
           ...(clientPhone && { clientPhone }),
         }),
       });
 
       const data = await res.json();
-
       if (data.success) {
         onCreated();
         router.refresh();
@@ -73,32 +111,71 @@ export function QuickBookingPopover({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5 mx-4">
-        <div className="flex items-center justify-between mb-3">
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900">
-              {resourceName}
-            </h3>
-            <p className="text-xs text-zinc-500">
-              {startTime}–{endTime} ({duration} ч.)
-              {totalPrice !== null && (
-                <span className="ml-1 font-medium text-zinc-700">
-                  · {totalPrice} ₽
-                </span>
-              )}
-            </p>
+            <h3 className="text-sm font-semibold text-zinc-900">{resourceName}</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">{date}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-600 text-lg leading-none"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">✕</button>
         </div>
+
+        {/* Time picker */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">Начало</label>
+            <input
+              type="time"
+              value={startInput}
+              min="08:00"
+              onChange={(e) => setStartInput(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">
+              Конец
+              <span className="ml-1 text-zinc-400 font-normal text-[10px]">до {maxEndTime}</span>
+            </label>
+            <input
+              type="time"
+              value={endInput}
+              min={startInput}
+              max={maxEndTime}
+              onChange={(e) => setEndInput(e.target.value)}
+              className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 ${
+                isValid
+                  ? "border-zinc-300 focus:border-blue-500 focus:ring-blue-500"
+                  : "border-red-300 focus:border-red-500 focus:ring-red-500"
+              }`}
+            />
+          </div>
+        </div>
+
+        {/* Duration + billing summary */}
+        {billed > 0 && (
+          <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-3 py-2 mb-3 flex items-center justify-between text-sm">
+            <span className="text-zinc-600">
+              {duration}
+              <span className="ml-1 text-zinc-400 text-xs">→ тариф {billed}ч</span>
+            </span>
+            {totalPrice !== null && (
+              <span className="font-semibold text-zinc-800 tabular-nums">
+                {totalPrice.toLocaleString("ru-RU")} ₽
+              </span>
+            )}
+          </div>
+        )}
+
+        {!isValid && startInput >= endInput && (
+          <p className="text-xs text-red-500 mb-2">Начало должно быть раньше конца</p>
+        )}
+        {!isValid && endInput > maxEndTime && (
+          <p className="text-xs text-red-500 mb-2">Конец не может быть позже {maxEndTime}</p>
+        )}
 
         {error && (
           <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -107,57 +184,25 @@ export function QuickBookingPopover({
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <input
-              type="text"
-              required
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              placeholder="Имя клиента *"
-              autoFocus
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <input
-              type="tel"
-              value={clientPhone}
-              onChange={(e) => setClientPhone(e.target.value)}
-              placeholder="Телефон (необязательно)"
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-
-          {maxDuration > 1 && (
-            <div>
-              <label className="block text-xs font-medium text-zinc-500 mb-1">
-                Длительность
-              </label>
-              <div className="flex gap-1.5">
-                {Array.from({ length: maxDuration }, (_, i) => i + 1).map(
-                  (h) => (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() => setDuration(h)}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                        duration === h
-                          ? "bg-blue-600 text-white"
-                          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
-                      }`}
-                    >
-                      {h} ч.
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-
+          <input
+            type="text"
+            required
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            placeholder="Имя клиента *"
+            autoFocus
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <input
+            type="tel"
+            value={clientPhone}
+            onChange={(e) => setClientPhone(e.target.value)}
+            placeholder="Телефон (необязательно)"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
           <button
             type="submit"
-            disabled={submitting || !clientName.trim()}
+            disabled={submitting || !clientName.trim() || !isValid}
             className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             {submitting ? "Создание..." : "Забронировать"}

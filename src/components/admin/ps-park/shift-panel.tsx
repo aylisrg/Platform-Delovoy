@@ -204,7 +204,6 @@ export function ShiftPanel({ date }: { date: string }) {
                   </p>
                   <p className="text-xs text-zinc-500 mt-0.5">
                     {report.totalSessions} {pluralChek(report.totalSessions)}
-                    {report.unknownCount > 0 && ` · ${report.unknownCount} без метода`}
                   </p>
                 </div>
               </div>
@@ -252,12 +251,6 @@ export function ShiftPanel({ date }: { date: string }) {
                   <span className="text-zinc-500">Безналичные</span>
                   <span className="font-medium tabular-nums">{formatMoney(report.cardTotal)}</span>
                 </div>
-                {report.unknownTotal > 0 && (
-                  <div className="flex justify-between text-amber-600">
-                    <span>Без метода оплаты</span>
-                    <span className="font-medium tabular-nums">{formatMoney(report.unknownTotal)}</span>
-                  </div>
-                )}
               </div>
             )}
 
