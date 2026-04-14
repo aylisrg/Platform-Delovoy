@@ -1,0 +1,122 @@
+name: "Timeweb VPS Management"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - list-servers
+          - server-info
+          - server-reboot
+          - server-stats
+          - create-backup
+          - list-backups
+          - list-domains
+          - list-dns-records
+          - list-firewall-rules
+          - custom-api
+      server_id:
+        description: "Server ID (required for server-specific actions)"
+        required: false
+        type: string
+      custom_endpoint:
+        description: "Custom API endpoint (for custom-api action, e.g. /api/v1/servers)"
+        required: false
+        type: string
+      custom_method:
+        description: "HTTP method for custom-api (GET/POST/PUT/DELETE)"
+        required: false
+        type: string
+        default: "GET"
+
+env:
+  TIMEWEB_API: "https://api.timeweb.cloud"
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List Servers
+        if: inputs.action == 'list-servers'
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers" | jq '.'
+
+      - name: Server Info
+        if: inputs.action == 'server-info'
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}" | jq '.'
+
+      - name: Server Stats
+        if: inputs.action == 'server-stats'
+        run: |
+          echo "=== Server Details ==="
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}" | jq '.server | {id, name, status, ip: .networks[0].ips[0].ip, os: .os.name, cpu, ram, disk, location}'
+          echo ""
+          echo "=== Disk Usage ==="
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}/statistics" | jq '.' 2>/dev/null || echo "Stats endpoint may differ"
+
+      - name: Reboot Server
+        if: inputs.action == 'server-reboot'
+        run: |
+          echo "⚠️ Rebooting server ${{ inputs.server_id }}..."
+          curl -s -X POST -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"action": "reboot"}' \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}/action" | jq '.'
+
+      - name: Create Backup
+        if: inputs.action == 'create-backup'
+        run: |
+          echo "Creating disk backup for server ${{ inputs.server_id }}..."
+          curl -s -X POST -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"comment": "Auto backup via GitHub Actions"}' \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}/disks/backups" | jq '.'
+
+      - name: List Backups
+        if: inputs.action == 'list-backups'
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ inputs.server_id }}/disks/backups" | jq '.'
+
+      - name: List Domains
+        if: inputs.action == 'list-domains'
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains" | jq '.'
+
+      - name: List DNS Records
+        if: inputs.action == 'list-dns-records'
+        run: |
+          echo "=== All domains ==="
+          DOMAINS=$(curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/domains" | jq -r '.domains[].fqdn // empty')
+          for domain in $DOMAINS; do
+            echo ""
+            echo "=== DNS: $domain ==="
+            curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+              "${{ env.TIMEWEB_API }}/api/v1/domains/$domain/dns-records" | jq '.dns_records[] | {type, value: .data.value, subdomain: .data.subdomain}'
+          done
+
+      - name: List Firewall Rules
+        if: inputs.action == 'list-firewall-rules'
+        run: |
+          echo "=== Firewall Groups ==="
+          curl -s -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            "${{ env.TIMEWEB_API }}/api/v1/firewall/groups" | jq '.'
+
+      - name: Custom API Call
+        if: inputs.action == 'custom-api'
+        run: |
+          echo "=== ${{ inputs.custom_method }} ${{ inputs.custom_endpoint }} ==="
+          curl -s -X ${{ inputs.custom_method }} \
+            -H "Authorization: Bearer ${{ secrets.TIMEWEB_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ env.TIMEWEB_API }}${{ inputs.custom_endpoint }}" | jq '.'
