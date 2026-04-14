@@ -12,6 +12,7 @@ const NAV_TABS = [
   { href: "/admin/inventory/expiring", label: "Истечение" },
   { href: "/admin/inventory/audits", label: "Инвентаризация" },
   { href: "/admin/inventory/movements", label: "Движения" },
+  { href: "/admin/inventory/prices", label: "Цены" },
 ];
 
 type SkuOption = {
@@ -30,8 +31,12 @@ type SupplierOption = {
 type ReceiptItem = {
   skuId: string;
   quantity: string;
-  costPerUnit: string;
-  expiresAt: string;
+  totalCost: string;
+  isNew: boolean;
+  newName: string;
+  newCategory: string;
+  newUnit: string;
+  newPrice: string;
 };
 
 type ReceiptHistoryEntry = {
@@ -45,8 +50,10 @@ type ReceiptHistoryEntry = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const NEW_SKU_VALUE = "__new__";
+
 function emptyItem(): ReceiptItem {
-  return { skuId: "", quantity: "", costPerUnit: "", expiresAt: "" };
+  return { skuId: "", quantity: "", totalCost: "", isNew: false, newName: "", newCategory: "Товары", newUnit: "шт", newPrice: "" };
 }
 
 function formatDate(iso: string) {
@@ -55,6 +62,13 @@ function formatDate(iso: string) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function computeCostPerUnit(qty: string, totalCost: string): number | undefined {
+  const q = parseFloat(qty);
+  const t = parseFloat(totalCost);
+  if (!q || !t || q <= 0 || t <= 0) return undefined;
+  return Math.round((t / q) * 100) / 100;
 }
 
 export default function ReceiptsPage() {
@@ -104,11 +118,13 @@ export default function ReceiptsPage() {
           (json: {
             success: boolean;
             data?: ReceiptHistoryEntry[];
-            meta?: { totalPages: number };
+            meta?: { total: number; perPage: number };
           }) => {
             if (json.success && json.data) {
               setReceipts(json.data);
-              setTotalPages(json.meta?.totalPages ?? 1);
+              const total = json.meta?.total ?? 0;
+              const pp = json.meta?.perPage ?? perPage;
+              setTotalPages(Math.max(1, Math.ceil(total / pp)));
             }
           }
         )
@@ -131,7 +147,28 @@ export default function ReceiptsPage() {
   }
 
   function updateItem(i: number, field: keyof ReceiptItem, value: string) {
-    setItems((prev) => prev.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)));
+    setItems((prev) => prev.map((item, idx) => {
+      if (idx !== i) return item;
+      if (field === "skuId" && value === NEW_SKU_VALUE) {
+        return { ...item, skuId: "", isNew: true };
+      }
+      if (field === "skuId" && value !== NEW_SKU_VALUE) {
+        return { ...item, skuId: value, isNew: false, newName: "", newCategory: "Товары", newUnit: "шт", newPrice: "" };
+      }
+      const updated = { ...item, [field]: value };
+      // Auto-fill recommended retail price for new items (2x markup)
+      if (updated.isNew && (field === "quantity" || field === "totalCost")) {
+        const cpu = computeCostPerUnit(updated.quantity, updated.totalCost);
+        if (cpu !== undefined && !item.newPrice) {
+          updated.newPrice = String(Math.ceil(cpu * 2));
+        }
+      }
+      return updated;
+    }));
+  }
+
+  function getSkuName(skuId: string) {
+    return skus.find((s) => s.id === skuId);
   }
 
   function validate(): Record<string, string> {
@@ -140,7 +177,14 @@ export default function ReceiptsPage() {
     if (items.length === 0) errs.items = "Добавьте хотя бы одну позицию";
 
     items.forEach((item, i) => {
-      if (!item.skuId) errs[`item_${i}_sku`] = "Выберите товар";
+      if (item.isNew) {
+        if (!item.newName.trim()) errs[`item_${i}_sku`] = "Введите название товара";
+        const price = parseFloat(item.newPrice);
+        if (!item.newPrice || isNaN(price) || price <= 0)
+          errs[`item_${i}_price`] = "Укажите цену продажи > 0";
+      } else {
+        if (!item.skuId) errs[`item_${i}_sku`] = "Выберите товар";
+      }
       const qty = parseFloat(item.quantity);
       if (!item.quantity || isNaN(qty) || qty <= 0)
         errs[`item_${i}_qty`] = "Введите количество > 0";
@@ -161,16 +205,42 @@ export default function ReceiptsPage() {
     setLoading(true);
 
     try {
+      // Create any new SKUs first
+      const resolvedItems = [...items];
+      for (let i = 0; i < resolvedItems.length; i++) {
+        const it = resolvedItems[i];
+        if (!it.isNew) continue;
+
+        const skuRes = await fetch("/api/inventory/sku", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: it.newName.trim(),
+            category: it.newCategory.trim() || "Товары",
+            unit: it.newUnit.trim() || "шт",
+            price: parseFloat(it.newPrice),
+          }),
+        });
+        const skuJson = await skuRes.json() as { success: boolean; data?: { id: string; name: string; category: string; unit: string }; error?: { message?: string } };
+        if (!skuJson.success || !skuJson.data) {
+          setBanner({ type: "error", text: skuJson.error?.message ?? `Не удалось создать товар "${it.newName}"` });
+          setLoading(false);
+          return;
+        }
+        resolvedItems[i] = { ...it, skuId: skuJson.data.id, isNew: false };
+        // Add to local list so it appears in dropdowns
+        setSkus((prev) => [...prev, { id: skuJson.data!.id, name: skuJson.data!.name, category: skuJson.data!.category, unit: skuJson.data!.unit }]);
+      }
+
       const body = {
         supplierId: supplierId || undefined,
         invoiceNumber: invoiceNumber.trim() || undefined,
         receivedAt,
         notes: notes.trim() || undefined,
-        items: items.map((it) => ({
+        items: resolvedItems.map((it) => ({
           skuId: it.skuId,
           quantity: parseFloat(it.quantity),
-          costPerUnit: it.costPerUnit ? parseFloat(it.costPerUnit) : undefined,
-          expiresAt: it.expiresAt || undefined,
+          costPerUnit: computeCostPerUnit(it.quantity, it.totalCost),
         })),
       };
 
@@ -200,11 +270,6 @@ export default function ReceiptsPage() {
       setLoading(false);
     }
   }
-
-  const inputCls = (field: string) =>
-    `w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
-      errors[field] ? "border-red-400 bg-red-50" : "border-zinc-300"
-    }`;
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -285,7 +350,9 @@ export default function ReceiptsPage() {
                   value={receivedAt}
                   onChange={(e) => setReceivedAt(e.target.value)}
                   max={today()}
-                  className={inputCls("receivedAt")}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                    errors.receivedAt ? "border-red-400 bg-red-50" : "border-zinc-300"
+                  }`}
                 />
                 {errors.receivedAt && (
                   <p className="mt-1 text-xs text-red-600">{errors.receivedAt}</p>
@@ -305,7 +372,7 @@ export default function ReceiptsPage() {
               </div>
             </div>
 
-            {/* Items table */}
+            {/* Items as cards */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-zinc-700">
@@ -314,9 +381,9 @@ export default function ReceiptsPage() {
                 <button
                   type="button"
                   onClick={addItem}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"
                 >
-                  + Добавить строку
+                  + Добавить товар
                 </button>
               </div>
 
@@ -324,106 +391,197 @@ export default function ReceiptsPage() {
                 <p className="mb-2 text-xs text-red-600">{errors.items}</p>
               )}
 
-              <div className="overflow-x-auto rounded-lg border border-zinc-200">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-100 bg-zinc-50">
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 min-w-[200px]">
-                        Товар
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 w-28">
-                        Кол-во
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 w-36">
-                        Цена за ед. (₽)
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium text-zinc-500 w-36">
-                        Срок годности
-                      </th>
-                      <th className="px-3 py-2 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100">
-                    {items.map((item, i) => (
-                      <tr key={i}>
-                        <td className="px-3 py-2">
-                          <select
-                            value={item.skuId}
-                            onChange={(e) => updateItem(i, "skuId", e.target.value)}
-                            className={`w-full rounded border px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
-                              errors[`item_${i}_sku`]
-                                ? "border-red-400 bg-red-50"
-                                : "border-zinc-300"
-                            }`}
-                          >
-                            <option value="">— Выберите товар —</option>
-                            {skus.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name} ({s.unit})
-                              </option>
-                            ))}
-                          </select>
-                          {errors[`item_${i}_sku`] && (
-                            <p className="mt-0.5 text-xs text-red-600">
-                              {errors[`item_${i}_sku`]}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {items.map((item, i) => {
+                  const sku = getSkuName(item.skuId);
+                  const costPerUnit = computeCostPerUnit(item.quantity, item.totalCost);
+                  return (
+                    <div
+                      key={i}
+                      className={`relative rounded-xl border p-4 transition-colors ${
+                        errors[`item_${i}_sku`] || errors[`item_${i}_qty`]
+                          ? "border-red-300 bg-red-50/30"
+                          : "border-zinc-200 bg-white hover:border-zinc-300"
+                      }`}
+                    >
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeItem(i)}
+                          className="absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded-full text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                          aria-label="Удалить"
+                        >
+                          ×
+                        </button>
+                      )}
+
+                      {/* Товар */}
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-zinc-500 mb-1">Товар</label>
+                        {!item.isNew ? (
+                          <>
+                            <select
+                              value={item.skuId}
+                              onChange={(e) => updateItem(i, "skuId", e.target.value)}
+                              className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                                errors[`item_${i}_sku`] ? "border-red-400 bg-red-50" : "border-zinc-300"
+                              }`}
+                            >
+                              <option value="">— Выберите товар —</option>
+                              {skus.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} ({s.unit})
+                                </option>
+                              ))}
+                              <option value={NEW_SKU_VALUE}>+ Новый товар...</option>
+                            </select>
+                            {errors[`item_${i}_sku`] && (
+                              <p className="mt-0.5 text-xs text-red-600">{errors[`item_${i}_sku`]}</p>
+                            )}
+                          </>
+                        ) : (
+                          <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/30 p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-blue-700">Новый товар</span>
+                              <button
+                                type="button"
+                                onClick={() => updateItem(i, "skuId", "")}
+                                className="text-xs text-zinc-500 hover:text-zinc-700"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              value={item.newName}
+                              onChange={(e) => updateItem(i, "newName" as keyof ReceiptItem, e.target.value)}
+                              placeholder="Название *"
+                              className={`w-full rounded-lg border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
+                                errors[`item_${i}_sku`] ? "border-red-400 bg-red-50" : "border-zinc-300"
+                              }`}
+                            />
+                            {errors[`item_${i}_sku`] && (
+                              <p className="text-xs text-red-600">{errors[`item_${i}_sku`]}</p>
+                            )}
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                value={item.newCategory}
+                                onChange={(e) => updateItem(i, "newCategory" as keyof ReceiptItem, e.target.value)}
+                                placeholder="Категория"
+                                className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                              <input
+                                type="text"
+                                value={item.newUnit}
+                                onChange={(e) => updateItem(i, "newUnit" as keyof ReceiptItem, e.target.value)}
+                                placeholder="Ед. изм."
+                                className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            {costPerUnit !== undefined && (
+                              <div className="flex items-center gap-2 pt-1">
+                                <label className="text-xs text-zinc-500 whitespace-nowrap">Розн. цена</label>
+                                <input
+                                  type="number"
+                                  value={item.newPrice}
+                                  onChange={(e) => updateItem(i, "newPrice" as keyof ReceiptItem, e.target.value)}
+                                  placeholder={`Рек. ${(costPerUnit * 2).toFixed(0)} ₽`}
+                                  min={0}
+                                  step="any"
+                                  className={`w-full rounded-lg border px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 tabular-nums ${
+                                    errors[`item_${i}_price`] ? "border-red-400 bg-red-50" : "border-zinc-300"
+                                  }`}
+                                />
+                              </div>
+                            )}
+                            {!costPerUnit && (
+                              <div className="flex items-center gap-2 pt-1">
+                                <label className="text-xs text-zinc-500 whitespace-nowrap">Розн. цена</label>
+                                <input
+                                  type="number"
+                                  value={item.newPrice}
+                                  onChange={(e) => updateItem(i, "newPrice" as keyof ReceiptItem, e.target.value)}
+                                  placeholder="Цена продажи *"
+                                  min={0}
+                                  step="any"
+                                  className={`w-full rounded-lg border px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 tabular-nums ${
+                                    errors[`item_${i}_price`] ? "border-red-400 bg-red-50" : "border-zinc-300"
+                                  }`}
+                                />
+                              </div>
+                            )}
+                            {errors[`item_${i}_price`] && (
+                              <p className="text-xs text-red-600">{errors[`item_${i}_price`]}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Кол-во + Цена позиции */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-500 mb-1">
+                            Кол-во{sku ? ` (${sku.unit})` : item.isNew && item.newUnit ? ` (${item.newUnit})` : ""}
+                          </label>
                           <input
                             type="number"
                             value={item.quantity}
                             onChange={(e) => updateItem(i, "quantity", e.target.value)}
-                            min={0.001}
-                            step="any"
+                            min={1}
+                            step={1}
                             placeholder="0"
-                            className={`w-full rounded border px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
-                              errors[`item_${i}_qty`]
-                                ? "border-red-400 bg-red-50"
-                                : "border-zinc-300"
+                            className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 tabular-nums ${
+                              errors[`item_${i}_qty`] ? "border-red-400 bg-red-50" : "border-zinc-300"
                             }`}
                           />
                           {errors[`item_${i}_qty`] && (
-                            <p className="mt-0.5 text-xs text-red-600">
-                              {errors[`item_${i}_qty`]}
-                            </p>
+                            <p className="mt-0.5 text-xs text-red-600">{errors[`item_${i}_qty`]}</p>
                           )}
-                        </td>
-                        <td className="px-3 py-2">
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-500 mb-1">
+                            Цена закупки (₽)
+                          </label>
                           <input
                             type="number"
-                            value={item.costPerUnit}
-                            onChange={(e) => updateItem(i, "costPerUnit", e.target.value)}
+                            value={item.totalCost}
+                            onChange={(e) => updateItem(i, "totalCost", e.target.value)}
                             min={0}
                             step="any"
-                            placeholder="Не указано"
-                            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                            placeholder="За всю позицию"
+                            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 tabular-nums"
                           />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="date"
-                            value={item.expiresAt}
-                            onChange={(e) => updateItem(i, "expiresAt", e.target.value)}
-                            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {items.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeItem(i)}
-                              className="text-zinc-400 hover:text-red-500 text-lg leading-none"
-                              aria-label="Удалить строку"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      </div>
+
+                      {/* Итог блока */}
+                      {costPerUnit !== undefined && (
+                        <div className="mt-3 rounded-lg bg-zinc-50 border border-zinc-100 px-3 py-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-500">Сумма позиции</span>
+                            <span className="font-semibold text-zinc-900 tabular-nums">
+                              {parseFloat(item.totalCost).toLocaleString("ru-RU", { minimumFractionDigits: 0 })} ₽
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-500">Закупка за ед.</span>
+                            <span className="font-medium text-zinc-700 tabular-nums">
+                              {costPerUnit.toFixed(2)} ₽
+                            </span>
+                          </div>
+                          <div className="border-t border-zinc-200 pt-1.5 flex items-center justify-between text-xs">
+                            <span className="text-zinc-500">Рек. розничная цена</span>
+                            <span className="font-semibold text-green-700 tabular-nums">
+                              {(costPerUnit * 2).toFixed(0)} ₽
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

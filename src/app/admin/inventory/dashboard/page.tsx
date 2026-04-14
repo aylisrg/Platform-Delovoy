@@ -11,6 +11,7 @@ const NAV_TABS = [
   { href: "/admin/inventory/expiring", label: "Истечение" },
   { href: "/admin/inventory/audits", label: "Инвентаризация" },
   { href: "/admin/inventory/movements", label: "Движения" },
+  { href: "/admin/inventory/prices", label: "Цены" },
 ];
 
 type DashboardData = {

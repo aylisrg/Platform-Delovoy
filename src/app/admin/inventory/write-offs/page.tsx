@@ -12,6 +12,7 @@ const NAV_TABS = [
   { href: "/admin/inventory/expiring", label: "Истечение" },
   { href: "/admin/inventory/audits", label: "Инвентаризация" },
   { href: "/admin/inventory/movements", label: "Движения" },
+  { href: "/admin/inventory/prices", label: "Цены" },
 ];
 
 type SkuOption = {
@@ -86,11 +87,13 @@ export default function WriteOffsPage() {
           (json: {
             success: boolean;
             data?: WriteOffRow[];
-            meta?: { totalPages: number };
+            meta?: { total: number; perPage: number };
           }) => {
             if (json.success && json.data) {
               setWriteOffs(json.data);
-              setTotalPages(json.meta?.totalPages ?? 1);
+              const total = json.meta?.total ?? 0;
+              const pp = json.meta?.perPage ?? perPage;
+              setTotalPages(Math.max(1, Math.ceil(total / pp)));
             }
           }
         )

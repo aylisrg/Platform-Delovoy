@@ -707,7 +707,7 @@ export async function listAudits() {
   return prisma.inventoryAudit.findMany({
     orderBy: { startedAt: "desc" },
     include: {
-      _count: { select: { counts: true } },
+      counts: { select: { id: true } },
     },
   });
 }
