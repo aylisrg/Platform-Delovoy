@@ -131,7 +131,7 @@ model Booking {
   cancelReason    String?
   googleEventId   String?
   managerId       String?
-  paymentStatus   String?
+  paymentMethod   PaymentMethod?
   metadata        Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -150,6 +150,37 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+}
+
+// === SHIFT HANDOVER (ps-park) ===
+
+model ShiftHandover {
+  id           String      @id @default(cuid())
+  moduleSlug   String      @default("ps-park")
+  date         String      // YYYY-MM-DD
+  openedAt     DateTime    @default(now())
+  openedById   String
+  openedByName String
+  closedAt     DateTime?
+  closedById   String?
+  closedByName String?
+  notes        String?
+  status       ShiftStatus @default(OPEN)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([moduleSlug, date])
+  @@index([moduleSlug, date])
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
 }
 
 // === BOOKABLE RESOURCES (беседки, столы PS) ===

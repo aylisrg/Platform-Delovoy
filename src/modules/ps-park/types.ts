@@ -112,6 +112,33 @@ export type BookingItemSnapshotWithSubtotal = {
   subtotal: number;
 };
 
+// Day report (shift summary)
+export type DayReport = {
+  date: string;
+  totalSessions: number;
+  cashTotal: number;
+  cardTotal: number;
+  unknownTotal: number;
+  totalRevenue: number;
+  cashCount: number;
+  cardCount: number;
+  unknownCount: number;
+};
+
+// Shift handover
+export type ShiftHandoverData = {
+  id: string;
+  date: string;
+  status: "OPEN" | "CLOSED";
+  openedAt: string;
+  openedById: string;
+  openedByName: string;
+  closedAt: string | null;
+  closedById: string | null;
+  closedByName: string | null;
+  notes: string | null;
+};
+
 // Bill for session completion
 export type BookingBill = {
   bookingId: string;

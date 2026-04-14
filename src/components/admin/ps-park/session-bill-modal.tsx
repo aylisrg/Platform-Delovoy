@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import type { BookingBill } from "@/modules/ps-park/types";
+
+export type PaymentMethod = "CASH" | "CARD";
 
 type SessionBillModalProps = {
   bill: BookingBill;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (paymentMethod: PaymentMethod) => void;
   confirming: boolean;
 };
 
@@ -17,6 +20,8 @@ export function SessionBillModal({
   onConfirm,
   confirming,
 }: SessionBillModalProps) {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+
   if (!isOpen) return null;
 
   const hasItems = bill.items.length > 0;
@@ -128,6 +133,39 @@ export function SessionBillModal({
           </div>
         </div>
 
+        {/* Payment method */}
+        <div className="px-6 pb-4">
+          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
+            Способ оплаты
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setPaymentMethod("CASH")}
+              className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all ${
+                paymentMethod === "CASH"
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+              }`}
+            >
+              <span className="text-lg">💵</span>
+              Наличные
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaymentMethod("CARD")}
+              className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all ${
+                paymentMethod === "CARD"
+                  ? "border-blue-500 bg-blue-50 text-blue-700"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+              }`}
+            >
+              <span className="text-lg">💳</span>
+              Безналичные
+            </button>
+          </div>
+        </div>
+
         {/* Actions */}
         <div className="flex gap-3 px-6 pb-5">
           <button
@@ -139,7 +177,7 @@ export function SessionBillModal({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
+            onClick={() => onConfirm(paymentMethod)}
             disabled={confirming}
             className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >

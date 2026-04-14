@@ -42,7 +42,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
         setCurrentHourOffset(null);
         return;
       }
-      const totalMinutes = now.getHours() * 60 + now.getMinutes();
+      const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
       const openMinutes = OPEN_HOUR * 60;
       const closeMinutes = CLOSE_HOUR * 60;
       if (totalMinutes < openMinutes || totalMinutes > closeMinutes) {
@@ -80,8 +80,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   function getBookingStyle(booking: TimelineBooking) {
     const start = new Date(booking.startTime);
     const end = new Date(booking.endTime);
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
+    const startHour = start.getUTCHours() + start.getUTCMinutes() / 60;
+    const endHour = end.getUTCHours() + end.getUTCMinutes() / 60;
     const totalHours = CLOSE_HOUR - OPEN_HOUR;
     const left = ((startHour - OPEN_HOUR) / totalHours) * 100;
     const width = ((endHour - startHour) / totalHours) * 100;
@@ -89,8 +89,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   }
 
   function isSlotFree(resourceId: string, hour: number): boolean {
-    const slotStart = new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00`);
-    const slotEnd = new Date(`${date}T${(hour + 1).toString().padStart(2, "0")}:00:00`);
+    const slotStart = new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00Z`);
+    const slotEnd = new Date(`${date}T${(hour + 1).toString().padStart(2, "0")}:00:00Z`);
     return !data.bookings.some(
       (b) =>
         b.resourceId === resourceId &&

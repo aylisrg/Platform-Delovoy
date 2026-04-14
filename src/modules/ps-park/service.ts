@@ -30,7 +30,10 @@ import type {
   ActiveSession,
   BookingBill,
   BookingItemSnapshotWithSubtotal,
+  DayReport,
+  ShiftHandoverData,
 } from "./types";
+import type { PaymentMethod } from "@prisma/client";
 
 const MODULE_SLUG = "ps-park";
 
@@ -216,7 +219,8 @@ export async function updateBookingStatus(
   id: string,
   status: BookingStatus,
   managerId?: string,
-  cancelReason?: string
+  cancelReason?: string,
+  paymentMethod?: PaymentMethod
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -351,6 +355,7 @@ export async function updateBookingStatus(
         ...(cancelReason && { cancelReason }),
         ...(googleEventId !== booking.googleEventId && { googleEventId }),
         ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
+        ...(paymentMethod && status === "COMPLETED" && { paymentMethod }),
       },
     });
   }
@@ -1002,7 +1007,156 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
 // === HELPERS ===
 
 function parseDatetime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00`);
+  return new Date(`${date}T${time}:00Z`);
+}
+
+// === DAY REPORT & SHIFT HANDOVER ===
+
+export async function getDayReport(date: string): Promise<DayReport> {
+  const dayStart = new Date(`${date}T00:00:00Z`);
+  const dayEnd = new Date(`${date}T23:59:59Z`);
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      status: "COMPLETED",
+      date: { gte: dayStart, lte: dayEnd },
+    },
+    select: {
+      id: true,
+      paymentMethod: true,
+      metadata: true,
+      clientName: true,
+    },
+  });
+
+  let cashTotal = 0;
+  let cardTotal = 0;
+  let unknownTotal = 0;
+  let cashCount = 0;
+  let cardCount = 0;
+  let unknownCount = 0;
+
+  for (const b of bookings) {
+    const meta = b.metadata as Record<string, unknown> | null;
+    const bill = meta?.bill as Record<string, unknown> | null;
+    const total = typeof bill?.totalBill === "number" ? bill.totalBill : 0;
+
+    if (b.paymentMethod === "CASH") {
+      cashTotal += total;
+      cashCount++;
+    } else if (b.paymentMethod === "CARD") {
+      cardTotal += total;
+      cardCount++;
+    } else {
+      unknownTotal += total;
+      unknownCount++;
+    }
+  }
+
+  return {
+    date,
+    totalSessions: bookings.length,
+    cashTotal,
+    cardTotal,
+    unknownTotal,
+    totalRevenue: cashTotal + cardTotal + unknownTotal,
+    cashCount,
+    cardCount,
+    unknownCount,
+  };
+}
+
+export async function getTodayShift(date: string): Promise<ShiftHandoverData | null> {
+  const shift = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!shift) return null;
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: shift.closedAt?.toISOString() ?? null,
+    closedById: shift.closedById ?? null,
+    closedByName: shift.closedByName ?? null,
+    notes: shift.notes ?? null,
+  };
+}
+
+export async function openShift(
+  date: string,
+  managerId: string,
+  managerName: string
+): Promise<ShiftHandoverData> {
+  const existing = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (existing) {
+    throw new PSBookingError("SHIFT_ALREADY_OPEN", "Смена на эту дату уже открыта");
+  }
+  const shift = await prisma.shiftHandover.create({
+    data: {
+      moduleSlug: MODULE_SLUG,
+      date,
+      openedById: managerId,
+      openedByName: managerName,
+      status: "OPEN",
+    },
+  });
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: null,
+    closedById: null,
+    closedByName: null,
+    notes: null,
+  };
+}
+
+export async function closeShift(
+  date: string,
+  managerId: string,
+  managerName: string,
+  notes?: string
+): Promise<ShiftHandoverData> {
+  const existing = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!existing) {
+    throw new PSBookingError("SHIFT_NOT_FOUND", "Смена не найдена");
+  }
+  if (existing.status === "CLOSED") {
+    throw new PSBookingError("SHIFT_ALREADY_CLOSED", "Смена уже закрыта");
+  }
+  const shift = await prisma.shiftHandover.update({
+    where: { id: existing.id },
+    data: {
+      status: "CLOSED",
+      closedAt: new Date(),
+      closedById: managerId,
+      closedByName: managerName,
+      ...(notes && { notes }),
+    },
+  });
+  return {
+    id: shift.id,
+    date: shift.date,
+    status: shift.status,
+    openedAt: shift.openedAt.toISOString(),
+    openedById: shift.openedById,
+    openedByName: shift.openedByName,
+    closedAt: shift.closedAt?.toISOString() ?? null,
+    closedById: shift.closedById ?? null,
+    closedByName: shift.closedByName ?? null,
+    notes: shift.notes ?? null,
+  };
 }
 
 export class PSBookingError extends Error {

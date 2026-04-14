@@ -759,8 +759,8 @@ describe("getAvailability", () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       mockBooking({
-        startTime: new Date(`${FUTURE_DATE}T12:00:00`),
-        endTime: new Date(`${FUTURE_DATE}T13:00:00`),
+        startTime: new Date(`${FUTURE_DATE}T12:00:00Z`),
+        endTime: new Date(`${FUTURE_DATE}T13:00:00Z`),
         status: "PENDING",
       }),
     ] as never);
