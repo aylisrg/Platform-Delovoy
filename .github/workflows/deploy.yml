@@ -110,22 +110,46 @@ jobs:
             echo "=== Backup current state ==="
             docker compose exec -T postgres pg_dump -U delovoy delovoy_park | gzip > /opt/backups/db-$(date +%Y%m%d-%H%M%S).sql.gz
 
+            echo "=== Save current image for rollback ==="
+            CURRENT_IMAGE=$(docker inspect --format='{{.Config.Image}}' delovoy-park-app-1 2>/dev/null || echo "")
+            echo "Current image: ${CURRENT_IMAGE:-none}"
+
             echo "=== Rolling deploy ==="
             docker compose up -d --no-deps app
 
             echo "=== Wait for health check ==="
+            HEALTHY=false
             for i in $(seq 1 30); do
               if docker compose exec -T app wget --spider --quiet --timeout=5 http://localhost:3000/api/health 2>/dev/null; then
                 echo "Health check passed on attempt $i"
-                exit 0
+                HEALTHY=true
+                break
               fi
               echo "Attempt $i/30 — waiting..."
               sleep 5
             done
 
+            if [ "$HEALTHY" = true ]; then
+              exit 0
+            fi
+
             echo "FATAL: Health check failed after 30 attempts"
             echo "=== Rolling back ==="
-            docker compose rollback app 2>/dev/null || docker compose up -d --no-deps app
+            if [ -n "$CURRENT_IMAGE" ]; then
+              echo "Rolling back to: $CURRENT_IMAGE"
+              docker pull "$CURRENT_IMAGE" 2>/dev/null || true
+              DEPLOY_IMAGE="$CURRENT_IMAGE" docker compose up -d --no-deps app
+              echo "Rollback complete — waiting for health check..."
+              sleep 10
+              if docker compose exec -T app wget --spider --quiet --timeout=5 http://localhost:3000/api/health 2>/dev/null; then
+                echo "Rollback health check PASSED"
+              else
+                echo "WARNING: Rollback health check also failed — manual intervention needed"
+              fi
+            else
+              echo "No previous image found — restarting current container"
+              docker compose restart app
+            fi
             exit 1
 
       - name: Verify deployment
@@ -141,6 +165,19 @@ jobs:
             echo "=== Container status ==="
             docker ps --filter name=delovoy --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
+      - name: Notify on success
+        if: success()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+              -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ github.sha }})" \
+              -d "parse_mode=HTML" || true
+
       - name: Notify on failure
         if: failure()
         uses: appleboy/ssh-action@v1
@@ -150,7 +187,6 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             echo "Deploy failed — sending alert"
-            # Telegram alert via existing bot infrastructure
             curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
               -d "text=🚨 Deploy FAILED — commit ${{ github.sha }}" \
