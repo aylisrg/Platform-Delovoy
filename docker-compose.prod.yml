@@ -1,3 +1,6 @@
+# Production docker-compose for Timeweb VPS
+# Nginx + SSL handled by host-level nginx (see scripts/setup-vps.sh)
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -28,6 +31,7 @@ services:
     image: redis:7-alpine
     container_name: delovoy-redis
     restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,20 +51,17 @@ services:
 
   app:
     image: ghcr.io/aylisrg/platform-delovoy:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: delovoy-app
     restart: on-failure:5
     ports:
-      - "80:3000"
+      - "127.0.0.1:3000:3000"  # Only localhost — nginx handles external traffic
     env_file:
       - .env
     environment:
       DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
       REDIS_URL: "redis://redis:6379"
       NODE_ENV: "production"
-      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_URL: "https://delovoy-park.ru"
       AUTH_TRUST_HOST: "true"
     depends_on:
       postgres:
