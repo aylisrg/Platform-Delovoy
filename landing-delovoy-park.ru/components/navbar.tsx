@@ -36,7 +36,7 @@ export function Navbar() {
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-7">
           {navLinks.map((link) =>
-            link.href.startsWith("#") ? (
+            !link.href.startsWith("/") || link.href.startsWith("/#") ? (
               <a
                 key={link.href}
                 href={link.href}
@@ -136,7 +136,7 @@ export function Navbar() {
       {open && (
         <div className="md:hidden bg-white/95 backdrop-blur-xl border-t border-black/[0.04] px-6 py-5 space-y-4">
           {navLinks.map((link) =>
-            link.href.startsWith("#") ? (
+            !link.href.startsWith("/") || link.href.startsWith("/#") ? (
               <a
                 key={link.href}
                 href={link.href}

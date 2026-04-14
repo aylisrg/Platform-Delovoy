@@ -3,10 +3,11 @@ import Link from "next/link";
 import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
+import { Navbar } from "@landing/components/navbar";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60; // ISR: обновлять каждую минуту
 
 export const metadata: Metadata = {
   title: "Плей Парк",
@@ -127,6 +128,8 @@ export default async function PSParkPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
+      <Navbar />
+      <div className="pt-14">
 
       {/* ── HERO ── */}
       <section className="relative overflow-hidden">
@@ -342,6 +345,7 @@ export default async function PSParkPage() {
           </Link>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
