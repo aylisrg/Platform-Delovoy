@@ -584,8 +584,6 @@ model StockMovement {
   note          String?
   createdAt     DateTime      @default(now())
 
-  writeOff WriteOff? @relation("WriteOffMovements", fields: [referenceId], references: [id])
-
   @@index([skuId, createdAt])
   @@index([batchId])
   @@index([type])
@@ -603,8 +601,6 @@ model WriteOff {
   note          String?
   performedById String
   createdAt     DateTime       @default(now())
-
-  movements StockMovement[] @relation("WriteOffMovements")
 
   @@index([skuId])
   @@index([reason, createdAt])

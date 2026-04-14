@@ -178,6 +178,30 @@ export async function receiveStockByName(
         select: { stockQuantity: true },
       });
       newStockQuantity = updated.stockQuantity;
+
+      // Create StockBatch for FIFO tracking (V2)
+      const batch = await tx.stockBatch.create({
+        data: {
+          skuId,
+          initialQty: quantity,
+          remainingQty: quantity,
+          receiptDate: effectiveReceivedAt,
+        },
+      });
+
+      // Also record in StockMovement (V2 ledger)
+      await tx.stockMovement.create({
+        data: {
+          skuId,
+          batchId: batch.id,
+          type: "RECEIPT",
+          delta: quantity,
+          balanceAfter: newStockQuantity,
+          referenceType: "RECEIPT",
+          performedById,
+          note: note ?? `Приход: ${name} +${quantity}`,
+        },
+      });
     } else {
       // New item — create SKU + INITIAL transaction
       const sku = await tx.inventorySku.create({
@@ -195,6 +219,30 @@ export async function receiveStockByName(
         data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход", receivedAt: effectiveReceivedAt },
       });
       newStockQuantity = quantity;
+
+      // Create StockBatch for FIFO tracking (V2)
+      const batch = await tx.stockBatch.create({
+        data: {
+          skuId,
+          initialQty: quantity,
+          remainingQty: quantity,
+          receiptDate: effectiveReceivedAt,
+        },
+      });
+
+      // Also record in StockMovement (V2 ledger)
+      await tx.stockMovement.create({
+        data: {
+          skuId,
+          batchId: batch.id,
+          type: "RECEIPT",
+          delta: quantity,
+          balanceAfter: newStockQuantity,
+          referenceType: "RECEIPT",
+          performedById,
+          note: note ?? `Начальный остаток: ${name} +${quantity}`,
+        },
+      });
     }
 
     return { skuId, newStockQuantity, name, isNewSku };

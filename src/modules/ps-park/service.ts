@@ -271,6 +271,42 @@ export async function updateBookingStatus(
   const items = (metadata?.items ?? []) as BookingItemSnapshot[];
   const performedById = managerId ?? booking.userId;
 
+  // Build bill snapshot when completing a session
+  let billSnapshot: Record<string, unknown> | undefined;
+  if (status === "COMPLETED") {
+    const pricePerHour = Number(resource?.pricePerHour ?? 0);
+    const hoursBooked = Math.ceil(
+      (booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60 * 60)
+    );
+    const hoursCost = hoursBooked * pricePerHour;
+    const billItems = items.map((i) => ({
+      skuId: i.skuId,
+      skuName: i.skuName,
+      quantity: i.quantity,
+      price: Number(i.priceAtBooking),
+      subtotal: i.quantity * Number(i.priceAtBooking),
+    }));
+    const itemsTotal = billItems.reduce((sum, i) => sum + i.subtotal, 0);
+    billSnapshot = {
+      resourceName: resource?.name ?? "—",
+      clientName: booking.clientName ?? "—",
+      date: booking.date.toISOString().split("T")[0],
+      startTime: booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+      endTime: booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+      hoursBooked,
+      pricePerHour,
+      hoursCost,
+      items: billItems,
+      itemsTotal,
+      totalBill: hoursCost + itemsTotal,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  const metadataWithBill = billSnapshot
+    ? ({ ...(metadata ?? {}), bill: billSnapshot } as Record<string, unknown>)
+    : undefined;
+
   let updated;
 
   if (status === "CONFIRMED" && items.length > 0) {
@@ -314,6 +350,7 @@ export async function updateBookingStatus(
         ...(managerId && { managerId }),
         ...(cancelReason && { cancelReason }),
         ...(googleEventId !== booking.googleEventId && { googleEventId }),
+        ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
       },
     });
   }

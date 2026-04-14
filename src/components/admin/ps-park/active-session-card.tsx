@@ -92,20 +92,27 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
       </div>
 
       {/* Bill summary */}
-      <div className="text-xs space-y-0.5 mb-3 bg-white/60 rounded-lg p-2">
+      <div className="text-xs space-y-1 mb-3 bg-white/60 rounded-lg p-2.5">
         <div className="flex justify-between text-zinc-600">
-          <span>Аренда ({session.hoursBooked} ч.)</span>
-          <span>{session.hoursCost} ₽</span>
+          <span>Аренда</span>
+          <span className="tabular-nums">{session.hoursCost} ₽</span>
+        </div>
+        <div className="text-[10px] text-zinc-400 -mt-0.5 mb-0.5">
+          {session.hoursBooked} ч. x {session.pricePerHour} ₽/ч
         </div>
         {session.items.length > 0 && (
-          <div className="flex justify-between text-zinc-600">
-            <span>Товары ({session.items.length} поз.)</span>
-            <span>{session.itemsTotal} ₽</span>
-          </div>
+          <>
+            {session.items.map((item, idx) => (
+              <div key={item.skuId + idx} className="flex justify-between text-zinc-600">
+                <span className="truncate mr-2">{item.skuName} x{item.quantity}</span>
+                <span className="tabular-nums shrink-0">{item.subtotal} ₽</span>
+              </div>
+            ))}
+          </>
         )}
         <div className="flex justify-between font-semibold text-zinc-900 pt-1 border-t border-zinc-200">
           <span>Итого</span>
-          <span>{session.totalBill} ₽</span>
+          <span className="tabular-nums">{session.totalBill} ₽</span>
         </div>
       </div>
 

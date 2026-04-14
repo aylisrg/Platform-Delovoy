@@ -13,6 +13,7 @@ import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import { TestAlertsButton } from "@/components/admin/ps-park/test-alerts-button";
+import { BookingHistoryTable, type HistoryBooking } from "@/components/admin/ps-park/booking-history-table";
 
 export const dynamic = "force-dynamic";
 
@@ -204,13 +205,29 @@ export default async function PSParkManagerPage() {
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-zinc-900">История</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Последние 20 завершённых/отменённых</p>
+            <p className="text-xs text-zinc-400 mt-0.5">Последние 20 завершённых/отменённых — нажмите на завершённое бронирование для просмотра чека</p>
           </CardHeader>
           <CardContent>
             {recentCompleted.length === 0 ? (
               <p className="text-sm text-zinc-400">Тишина. Все геймеры сегодня дома. Или у конкурентов. Надеемся, что дома.</p>
             ) : (
-              <BookingTable bookings={recentCompleted} resourceMap={resourceMap} />
+              <BookingHistoryTable
+                bookings={recentCompleted.map((b): HistoryBooking => ({
+                  id: b.id,
+                  date: b.date.toISOString(),
+                  startTime: b.startTime.toISOString(),
+                  endTime: b.endTime.toISOString(),
+                  status: b.status,
+                  clientName: b.clientName,
+                  clientPhone: b.clientPhone,
+                  userName: b.user.name,
+                  userEmail: b.user.email,
+                  userPhone: b.user.phone,
+                  resourceId: b.resourceId,
+                  hasBill: b.status === "COMPLETED",
+                }))}
+                resourceMap={Object.fromEntries(resourceMap)}
+              />
             )}
           </CardContent>
         </Card>
