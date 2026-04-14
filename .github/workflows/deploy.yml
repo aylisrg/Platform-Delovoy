@@ -68,6 +68,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create Timeweb snapshot before deploy
+        continue-on-error: true
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+        run: |
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "No TIMEWEB_API_TOKEN — skipping snapshot"
+            exit 0
+          fi
+
+          # Get server ID
+          SERVER_ID=$(curl -s -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/servers" | jq '.servers[0].id // empty')
+
+          if [ -n "$SERVER_ID" ]; then
+            echo "Creating snapshot for server $SERVER_ID before deploy..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"comment\": \"Pre-deploy snapshot — ${{ github.sha }}\"}" \
+              "https://api.timeweb.cloud/api/v1/servers/$SERVER_ID/disks/backups" | jq '.'
+            echo "Snapshot requested"
+          else
+            echo "No server found — skipping snapshot"
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
