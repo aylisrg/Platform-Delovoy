@@ -104,48 +104,78 @@ export default async function DashboardPage() {
             {bookings.length === 0 ? (
               <p className="text-sm text-zinc-400">У вас пока нет бронирований</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Модуль</th>
-                    <th className="pb-3 font-medium">Ресурс</th>
-                    <th className="pb-3 font-medium">Дата</th>
-                    <th className="pb-3 font-medium">Время</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <>
+                {/* Mobile: card layout */}
+                <div className="sm:hidden space-y-3">
                   {bookings.map((b) => (
-                    <tr key={b.id} className="border-b border-zinc-50">
-                      <td className="py-3 text-zinc-600">
-                        {moduleLabels[b.moduleSlug] ?? b.moduleSlug}
-                      </td>
-                      <td className="py-3 text-zinc-900 font-medium">
-                        {resourceNameMap.get(b.resourceId) ?? "—"}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {new Date(b.date).toLocaleDateString("ru-RU")}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {new Date(b.startTime).toLocaleTimeString("ru-RU", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {" — "}
-                        {new Date(b.endTime).toLocaleTimeString("ru-RU", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="py-3">
+                    <div key={b.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-zinc-900">
+                          {moduleLabels[b.moduleSlug] ?? b.moduleSlug}
+                        </span>
                         <Badge variant={bookingStatusVariant[b.status]}>
                           {bookingStatusLabel[b.status]}
                         </Badge>
-                      </td>
-                    </tr>
+                      </div>
+                      <p className="text-sm text-zinc-700 font-medium">
+                        {resourceNameMap.get(b.resourceId) ?? "—"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {new Date(b.date).toLocaleDateString("ru-RU")}
+                        {" · "}
+                        {new Date(b.startTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        {" — "}
+                        {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                {/* Desktop: table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm min-w-[560px]">
+                    <thead>
+                      <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                        <th className="pb-3 font-medium">Модуль</th>
+                        <th className="pb-3 font-medium">Ресурс</th>
+                        <th className="pb-3 font-medium">Дата</th>
+                        <th className="pb-3 font-medium">Время</th>
+                        <th className="pb-3 font-medium">Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bookings.map((b) => (
+                        <tr key={b.id} className="border-b border-zinc-50">
+                          <td className="py-3 text-zinc-600">
+                            {moduleLabels[b.moduleSlug] ?? b.moduleSlug}
+                          </td>
+                          <td className="py-3 text-zinc-900 font-medium">
+                            {resourceNameMap.get(b.resourceId) ?? "—"}
+                          </td>
+                          <td className="py-3 text-zinc-600">
+                            {new Date(b.date).toLocaleDateString("ru-RU")}
+                          </td>
+                          <td className="py-3 text-zinc-600">
+                            {new Date(b.startTime).toLocaleTimeString("ru-RU", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            {" — "}
+                            {new Date(b.endTime).toLocaleTimeString("ru-RU", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+                          <td className="py-3">
+                            <Badge variant={bookingStatusVariant[b.status]}>
+                              {bookingStatusLabel[b.status]}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -159,44 +189,72 @@ export default async function DashboardPage() {
             {orders.length === 0 ? (
               <p className="text-sm text-zinc-400">У вас пока нет заказов</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                    <th className="pb-3 font-medium">Дата</th>
-                    <th className="pb-3 font-medium">Позиций</th>
-                    <th className="pb-3 font-medium">Сумма</th>
-                    <th className="pb-3 font-medium">Доставка</th>
-                    <th className="pb-3 font-medium">Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <>
+                {/* Mobile: card layout */}
+                <div className="sm:hidden space-y-3">
                   {orders.map((o) => (
-                    <tr key={o.id} className="border-b border-zinc-50">
-                      <td className="py-3 text-zinc-600">
-                        {new Date(o.createdAt).toLocaleDateString("ru-RU")}{" "}
-                        {new Date(o.createdAt).toLocaleTimeString("ru-RU", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {o.items.length} шт.
-                      </td>
-                      <td className="py-3 text-zinc-900 font-medium">
-                        {Number(o.totalAmount)} ₽
-                      </td>
-                      <td className="py-3 text-zinc-600">
-                        {o.deliveryTo ?? "—"}
-                      </td>
-                      <td className="py-3">
+                    <div key={o.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-zinc-900">
+                          {Number(o.totalAmount)} ₽
+                        </span>
                         <Badge variant={orderStatusVariant[o.status]}>
                           {orderStatusLabel[o.status]}
                         </Badge>
-                      </td>
-                    </tr>
+                      </div>
+                      <p className="text-xs text-zinc-500">
+                        {new Date(o.createdAt).toLocaleDateString("ru-RU")}
+                        {" · "}
+                        {new Date(o.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        {" · "}
+                        {o.items.length} позиц.
+                        {o.deliveryTo ? ` · офис ${o.deliveryTo}` : ""}
+                      </p>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                {/* Desktop: table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm min-w-[560px]">
+                    <thead>
+                      <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                        <th className="pb-3 font-medium">Дата</th>
+                        <th className="pb-3 font-medium">Позиций</th>
+                        <th className="pb-3 font-medium">Сумма</th>
+                        <th className="pb-3 font-medium">Доставка</th>
+                        <th className="pb-3 font-medium">Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.map((o) => (
+                        <tr key={o.id} className="border-b border-zinc-50">
+                          <td className="py-3 text-zinc-600">
+                            {new Date(o.createdAt).toLocaleDateString("ru-RU")}{" "}
+                            {new Date(o.createdAt).toLocaleTimeString("ru-RU", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+                          <td className="py-3 text-zinc-600">
+                            {o.items.length} шт.
+                          </td>
+                          <td className="py-3 text-zinc-900 font-medium">
+                            {Number(o.totalAmount)} ₽
+                          </td>
+                          <td className="py-3 text-zinc-600">
+                            {o.deliveryTo ?? "—"}
+                          </td>
+                          <td className="py-3">
+                            <Badge variant={orderStatusVariant[o.status]}>
+                              {orderStatusLabel[o.status]}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

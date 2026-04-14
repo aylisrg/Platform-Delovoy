@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { getParkingInfo } from "@/modules/parking/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Navbar } from "@landing/components/navbar";
+import { Footer } from "@landing/components/footer";
 
 export const metadata: Metadata = {
   title: "Парковка",
@@ -24,19 +25,16 @@ export default function ParkingPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <header className="bg-white border-b border-zinc-200">
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <nav className="mb-4">
-            <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Главная
-            </Link>
-          </nav>
-          <h1 className="text-3xl font-bold text-zinc-900">Парковка</h1>
-          <p className="mt-2 text-zinc-600">
-            Информация о парковке бизнес-парка Деловой
-          </p>
-        </div>
-      </header>
+      <Navbar />
+      <div className="pt-14">
+        <header className="bg-white border-b border-zinc-200">
+          <div className="max-w-4xl mx-auto px-4 py-8">
+            <h1 className="text-3xl font-bold text-zinc-900">Парковка</h1>
+            <p className="mt-2 text-zinc-600">
+              Информация о парковке бизнес-парка Деловой
+            </p>
+          </div>
+        </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
         {/* Stats */}
@@ -104,6 +102,8 @@ export default function ParkingPage() {
           </Card>
         )}
       </main>
+      <Footer />
+      </div>
     </div>
   );
 }

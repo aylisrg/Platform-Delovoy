@@ -1,8 +1,12 @@
+const PHONE = process.env.DELOVOY_PHONE || "+74951234567";
+const PHONE_DISPLAY = process.env.DELOVOY_PHONE_DISPLAY || "+7 (495) 123-45-67";
+const WHATSAPP_NUMBER = process.env.DELOVOY_WHATSAPP || PHONE.replace("+", "");
+
 const contacts = [
   {
     type: "Телефон",
-    value: "+7 (XXX) XXX-XX-XX",
-    href: "tel:+7XXXXXXXXXX",
+    value: PHONE_DISPLAY,
+    href: `tel:${PHONE}`,
     icon: "phone",
   },
   {
@@ -13,8 +17,8 @@ const contacts = [
   },
   {
     type: "WhatsApp",
-    value: "+7 (XXX) XXX-XX-XX",
-    href: "https://wa.me/7XXXXXXXXXX",
+    value: PHONE_DISPLAY,
+    href: `https://wa.me/${WHATSAPP_NUMBER}`,
     icon: "whatsapp",
   },
 ];

@@ -33,7 +33,7 @@ const jsonLd = {
   description:
     "Бизнес-парк в Селятино, Московская область. Аренда офисов, Барбекю Парк с мангалом, Плей Парк, кафе.",
   url: "https://delovoy-park.ru",
-  telephone: "+7-000-000-00-00",
+  telephone: process.env.DELOVOY_PHONE || "+7-000-000-00-00",
   address: {
     "@type": "PostalAddress",
     addressLocality: "Селятино",

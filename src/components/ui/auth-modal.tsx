@@ -176,11 +176,11 @@ export function AuthModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-md mx-4 sm:mx-auto rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/[0.04] hover:bg-black/[0.08] text-[#86868b] hover:text-[#1d1d1f] transition-colors"
+          className="absolute right-3 top-3 z-10 w-11 h-11 flex items-center justify-center rounded-full bg-black/[0.04] hover:bg-black/[0.08] text-[#86868b] hover:text-[#1d1d1f] transition-colors"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -188,7 +188,7 @@ export function AuthModal({
         </button>
 
         {/* Header */}
-        <div className="px-8 pt-8 pb-2 text-center">
+        <div className="px-5 sm:px-8 pt-6 sm:pt-8 pb-2 text-center">
           <h2
             className="font-[family-name:var(--font-manrope)] font-bold text-[#1d1d1f] text-xl"
             style={{ letterSpacing: "-0.4px" }}
@@ -201,7 +201,7 @@ export function AuthModal({
         </div>
 
         {/* Content */}
-        <div className="px-8 pb-8 pt-4">
+        <div className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
 
           {/* Telegram — primary method, always visible */}
           {tab === "telegram" && (

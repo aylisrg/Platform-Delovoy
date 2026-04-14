@@ -333,6 +333,8 @@ describe("receiveStockByName", () => {
       return fn({
         inventoryTransaction: { create: txCreate },
         inventorySku: { update: txUpdate, create: vi.fn() },
+        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch1" }) },
+        stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov1" }) },
       });
     });
 
@@ -363,6 +365,8 @@ describe("receiveStockByName", () => {
       return fn({
         inventorySku: { create: txSkuCreate, update: vi.fn() },
         inventoryTransaction: { create: txCreate },
+        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch2" }) },
+        stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov2" }) },
       });
     });
 
@@ -390,6 +394,8 @@ describe("receiveStockByName", () => {
       return fn({
         inventoryTransaction: { create: txCreate },
         inventorySku: { update: txUpdate },
+        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch3" }) },
+        stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov3" }) },
       });
     });
 

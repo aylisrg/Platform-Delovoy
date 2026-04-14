@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { listOffices } from "@/modules/rental/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InquiryForm } from "@/components/public/rental/inquiry-form";
+import { Navbar } from "@landing/components/navbar";
+import { Footer } from "@landing/components/footer";
 import type { OfficeStatus } from "@prisma/client";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 600; // ISR: обновлять каждые 10 минут
 
 export const metadata: Metadata = {
   title: "Аренда офисов",
@@ -45,19 +46,16 @@ export default async function RentalPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <header className="bg-white border-b border-zinc-200">
-        <div className="max-w-5xl mx-auto px-4 py-8">
-          <nav className="mb-4">
-            <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Главная
-            </Link>
-          </nav>
-          <h1 className="text-3xl font-bold text-zinc-900">Аренда офисов</h1>
-          <p className="mt-2 text-zinc-600">
-            Бизнес-парк Деловой — современные офисы в Селятино, Московская область
-          </p>
-        </div>
-      </header>
+      <Navbar />
+      <div className="pt-14">
+        <header className="bg-white border-b border-zinc-200">
+          <div className="max-w-5xl mx-auto px-4 py-8">
+            <h1 className="text-3xl font-bold text-zinc-900">Аренда офисов</h1>
+            <p className="mt-2 text-zinc-600">
+              Бизнес-парк Деловой — современные офисы в Селятино, Московская область
+            </p>
+          </div>
+        </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
         {/* Stats */}
@@ -142,6 +140,8 @@ export default async function RentalPage() {
           }))}
         />
       </main>
+      <Footer />
+      </div>
     </div>
   );
 }
