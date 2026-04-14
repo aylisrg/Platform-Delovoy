@@ -7,7 +7,7 @@ import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
-export const revalidate = 300; // ISR: обновлять каждые 5 минут
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Барбекю Парк",
@@ -44,7 +44,7 @@ export default async function GazebosPage() {
           loop
           playsInline
           preload="metadata"
-          poster="/media/gazebo-poster.jpg"
+          poster="/media/IMG_3724_Custom.JPG.webp"
           className="absolute inset-0 w-full h-full object-cover hidden md:block"
         >
           <source src="/media/gazebo.mp4" type="video/mp4" />
@@ -52,7 +52,7 @@ export default async function GazebosPage() {
         {/* Mobile: static poster fallback */}
         <div
           className="absolute inset-0 md:hidden bg-zinc-800"
-          style={{ backgroundImage: "url('/media/gazebo-poster.jpg')", backgroundSize: "cover", backgroundPosition: "center" }}
+          style={{ backgroundImage: "url('/media/IMG_3724_Custom.JPG.webp')", backgroundSize: "cover", backgroundPosition: "center" }}
         />
         {/* Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />

@@ -4,7 +4,7 @@ import { MenuList } from "@/components/public/cafe/menu-list";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
-export const revalidate = 300; // ISR: обновлять каждые 5 минут
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Кафе",

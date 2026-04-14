@@ -7,7 +7,7 @@ import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import type { OfficeStatus } from "@prisma/client";
 
-export const revalidate = 600; // ISR: обновлять каждые 10 минут
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Аренда офисов",

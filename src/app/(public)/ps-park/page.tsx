@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
+import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
 import { Navbar } from "@landing/components/navbar";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
 
-export const revalidate = 60; // ISR: обновлять каждую минуту
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Плей Парк",
@@ -90,25 +92,30 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
 }
 
 function PhotoGallery() {
-  const slots = [
-    "gallery-1.jpg",
-    "gallery-2.jpg",
-    "gallery-3.jpg",
-    "gallery-4.jpg",
+  const photos = [
+    { src: "/media/ps-park/IMG_4358.jpeg", alt: "Плей Парк — игровая зона" },
+    { src: "/media/ps-park/IMG_4362.jpeg", alt: "Плей Парк — диваны и экраны" },
+    { src: "/media/ps-park/IMG_4366.jpeg", alt: "Плей Парк — интерьер" },
+    { src: "/media/ps-park/IMG_4368.jpeg", alt: "Плей Парк — зона отдыха" },
+    { src: "/media/ps-park/IMG_4369.jpeg", alt: "Плей Парк — игровые столы" },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {slots.map((file) => (
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {photos.map((photo) => (
         <div
-          key={file}
-          className="aspect-square rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col items-center justify-center gap-2"
+          key={photo.src}
+          className="relative aspect-square rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 group"
         >
-          <svg className="w-6 h-6 text-zinc-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-zinc-700 text-[10px] font-mono">{file}</span>
+          <Image
+            src={photo.src}
+            alt={photo.alt}
+            fill
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
+            sizes="(max-width: 768px) 50vw, 20vw"
+            quality={75}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       ))}
     </div>
@@ -133,17 +140,27 @@ export default async function PSParkPage() {
 
       {/* ── HERO ── */}
       <section className="relative overflow-hidden">
-        {/* Background grid pattern */}
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
-          }}
-        />
+        {/* Background photo — IMG_4364 */}
+        <div className="absolute inset-0">
+          <Image
+            src="/media/ps-park/IMG_4364.jpeg"
+            alt=""
+            fill
+            priority
+            className="object-cover object-center"
+            sizes="100vw"
+            quality={80}
+          />
+          {/* Dark overlay so text stays readable and grid shows through */}
+          <div className="absolute inset-0 bg-zinc-950/75" />
+          <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/40 via-transparent to-zinc-950" />
+        </div>
+        {/* Animated cyberpunk grid */}
+        <div className="absolute inset-0">
+          <CyberpunkGrid />
+        </div>
         {/* Purple glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-violet-600/10 blur-[120px] pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-violet-600/15 blur-[120px] pointer-events-none" />
 
         <div className="relative max-w-6xl mx-auto px-4 pt-10 pb-16 md:pt-16 md:pb-24">
           {/* Back link */}
