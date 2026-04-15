@@ -51,6 +51,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Клиенты", href: "/admin/clients", icon: "👤", section: "clients" },
   { label: "Telegram", href: "/admin/telegram", icon: "📨", section: "telegram" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
+  { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
