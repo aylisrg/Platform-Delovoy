@@ -1,0 +1,27 @@
+name: Run Seed on Production
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    name: Run seed script
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run seed via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/delovoy-park
+            echo "=== Running seed ==="
+            docker compose exec -T app npx tsx scripts/seed.ts
+            echo "=== Done ==="
