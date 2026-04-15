@@ -184,6 +184,16 @@ async function main() {
       const endDate = new Date(c.endDate);
       const status = autoContractStatus(startDate, endDate);
 
+      // Skip if contract already exists (idempotency)
+      const existingContract = await prisma.rentalContract.findFirst({
+        where: { tenantId, officeId, startDate, endDate },
+      });
+      if (existingContract) {
+        console.log(`  ~ Contract already exists: ${c.tenantRef} → ${c.officeRef}, skipping`);
+        contractCount++;
+        continue;
+      }
+
       await prisma.rentalContract.create({
         data: {
           tenantId,

@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { MergeDialog } from "./merge-dialog";
 
 type ModuleUsage = {
   moduleSlug: string;
@@ -65,6 +67,7 @@ type ClientDetail = {
   bookingCount: number;
   orderCount: number;
   lastActivityAt: string | null;
+  authProviders: string[];
   bookings: ClientBooking[];
   orders: ClientOrder[];
   activityTimeline: ActivityEvent[];
@@ -75,6 +78,14 @@ const MODULE_ICONS: Record<string, string> = {
   gazebos: "🏕",
   "ps-park": "🎮",
   cafe: "☕",
+};
+
+const PROVIDER_LABEL: Record<string, { icon: string; label: string; color: string }> = {
+  telegram: { icon: "TG", label: "Telegram", color: "bg-sky-100 text-sky-700" },
+  google: { icon: "G", label: "Google", color: "bg-red-50 text-red-600" },
+  vk: { icon: "VK", label: "VKontakte", color: "bg-blue-100 text-blue-700" },
+  yandex: { icon: "Ya", label: "Yandex", color: "bg-yellow-100 text-yellow-700" },
+  credentials: { icon: "@", label: "Email", color: "bg-zinc-100 text-zinc-600" },
 };
 
 const BOOKING_STATUS_LABEL: Record<string, string> = {
@@ -136,6 +147,8 @@ export function ClientProfile({ clientId }: { clientId: string }) {
   const [client, setClient] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"timeline" | "bookings" | "orders" | "spending">("timeline");
+  const [showMerge, setShowMerge] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     fetch(`/api/admin/clients/${clientId}`)
@@ -202,11 +215,45 @@ export function ClientProfile({ clientId }: { clientId: string }) {
             {client.telegramId && <span>Telegram: {client.telegramId}</span>}
             {client.vkId && <span>VK: {client.vkId}</span>}
           </div>
+          {client.authProviders && client.authProviders.length > 0 && (
+            <div className="flex gap-1.5 mt-1.5">
+              {client.authProviders.map((p) => {
+                const info = PROVIDER_LABEL[p];
+                return (
+                  <span
+                    key={p}
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${info?.color || "bg-zinc-100 text-zinc-600"}`}
+                    title={info?.label || p}
+                  >
+                    {info?.icon || p} {info?.label || p}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <p className="mt-1 text-xs text-zinc-400">
             Клиент с {formatDate(client.createdAt)}
           </p>
         </div>
+        <button
+          onClick={() => setShowMerge(true)}
+          className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+        >
+          Объединить
+        </button>
       </div>
+
+      {showMerge && (
+        <MergeDialog
+          primaryId={client.id}
+          primaryName={client.name || "Без имени"}
+          onMerged={() => {
+            setShowMerge(false);
+            router.refresh();
+          }}
+          onClose={() => setShowMerge(false)}
+        />
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

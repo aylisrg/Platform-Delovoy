@@ -83,6 +83,32 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  backup:
+    image: postgres:16-alpine
+    container_name: delovoy-backup
+    restart: "no"
+    volumes:
+      - ./scripts/backup-db.sh:/scripts/backup-db.sh:ro
+      - backup_data:/backups/postgres
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
+      BACKUP_DIR: "/backups/postgres"
+      RETENTION_DAYS: "30"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_ADMIN_CHAT_ID: "${TELEGRAM_ADMIN_CHAT_ID}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "chmod +x /scripts/backup-db.sh && /scripts/backup-db.sh"]
+    profiles:
+      - backup
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres_data:
   redis_data:
+  backup_data:

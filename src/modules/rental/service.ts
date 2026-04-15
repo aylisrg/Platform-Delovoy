@@ -896,9 +896,32 @@ export async function getInquiry(id: string) {
 }
 
 export async function createInquiry(input: CreateInquiryInput) {
-  if (input.officeId) {
-    const office = await prisma.office.findUnique({ where: { id: input.officeId } });
-    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
+  // Resolve officeIds: use officeIds array if provided, fallback to single officeId
+  const resolvedOfficeIds = input.officeIds?.length
+    ? input.officeIds
+    : input.officeId
+      ? [input.officeId]
+      : [];
+
+  // Validate all office IDs exist
+  let officeNumbers: string[] = [];
+  if (resolvedOfficeIds.length > 0) {
+    const offices = await prisma.office.findMany({
+      where: { id: { in: resolvedOfficeIds } },
+      select: { id: true, number: true },
+    });
+    if (offices.length !== resolvedOfficeIds.length) {
+      throw new RentalError("OFFICE_NOT_FOUND", "Одно или несколько помещений не найдено");
+    }
+    officeNumbers = offices.map((o) => o.number);
+  }
+
+  // Build message with selected offices info
+  let finalMessage = input.message || "";
+  if (resolvedOfficeIds.length > 1) {
+    const officeList = officeNumbers.map((n) => `№${n}`).join(", ");
+    const prefix = `Интересующие офисы: ${officeList}`;
+    finalMessage = finalMessage ? `${prefix}\n\n${finalMessage}` : prefix;
   }
 
   const inquiry = await prisma.rentalInquiry.create({
@@ -907,8 +930,8 @@ export async function createInquiry(input: CreateInquiryInput) {
       phone: input.phone,
       email: input.email,
       companyName: input.companyName,
-      message: input.message,
-      officeId: input.officeId,
+      message: finalMessage || undefined,
+      officeId: resolvedOfficeIds[0] || undefined,
     },
     include: { office: { select: { number: true } } },
   });
@@ -922,8 +945,8 @@ export async function createInquiry(input: CreateInquiryInput) {
       phone: input.phone,
       email: input.email || "—",
       companyName: input.companyName || "—",
-      message: input.message || "—",
-      officeNumber: inquiry.office?.number || "Общий запрос",
+      message: finalMessage || "—",
+      officeNumber: officeNumbers.length > 0 ? officeNumbers.join(", ") : "Общий запрос",
     },
   });
 

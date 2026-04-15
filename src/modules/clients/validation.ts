@@ -22,3 +22,20 @@ export const clientFilterSchema = z.object({
 });
 
 export type ClientFilterInput = z.infer<typeof clientFilterSchema>;
+
+export const mergeClientsSchema = z
+  .object({
+    primaryId: z.string().min(1, "primaryId обязателен"),
+    secondaryId: z.string().min(1, "secondaryId обязателен"),
+  })
+  .refine((data) => data.primaryId !== data.secondaryId, {
+    message: "Нельзя объединить клиента с самим собой",
+  });
+
+export const mergePreviewSchema = z.object({
+  primaryId: z.string().min(1),
+  secondaryId: z.string().min(1),
+});
+
+export type MergeClientsInput = z.infer<typeof mergeClientsSchema>;
+export type MergePreviewInput = z.infer<typeof mergePreviewSchema>;

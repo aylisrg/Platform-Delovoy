@@ -142,7 +142,7 @@ export function HeroSectionWithVideo() {
             { value: `${meta.totalReviews}+`, label: "отзывов на Яндексе" },
             { value: meta.rating.toFixed(1), label: "средний рейтинг" },
             { value: "100+", label: "офисов в парке" },
-            { value: "40 км", label: "от Москвы" },
+            { value: "30 км", label: "от Москвы" },
           ].map((stat) => (
             <div key={stat.label}>
               <p

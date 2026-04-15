@@ -8,6 +8,8 @@ import type {
   ActivityEvent,
   MonthlySpending,
   ModuleUsage,
+  MergePreview,
+  MergeResult,
 } from "./types";
 import type { ClientFilterInput } from "./validation";
 
@@ -19,6 +21,30 @@ const MODULE_NAMES: Record<string, string> = {
 
 const BOOKING_MODULES = ["gazebos", "ps-park"] as const;
 const ORDER_MODULES = ["cafe"] as const;
+
+function getAuthProviders(user: {
+  telegramId: string | null;
+  email: string | null;
+  accounts: { provider: string }[];
+}): string[] {
+  const providers: string[] = [];
+
+  for (const acc of user.accounts) {
+    if (!providers.includes(acc.provider)) {
+      providers.push(acc.provider);
+    }
+  }
+
+  if (user.telegramId && !providers.includes("telegram")) {
+    providers.push("telegram");
+  }
+
+  if (user.email && providers.length === 0 && !user.telegramId) {
+    providers.push("credentials");
+  }
+
+  return providers;
+}
 
 export function calculateBookingCost(
   startTime: Date,
@@ -82,6 +108,9 @@ export async function listClients(
         telegramId: true,
         vkId: true,
         createdAt: true,
+        accounts: {
+          select: { provider: true },
+        },
         bookings: {
           select: {
             id: true,
@@ -211,6 +240,7 @@ export async function listClients(
       bookingCount: user.bookings.length,
       orderCount: user.orders.length,
       lastActivityAt,
+      authProviders: getAuthProviders(user),
     };
   });
 
@@ -261,6 +291,9 @@ export async function getClientDetail(
       telegramId: true,
       vkId: true,
       createdAt: true,
+      accounts: {
+        select: { provider: true },
+      },
       bookings: {
         select: {
           id: true,
@@ -490,6 +523,7 @@ export async function getClientDetail(
     bookingCount: user.bookings.length,
     orderCount: user.orders.length,
     lastActivityAt,
+    authProviders: getAuthProviders(user),
     bookings,
     orders,
     activityTimeline,
@@ -631,4 +665,180 @@ export async function getClientStats(): Promise<ClientStats> {
     topSpenders,
     moduleBreakdown,
   };
+}
+
+// === Client Merge ===
+
+export async function previewMerge(
+  primaryId: string,
+  secondaryId: string
+): Promise<MergePreview> {
+  const [primary, secondary] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: primaryId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        telegramId: true,
+        role: true,
+        _count: { select: { bookings: true, orders: true } },
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: secondaryId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        telegramId: true,
+        role: true,
+        _count: { select: { bookings: true, orders: true } },
+      },
+    }),
+  ]);
+
+  if (!primary) throw new Error("Основной клиент не найден");
+  if (!secondary) throw new Error("Второй клиент не найден");
+  if (primary.role !== "USER") throw new Error("Основной аккаунт не является клиентом");
+  if (secondary.role !== "USER") throw new Error("Второй аккаунт не является клиентом");
+
+  const conflicts: string[] = [];
+  if (primary.email && secondary.email && primary.email !== secondary.email) {
+    conflicts.push(`У обоих клиентов есть email — будет использован email основного (${primary.email})`);
+  }
+  if (primary.phone && secondary.phone && primary.phone !== secondary.phone) {
+    conflicts.push(`У обоих клиентов есть телефон — будет использован телефон основного (${primary.phone})`);
+  }
+  if (primary.telegramId && secondary.telegramId && primary.telegramId !== secondary.telegramId) {
+    conflicts.push(`У обоих клиентов есть Telegram — будет использован TG основного`);
+  }
+
+  return {
+    primary: {
+      id: primary.id,
+      name: primary.name,
+      email: primary.email,
+      phone: primary.phone,
+      telegramId: primary.telegramId,
+      bookingCount: primary._count.bookings,
+      orderCount: primary._count.orders,
+    },
+    secondary: {
+      id: secondary.id,
+      name: secondary.name,
+      email: secondary.email,
+      phone: secondary.phone,
+      telegramId: secondary.telegramId,
+      bookingCount: secondary._count.bookings,
+      orderCount: secondary._count.orders,
+    },
+    conflicts,
+  };
+}
+
+export async function mergeClients(
+  primaryId: string,
+  secondaryId: string,
+  performedById: string
+): Promise<MergeResult> {
+  return prisma.$transaction(async (tx) => {
+    // Validate both users exist and are USER role
+    const [primary, secondary] = await Promise.all([
+      tx.user.findUnique({ where: { id: primaryId }, select: { id: true, role: true, name: true, email: true, phone: true, image: true, telegramId: true, vkId: true } }),
+      tx.user.findUnique({ where: { id: secondaryId }, select: { id: true, role: true, name: true, email: true, phone: true, image: true, telegramId: true, vkId: true } }),
+    ]);
+
+    if (!primary) throw new Error("Основной клиент не найден");
+    if (!secondary) throw new Error("Второй клиент не найден");
+    if (primary.role !== "USER") throw new Error("Основной аккаунт не является клиентом");
+    if (secondary.role !== "USER") throw new Error("Второй аккаунт не является клиентом");
+
+    // 1. Transfer foreign keys
+    const [bookings, orders, accounts, auditLogs, feedbackItems, notificationLogs] =
+      await Promise.all([
+        tx.booking.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+        tx.order.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+        tx.account.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+        tx.auditLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+        tx.feedbackItem.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+        tx.notificationLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      ]);
+
+    // Transfer sessions
+    await tx.session.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
+
+    // Transfer NotificationPreference (unique per user — delete secondary's if primary has one)
+    const primaryPref = await tx.notificationPreference.findUnique({ where: { userId: primaryId } });
+    if (primaryPref) {
+      await tx.notificationPreference.deleteMany({ where: { userId: secondaryId } });
+    } else {
+      await tx.notificationPreference.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
+    }
+
+    // Transfer ModuleAssignments (skip duplicates)
+    const [primaryAssignments, secondaryAssignments] = await Promise.all([
+      tx.moduleAssignment.findMany({ where: { userId: primaryId }, select: { moduleId: true } }),
+      tx.moduleAssignment.findMany({ where: { userId: secondaryId }, select: { id: true, moduleId: true } }),
+    ]);
+    const primaryModuleIds = new Set(primaryAssignments.map((a) => a.moduleId));
+    for (const sa of secondaryAssignments) {
+      if (primaryModuleIds.has(sa.moduleId)) {
+        await tx.moduleAssignment.delete({ where: { id: sa.id } });
+      } else {
+        await tx.moduleAssignment.update({ where: { id: sa.id }, data: { userId: primaryId } });
+      }
+    }
+
+    // Transfer RentalChangeLog
+    await tx.rentalChangeLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
+
+    // 2. Enrich primary with secondary's data (fill nulls)
+    const updates: Record<string, string> = {};
+    if (!primary.name && secondary.name) updates.name = secondary.name;
+    if (!primary.phone && secondary.phone) updates.phone = secondary.phone;
+    if (!primary.email && secondary.email) updates.email = secondary.email;
+    if (!primary.image && secondary.image) updates.image = secondary.image;
+    if (!primary.telegramId && secondary.telegramId) updates.telegramId = secondary.telegramId;
+    if (!primary.vkId && secondary.vkId) updates.vkId = secondary.vkId;
+
+    if (Object.keys(updates).length > 0) {
+      await tx.user.update({ where: { id: primaryId }, data: updates });
+    }
+
+    // 3. Delete secondary user
+    await tx.user.delete({ where: { id: secondaryId } });
+
+    // 4. Audit log
+    await tx.auditLog.create({
+      data: {
+        userId: performedById,
+        action: "clients.merge",
+        entity: "User",
+        entityId: primaryId,
+        metadata: {
+          primaryId,
+          secondaryId,
+          secondaryName: secondary.name,
+          secondaryEmail: secondary.email,
+          transferredFields: updates,
+        },
+      },
+    });
+
+    return {
+      primaryId,
+      merged: {
+        bookings: bookings.count,
+        orders: orders.count,
+        accounts: accounts.count,
+        auditLogs: auditLogs.count,
+        feedbackItems: feedbackItems.count,
+        notificationLogs: notificationLogs.count,
+      },
+      deletedUserId: secondaryId,
+    };
+  });
 }

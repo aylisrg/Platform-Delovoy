@@ -13,6 +13,7 @@ import {
   reportQuerySchema,
   revenueReportSchema,
   expiringReportSchema,
+  createInquirySchema,
 } from "@/modules/rental/validation";
 
 // === Office Schemas ===
@@ -503,5 +504,69 @@ describe("expiringReportSchema", () => {
     if (result.success) {
       expect(result.data.days).toBe(30);
     }
+  });
+});
+
+// === Inquiry Schema ===
+
+describe("createInquirySchema", () => {
+  it("accepts minimal valid inquiry", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "+7999123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts inquiry with officeIds array", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "+7999123",
+      officeIds: ["id1", "id2", "id3"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts inquiry with single officeId (backward compat)", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "+7999123",
+      officeId: "id1",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects officeIds with more than 10 items", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "+7999123",
+      officeIds: Array.from({ length: 11 }, (_, i) => `id${i}`),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty name", () => {
+    const result = createInquirySchema.safeParse({
+      name: "",
+      phone: "+7999123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects too-short phone", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "12",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid email", () => {
+    const result = createInquirySchema.safeParse({
+      name: "Иван",
+      phone: "+7999123",
+      email: "not-an-email",
+    });
+    expect(result.success).toBe(false);
   });
 });
