@@ -172,6 +172,7 @@ export type CreateInquiryInput = {
   companyName?: string;
   message?: string;
   officeId?: string;
+  officeIds?: string[];
 };
 
 export type UpdateInquiryInput = Partial<{

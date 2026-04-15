@@ -66,6 +66,7 @@ const mockUser = (overrides = {}) => ({
   telegramId: null,
   vkId: null,
   createdAt: mockDate("2026-01-15"),
+  accounts: [] as { provider: string }[],
   bookings: [mockBooking()],
   orders: [mockOrder()],
   ...overrides,

@@ -1,6 +1,5 @@
 import { AdminHeader } from "@/components/admin/header";
 import { ModuleTabs } from "@/components/admin/shared/module-tabs";
-import { ReceiveStockButton } from "@/components/admin/receive-stock-button";
 
 const TABS = [
   { label: "Расписание", href: "/admin/gazebos" },
@@ -18,7 +17,7 @@ export default function GazebosLayout({
 }) {
   return (
     <>
-      <AdminHeader title="Барбекю Парк" actions={<ReceiveStockButton />} />
+      <AdminHeader title="Барбекю Парк" />
       <div className="p-8">
         <ModuleTabs tabs={TABS} />
         {children}

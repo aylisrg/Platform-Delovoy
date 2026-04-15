@@ -33,22 +33,6 @@ const services = [
     coverPhoto: "/media/ps-park/IMG_4358.jpeg",
     tag: "PS5 · PS4 · Турниры",
   },
-  {
-    id: "cafe",
-    title: "Кафе",
-    description:
-      "Горячая еда, кофе и закуски с доставкой прямо в офис. Работает каждый день — завтраки, обеды, перекусы.",
-    cta: "Посмотреть меню",
-    href: "/cafe",
-    accent: "#EA580C",
-    photos: [
-      "/media/DIKO7530.jpg.webp",
-      "/media/IMG_3724_Custom.JPG.webp",
-      "/media/IMG_3727_Custom.JPG.webp",
-    ],
-    coverPhoto: "/media/DIKO7530.jpg.webp",
-    tag: "Завтраки · Обеды · Доставка",
-  },
 ];
 
 export function ServicesSection() {
@@ -69,11 +53,11 @@ export function ServicesSection() {
             и отдыха.
           </h2>
           <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-[15px] mt-4 max-w-md leading-relaxed">
-            Три сервиса на территории парка — бронируйте онлайн в любое время.
+            Два сервиса на территории парка — бронируйте онлайн в любое время.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {services.map((s) => (
             <div
               key={s.id}

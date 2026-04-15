@@ -25,6 +25,7 @@ type Client = {
   bookingCount: number;
   orderCount: number;
   lastActivityAt: string | null;
+  authProviders: string[];
 };
 
 type ClientStats = {
@@ -44,6 +45,14 @@ const MODULE_ICONS: Record<string, string> = {
   gazebos: "🏕",
   "ps-park": "🎮",
   cafe: "☕",
+};
+
+const PROVIDER_LABEL: Record<string, { icon: string; label: string; color: string }> = {
+  telegram: { icon: "TG", label: "Telegram", color: "bg-sky-100 text-sky-700" },
+  google: { icon: "G", label: "Google", color: "bg-red-50 text-red-600" },
+  vk: { icon: "VK", label: "VKontakte", color: "bg-blue-100 text-blue-700" },
+  yandex: { icon: "Ya", label: "Yandex", color: "bg-yellow-100 text-yellow-700" },
+  credentials: { icon: "@", label: "Email", color: "bg-zinc-100 text-zinc-600" },
 };
 
 const MODULE_BADGE_VARIANT: Record<string, "success" | "info" | "warning"> = {
@@ -326,6 +335,22 @@ export function ClientsPageContent() {
                           !client.telegramId && (
                             <span className="text-zinc-300">—</span>
                           )}
+                        {client.authProviders && client.authProviders.length > 0 && (
+                          <div className="flex gap-1 mt-1">
+                            {client.authProviders.map((p) => {
+                              const info = PROVIDER_LABEL[p];
+                              return (
+                                <span
+                                  key={p}
+                                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${info?.color || "bg-zinc-100 text-zinc-600"}`}
+                                  title={info?.label || p}
+                                >
+                                  {info?.icon || p}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </td>
 

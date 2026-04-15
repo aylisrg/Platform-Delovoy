@@ -120,6 +120,7 @@ export const createInquirySchema = z.object({
   companyName: z.string().max(200).optional(),
   message: z.string().max(2000).optional(),
   officeId: z.string().optional(),
+  officeIds: z.array(z.string()).max(10).optional(),
 });
 
 export const updateInquirySchema = z.object({

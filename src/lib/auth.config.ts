@@ -41,6 +41,8 @@ export const authConfig: NextAuthConfig = {
   session: { strategy: "jwt" },
   pages: {
     signIn: "/auth/signin",
+    newUser: "/auth/redirect",
+    verifyRequest: "/auth/redirect",
   },
   providers: [],
   callbacks: {
