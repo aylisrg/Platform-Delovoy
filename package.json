@@ -1,6 +1,7 @@
 {
   "name": "platform-delovoy",
   "version": "0.1.1",
+  "description": "Platform Delovoy — business park management system",
   "private": true,
   "scripts": {
     "dev": "next dev",
