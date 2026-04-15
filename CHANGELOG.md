@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.0.0...v1.1.0) (2026-04-15)
+
+
+### Features
+
+* feedback module, telegram dashboard, CI/CD improvements ([#84](https://github.com/aylisrg/Platform-Delovoy/issues/84)) ([8a7f940](https://github.com/aylisrg/Platform-Delovoy/commit/8a7f94045ce3f6bfccc1d377c2a58164df3c15e7))
+
+
+### Bug Fixes
+
+* **ci:** paths-ignore + Telegram notifications ([#86](https://github.com/aylisrg/Platform-Delovoy/issues/86)) ([ccae2d2](https://github.com/aylisrg/Platform-Delovoy/commit/ccae2d2835a9fef39f11c8a3bd018f1eec0036e2))
+* **seed:** migrate legacy admin instead of deleting (FK constraints) ([#87](https://github.com/aylisrg/Platform-Delovoy/issues/87)) ([d65cefe](https://github.com/aylisrg/Platform-Delovoy/commit/d65cefe8f963a4b8b00165c8a65e084636307d65))
+
 ## 1.0.0 (2026-04-15)
 
 
