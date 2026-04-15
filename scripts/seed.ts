@@ -1,26 +1,26 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log("🌱 Seeding database...");
 
-  // === SUPERADMIN ===
-  const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || "admin123";
-  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+  // === SUPERADMIN (Telegram login) ===
+  // Remove legacy email-based admin if it exists
+  await prisma.user.deleteMany({
+    where: { email: "admin@delovoy-park.ru" },
+  });
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@delovoy-park.ru" },
-    update: { passwordHash },
+    where: { telegramId: "694696" },
+    update: { role: "SUPERADMIN" },
     create: {
-      email: "admin@delovoy-park.ru",
-      name: "Администратор",
+      telegramId: "694696",
+      name: "Elliott",
       role: "SUPERADMIN",
-      passwordHash,
     },
   });
-  console.log(`  ✓ Admin user: ${admin.email} (password: ${defaultPassword})`);
+  console.log(`  ✓ Admin user: telegramId=${admin.telegramId} (${admin.name})`);
 
   // === MODULES ===
   const modules = [

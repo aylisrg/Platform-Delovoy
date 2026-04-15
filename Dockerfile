@@ -10,6 +10,15 @@ COPY . .
 
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+# Public env vars are baked into the client bundle at build time
+ARG NEXT_PUBLIC_TELEGRAM_BOT_NAME="DelovoyPark_bot"
+ENV NEXT_PUBLIC_TELEGRAM_BOT_NAME=$NEXT_PUBLIC_TELEGRAM_BOT_NAME
+ARG NEXT_PUBLIC_APP_URL="https://delovoy-park.ru"
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_YANDEX_MAPS_URL="https://yandex.ru/maps/-/CPrFnN9z"
+ENV NEXT_PUBLIC_YANDEX_MAPS_URL=$NEXT_PUBLIC_YANDEX_MAPS_URL
+
 RUN npm run build
 
 # Clean Next.js build cache to reduce image size
