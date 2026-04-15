@@ -41,8 +41,8 @@ export const authConfig: NextAuthConfig = {
   session: { strategy: "jwt" },
   pages: {
     signIn: "/auth/signin",
-    newUser: "/auth/redirect",      // skip default "fill email" page
-    verifyRequest: "/auth/redirect", // skip default email verify page
+    newUser: "/auth/redirect",
+    verifyRequest: "/auth/redirect",
   },
   providers: [],
   callbacks: {
