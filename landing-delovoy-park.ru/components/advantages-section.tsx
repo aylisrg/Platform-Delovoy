@@ -1,12 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import type { ReviewsMeta } from "@landing/lib/parsers/types";
-
-const getAdvantages = (meta: ReviewsMeta) => [
+const advantages = [
   {
-    title: `${meta.totalReviews}+ отзывов`,
-    description: `Рейтинг ${meta.rating.toFixed(1)} из 5 на Яндекс Картах — лучший среди бизнес-центров Наро-Фоминского района.`,
+    title: "280+ отзывов",
+    description: "Рейтинг 5.0 из 5 на Яндекс Картах — лучший среди бизнес-центров Наро-Фоминского района.",
     highlight: true,
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -87,21 +84,6 @@ const getAdvantages = (meta: ReviewsMeta) => [
 ];
 
 export function AdvantagesSection() {
-  const [meta, setMeta] = useState<ReviewsMeta>({ rating: 5.0, totalReviews: 300 });
-
-  useEffect(() => {
-    fetch("/api/reviews")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && data.data?.meta) {
-          setMeta(data.data.meta);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const advantages = getAdvantages(meta);
-
   return (
     <section id="advantages" className="bg-white py-24 px-6">
       <div className="max-w-[1200px] mx-auto">

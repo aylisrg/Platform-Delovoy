@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { clientFilterSchema } from "@/modules/clients/validation";
+import { clientFilterSchema, mergeClientsSchema, mergePreviewSchema } from "@/modules/clients/validation";
 
 describe("clientFilterSchema", () => {
   it("accepts empty filter", () => {
@@ -83,6 +83,63 @@ describe("clientFilterSchema", () => {
 
   it("rejects invalid sortOrder", () => {
     const result = clientFilterSchema.safeParse({ sortOrder: "up" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("mergeClientsSchema", () => {
+  it("accepts valid merge input", () => {
+    const result = mergeClientsSchema.safeParse({
+      primaryId: "abc123",
+      secondaryId: "def456",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects when primaryId equals secondaryId", () => {
+    const result = mergeClientsSchema.safeParse({
+      primaryId: "abc123",
+      secondaryId: "abc123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty primaryId", () => {
+    const result = mergeClientsSchema.safeParse({
+      primaryId: "",
+      secondaryId: "def456",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty secondaryId", () => {
+    const result = mergeClientsSchema.safeParse({
+      primaryId: "abc123",
+      secondaryId: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing fields", () => {
+    expect(mergeClientsSchema.safeParse({}).success).toBe(false);
+    expect(mergeClientsSchema.safeParse({ primaryId: "abc" }).success).toBe(false);
+  });
+});
+
+describe("mergePreviewSchema", () => {
+  it("accepts valid preview input", () => {
+    const result = mergePreviewSchema.safeParse({
+      primaryId: "abc123",
+      secondaryId: "def456",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty IDs", () => {
+    const result = mergePreviewSchema.safeParse({
+      primaryId: "",
+      secondaryId: "def456",
+    });
     expect(result.success).toBe(false);
   });
 });

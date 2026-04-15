@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Manrope, Inter } from "next/font/google";
 import Script from "next/script";
 import { SessionProvider } from "@/components/providers/session-provider";
-import { FeedbackButton } from "@/components/public/feedback-button";
 import "./globals.css";
 
 const YM_ID = 73068007;
@@ -111,7 +110,6 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <SessionProvider>
           {children}
-          <FeedbackButton />
         </SessionProvider>
 
         {/* Яндекс.Метрика */}

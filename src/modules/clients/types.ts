@@ -20,6 +20,7 @@ export type ClientSummary = {
   bookingCount: number;
   orderCount: number;
   lastActivityAt: string | null;
+  authProviders: string[];
 };
 
 export type ClientBooking = {
@@ -90,4 +91,39 @@ export type ClientStats = {
     moduleName: string;
     clientCount: number;
   }>;
+};
+
+export type MergePreview = {
+  primary: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    telegramId: string | null;
+    bookingCount: number;
+    orderCount: number;
+  };
+  secondary: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    telegramId: string | null;
+    bookingCount: number;
+    orderCount: number;
+  };
+  conflicts: string[];
+};
+
+export type MergeResult = {
+  primaryId: string;
+  merged: {
+    bookings: number;
+    orders: number;
+    accounts: number;
+    auditLogs: number;
+    feedbackItems: number;
+    notificationLogs: number;
+  };
+  deletedUserId: string;
 };

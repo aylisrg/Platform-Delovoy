@@ -10,13 +10,24 @@ type Office = {
   status: string;
 };
 
-export function InquiryForm({ offices }: { offices: Office[] }) {
+type InquiryFormProps = {
+  offices: Office[];
+  selectedOfficeIds?: string[];
+  onToggleOffice?: (id: string) => void;
+  onFormReset?: () => void;
+};
+
+export function InquiryForm({
+  offices,
+  selectedOfficeIds = [],
+  onToggleOffice,
+  onFormReset,
+}: InquiryFormProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [message, setMessage] = useState("");
-  const [officeId, setOfficeId] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -38,7 +49,7 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
             ...(email.trim() && { email: email.trim() }),
             ...(companyName.trim() && { companyName: companyName.trim() }),
             ...(message.trim() && { message: message.trim() }),
-            ...(officeId && { officeId }),
+            ...(selectedOfficeIds.length > 0 && { officeIds: selectedOfficeIds }),
           }),
         });
 
@@ -46,13 +57,16 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
 
         if (data.success) {
           reachGoal("office_inquiry_success");
-          setResult({ ok: true, message: "Заявка отправлена! Мы свяжемся с вами в ближайшее время." });
+          setResult({
+            ok: true,
+            message: "Мы получили вашу заявку, свяжемся с вами в рабочее время (Пн-Пт, 9:00–18:00).",
+          });
           setName("");
           setPhone("");
           setEmail("");
           setCompanyName("");
           setMessage("");
-          setOfficeId("");
+          onFormReset?.();
         } else {
           setResult({ ok: false, message: data.error?.message || "Ошибка отправки" });
         }
@@ -62,7 +76,7 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
         setLoading(false);
       }
     },
-    [name, phone, email, companyName, message, officeId]
+    [name, phone, email, companyName, message, selectedOfficeIds, onFormReset]
   );
 
   return (
@@ -115,19 +129,34 @@ export function InquiryForm({ offices }: { offices: Office[] }) {
             />
           </div>
 
+          {/* Multi-select offices */}
           {availableOffices.length > 0 && (
-            <select
-              value={officeId}
-              onChange={(e) => setOfficeId(e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Интересующий офис (необязательно)</option>
-              {availableOffices.map((o) => (
-                <option key={o.id} value={o.id}>
-                  Офис №{o.number} ({o.floor} эт.)
-                </option>
-              ))}
-            </select>
+            <div>
+              <p className="text-sm text-zinc-600 mb-2">
+                Интересующие офисы{selectedOfficeIds.length > 0 && ` (${selectedOfficeIds.length})`}:
+              </p>
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-zinc-300 bg-white p-2 space-y-1">
+                {availableOffices.map((o) => {
+                  const checked = selectedOfficeIds.includes(o.id);
+                  return (
+                    <label
+                      key={o.id}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm transition-colors ${
+                        checked ? "bg-blue-50 text-blue-800" : "text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggleOffice?.(o.id)}
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Офис №{o.number} ({o.floor} эт.)
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           )}
 
           <textarea

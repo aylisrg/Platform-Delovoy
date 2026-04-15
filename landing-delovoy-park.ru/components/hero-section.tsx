@@ -57,7 +57,7 @@ export function HeroSection() {
             { value: "300+", label: "отзывов ★★★★★" },
             { value: "5.0", label: "средний рейтинг" },
             { value: "50+", label: "офисов в парке" },
-            { value: "40 км", label: "от Москвы" },
+            { value: "30 км", label: "от Москвы" },
           ].map((stat) => (
             <div key={stat.label}>
               <p
