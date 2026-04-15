@@ -9,7 +9,8 @@ import {
 import { auth } from "@/lib/auth";
 import { createFeedback, listFeedback, RateLimitError } from "@/modules/feedback/service";
 import { createFeedbackSchema, feedbackFilterSchema } from "@/modules/feedback/validation";
-import { saveScreenshot } from "@/modules/feedback/file-storage";
+import { saveScreenshot, getScreenshotPath } from "@/modules/feedback/file-storage";
+import { sendUrgentFeedbackAlert } from "@/modules/feedback/telegram";
 import { SCREENSHOT_CONSTRAINTS } from "@/modules/feedback/validation";
 
 /**
@@ -112,6 +113,21 @@ export async function POST(request: NextRequest) {
           where: { id: result.id },
           data: { screenshotPath },
         });
+
+        // Re-send Telegram alert with screenshot for urgent items
+        // (initial alert in service.ts fires before screenshot is saved)
+        if (parsed.data.isUrgent) {
+          sendUrgentFeedbackAlert({
+            feedbackId: result.id,
+            type: parsed.data.type,
+            description: parsed.data.description,
+            userName: session.user.name || session.user.email || "Пользователь",
+            pageUrl: parsed.data.pageUrl,
+            screenshotPath: getScreenshotPath(screenshotPath),
+          }).catch((err) => {
+            console.error("[Feedback] Failed to send TG screenshot:", err);
+          });
+        }
       } catch (err) {
         console.error("[Feedback] Failed to save screenshot:", err);
         // Don't fail the whole request — feedback was created

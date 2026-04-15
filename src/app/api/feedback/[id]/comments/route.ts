@@ -3,6 +3,7 @@ import {
   apiResponse,
   apiUnauthorized,
   apiForbidden,
+  apiNotFound,
   apiValidationError,
   apiServerError,
 } from "@/lib/api-response";
@@ -33,7 +34,7 @@ export async function POST(
     return apiResponse(comment, undefined, 201);
   } catch (error) {
     if (error instanceof NotFoundError) {
-      return apiResponse(null, undefined, 404);
+      return apiNotFound(error.message);
     }
     return apiServerError();
   }
