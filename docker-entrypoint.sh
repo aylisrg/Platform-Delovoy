@@ -54,6 +54,26 @@ else
     echo "  Database already has data, skipping seed."
 fi
 
-# --- 4. Start server ---
-echo "[4/4] Starting Next.js server..."
+# --- 4. Restore rental data (one-time, remove after deploy) ---
+RENTAL_SEED_MARKER="/tmp/.rental-seed-done"
+if [ ! -f "$RENTAL_SEED_MARKER" ]; then
+    RENTAL_COUNT=$(node -e "
+      const { PrismaClient } = require('@prisma/client');
+      const p = new PrismaClient();
+      p.office.count()
+        .then(c => { console.log(c); return p.\$disconnect(); })
+        .catch(() => { console.log('0'); return p.\$disconnect(); });
+    " 2>/dev/null || echo "0")
+
+    if [ "$RENTAL_COUNT" -lt 10 ] 2>/dev/null; then
+        echo "  Rental data missing ($RENTAL_COUNT offices). Restoring from seed-rental.json..."
+        npx tsx scripts/seed-rental.ts 2>&1 || echo "  Warning: rental seed failed (non-fatal)"
+    else
+        echo "  Rental data OK ($RENTAL_COUNT offices), skipping restore."
+    fi
+    touch "$RENTAL_SEED_MARKER"
+fi
+
+# --- 5. Start server ---
+echo "[5/5] Starting Next.js server..."
 exec su-exec nextjs node server.js
