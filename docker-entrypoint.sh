@@ -20,13 +20,13 @@ touch "$CRASH_MARKER"
 echo "[1/4] Generating Prisma Client..."
 npx prisma generate 2>&1 || echo "  WARNING: prisma generate failed, using pre-built client."
 
-# --- 2. Database schema ---
-echo "[2/4] Applying database schema..."
-if npx prisma db push --skip-generate 2>&1; then
-    echo "  Schema applied successfully."
+# --- 2. Database migrations ---
+echo "[2/4] Running database migrations..."
+if npx prisma migrate deploy 2>&1; then
+    echo "  Migrations applied successfully."
 else
-    echo "  WARNING: prisma db push failed."
-    echo "  If schema changes are destructive, handle migration manually."
+    echo "  WARNING: prisma migrate deploy failed."
+    echo "  Check migration status: npx prisma migrate status"
     echo "  Starting with existing schema..."
 fi
 

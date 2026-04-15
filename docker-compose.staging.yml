@@ -1,0 +1,86 @@
+# Staging environment — same VPS, separate DB, port 3001
+# Nginx proxies staging.delovoy-park.ru → 127.0.0.1:3001
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: delovoy-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: delovoy_park_staging
+      POSTGRES_USER: delovoy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delovoy -d delovoy_park_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  redis:
+    image: redis:7-alpine
+    container_name: delovoy-staging-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 32mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  app:
+    image: ghcr.io/aylisrg/platform-delovoy:staging
+    container_name: delovoy-staging-app
+    restart: on-failure:3
+    ports:
+      - "127.0.0.1:3001:3000"
+    env_file:
+      - .env.staging
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park_staging"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "production"
+      NEXTAUTH_URL: "https://staging.delovoy-park.ru"
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "--timeout=5", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  staging_postgres_data:

@@ -1,8 +1,12 @@
 name: Deploy to Production
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_snapshot:
+        description: "Skip Timeweb snapshot before deploy"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -69,6 +73,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Create Timeweb snapshot before deploy
+        if: ${{ !inputs.skip_snapshot }}
         continue-on-error: true
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
@@ -152,18 +157,51 @@ jobs:
             fi
             exit 1
 
-      - name: Verify deployment
+      - name: Verify deployment + smoke tests
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            echo "=== Deployment verification ==="
+            echo "=== Health check ==="
             curl -sf https://delovoy-park.ru/api/health | head -c 200
+            echo ""
+
+            echo "=== Smoke tests ==="
+            FAILED=0
+
+            # Main page loads
+            if curl -sf -o /dev/null -w "%{http_code}" https://delovoy-park.ru/ | grep -q "200"; then
+              echo "✅ Main page: 200 OK"
+            else
+              echo "❌ Main page: FAILED"
+              FAILED=$((FAILED + 1))
+            fi
+
+            # PS Park page loads
+            if curl -sf -o /dev/null -w "%{http_code}" https://delovoy-park.ru/ps-park | grep -q "200"; then
+              echo "✅ PS Park page: 200 OK"
+            else
+              echo "❌ PS Park page: FAILED"
+              FAILED=$((FAILED + 1))
+            fi
+
+            # API responds with JSON
+            if curl -sf https://delovoy-park.ru/api/ps-park/health | grep -q "status"; then
+              echo "✅ PS Park API health: OK"
+            else
+              echo "❌ PS Park API health: FAILED"
+              FAILED=$((FAILED + 1))
+            fi
+
             echo ""
             echo "=== Container status ==="
             docker ps --filter name=delovoy --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+            if [ "$FAILED" -gt 0 ]; then
+              echo "⚠️ $FAILED smoke test(s) failed — deploy succeeded but check manually"
+            fi
 
       - name: Notify on success
         if: success()
