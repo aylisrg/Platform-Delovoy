@@ -26,6 +26,8 @@ import type {
   DayAvailability,
   TimeSlot,
   GazeboResource,
+  TimelineData,
+  ModuleAnalytics,
 } from "./types";
 
 const MODULE_SLUG = "gazebos";
@@ -713,6 +715,211 @@ export async function getAvailability(
 
     return { date, resource, slots };
   });
+}
+
+// === TIMELINE ===
+
+export async function getTimeline(date: string): Promise<TimelineData> {
+  const resources = await prisma.resource.findMany({
+    where: { moduleSlug: MODULE_SLUG, isActive: true },
+    orderBy: { name: "asc" },
+  });
+
+  const bookingDate = new Date(date);
+  const bookings = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      date: bookingDate,
+      status: { in: ["PENDING", "CONFIRMED"] },
+    },
+    select: {
+      id: true,
+      resourceId: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      clientName: true,
+      clientPhone: true,
+      metadata: true,
+    },
+    orderBy: { startTime: "asc" },
+  });
+
+  const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) =>
+    `${(OPEN_HOUR + i).toString().padStart(2, "0")}:00`
+  );
+
+  return {
+    date,
+    resources,
+    bookings: bookings.map((b) => ({
+      id: b.id,
+      resourceId: b.resourceId,
+      startTime: b.startTime.toISOString(),
+      endTime: b.endTime.toISOString(),
+      status: b.status as "PENDING" | "CONFIRMED",
+      clientName: b.clientName,
+      clientPhone: b.clientPhone,
+      metadata: b.metadata as Record<string, unknown> | null,
+    })),
+    hours,
+  };
+}
+
+// === ANALYTICS ===
+
+export async function getAnalytics(period: "week" | "month" | "quarter"): Promise<ModuleAnalytics> {
+  const now = new Date();
+  const dateFrom = new Date(now);
+  if (period === "week") dateFrom.setDate(dateFrom.getDate() - 7);
+  else if (period === "month") dateFrom.setMonth(dateFrom.getMonth() - 1);
+  else dateFrom.setMonth(dateFrom.getMonth() - 3);
+
+  // Fetch resources first for name lookup and occupancy calculation
+  const resources = await prisma.resource.findMany({
+    where: { moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  const resourceMap = new Map(resources.map((r) => [r.id, r]));
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      date: { gte: dateFrom },
+    },
+  });
+
+  const completed = bookings.filter((b) => b.status === "COMPLETED");
+  const cancelled = bookings.filter((b) => b.status === "CANCELLED");
+
+  // Revenue from completed bookings metadata
+  let totalRevenue = 0;
+  for (const b of completed) {
+    const meta = b.metadata as Record<string, unknown> | null;
+    const price = meta?.totalPrice as number | undefined;
+    if (price) totalRevenue += price;
+    else {
+      const resource = resourceMap.get(b.resourceId);
+      if (resource?.pricePerHour) {
+        const hours = (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60);
+        totalRevenue += hours * Number(resource.pricePerHour);
+      }
+    }
+  }
+
+  const averageCheck = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
+
+  const totalSlots = resources.length * (CLOSE_HOUR - OPEN_HOUR) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
+  const bookedSlots = bookings.filter((b) => ["CONFIRMED", "COMPLETED", "CHECKED_IN"].includes(b.status)).length;
+  const occupancyRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) / 100 : 0;
+
+  // By day
+  const byDayMap = new Map<string, { bookings: number; revenue: number }>();
+  for (const b of bookings) {
+    const day = b.date.toISOString().split("T")[0];
+    const entry = byDayMap.get(day) ?? { bookings: 0, revenue: 0 };
+    entry.bookings++;
+    if (b.status === "COMPLETED") {
+      const meta = b.metadata as Record<string, unknown> | null;
+      const price = meta?.totalPrice as number | undefined;
+      if (price) entry.revenue += price;
+      else {
+        const resource = resourceMap.get(b.resourceId);
+        if (resource?.pricePerHour) {
+          const hours = (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60);
+          entry.revenue += hours * Number(resource.pricePerHour);
+        }
+      }
+    }
+    byDayMap.set(day, entry);
+  }
+  const byDay = Array.from(byDayMap.entries())
+    .map(([date, data]) => ({ date, ...data }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // By resource
+  const byResourceMap = new Map<string, { resourceName: string; bookings: number; revenue: number }>();
+  for (const b of bookings) {
+    const resource = resourceMap.get(b.resourceId);
+    const entry = byResourceMap.get(b.resourceId) ?? {
+      resourceName: resource?.name ?? "—",
+      bookings: 0,
+      revenue: 0,
+    };
+    entry.bookings++;
+    byResourceMap.set(b.resourceId, entry);
+  }
+  const byResource = Array.from(byResourceMap.entries())
+    .map(([resourceId, data]) => ({ resourceId, ...data }))
+    .sort((a, b) => b.bookings - a.bookings);
+
+  // Top hours
+  const hourCounts = new Map<number, number>();
+  for (const b of bookings) {
+    const hour = b.startTime.getHours();
+    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
+  }
+  const topHours = Array.from(hourCounts.entries())
+    .map(([hour, bookings]) => ({ hour, bookings }))
+    .sort((a, b) => b.bookings - a.bookings);
+
+  return {
+    totalBookings: bookings.length,
+    completedBookings: completed.length,
+    cancelledBookings: cancelled.length,
+    totalRevenue,
+    averageCheck,
+    occupancyRate,
+    byDay,
+    byResource,
+    topHours,
+  };
+}
+
+// === PAGINATED BOOKINGS ===
+
+export async function listBookingsPaginated(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  resourceId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  const page = params.page ?? 1;
+  const perPage = params.perPage ?? 20;
+  const skip = (page - 1) * perPage;
+
+  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG };
+  if (params.status) where.status = params.status;
+  if (params.resourceId) where.resourceId = params.resourceId;
+  if (params.dateFrom || params.dateTo) {
+    const dateFilter: Record<string, Date> = {};
+    if (params.dateFrom) dateFilter.gte = new Date(params.dateFrom);
+    if (params.dateTo) dateFilter.lte = new Date(params.dateTo);
+    where.date = dateFilter;
+  }
+
+  const [rawBookings, total, resources] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      include: {
+        user: { select: { name: true, phone: true, email: true } },
+      },
+      orderBy: { date: "desc" },
+      skip,
+      take: perPage,
+    }),
+    prisma.booking.count({ where }),
+    prisma.resource.findMany({ where: { moduleSlug: MODULE_SLUG } }),
+  ]);
+
+  const resourceMap = new Map(resources.map((r) => [r.id, r]));
+  const bookings = rawBookings.map((b) => ({
+    ...b,
+    resource: resourceMap.get(b.resourceId) ?? null,
+  }));
+
+  return { bookings, total, page, perPage };
 }
 
 // === HELPERS ===
