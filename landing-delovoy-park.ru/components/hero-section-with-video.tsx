@@ -62,7 +62,7 @@ export function HeroSectionWithVideo() {
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <span className="text-[#1d1d1f] font-[family-name:var(--font-manrope)] font-bold text-lg leading-none">
-                {meta.rating.toFixed(1)}
+                5.0
               </span>
               <div className="flex gap-px">
                 {[1, 2, 3, 4, 5].map((i) => (
@@ -73,7 +73,7 @@ export function HeroSectionWithVideo() {
               </div>
             </div>
             <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)] leading-tight">
-              {meta.totalReviews}+ отзывов на Яндекс Картах
+              280+ отзывов на Яндекс Картах
             </span>
           </div>
           {/* Arrow */}
