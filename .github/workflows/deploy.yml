@@ -14,7 +14,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
   # Gate: CI must pass first (ci.yml runs on push to main too)
@@ -110,7 +110,7 @@ jobs:
             cd /opt/delovoy-park
 
             echo "=== Pull new image ==="
-            docker pull ghcr.io/${{ github.repository }}:latest
+            docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
 
             echo "=== Backup current state ==="
             docker compose exec -T postgres pg_dump -U delovoy delovoy_park | gzip > /opt/backups/db-$(date +%Y%m%d-%H%M%S).sql.gz

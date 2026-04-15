@@ -10,7 +10,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
   build-and-push:
@@ -59,7 +59,7 @@ jobs:
             cd /opt/delovoy-park-staging
 
             echo "=== Pull staging image ==="
-            docker pull ghcr.io/${{ github.repository }}:staging
+            docker pull ghcr.io/${{ env.IMAGE_NAME }}:staging
 
             echo "=== Deploy staging ==="
             docker compose -f docker-compose.staging.yml up -d --no-deps app
