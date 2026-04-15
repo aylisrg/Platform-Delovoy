@@ -43,8 +43,8 @@ export default async function RentalPage() {
               id: o.id,
               number: o.number,
               floor: o.floor,
-              area: o.area,
-              pricePerMonth: o.pricePerMonth,
+              area: Number(o.area),
+              pricePerMonth: Number(o.pricePerMonth),
               status: o.status,
             }))}
           />
