@@ -99,21 +99,24 @@ export async function createFeedback(
   // Increment rate limit counters
   await incrementFeedbackCounters(userId, input.isUrgent);
 
-  // Audit log
-  await logAudit(userId, "feedback.create", "FeedbackItem", feedback.id, {
-    type: input.type,
-    isUrgent: input.isUrgent,
-  });
+  // Non-critical side effects — never fail the main request
+  try {
+    await logAudit(userId, "feedback.create", "FeedbackItem", feedback.id, {
+      type: input.type,
+      isUrgent: input.isUrgent,
+    });
+  } catch (err) {
+    console.error("[Feedback] Failed to write audit log:", err);
+  }
 
-  // System event
   if (input.isUrgent) {
-    await log.critical("feedback", `Срочное обращение от ${feedback.user.name || "пользователя"}`, {
+    // Log + Telegram — fire-and-forget, never crash the request
+    log.critical("feedback", `Срочное обращение от ${feedback.user.name || "пользователя"}`, {
       feedbackId: feedback.id,
       type: input.type,
       pageUrl: input.pageUrl,
-    });
+    }).catch(() => {});
 
-    // Telegram alert
     const screenshotAbsPath = input.screenshotPath
       ? getScreenshotPath(input.screenshotPath)
       : undefined;
@@ -129,10 +132,10 @@ export async function createFeedback(
       console.error("[Feedback] Failed to send TG alert:", err);
     });
   } else {
-    await log.info("feedback", `Новое обращение от ${feedback.user.name || "пользователя"}`, {
+    log.info("feedback", `Новое обращение от ${feedback.user.name || "пользователя"}`, {
       feedbackId: feedback.id,
       type: input.type,
-    });
+    }).catch(() => {});
   }
 
   return { id: feedback.id };
