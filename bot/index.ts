@@ -75,15 +75,18 @@ export async function sendAlert(
   }
 }
 
+const WEBAPP_URL = `${APP_URL}/webapp`;
+
 /**
  * Build the main menu keyboard.
  */
 function mainMenuKeyboard() {
   return new InlineKeyboard()
+    .webApp("📱 Открыть приложение", WEBAPP_URL)
+    .row()
     .text("🏕 Барбекю Парк", "menu:gazebos")
     .text("🎮 Плей Парк", "menu:ps-park")
     .row()
-    .text("☕ Кафе", "menu:cafe")
     .text("📋 Мои брони", "menu:my-bookings")
     .row()
     .url("🌐 Открыть сайт", APP_URL);
@@ -133,13 +136,13 @@ async function startBot() {
       return;
     }
 
-    if (deepLink === "cafe") {
+    if (deepLink === "webapp") {
+      // Open Mini App directly
       await ctx.reply(
-        "☕ *Кафе бизнес\\-парка «Деловой»*\n\nВыберите действие:",
+        "📱 Откройте приложение для бронирования:",
         {
-          parse_mode: "MarkdownV2",
           reply_markup: new InlineKeyboard()
-            .text("📖 Посмотреть меню", "cafe:menu")
+            .webApp("📱 Открыть приложение", WEBAPP_URL)
             .row()
             .text("← Главное меню", "menu:main"),
         }
@@ -155,9 +158,9 @@ async function startBot() {
         `Через меня можно:\n` +
         `🏕 Забронировать беседку в Барбекю Парке\n` +
         `🎮 Забронировать стол в Плей Парке\n` +
-        `☕ Посмотреть меню кафе\n` +
         `📋 Проверить свои бронирования\n\n` +
-        `Выберите, что вас интересует:`,
+        `📱 Нажмите <b>«Открыть приложение»</b> — полноценный интерфейс прямо в Telegram!\n\n` +
+        `Или выберите, что вас интересует:`,
       {
         parse_mode: "HTML",
         reply_markup: mainMenuKeyboard(),
