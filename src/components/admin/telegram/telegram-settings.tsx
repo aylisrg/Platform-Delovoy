@@ -169,6 +169,8 @@ export function TelegramSettings() {
   const [editingTgId, setEditingTgId] = useState<string | null>(null);
   const [tgIdInput, setTgIdInput] = useState("");
   const [tgIdSaving, setTgIdSaving] = useState(false);
+  const [testingOwner, setTestingOwner] = useState(false);
+  const [testOwnerResult, setTestOwnerResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -270,6 +272,27 @@ export function TelegramSettings() {
     } catch { /* ignore */ }
     finally { setRoleChanging(null); }
   }, [loadManagers]);
+
+  const handleTestOwner = useCallback(async () => {
+    setTestingOwner(true);
+    setTestOwnerResult(null);
+    try {
+      const res = await fetch("/api/admin/telegram/test-owner", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        const name = data.data.recipientUsername
+          ? `@${data.data.recipientUsername}`
+          : data.data.recipientName || data.data.chatId;
+        setTestOwnerResult({ ok: true, message: `Отправлено: ${name}` });
+      } else {
+        setTestOwnerResult({ ok: false, message: data.error?.message || "Ошибка" });
+      }
+    } catch {
+      setTestOwnerResult({ ok: false, message: "Ошибка сети" });
+    } finally {
+      setTestingOwner(false);
+    }
+  }, []);
 
   const handleSaveTelegramId = useCallback(async (userId: string) => {
     setTgIdSaving(true);
@@ -515,6 +538,23 @@ export function TelegramSettings() {
             Получить свой ID: написать <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">@userinfobot</a> в Telegram.
           </p>
         </div>
+
+        {isSuperAdmin && (
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={handleTestOwner}
+              disabled={testingOwner || !hasOwner}
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition-colors"
+            >
+              {testingOwner ? "Отправка..." : "Отправить тестовое уведомление мне"}
+            </button>
+            {testOwnerResult && (
+              <p className={`text-sm ${testOwnerResult.ok ? "text-green-600" : "text-red-500"}`}>
+                {testOwnerResult.message}
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ─── Managers & their Telegram ─── */}
