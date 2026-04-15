@@ -33,6 +33,7 @@ model User {
   bookings               Booking[]
   orders                 Order[]
   auditLogs              AuditLog[]
+  feedbackItems          FeedbackItem[]
 }
 
 model Account {
@@ -787,4 +788,49 @@ enum CallStatus {
   BUSY
   FAILED
   COMPLETED
+}
+
+// === FEEDBACK ===
+
+enum FeedbackType {
+  BUG
+  SUGGESTION
+}
+
+enum FeedbackStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
+model FeedbackItem {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id])
+  type           FeedbackType
+  description    String         @db.Text
+  screenshotPath String?
+  pageUrl        String
+  isUrgent       Boolean        @default(false)
+  status         FeedbackStatus @default(NEW)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  comments       FeedbackComment[]
+
+  @@index([userId])
+  @@index([status, isUrgent, createdAt])
+  @@index([createdAt])
+}
+
+model FeedbackComment {
+  id         String       @id @default(cuid())
+  feedbackId String
+  feedback   FeedbackItem @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  authorId   String
+  text       String       @db.Text
+  createdAt  DateTime     @default(now())
+
+  @@index([feedbackId])
 }

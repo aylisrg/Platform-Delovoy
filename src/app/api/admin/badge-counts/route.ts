@@ -49,6 +49,14 @@ export async function GET() {
       );
     }
 
+    if (sections.includes("feedback") || session.user.role === "SUPERADMIN") {
+      queries.push(
+        prisma.feedbackItem
+          .count({ where: { status: "NEW" } })
+          .then((n) => { counts.feedback = n; })
+      );
+    }
+
     if (sections.includes("clients")) {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       queries.push(

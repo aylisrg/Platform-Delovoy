@@ -9,6 +9,7 @@ const SYSTEM_MODULE_SLUG = "system";
 type TelegramSettings = {
   adminChatId: string;
   adminChatTitle?: string;
+  ownerChatId: string;
   botUsername: string;
   botToken: string; // masked
 };
@@ -96,11 +97,13 @@ async function getTelegramSettings(): Promise<TelegramSettings> {
 
   const config = (systemModule?.config as Record<string, unknown>) || {};
   const envChatId = process.env.TELEGRAM_ADMIN_CHAT_ID || "";
+  const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID || "";
   const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
 
   return {
     adminChatId: (config.telegramAdminChatId as string) || envChatId,
     adminChatTitle: (config.telegramAdminChatTitle as string) || undefined,
+    ownerChatId,
     botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME || "",
     botToken: botToken ? `${botToken.slice(0, 6)}...${botToken.slice(-4)}` : "",
   };

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
-import type { BookingStatus, OrderStatus } from "@prisma/client";
+import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,25 @@ const orderStatusVariant: Record<OrderStatus, "warning" | "success" | "default" 
   CANCELLED: "default",
 };
 
+const feedbackStatusLabel: Record<FeedbackStatus, string> = {
+  NEW: "Новое",
+  IN_PROGRESS: "В работе",
+  RESOLVED: "Выполнено",
+  REJECTED: "Отклонено",
+};
+
+const feedbackStatusVariant: Record<FeedbackStatus, "warning" | "success" | "default" | "info"> = {
+  NEW: "warning",
+  IN_PROGRESS: "info",
+  RESOLVED: "success",
+  REJECTED: "default",
+};
+
+const feedbackTypeLabel: Record<FeedbackType, string> = {
+  BUG: "Ошибка",
+  SUGGESTION: "Предложение",
+};
+
 const moduleLabels: Record<string, string> = {
   gazebos: "Барбекю Парк",
   "ps-park": "Плей Парк",
@@ -54,7 +73,7 @@ export default async function DashboardPage() {
 
   const userId = session.user.id;
 
-  const [bookings, orders] = await Promise.all([
+  const [bookings, orders, feedbackItems] = await Promise.all([
     prisma.booking.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -63,6 +82,12 @@ export default async function DashboardPage() {
     prisma.order.findMany({
       where: { userId },
       include: { items: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    prisma.feedbackItem.findMany({
+      where: { userId },
+      include: { comments: { orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
@@ -255,6 +280,60 @@ export default async function DashboardPage() {
                   </table>
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Feedback */}
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">Мои обращения</h2>
+          </CardHeader>
+          <CardContent>
+            {feedbackItems.length === 0 ? (
+              <p className="text-sm text-zinc-400">У вас пока нет обращений</p>
+            ) : (
+              <div className="space-y-3">
+                {feedbackItems.map((fb) => (
+                  <div key={fb.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                          fb.type === "BUG" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                        }`}>
+                          {feedbackTypeLabel[fb.type]}
+                        </span>
+                        {fb.isUrgent && (
+                          <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                            СРОЧНО
+                          </span>
+                        )}
+                      </div>
+                      <Badge variant={feedbackStatusVariant[fb.status]}>
+                        {feedbackStatusLabel[fb.status]}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-zinc-700">
+                      {fb.description.length > 150
+                        ? fb.description.slice(0, 150) + "..."
+                        : fb.description}
+                    </p>
+                    <p className="text-xs text-zinc-400">
+                      {new Date(fb.createdAt).toLocaleDateString("ru-RU")}
+                      {" · "}
+                      {new Date(fb.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                    {fb.comments.length > 0 && (
+                      <div className="mt-2 rounded-lg bg-zinc-50 p-3">
+                        <p className="text-xs font-medium text-zinc-500 mb-1">Ответ администратора:</p>
+                        <p className="text-sm text-zinc-600">
+                          {fb.comments[fb.comments.length - 1].text}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
