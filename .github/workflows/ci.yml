@@ -3,10 +3,8 @@ name: CI — Lint, Test, Build
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".github/ISSUE_TEMPLATE/**"
+    # No paths-ignore on PRs — required checks must always report
+    # so branch protection doesn't block docs-only or release PRs
   push:
     branches: [main]
     paths-ignore:
