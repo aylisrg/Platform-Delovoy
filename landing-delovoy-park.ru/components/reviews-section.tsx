@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import React from "react";
-import type { Review, ReviewsMeta } from "@landing/lib/parsers/types";
+import type { Review } from "@landing/lib/parsers/types";
 
 // Static reviews shown as default / fallback
 const STATIC_REVIEWS: Review[] = [
@@ -73,36 +73,11 @@ const STATIC_REVIEWS: Review[] = [
 ];
 
 export function ReviewsSection() {
-  const [reviews, setReviews] = useState<Review[]>(STATIC_REVIEWS);
-  const [meta, setMeta] = useState<ReviewsMeta>({ rating: 5.0, totalReviews: 300 });
-  const [loading, setLoading] = useState(false);
+  const [reviews] = useState<Review[]>(STATIC_REVIEWS);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const yandexMapsUrl = process.env.NEXT_PUBLIC_YANDEX_MAPS_URL || "https://yandex.ru/maps/-/CPviBFyh";
   const twogisUrl = "https://2gis.ru/moscow/search/%D0%B1%D0%B8%D0%B7%D0%BD%D0%B5%D1%81-%D0%BF%D0%B0%D1%80%D0%BA-%D0%B4%D0%B5%D0%BB%D0%BE%D0%B2%D0%BE%D0%B9-%D1%81%D0%B5%D0%BB%D1%8F%D1%82%D0%B8%D0%BD%D0%BE";
-
-  useEffect(() => {
-    async function fetchReviews() {
-      try {
-        const response = await fetch("/api/reviews");
-        const data = await response.json();
-        if (data.success && data.data) {
-          if (Array.isArray(data.data.reviews) && data.data.reviews.length > 0) {
-            setReviews(data.data.reviews);
-          }
-          if (data.data.meta) {
-            setMeta(data.data.meta);
-          }
-        }
-      } catch {
-        // use static reviews
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchReviews();
-  }, []);
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
@@ -150,12 +125,12 @@ export function ReviewsSection() {
               <div className="flex flex-col">
                 <div className="flex items-center gap-1">
                   <span className="text-[#1d1d1f] font-[family-name:var(--font-manrope)] font-bold text-lg leading-none">
-                    {meta.rating.toFixed(1)}
+                    5.0
                   </span>
                   <span className="text-[#FBC02D] text-sm">★★★★★</span>
                 </div>
                 <span className="text-[#86868b] text-[11px] font-[family-name:var(--font-inter)]">
-                  {meta.totalReviews}+ на Яндексе
+                  280+ на Яндексе
                 </span>
               </div>
             </a>
@@ -184,12 +159,7 @@ export function ReviewsSection() {
         </div>
 
         {/* Content */}
-        {loading ? (
-          <div className="text-center p-12 bg-white rounded-2xl">
-            <p className="text-[#86868b] text-lg">Загрузка отзывов...</p>
-          </div>
-        ) : (
-          <div className="relative">
+        <div className="relative">
             <div
               ref={scrollContainerRef}
               className="flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth hide-scrollbar pb-4"
@@ -216,7 +186,6 @@ export function ReviewsSection() {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
-        )}
 
         {/* Links */}
         <div className="mt-8 flex flex-wrap gap-4 justify-center">

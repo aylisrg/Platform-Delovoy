@@ -1,24 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import type { ReviewsMeta } from "@landing/lib/parsers/types";
+import { useState } from "react";
 
 const yandexMapsUrl = process.env.NEXT_PUBLIC_YANDEX_MAPS_URL || "#";
 
 export function HeroSectionWithVideo() {
   const [videoError, setVideoError] = useState(false);
-  const [meta, setMeta] = useState<ReviewsMeta>({ rating: 5.0, totalReviews: 300 });
-
-  useEffect(() => {
-    fetch("/api/reviews")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && data.data?.meta) {
-          setMeta(data.data.meta);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   return (
     <section className="relative min-h-screen flex flex-col justify-center bg-[#f5f5f7] pt-14 overflow-hidden">
@@ -139,8 +126,8 @@ export function HeroSectionWithVideo() {
         {/* Stats row */}
         <div className="mt-20 pt-10 border-t border-black/[0.06] grid grid-cols-2 md:grid-cols-4 gap-8">
           {[
-            { value: `${meta.totalReviews}+`, label: "отзывов на Яндексе" },
-            { value: meta.rating.toFixed(1), label: "средний рейтинг" },
+            { value: "280+", label: "отзывов на Яндексе" },
+            { value: "5.0", label: "средний рейтинг" },
             { value: "100+", label: "офисов в парке" },
             { value: "30 км", label: "от Москвы" },
           ].map((stat) => (
