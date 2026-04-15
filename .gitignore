@@ -48,9 +48,5 @@ prisma/*.db-journal
 # docker
 docker-compose.override.yml
 
-# media files (user uploads)
-public/media/*.mp4
-public/media/*.jpg
-public/media/*.png
-public/media/*.jpeg
-public/media/*.webp
+# media files — large user uploads only (site assets are tracked)
+# public/media/uploads/
