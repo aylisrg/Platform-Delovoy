@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:full": "./scripts/dev-start.sh",
+    "dev:docker": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:stop": "docker compose -f docker-compose.dev.yml down",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

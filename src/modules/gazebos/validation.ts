@@ -42,6 +42,21 @@ export const availabilityQuerySchema = z.object({
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
 });
 
+export const timelineQuerySchema = z.object({
+  date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
+});
+
+export const analyticsQuerySchema = z.object({
+  period: z.enum(["week", "month", "quarter"]).default("month"),
+});
+
+export const moduleSettingsSchema = z.object({
+  openHour: z.number().int().min(0).max(23).optional(),
+  closeHour: z.number().int().min(0).max(23).optional(),
+  minBookingHours: z.number().int().min(1).max(24).optional(),
+  maxBookingHours: z.number().int().min(1).max(24).optional(),
+});
+
 export const adminCreateBookingSchema = z.object({
   resourceId: z.string().min(1, "ID ресурса обязателен"),
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),

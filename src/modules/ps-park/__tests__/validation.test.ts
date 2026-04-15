@@ -7,6 +7,8 @@ import {
   adminCreatePSBookingSchema,
   addBookingItemsSchema,
   timelineQuerySchema,
+  analyticsQuerySchema,
+  moduleSettingsSchema,
 } from "@/modules/ps-park/validation";
 
 describe("createTableSchema", () => {
@@ -212,5 +214,50 @@ describe("psBookingFilterSchema", () => {
   it("rejects malformed dateFrom", () => {
     const result = psBookingFilterSchema.safeParse({ dateFrom: "2030/08/20" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("analyticsQuerySchema", () => {
+  it("accepts week period", () => {
+    expect(analyticsQuerySchema.safeParse({ period: "week" }).success).toBe(true);
+  });
+
+  it("accepts month period", () => {
+    expect(analyticsQuerySchema.safeParse({ period: "month" }).success).toBe(true);
+  });
+
+  it("defaults to month", () => {
+    const result = analyticsQuerySchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.period).toBe("month");
+  });
+
+  it("rejects invalid period", () => {
+    expect(analyticsQuerySchema.safeParse({ period: "year" }).success).toBe(false);
+  });
+});
+
+describe("moduleSettingsSchema", () => {
+  it("accepts valid settings", () => {
+    const result = moduleSettingsSchema.safeParse({
+      openHour: 8,
+      closeHour: 23,
+      minBookingHours: 1,
+      slotRoundingMinutes: 30,
+      sessionAlertMinutes: 10,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts partial settings", () => {
+    expect(moduleSettingsSchema.safeParse({ openHour: 9 }).success).toBe(true);
+  });
+
+  it("rejects invalid slotRoundingMinutes", () => {
+    expect(moduleSettingsSchema.safeParse({ slotRoundingMinutes: 0 }).success).toBe(false);
+  });
+
+  it("rejects sessionAlertMinutes > 60", () => {
+    expect(moduleSettingsSchema.safeParse({ sessionAlertMinutes: 61 }).success).toBe(false);
   });
 });

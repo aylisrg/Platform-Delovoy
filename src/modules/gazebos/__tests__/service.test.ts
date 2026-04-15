@@ -50,6 +50,9 @@ import {
   updateBookingStatus,
   cancelBooking,
   getAvailability,
+  getTimeline,
+  getAnalytics,
+  listBookingsPaginated,
 } from "@/modules/gazebos/service";
 import { prisma } from "@/lib/db";
 import { createCalendarEvent } from "@/lib/google-calendar";
@@ -501,6 +504,185 @@ describe("createAdminBooking", () => {
             guestCount: 5,
             comment: "VIP клиент",
           }),
+        }),
+      })
+    );
+  });
+});
+
+// === Timeline Tests ===
+
+describe("getTimeline", () => {
+  it("should return resources and bookings for given date", async () => {
+    const resources = [
+      mockResource({ id: "r1", name: "Беседка #1" }),
+      mockResource({ id: "r2", name: "Беседка #2" }),
+    ];
+    const bookings = [
+      mockBooking({
+        id: "b1",
+        resourceId: "r1",
+        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+        endTime: new Date(`${FUTURE_DATE}T12:00:00`),
+        status: "CONFIRMED",
+        clientName: "Иван",
+        clientPhone: "+79001234567",
+      }),
+    ];
+
+    vi.mocked(prisma.resource.findMany).mockResolvedValue(resources as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue(bookings as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.date).toBe(FUTURE_DATE);
+    expect(result.resources).toHaveLength(2);
+    expect(result.bookings).toHaveLength(1);
+    expect(result.hours).toHaveLength(15); // 08:00 to 22:00
+    expect(result.hours[0]).toBe("08:00");
+    expect(result.hours[14]).toBe("22:00");
+    expect(result.bookings[0]).toMatchObject({
+      id: "b1",
+      resourceId: "r1",
+      status: "CONFIRMED",
+      clientName: "Иван",
+    });
+  });
+
+  it("should return empty bookings for a day with no bookings", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.bookings).toHaveLength(0);
+    expect(result.resources).toHaveLength(1);
+  });
+
+  it("should only include active resources", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    await getTimeline(FUTURE_DATE);
+
+    expect(prisma.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { moduleSlug: "gazebos", isActive: true },
+      })
+    );
+  });
+
+  it("should only include PENDING and CONFIRMED bookings", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    await getTimeline(FUTURE_DATE);
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { in: ["PENDING", "CONFIRMED"] },
+        }),
+      })
+    );
+  });
+});
+
+// === Analytics Tests ===
+
+describe("getAnalytics", () => {
+  it("should return analytics for a period with no bookings", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+
+    const result = await getAnalytics("month");
+
+    expect(result.totalBookings).toBe(0);
+    expect(result.completedBookings).toBe(0);
+    expect(result.cancelledBookings).toBe(0);
+    expect(result.totalRevenue).toBe(0);
+    expect(result.averageCheck).toBe(0);
+    expect(result.byDay).toHaveLength(0);
+    expect(result.byResource).toHaveLength(0);
+    expect(result.topHours).toHaveLength(0);
+  });
+
+  it("should calculate revenue from completed bookings", async () => {
+    const bookings = [
+      mockBooking({
+        id: "b1",
+        status: "COMPLETED",
+        metadata: { totalPrice: 2000 },
+        resource: mockResource(),
+      }),
+      mockBooking({
+        id: "b2",
+        status: "COMPLETED",
+        metadata: { totalPrice: 3000 },
+        resource: mockResource(),
+      }),
+      mockBooking({
+        id: "b3",
+        status: "CANCELLED",
+        resource: mockResource(),
+      }),
+    ];
+
+    vi.mocked(prisma.booking.findMany).mockResolvedValue(bookings as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+
+    const result = await getAnalytics("month");
+
+    expect(result.totalBookings).toBe(3);
+    expect(result.completedBookings).toBe(2);
+    expect(result.cancelledBookings).toBe(1);
+    expect(result.totalRevenue).toBe(5000);
+    expect(result.averageCheck).toBe(2500);
+  });
+});
+
+// === Paginated Bookings Tests ===
+
+describe("listBookingsPaginated", () => {
+  it("should return paginated bookings with total count", async () => {
+    const bookings = [
+      mockBooking({ id: "b1", resource: mockResource(), user: { name: "User1", phone: null, email: null } }),
+    ];
+
+    vi.mocked(prisma.booking.findMany).mockResolvedValue(bookings as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(25 as never);
+
+    const result = await listBookingsPaginated({ page: 1, perPage: 20 });
+
+    expect(result.bookings).toHaveLength(1);
+    expect(result.total).toBe(25);
+    expect(result.page).toBe(1);
+    expect(result.perPage).toBe(20);
+  });
+
+  it("should apply status filter", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ status: "COMPLETED" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "COMPLETED" }),
+      })
+    );
+  });
+
+  it("should apply date range filter", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ dateFrom: "2026-04-01", dateTo: "2026-04-14" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: { gte: new Date("2026-04-01"), lte: new Date("2026-04-14") },
         }),
       })
     );

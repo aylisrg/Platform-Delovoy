@@ -5,6 +5,9 @@ import {
   createBookingSchema,
   bookingFilterSchema,
   adminCreateBookingSchema,
+  timelineQuerySchema,
+  analyticsQuerySchema,
+  moduleSettingsSchema,
 } from "@/modules/gazebos/validation";
 
 describe("createResourceSchema", () => {
@@ -172,5 +175,84 @@ describe("adminCreateBookingSchema", () => {
       comment: "VIP",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("timelineQuerySchema", () => {
+  it("accepts valid date", () => {
+    const result = timelineQuerySchema.safeParse({ date: "2026-04-14" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid date format", () => {
+    const result = timelineQuerySchema.safeParse({ date: "14-04-2026" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty date", () => {
+    const result = timelineQuerySchema.safeParse({ date: "" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("analyticsQuerySchema", () => {
+  it("accepts week period", () => {
+    const result = analyticsQuerySchema.safeParse({ period: "week" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts month period", () => {
+    const result = analyticsQuerySchema.safeParse({ period: "month" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts quarter period", () => {
+    const result = analyticsQuerySchema.safeParse({ period: "quarter" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid period", () => {
+    const result = analyticsQuerySchema.safeParse({ period: "year" });
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults to month when no period given", () => {
+    const result = analyticsQuerySchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.period).toBe("month");
+    }
+  });
+});
+
+describe("moduleSettingsSchema", () => {
+  it("accepts valid settings", () => {
+    const result = moduleSettingsSchema.safeParse({
+      openHour: 8,
+      closeHour: 23,
+      minBookingHours: 1,
+      maxBookingHours: 8,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts partial settings (all optional)", () => {
+    const result = moduleSettingsSchema.safeParse({ openHour: 9 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts empty object", () => {
+    const result = moduleSettingsSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects openHour > 23", () => {
+    const result = moduleSettingsSchema.safeParse({ openHour: 25 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects negative minBookingHours", () => {
+    const result = moduleSettingsSchema.safeParse({ minBookingHours: 0 });
+    expect(result.success).toBe(false);
   });
 });
