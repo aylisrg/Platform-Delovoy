@@ -13,3 +13,6 @@ export const prisma =
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
+
+/** Soft-delete filter: add to `where` clauses on models that have `deletedAt` */
+export const notDeleted = { deletedAt: null } as const;

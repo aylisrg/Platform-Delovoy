@@ -64,3 +64,15 @@ export const addBookingItemsSchema = z.object({
 export const timelineQuerySchema = z.object({
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
 });
+
+export const analyticsQuerySchema = z.object({
+  period: z.enum(["week", "month", "quarter"]).default("month"),
+});
+
+export const moduleSettingsSchema = z.object({
+  openHour: z.number().int().min(0).max(23).optional(),
+  closeHour: z.number().int().min(0).max(23).optional(),
+  minBookingHours: z.number().int().min(1).max(24).optional(),
+  slotRoundingMinutes: z.number().int().min(1).max(60).optional(),
+  sessionAlertMinutes: z.number().int().min(1).max(60).optional(),
+});

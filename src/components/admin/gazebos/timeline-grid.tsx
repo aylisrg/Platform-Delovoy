@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
-import { QuickBookingPopover } from "./quick-booking-popover";
-import { BookingDetailCard } from "./booking-detail-card";
-import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
+import { GazeboQuickBookingPopover } from "./quick-booking-popover";
+import { GazeboBookingDetailCard } from "./booking-detail-card";
+import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
 
 type TimelineGridProps = {
   initialData: TimelineData;
@@ -31,18 +31,18 @@ function getMoscowHour(d: Date): number {
 }
 
 function getMoscowMinute(d: Date): number {
-  return d.getMinutes(); // minutes are timezone-independent (Moscow is exact +3h)
+  return d.getMinutes();
 }
 
 function getMoscowDateStr(d: Date): string {
-  return d.toLocaleDateString("en-CA", { timeZone: MOSCOW_TZ }); // YYYY-MM-DD
+  return d.toLocaleDateString("en-CA", { timeZone: MOSCOW_TZ });
 }
 
 function parseMoscowDatetime(date: string, hour: number): Date {
   return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
 }
 
-export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
+export function GazeboTimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const [date, setDate] = useState(initialDate);
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
@@ -53,7 +53,6 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
 
   const hours = data.hours;
 
-  // Update current time marker every minute
   useEffect(() => {
     function updateNowMarker() {
       const now = new Date();
@@ -83,7 +82,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     setDate(newDate);
     setLoading(true);
     try {
-      const res = await fetch(`/api/ps-park/timeline?date=${newDate}`);
+      const res = await fetch(`/api/gazebos/timeline?date=${newDate}`);
       const json = await res.json();
       if (json.success) setData(json.data);
     } catch {
@@ -168,7 +167,6 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     return r?.pricePerHour ? Number(r.pricePerHour) : null;
   }
 
-  // Check if a booking is currently active (happening right now)
   function isActiveNow(booking: TimelineBooking): boolean {
     const now = new Date();
     return (
@@ -193,7 +191,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
         {/* Header row: hours */}
         <div className="flex border-b border-zinc-200 bg-zinc-50">
           <div className="w-36 min-w-[144px] shrink-0 px-3 py-2 text-xs font-medium text-zinc-500 border-r border-zinc-200">
-            Стол
+            Беседка
           </div>
           <div className="flex-1 relative overflow-x-auto">
             <div className="flex min-w-[900px]">
@@ -214,22 +212,19 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           const bookings = getBookingsForResource(resource.id);
           return (
             <div key={resource.id} className="flex border-b border-zinc-100 last:border-b-0 group">
-              {/* Resource label */}
               <div className="w-36 min-w-[144px] shrink-0 px-3 py-3 border-r border-zinc-200 bg-white">
                 <div className="text-sm font-medium text-zinc-900 leading-tight">
                   {resource.name}
                 </div>
                 <div className="text-xs text-zinc-400 mt-0.5">
-                  {resource.capacity && `${resource.capacity} игр.`}
+                  {resource.capacity && `${resource.capacity} чел.`}
                   {resource.capacity && resource.pricePerHour && " · "}
                   {resource.pricePerHour && `${Number(resource.pricePerHour)} ₽/ч`}
                 </div>
               </div>
 
-              {/* Timeline cells */}
               <div className="flex-1 relative overflow-x-auto">
                 <div className="relative min-w-[900px] h-16">
-                  {/* Hour grid lines + clickable slots */}
                   <div className="absolute inset-0 flex">
                     {hours.map((h) => {
                       const hour = parseInt(h.split(":")[0], 10);
@@ -248,14 +243,13 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
                     })}
                   </div>
 
-                  {/* Booking blocks */}
                   {bookings.map((booking) => {
                     const style = getBookingStyle(booking);
                     const active = isActiveNow(booking);
                     const isPending = booking.status === "PENDING";
                     const isSelected = selectedBooking?.id === booking.id;
                     const meta = booking.metadata as Record<string, unknown> | null;
-                    const playerCount = meta?.playerCount as number | undefined;
+                    const guestCount = meta?.guestCount as number | undefined;
 
                     return (
                       <div
@@ -281,14 +275,13 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
                             {booking.clientName ?? "—"}
                           </span>
                         </div>
-                        {playerCount && (
-                          <span className="text-zinc-500">{playerCount} игр.</span>
+                        {guestCount && (
+                          <span className="text-zinc-500">{guestCount} чел.</span>
                         )}
                       </div>
                     );
                   })}
 
-                  {/* Current time marker */}
                   {currentHourOffset !== null && (
                     <div
                       className="absolute top-0 bottom-0 w-0.5 bg-red-400 z-10 pointer-events-none"
@@ -305,14 +298,13 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
 
         {data.resources.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-zinc-400">
-            Нет активных столов
+            Нет активных беседок
           </div>
         )}
       </div>
 
-      {/* Booking detail card */}
       {selectedBooking && (
-        <BookingDetailCard
+        <GazeboBookingDetailCard
           booking={selectedBooking}
           resourceName={getResourceName(selectedBooking.resourceId)}
           pricePerHour={getResourcePrice(selectedBooking.resourceId)}
@@ -322,9 +314,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
         />
       )}
 
-      {/* Quick booking popover */}
       {popover && (
-        <QuickBookingPopover
+        <GazeboQuickBookingPopover
           resourceId={popover.resourceId}
           resourceName={popover.resourceName}
           date={date}

@@ -72,3 +72,43 @@ export type DayAvailability = {
   resource: GazeboResource;
   slots: TimeSlot[];
 };
+
+// Timeline data for admin grid
+export type TimelineData = {
+  date: string;
+  resources: GazeboResource[];
+  bookings: TimelineBooking[];
+  hours: string[]; // ["08:00", "09:00", ..., "22:00"]
+};
+
+export type TimelineBooking = {
+  id: string;
+  resourceId: string;
+  startTime: string; // ISO datetime
+  endTime: string;
+  status: "PENDING" | "CONFIRMED";
+  clientName: string | null;
+  clientPhone: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+// Analytics
+export type ModuleAnalytics = {
+  totalBookings: number;
+  completedBookings: number;
+  cancelledBookings: number;
+  totalRevenue: number;
+  averageCheck: number;
+  occupancyRate: number;
+  byDay: { date: string; bookings: number; revenue: number }[];
+  byResource: { resourceId: string; resourceName: string; bookings: number; revenue: number }[];
+  topHours: { hour: number; bookings: number }[];
+};
+
+// Module config
+export type GazeboModuleConfig = {
+  openHour: number;
+  closeHour: number;
+  minBookingHours: number;
+  maxBookingHours: number;
+};
