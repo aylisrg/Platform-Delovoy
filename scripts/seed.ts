@@ -6,21 +6,37 @@ async function main() {
   console.log("🌱 Seeding database...");
 
   // === SUPERADMIN (Telegram login) ===
-  // Remove legacy email-based admin if it exists
-  await prisma.user.deleteMany({
+  // Migrate legacy email admin → Telegram-based admin
+  const legacyAdmin = await prisma.user.findUnique({
     where: { email: "admin@delovoy-park.ru" },
   });
 
-  const admin = await prisma.user.upsert({
-    where: { telegramId: "694696" },
-    update: { role: "SUPERADMIN" },
-    create: {
-      telegramId: "694696",
-      name: "Elliott",
-      role: "SUPERADMIN",
-    },
-  });
-  console.log(`  ✓ Admin user: telegramId=${admin.telegramId} (${admin.name})`);
+  if (legacyAdmin) {
+    // Convert existing admin: add telegramId, keep all FK references intact
+    const admin = await prisma.user.update({
+      where: { id: legacyAdmin.id },
+      data: {
+        telegramId: "694696",
+        name: "Elliott",
+        role: "SUPERADMIN",
+        email: null,         // remove email login
+        passwordHash: null,  // remove password login
+      },
+    });
+    console.log(`  ✓ Migrated legacy admin → telegramId=${admin.telegramId} (${admin.name})`);
+  } else {
+    // No legacy admin — create or update by telegramId
+    const admin = await prisma.user.upsert({
+      where: { telegramId: "694696" },
+      update: { role: "SUPERADMIN" },
+      create: {
+        telegramId: "694696",
+        name: "Elliott",
+        role: "SUPERADMIN",
+      },
+    });
+    console.log(`  ✓ Admin user: telegramId=${admin.telegramId} (${admin.name})`);
+  }
 
   // === MODULES ===
   const modules = [
