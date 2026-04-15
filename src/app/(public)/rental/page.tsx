@@ -32,7 +32,7 @@ export default async function RentalPage() {
           <div className="max-w-5xl mx-auto px-4 py-8">
             <h1 className="text-3xl font-bold text-zinc-900">Аренда офисов</h1>
             <p className="mt-2 text-zinc-600">
-              Бизнес-парк Деловой — современные офисы в Селятино, Московская область
+              Бизнес-парк «Деловой» — современные офисы в Селятино, Московская область. Готовая отделка, интернет, охрана, парковка.
             </p>
           </div>
         </header>
