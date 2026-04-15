@@ -45,7 +45,7 @@ jobs:
   provision:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # === Step 1: Add SSH key to Timeweb (if provided) ===
       - name: Add SSH Key
