@@ -69,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     environment: production
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
 
@@ -214,6 +216,77 @@ jobs:
             -d "chat_id=${TG_CHAT}" \
             -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ github.sha }})" \
             -d "parse_mode=HTML" || true
+
+      - name: Send release notification to subscribers
+        if: success()
+        env:
+          RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+          APP_URL: https://delovoy-park.ru
+        run: |
+          [ -z "$RELEASE_NOTIFY_SECRET" ] && echo "RELEASE_NOTIFY_SECRET not set, skipping" && exit 0
+
+          # Read release notes (docs/releases/current.md), strip the header comment block
+          NOTES=""
+          if [ -f "docs/releases/current.md" ]; then
+            # Remove lines starting with > (comments) and the H1 heading, trim blank lines at start
+            NOTES=$(sed '/^> /d;/^# /d' docs/releases/current.md | sed '/^[[:space:]]*$/d' | head -60)
+          fi
+
+          VERSION="${{ needs.build-and-push.outputs.version }}"
+          COMMIT_SHA="${{ github.sha }}"
+          DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Escape for JSON (basic — newlines → \n)
+          NOTES_JSON=$(printf '%s' "$NOTES" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "secret": "$RELEASE_NOTIFY_SECRET",
+            "version": "$VERSION",
+            "releaseNotes": $NOTES_JSON,
+            "commitSha": "$COMMIT_SHA",
+            "deployedAt": "$DEPLOYED_AT"
+          }
+          EOF
+          )
+
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "${APP_URL}/api/admin/release-notify")
+
+          echo "Release notify response: $RESPONSE"
+
+          # Archive current.md → docs/releases/{version}-{date}.md and reset template
+          ARCHIVE_NAME="docs/releases/${VERSION}-$(date +%Y-%m-%d).md"
+          if [ -f "docs/releases/current.md" ]; then
+            cp docs/releases/current.md "$ARCHIVE_NAME" || true
+            git config user.email "ci@delovoy-park.ru"
+            git config user.name "Delovoy CI"
+            git add "$ARCHIVE_NAME" || true
+            cat > docs/releases/current.md << 'TEMPLATE'
+          # Что выкатилось в этом релизе
+
+          > Заполни этот файл перед деплоем. После успешного деплоя файл архивируется автоматически.
+
+          ## Новое
+
+          -
+
+          ## Исправлено
+
+          -
+
+          ## Технические изменения
+
+          -
+          TEMPLATE
+            # Strip leading whitespace from heredoc (YAML indentation artifact)
+            sed -i 's/^          //' docs/releases/current.md
+            git add docs/releases/current.md || true
+            git diff --staged --quiet || git commit -m "chore(releases): archive v${VERSION} release notes [skip ci]" || true
+            git push origin HEAD || true
+          fi
 
       - name: Notify on failure
         if: failure()

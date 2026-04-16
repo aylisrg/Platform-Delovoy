@@ -9,6 +9,9 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    adminPermission: {
+      count: vi.fn(),
+    },
   },
 }));
 
@@ -17,6 +20,11 @@ vi.mock("bcryptjs", () => ({
     hash: vi.fn().mockResolvedValue("$2a$10$hashedpassword"),
     compare: vi.fn(),
   },
+}));
+
+const mockSetUserAdminSections = vi.fn();
+vi.mock("@/lib/permissions", () => ({
+  setUserAdminSections: (...args: unknown[]) => mockSetUserAdminSections(...args),
 }));
 
 import { createUser, listUsers, getUser, updateUser, deleteUser } from "@/modules/users/service";
@@ -31,6 +39,9 @@ const USER_SELECT = {
   image: true,
   telegramId: true,
   createdAt: true,
+  notificationPreference: {
+    select: { notifyReleases: true },
+  },
 };
 
 const mockUser = (overrides = {}) => ({
@@ -75,6 +86,35 @@ describe("createUser", () => {
       select: USER_SELECT,
     });
     expect(result).toEqual(mockUser());
+  });
+
+  it("auto-assigns dashboard permission when creating a MANAGER", async () => {
+    const manager = mockUser({ id: "mgr-1", role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue(manager as never);
+
+    await createUser({
+      email: "manager@example.com",
+      password: "password123",
+      name: "Manager",
+      role: "MANAGER",
+    });
+
+    expect(mockSetUserAdminSections).toHaveBeenCalledWith("mgr-1", ["dashboard"]);
+  });
+
+  it("does not assign permissions when creating a USER", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue(mockUser() as never);
+
+    await createUser({
+      email: "test@example.com",
+      password: "password123",
+      name: "Test User",
+      role: "USER",
+    });
+
+    expect(mockSetUserAdminSections).not.toHaveBeenCalled();
   });
 
   it("throws USER_EXISTS if email already taken", async () => {
@@ -175,6 +215,30 @@ describe("updateUser", () => {
       select: USER_SELECT,
     });
     expect(result.role).toBe("MANAGER");
+  });
+
+  it("auto-assigns dashboard permission when promoting to MANAGER", async () => {
+    const user = mockUser({ role: "USER" });
+    const updated = mockUser({ role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+    vi.mocked(prisma.adminPermission.count).mockResolvedValue(0);
+
+    await updateUser("user-1", { role: "MANAGER" }, "admin-1");
+
+    expect(mockSetUserAdminSections).toHaveBeenCalledWith("user-1", ["dashboard"]);
+  });
+
+  it("does not overwrite existing permissions when promoting to MANAGER", async () => {
+    const user = mockUser({ role: "USER" });
+    const updated = mockUser({ role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+    vi.mocked(prisma.adminPermission.count).mockResolvedValue(3);
+
+    await updateUser("user-1", { role: "MANAGER" }, "admin-1");
+
+    expect(mockSetUserAdminSections).not.toHaveBeenCalled();
   });
 
   it("throws CANNOT_DEMOTE_SELF", async () => {
