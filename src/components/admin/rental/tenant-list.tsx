@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { TenantEditModal } from "./tenant-edit-modal";
+import { PhoneActions } from "@/components/admin/telephony/phone-actions";
 import type { TenantType, ContractStatus, OfficeType } from "@prisma/client";
 
 type TenantContract = {
@@ -194,14 +195,19 @@ export function TenantList({ tenants }: { tenants: Tenant[] }) {
                         <span className="text-zinc-700">{t.contactName}</span>
                       )}
                       {t.phone && (
-                        <a href={`tel:+${t.phone}`} className="text-blue-600 hover:underline">
-                          {formatPhone(t.phone)}
-                        </a>
+                        <PhoneActions
+                          phone={t.phone}
+                          tenantId={t.id}
+                          displayPhone={formatPhone(t.phone)}
+                        />
                       )}
                       {t.phonesExtra && Array.isArray(t.phonesExtra) && (t.phonesExtra as string[]).map((p, i) => (
-                        <a key={i} href={`tel:+${p}`} className="text-blue-600 hover:underline">
-                          {formatPhone(p)}
-                        </a>
+                        <PhoneActions
+                          key={i}
+                          phone={p}
+                          tenantId={t.id}
+                          displayPhone={formatPhone(p)}
+                        />
                       ))}
                       {t.email && (
                         <a href={`mailto:${t.email}`} className="text-blue-600 hover:underline">

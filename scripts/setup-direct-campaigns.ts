@@ -17,15 +17,25 @@ const METRIKA_COUNTER_ID = Number(process.env.YANDEX_METRIKA_COUNTER_ID || "7306
 
 // ─── Дневные бюджеты (рублей) ─────────────────────────────────────
 const BUDGETS = {
-  gazebos: 500,   // беседки — сезонный трафик
-  pspark:  300,   // PS Park — стабильный трафик
-  offices: 800,   // офисы — высокий LTV
+  gazebos: 500,   // беседки -сезонный трафик
+  pspark:  300,   // PS Park -стабильный трафик
+  offices: 800,   // офисы -высокий LTV
 };
 
 // ─── Геотаргетинг ─────────────────────────────────────────────────
-// Московская область охватывает Селятино + соседние города
-const REGIONS_LOCAL  = [10650];           // Московская область
-const REGIONS_MOSCOW = [1, 10650];        // Москва + Московская область (для офисов)
+// Нарофоминский округ + соседние города (в радиусе ~30 км от Селятино)
+const REGIONS_LOCAL = [
+  98597,  // Наро-Фоминский городской округ (Селятино входит сюда)
+  10741,  // Нарофоминск
+  10715,  // Апрелевка
+  21625,  // Кубинка
+  21647,  // Краснознаменск
+];
+// Для офисов (B2B) — добавляем Москву и Одинцово, т.к. бизнес ищет шире
+const REGIONS_MOSCOW = [
+  ...REGIONS_LOCAL,
+  1,      // Москва и Московская область
+];
 
 // ─── Старт кампаний ───────────────────────────────────────────────
 const START_DATE = new Date().toISOString().split("T")[0]; // сегодня
@@ -64,7 +74,7 @@ async function directRequest<T>(
 
   if (data.error) {
     throw new Error(
-      `[${service}.${method}] ${data.error.error_code}: ${data.error.error_string} — ${data.error.error_detail}`
+      `[${service}.${method}] ${data.error.error_code}: ${data.error.error_string} -${data.error.error_detail}`
     );
   }
 
@@ -79,7 +89,7 @@ const rub = (amount: number) => amount * 1_000_000;
 // ═══════════════════════════════════════════════════════════════════
 
 async function getClientLogin(): Promise<string> {
-  // Первый запрос без Client-Login — возвращает данные текущего пользователя
+  // Первый запрос без Client-Login -возвращает данные текущего пользователя
   const res = await fetch(`${DIRECT_API}/clients`, {
     method: "POST",
     headers: {
@@ -99,7 +109,7 @@ async function getClientLogin(): Promise<string> {
   };
 
   if (data.error) {
-    throw new Error(`Ошибка авторизации: ${data.error.error_string} — ${data.error.error_detail}`);
+    throw new Error(`Ошибка авторизации: ${data.error.error_string} -${data.error.error_detail}`);
   }
 
   return data.result!.Clients[0].Login;
@@ -133,29 +143,25 @@ async function createCampaign(login: string, config: {
       Campaigns: [{
         Name: config.name,
         StartDate: START_DATE,
-        Type: "TEXT_CAMPAIGN",
         TextCampaign: {
           BiddingStrategy: {
             Search: {
               BiddingStrategyType: "WB_MAXIMUM_CLICKS",
               WbMaximumClicks: {
                 WeeklySpendLimit: rub(config.dailyBudget * 7),
-                BidCeiling: rub(150), // макс. ставка 150 ₽
+                BidCeiling: rub(150),
               },
             },
             Network: {
-              BiddingStrategyType: "SERVING_OFF", // поиск без РСЯ — запускаем отдельно
+              BiddingStrategyType: "SERVING_OFF",
             },
           },
           Settings: [
-            { Option: "ADD_METRICA_TAG",          Value: "YES" },
-            { Option: "REQUIRE_SERVICING",         Value: "NO"  },
-            { Option: "CAMPAIGN_EXACT_PHRASE_MATCHING_ENABLED", Value: "NO" },
+            { Option: "ADD_METRICA_TAG", Value: "YES" },
+            { Option: "REQUIRE_SERVICING", Value: "NO" },
           ],
           CounterIds: { Items: [METRIKA_COUNTER_ID] },
         },
-        NegativeKeywords: config.negativeKeywords ?? [],
-        ClientInfo: config.name,
       }],
     },
     login
@@ -183,7 +189,9 @@ async function createAdGroup(login: string, config: {
         Name: config.name,
         CampaignId: config.campaignId,
         RegionIds: config.regionIds,
-        NegativeKeywords: config.negativeKeywords ?? [],
+        NegativeKeywords: config.negativeKeywords?.length
+          ? { Items: config.negativeKeywords }
+          : undefined,
       }],
     },
     login
@@ -226,7 +234,6 @@ async function addAds(login: string, adGroupId: number, ads: Array<{
     {
       Ads: ads.map((ad) => ({
         AdGroupId: adGroupId,
-        Type: "TEXT_AD",
         TextAd: {
           Title:  ad.title,
           Title2: ad.title2,
@@ -259,14 +266,14 @@ const CAMPAIGNS = [
   // ──────────────────────────────────────────────────────────────
   {
     campaign: {
-      name: "Деловой Парк — Беседки и Барбекю",
+      name: "Деловой Парк - Беседки и Барбекю",
       dailyBudget: BUDGETS.gazebos,
       negativeKeywords: ["купить", "продать", "дача", "своя", "построить", "проект", "своими руками", "чертёж"],
     },
     group: {
-      name: "Беседки — аренда",
+      name: "Беседки - аренда",
       regionIds: REGIONS_LOCAL,
-      negativeKeywords: ["бесплатно", "б/у"],
+      negativeKeywords: ["бесплатно"],
     },
     keywords: [
       "аренда беседки",
@@ -282,14 +289,14 @@ const CAMPAIGNS = [
     ],
     ads: [
       {
-        title:  "Беседки с мангалом — аренда",
+        title:  "Беседки с мангалом -аренда",
         title2: "Онлайн-бронирование за 2 клика",
         text:   "Беседки до 20 чел. Мангал включён. Бизнес-парк Деловой, Селятино.",
         href:   utm("/gazebos", "gazebos"),
       },
       {
-        title:  "Барбекю Парк — снять беседку",
-        title2: "Мангал, дрова — всё включено",
+        title:  "Барбекю Парк -снять беседку",
+        title2: "Мангал, дрова -всё включено",
         text:   "Беседки от 2 до 20 человек. Парковка рядом. Бизнес-парк Деловой, Селятино.",
         href:   utm("/gazebos", "gazebos_b"),
       },
@@ -301,12 +308,12 @@ const CAMPAIGNS = [
   // ──────────────────────────────────────────────────────────────
   {
     campaign: {
-      name: "Деловой Парк — Плей Парк PS5",
+      name: "Деловой Парк - Плей Парк PS5",
       dailyBudget: BUDGETS.pspark,
-      negativeKeywords: ["купить", "продать", "б/у", "магазин", "онлайн игра", "скачать"],
+      negativeKeywords: ["купить", "продать", "магазин", "онлайн игра", "скачать"],
     },
     group: {
-      name: "PS Park — аренда",
+      name: "PS Park - аренда",
       regionIds: REGIONS_LOCAL,
       negativeKeywords: ["бесплатно", "взломать"],
     },
@@ -324,13 +331,13 @@ const CAMPAIGNS = [
     ],
     ads: [
       {
-        title:  "PlayStation Park — аренда PS5",
+        title:  "PlayStation Park -аренда PS5",
         title2: "FIFA, гонки, приключения",
         text:   "Аренда столов с PS5 по часам. Бизнес-парк Деловой, Селятино.",
         href:   utm("/ps-park", "pspark"),
       },
       {
-        title:  "Плей Парк — PS5 по часам",
+        title:  "Плей Парк -PS5 по часам",
         title2: "Для детей и взрослых",
         text:   "FIFA, гоночные симуляторы, приключения. Онлайн-бронирование. Селятино.",
         href:   utm("/ps-park", "pspark_b"),
@@ -343,12 +350,12 @@ const CAMPAIGNS = [
   // ──────────────────────────────────────────────────────────────
   {
     campaign: {
-      name: "Деловой Парк — Аренда офисов",
+      name: "Деловой Парк - Аренда офисов",
       dailyBudget: BUDGETS.offices,
       negativeKeywords: ["купить", "жилой", "апартаменты", "квартира", "склад", "гараж", "бесплатно"],
     },
     group: {
-      name: "Офисы — аренда",
+      name: "Офисы - аренда",
       regionIds: REGIONS_MOSCOW, // + Москва, т.к. B2B аудитория шире
       negativeKeywords: ["субаренда", "посуточно"],
     },
@@ -366,7 +373,7 @@ const CAMPAIGNS = [
     ],
     ads: [
       {
-        title:  "Офисы в аренду — Селятино",
+        title:  "Офисы в аренду -Селятино",
         title2: "От 15 м², договор от 1 месяца",
         text:   "Офисы от 15 м². Охрана 24/7, парковка, кафе в здании. Посмотрите планировку.",
         href:   utm("/rental", "offices"),
@@ -401,7 +408,7 @@ async function main() {
     console.log(`━━━  ${campaign.name}`);
 
     if (existing.has(campaign.name)) {
-      console.log(`     ⏭️   Уже существует — пропускаем\n`);
+      console.log(`     ⏭️   Уже существует -пропускаем\n`);
       continue;
     }
 
