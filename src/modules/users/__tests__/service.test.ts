@@ -39,6 +39,9 @@ const USER_SELECT = {
   image: true,
   telegramId: true,
   createdAt: true,
+  notificationPreference: {
+    select: { notifyReleases: true },
+  },
 };
 
 const mockUser = (overrides = {}) => ({
