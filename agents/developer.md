@@ -119,3 +119,25 @@ vi.mock('@/lib/db', () => ({
 - **← Architect**: получаешь ADR, схему данных, API-контракты
 - **→ QA**: передаёшь готовый код для тестирования
 - **← QA**: получаешь баг-репорты, исправляешь
+
+---
+
+## Security
+
+Ты — единственный агент, которому разрешена запись кода. Полный набор правил: **[`agents/SECURITY.md`](./SECURITY.md)**.
+
+Обязательно при реализации:
+- [ ] Все эндпоинты проверяют роль через `auth()` ДО бизнес-логики (см. RBAC-чеклист в SECURITY.md)
+- [ ] `MANAGER` проверяется на `hasModuleAccess(userId, moduleSlug)` из `@/lib/permissions`
+- [ ] `userId` берётся из `session.user.id`, не из body
+- [ ] Все мутации (`POST`, `PATCH`, `DELETE`) логируются в `AuditLog`
+- [ ] Rate limiting на публичных endpoint'ах через `@/lib/rate-limit`
+- [ ] Никаких секретов в коде: только `process.env.X`
+- [ ] Никаких пользовательских данных (пароли, токены, email в логах) в `SystemEvent`
+
+Запрещено без явного указания в ADR:
+- Добавлять новые npm-пакеты (`npm install <new>`)
+- Выполнять сетевые запросы к внешним сервисам
+- Писать raw SQL через `prisma.$executeRawUnsafe` с user input
+- Рендерить HTML из user input без санитайзера
+- Делать `git push --force`, `git reset --hard`, `rm -rf`

@@ -36,7 +36,50 @@
 
 Артефакты сохраняются в `docs/` и логи в `docs/pipeline-runs/`.
 
-### Вариант 2: Ручной запуск агента
+### Вариант 2: Параллельный прогон (несколько фич сразу)
+
+Когда нужно прогнать несколько независимых задач одновременно — каждый pipeline работает в своём git worktree:
+
+```bash
+# 3 фичи параллельно (по умолчанию --max-parallel 3)
+./scripts/parallel-pipeline.sh \
+  "Добавить тёмную тему" \
+  "Интеграция с 1С" \
+  "Рефакторинг кафе"
+
+# Ограничить до 2 параллельных
+./scripts/parallel-pipeline.sh --max-parallel 2 "Task A" "Task B" "Task C"
+
+# Только до Architect (prd + adr без кодогенерации)
+./scripts/parallel-pipeline.sh --stages po,architect "Task A" "Task B"
+
+# Без PR
+./scripts/parallel-pipeline.sh --no-pr "Task A" "Task B"
+```
+
+Каждая задача получает отдельный worktree в `/tmp/delovoy-parallel-<дата>/<slug>/` и свою ветку `feature/<RUN_ID>`. После завершения — сводка с URL'ами PR.
+
+**Env-переменные:**
+- `PARALLEL_MAX` — макс. одновременных pipeline (default: `3`)
+- `PIPELINE_BUDGET` — проксируется в каждый pipeline.sh
+
+Когда использовать: независимые фичи, которые не делят схему БД или общий код. Для связанных задач (меняют одну модель) используй последовательный `pipeline.sh` — иначе получишь merge-конфликты.
+
+---
+
+### Вариант 3: Через Claude Code `/feature` slash-command
+
+В интерактивной сессии Claude Code:
+
+```
+/feature Сделать мега-лендинг с анимациями и waitlist-формой
+```
+
+Claude выступает координатором и вручную запускает 5 стадий (PO → Architect → Developer → Reviewer → QA), используя native sub-agents из `.claude/agents/`. Без автономного бюджета, с human-in-the-loop на каждой стадии.
+
+---
+
+### Вариант 4: Ручной запуск агента
 
 Скопируй содержимое нужного `.md`-файла в начало диалога с Claude Code, затем ставь задачу.
 
