@@ -8,6 +8,8 @@ import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
 import { AddItemsButton } from "@/components/admin/ps-park/add-items-button";
 import { TimelineGrid } from "@/components/admin/ps-park/timeline-grid";
+import { MobileTimeline } from "@/components/admin/ps-park/mobile-timeline";
+import { BookingListMobile } from "@/components/admin/ps-park/booking-list-mobile";
 import { ShiftPanel } from "@/components/admin/ps-park/shift-panel";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
@@ -131,8 +133,8 @@ export default async function PSParkManagerPage() {
         {/* Active Sessions Panel */}
         <ActiveSessionsPanel initialSessions={activeSessions} />
 
-        {/* Timeline Grid */}
-        <Card className="mb-6">
+        {/* Timeline — desktop (lg+) */}
+        <Card className="mb-6 hidden lg:block">
           <CardHeader>
             <h2 className="font-semibold text-zinc-900">Расписание</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
@@ -144,6 +146,17 @@ export default async function PSParkManagerPage() {
           </CardContent>
         </Card>
 
+        {/* Timeline — mobile (< lg) */}
+        <section className="mb-6 lg:hidden">
+          <div className="mb-2">
+            <h2 className="font-semibold text-zinc-900">Расписание</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Коснитесь свободного слота, чтобы забронировать
+            </p>
+          </div>
+          <MobileTimeline initialData={timelineData} initialDate={todayStr} />
+        </section>
+
         {/* Pending bookings requiring attention */}
         {pendingBookings.length > 0 && (
           <Card className="mb-6 border-amber-200 bg-amber-50/30">
@@ -154,23 +167,33 @@ export default async function PSParkManagerPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <BookingTable
-                bookings={pendingBookings}
-                resourceMap={resourceMap}
-                showAddItems
-              />
+              <div className="hidden lg:block">
+                <BookingTable
+                  bookings={pendingBookings}
+                  resourceMap={resourceMap}
+                  showAddItems
+                />
+              </div>
+              <div className="lg:hidden">
+                <BookingListMobile
+                  bookings={pendingBookings}
+                  resourceMap={resourceMap}
+                  showAddItems
+                  emphasizePending
+                />
+              </div>
             </CardContent>
           </Card>
         )}
 
         {/* Resources (collapsible) */}
         <details className="mb-6">
-          <summary className="cursor-pointer text-sm font-semibold text-zinc-700 hover:text-zinc-900 mb-3">
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-700 hover:text-zinc-900 mb-3 min-h-[44px] flex items-center">
             Управление столами ({resources.length})
           </summary>
           <Card>
-            <CardContent>
-              <table className="w-full text-sm">
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[520px]">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-zinc-500">
                     <th className="pb-3 font-medium">Название</th>
@@ -208,7 +231,7 @@ export default async function PSParkManagerPage() {
             <h2 className="font-semibold text-zinc-900">История</h2>
             <p className="text-xs text-zinc-400 mt-0.5">Последние 20 завершённых/отменённых — нажмите на завершённое бронирование для просмотра чека</p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             {recentCompleted.length === 0 ? (
               <p className="text-sm text-zinc-400">Тишина. Все геймеры сегодня дома. Или у конкурентов. Надеемся, что дома.</p>
             ) : (
