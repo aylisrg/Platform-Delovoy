@@ -85,10 +85,13 @@ export const authConfig: NextAuthConfig = {
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/waitlist") ||
         pathname.startsWith("/api/bot/");
+      // CI-triggered endpoints with their own secret-based auth
+      const isCiWebhook = pathname === "/api/admin/release-notify";
 
       if (isAuthRoute || isHealthRoute) return true;
       if (isPublicApiRoute && request.method === "GET") return true;
       if (isPublicPostRoute && request.method === "POST") return true;
+      if (isCiWebhook && request.method === "POST") return true;
 
       if (isAdminRoute) {
         if (!auth?.user) return false;

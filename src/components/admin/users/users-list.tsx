@@ -17,6 +17,7 @@ interface User {
   image: string | null;
   telegramId: string | null;
   createdAt: string;
+  notificationPreference: { notifyReleases: boolean } | null;
 }
 
 const roleVariant: Record<Role, "danger" | "warning" | "default"> = {
@@ -45,6 +46,7 @@ export function UsersList() {
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [savingRole, setSavingRole] = useState<string | null>(null);
   const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
+  const [togglingRelease, setTogglingRelease] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async (searchQuery?: string) => {
     try {
@@ -94,6 +96,40 @@ export function UsersList() {
       alert("Ошибка сети");
     } finally {
       setSavingRole(null);
+    }
+  }
+
+  async function handleReleaseNotifyToggle(user: User) {
+    const current = user.notificationPreference?.notifyReleases ?? false;
+    setTogglingRelease(user.id);
+    try {
+      const res = await fetch(`/api/users/${user.id}/notify-releases`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !current }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === user.id
+              ? {
+                  ...u,
+                  notificationPreference: {
+                    ...u.notificationPreference,
+                    notifyReleases: data.data.notifyReleases,
+                  },
+                }
+              : u
+          )
+        );
+      } else {
+        alert(data.error?.message || "Ошибка обновления настроек");
+      }
+    } catch {
+      alert("Ошибка сети");
+    } finally {
+      setTogglingRelease(null);
     }
   }
 
@@ -292,6 +328,14 @@ export function UsersList() {
                     {/* Actions */}
                     <td className="px-6 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {(user.role === "SUPERADMIN" || user.role === "MANAGER") && (
+                          <ReleaseNotifyToggle
+                            enabled={user.notificationPreference?.notifyReleases ?? false}
+                            loading={togglingRelease === user.id}
+                            hasTelegram={!!user.telegramId}
+                            onClick={() => handleReleaseNotifyToggle(user)}
+                          />
+                        )}
                         <button
                           onClick={() => setPermissionsUser(user)}
                           className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
@@ -328,6 +372,59 @@ export function UsersList() {
         />
       )}
     </div>
+  );
+}
+
+function ReleaseNotifyToggle({
+  enabled,
+  loading,
+  hasTelegram,
+  onClick,
+}: {
+  enabled: boolean;
+  loading: boolean;
+  hasTelegram: boolean;
+  onClick: () => void;
+}) {
+  const title = !hasTelegram
+    ? "Telegram не привязан — нотификации недоступны"
+    : enabled
+    ? "Нотификации о релизах включены. Нажмите для отключения"
+    : "Включить нотификации о релизах в Telegram";
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading || !hasTelegram}
+      title={title}
+      className={[
+        "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+        loading ? "opacity-50 cursor-wait" : "",
+        !hasTelegram
+          ? "border-zinc-200 text-zinc-300 cursor-not-allowed"
+          : enabled
+          ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+          : "border-zinc-300 text-zinc-500 hover:bg-zinc-50",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {/* Bell icon */}
+      <svg
+        className="h-3.5 w-3.5"
+        fill={enabled && hasTelegram ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth={2}
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+        />
+      </svg>
+      {loading ? "..." : enabled ? "Релизы" : "Релизы"}
+    </button>
   );
 }
 
