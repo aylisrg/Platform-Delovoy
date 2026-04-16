@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.1.0...v1.2.0) (2026-04-16)
+
+
+### Features
+
+* **ci:** add CI Watchdog — pure GitHub Actions, no AI dependency ([#95](https://github.com/aylisrg/Platform-Delovoy/issues/95)) ([cea2dd2](https://github.com/aylisrg/Platform-Delovoy/commit/cea2dd208c76b850de32414b7ac2f095769c4ebb))
+* post-launch micro-fixes batch + safe migrations ([#90](https://github.com/aylisrg/Platform-Delovoy/issues/90)) ([c2d9f28](https://github.com/aylisrg/Platform-Delovoy/commit/c2d9f2810ee2763e288df9ede2738763f5f44465))
+* **profile:** seamless login + contacts management in personal cabinet ([#96](https://github.com/aylisrg/Platform-Delovoy/issues/96)) ([d4b3e17](https://github.com/aylisrg/Platform-Delovoy/commit/d4b3e174dd1b58256b4a0083f225a3df8213c9b0))
+* Telegram Mini App — полноценный B2C клиент внутри Telegram ([#92](https://github.com/aylisrg/Platform-Delovoy/issues/92)) ([36b3819](https://github.com/aylisrg/Platform-Delovoy/commit/36b3819885f3eef0add91a44afaf0a87f24b02dd))
+
+
+### Bug Fixes
+
+* **auth:** skip email form after Telegram login ([#91](https://github.com/aylisrg/Platform-Delovoy/issues/91)) ([b95b894](https://github.com/aylisrg/Platform-Delovoy/commit/b95b894f53c741aea2edb67b8c3e975e2a296cd2))
+* auto-restore rental data on deploy ([#92](https://github.com/aylisrg/Platform-Delovoy/issues/92)) ([c783dae](https://github.com/aylisrg/Platform-Delovoy/commit/c783dae2c325b8fbd8f68b20cf735ea2001dc7fe))
+* sync DB schema on deploy (prisma db push) ([#88](https://github.com/aylisrg/Platform-Delovoy/issues/88)) ([e9a087d](https://github.com/aylisrg/Platform-Delovoy/commit/e9a087dab8b8d8f9adf2a654c39757ba598dd650))
+
 ## [1.1.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.0.0...v1.1.0) (2026-04-15)
 
 
