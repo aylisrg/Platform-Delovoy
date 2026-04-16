@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { log, logAudit } from "@/lib/logger";
-import { novofonStartCall, novofonCheckStatus } from "./novofon-client";
+import { novofonStartCall, novofonCheckStatus, novofonSendSms } from "./novofon-client";
 import type { TelephonyModuleConfig, CallLogWithManager, NovofonWebhookPayload } from "./types";
 import type { CallFilter } from "./validation";
 
@@ -157,6 +157,171 @@ export async function initiateCall(
     throw new TelephonyError(
       "NOVOFON_ERROR",
       novofonResult.error ?? "Ошибка при инициации звонка",
+      503
+    );
+  }
+
+  return updated;
+}
+
+// === DIRECT OUTBOUND CALL (no booking — for tenant contacts) ===
+
+/**
+ * Initiate a direct outbound call to any phone number.
+ * Uses NOVOFON_DEFAULT_SIP_LINE env var as the "from" SIP line.
+ * Sequence: create CallLog → call Novofon API → update CallLog → audit log.
+ */
+export async function initiateDirectCall(
+  managerId: string,
+  phone: string,
+  opts: { tenantId?: string; context?: string } = {}
+) {
+  const apiKey = process.env.NOVOFON_API_KEY;
+  if (!apiKey) {
+    throw new TelephonyError(
+      "TELEPHONY_NOT_CONFIGURED",
+      "API ключ Novofon не настроен"
+    );
+  }
+
+  const sipLine = process.env.NOVOFON_DEFAULT_SIP_LINE ?? "";
+  if (!sipLine) {
+    throw new TelephonyError(
+      "TELEPHONY_NOT_CONFIGURED",
+      "SIP-линия не настроена (NOVOFON_DEFAULT_SIP_LINE)"
+    );
+  }
+
+  const callLog = await prisma.callLog.create({
+    data: {
+      moduleSlug: "rental",
+      direction: "OUTBOUND",
+      status: "INITIATED",
+      clientPhone: phone,
+      managerPhone: sipLine,
+      initiatedBy: managerId,
+      metadata: opts.tenantId
+        ? { tenantId: opts.tenantId, context: opts.context }
+        : opts.context
+        ? { context: opts.context }
+        : undefined,
+    },
+  });
+
+  const novofonResult = await novofonStartCall(apiKey, {
+    from: sipLine,
+    to: phone,
+    caller_id: process.env.NOVOFON_CALLER_ID ?? undefined,
+  });
+
+  const finalStatus = novofonResult.success ? "RINGING" : "FAILED";
+  const updated = await prisma.callLog.update({
+    where: { id: callLog.id },
+    data: {
+      status: finalStatus,
+      externalCallId: novofonResult.call_id ?? null,
+      errorMessage: novofonResult.error ?? null,
+    },
+  });
+
+  if (novofonResult.success) {
+    await log.info("telephony", "direct_call_initiated", {
+      callLogId: callLog.id,
+      phone,
+      tenantId: opts.tenantId,
+    });
+    await logAudit(managerId, "call.direct", "CallLog", callLog.id, {
+      phone,
+      tenantId: opts.tenantId,
+    });
+  } else {
+    await log.error("telephony", "direct_call_failed", {
+      callLogId: callLog.id,
+      phone,
+      error: novofonResult.error,
+    });
+  }
+
+  if (!novofonResult.success) {
+    throw new TelephonyError(
+      "NOVOFON_ERROR",
+      novofonResult.error ?? "Ошибка при инициации звонка",
+      503
+    );
+  }
+
+  return updated;
+}
+
+// === SMS ===
+
+/**
+ * Send an SMS to a phone number and log it in SmsLog.
+ * Uses the main NOVOFON_API_KEY and NOVOFON_SMS_SENDER env vars.
+ */
+export async function sendSms(
+  managerId: string,
+  phone: string,
+  message: string,
+  opts: { tenantId?: string } = {}
+) {
+  const apiKey = process.env.NOVOFON_API_KEY;
+  if (!apiKey) {
+    throw new TelephonyError(
+      "TELEPHONY_NOT_CONFIGURED",
+      "API ключ Novofon не настроен"
+    );
+  }
+
+  const smsLog = await prisma.smsLog.create({
+    data: {
+      tenantId: opts.tenantId ?? null,
+      clientPhone: phone,
+      message,
+      status: "SENT",
+      sentBy: managerId,
+    },
+  });
+
+  const result = await novofonSendSms(apiKey, {
+    number: phone,
+    message,
+    from: process.env.NOVOFON_SMS_SENDER ?? undefined,
+  });
+
+  const finalStatus = result.success ? "SENT" : "FAILED";
+  const updated = await prisma.smsLog.update({
+    where: { id: smsLog.id },
+    data: {
+      status: finalStatus,
+      externalId: result.sms_id ?? null,
+      errorMessage: result.error ?? null,
+    },
+  });
+
+  if (result.success) {
+    await log.info("telephony", "sms_sent", {
+      smsLogId: smsLog.id,
+      phone,
+      tenantId: opts.tenantId,
+    });
+    await logAudit(managerId, "sms.sent", "SmsLog", smsLog.id, {
+      phone,
+      tenantId: opts.tenantId,
+      messageLength: message.length,
+    });
+  } else {
+    await log.error("telephony", "sms_failed", {
+      smsLogId: smsLog.id,
+      phone,
+      error: result.error,
+    });
+  }
+
+  if (!result.success) {
+    throw new TelephonyError(
+      "NOVOFON_ERROR",
+      result.error ?? "Ошибка при отправке SMS",
       503
     );
   }

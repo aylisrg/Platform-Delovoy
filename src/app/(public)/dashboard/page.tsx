@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
+import { ContactsCard } from "@/components/public/profile/contacts-card";
 import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -335,6 +336,19 @@ export default async function DashboardPage() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* My Contacts */}
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">Мои контакты</h2>
+            <p className="text-sm text-zinc-500 mt-1">
+              Привяжите дополнительные способы связи для уведомлений
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ContactsCard />
           </CardContent>
         </Card>
 
