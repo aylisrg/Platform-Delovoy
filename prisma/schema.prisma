@@ -709,6 +709,7 @@ model NotificationPreference {
   enableBooking    Boolean             @default(true)
   enableOrder      Boolean             @default(true)
   enableReminder   Boolean             @default(true)
+  notifyReleases   Boolean             @default(false)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 }

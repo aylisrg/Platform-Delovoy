@@ -82,6 +82,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     environment: production
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
 
@@ -111,6 +113,42 @@ jobs:
           else
             echo "No server found — skipping snapshot"
           fi
+
+      - name: Sync secrets to server .env
+        uses: appleboy/ssh-action@v1
+        env:
+          NOVOFON_API_KEY: ${{ secrets.NOVOFON_API_KEY }}
+          NOVOFON_WEBHOOK_SECRET: ${{ secrets.NOVOFON_WEBHOOK_SECRET }}
+          NOVOFON_DEFAULT_SIP_LINE: ${{ secrets.NOVOFON_DEFAULT_SIP_LINE }}
+          NOVOFON_CALLER_ID: ${{ secrets.NOVOFON_CALLER_ID }}
+          NOVOFON_SMS_SENDER: ${{ secrets.NOVOFON_SMS_SENDER }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,NOVOFON_SMS_SENDER
+          script: |
+            set -e
+            cd /opt/delovoy-park
+
+            # Write or update a key in .env without touching other lines
+            upsert_env() {
+              local key="$1" val="$2"
+              [ -z "$val" ] && return
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                sed -i "s|^${key}=.*|${key}=${val}|" .env
+              else
+                echo "${key}=${val}" >> .env
+              fi
+            }
+
+            upsert_env NOVOFON_API_KEY           "$NOVOFON_API_KEY"
+            upsert_env NOVOFON_WEBHOOK_SECRET     "$NOVOFON_WEBHOOK_SECRET"
+            upsert_env NOVOFON_DEFAULT_SIP_LINE   "$NOVOFON_DEFAULT_SIP_LINE"
+            upsert_env NOVOFON_CALLER_ID          "$NOVOFON_CALLER_ID"
+            upsert_env NOVOFON_SMS_SENDER         "$NOVOFON_SMS_SENDER"
+
+            echo "Novofon secrets synced to .env"
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -227,6 +265,138 @@ jobs:
             -d "chat_id=${TG_CHAT}" \
             -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ github.sha }})" \
             -d "parse_mode=HTML" || true
+
+      - name: Generate release notes & notify subscribers
+        if: success()
+        env:
+          RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          APP_URL: https://delovoy-park.ru
+        run: |
+          [ -z "$RELEASE_NOTIFY_SECRET" ] && echo "RELEASE_NOTIFY_SECRET not set, skipping" && exit 0
+
+          VERSION="${{ needs.build-and-push.outputs.version }}"
+          COMMIT_SHA="${{ github.sha }}"
+          DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # --- Step 1: Check for manual release notes in docs/releases/current.md ---
+          NOTES=""
+          if [ -f "docs/releases/current.md" ]; then
+            MANUAL=$(sed '/^>/d;/^#/d;/^[[:space:]]*$/d;/^-$/d;/^- *$/d' docs/releases/current.md | head -60)
+            if [ -n "$MANUAL" ]; then
+              NOTES="$MANUAL"
+              echo "Using manually written release notes"
+            fi
+          fi
+
+          # --- Step 2: Auto-generate with Gemini 2.5 Flash if no manual notes ---
+          if [ -z "$NOTES" ] && [ -n "$GEMINI_API_KEY" ]; then
+            echo "No manual notes — generating with Gemini 2.5 Flash..."
+
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges | head -40)
+            else
+              COMMITS=$(git log -20 --pretty=format:"- %s" --no-merges)
+            fi
+            [ -z "$COMMITS" ] && COMMITS="- (no commits found)"
+
+            PROMPT_TEXT="Ты — AI-ассистент бизнес-парка Деловой (Селятино). Сгенерируй краткие release notes на русском для Telegram.
+          Правила:
+          - Маркированный список, 3-7 пунктов
+          - Группируй: новое, исправления, техническое
+          - Понятно для менеджеров, не для разработчиков
+          - Только плоский текст с дефисами, без markdown
+          - Без заголовков, версии или даты
+          - Макс 500 символов
+
+          Коммиты:
+          ${COMMITS}"
+
+            PROMPT_JSON=$(printf '%s' "$PROMPT_TEXT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+            GEMINI_RESPONSE=$(curl -s --max-time 30 \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"contents\":[{\"parts\":[{\"text\":${PROMPT_JSON}}]}]}")
+
+            NOTES=$(echo "$GEMINI_RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              print(data['candidates'][0]['content']['parts'][0]['text'].strip())
+          except Exception:
+              print('')
+          " 2>/dev/null)
+
+            if [ -n "$NOTES" ]; then
+              echo "AI-generated release notes:"
+              echo "$NOTES"
+            else
+              echo "Gemini failed — falling back to commit list"
+              NOTES="$COMMITS"
+            fi
+
+          elif [ -z "$NOTES" ]; then
+            echo "No GEMINI_API_KEY — using raw commit list"
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              NOTES=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges | head -20)
+            else
+              NOTES=$(git log -10 --pretty=format:"- %s" --no-merges)
+            fi
+          fi
+
+          # --- Step 3: Send to subscribers ---
+          NOTES_JSON=$(printf '%s' "$NOTES" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+          PAYLOAD=$(cat <<EOFPAYLOAD
+          {
+            "secret": "${RELEASE_NOTIFY_SECRET}",
+            "version": "${VERSION}",
+            "releaseNotes": ${NOTES_JSON},
+            "commitSha": "${COMMIT_SHA}",
+            "deployedAt": "${DEPLOYED_AT}"
+          }
+          EOFPAYLOAD
+          )
+
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "${APP_URL}/api/admin/release-notify")
+          echo "Release notify response: $RESPONSE"
+
+          # --- Step 4: Archive release notes ---
+          ARCHIVE_NAME="docs/releases/${VERSION}-$(date +%Y-%m-%d).md"
+          echo "# Release v${VERSION} — $(date +%Y-%m-%d)" > "$ARCHIVE_NAME"
+          echo "" >> "$ARCHIVE_NAME"
+          echo "$NOTES" >> "$ARCHIVE_NAME"
+
+          cat > docs/releases/current.md << 'EOFTEMPLATE'
+          # Что выкатилось в этом релизе
+
+          > Заполни вручную перед деплоем. Если оставить пустым — AI сгенерирует из git log.
+
+          ## Новое
+
+          -
+
+          ## Исправлено
+
+          -
+
+          ## Технические изменения
+
+          -
+          EOFTEMPLATE
+          sed -i 's/^          //' docs/releases/current.md
+
+          git config user.email "ci@delovoy-park.ru"
+          git config user.name "Delovoy CI"
+          git add "$ARCHIVE_NAME" docs/releases/current.md || true
+          git diff --staged --quiet || git commit -m "chore(releases): archive v${VERSION} notes [skip ci]" || true
+          git push origin HEAD || true
 
       - name: Notify on failure
         if: failure()
