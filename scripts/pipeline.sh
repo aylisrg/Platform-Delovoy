@@ -2,6 +2,20 @@
 #
 # pipeline.sh — Autonomous agent pipeline for Platform Delovoy
 #
+# ⚠️  CLAUDE DEPENDENCY — этот скрипт вызывает `claude` CLI напрямую (строка ~489).
+#    Он НЕ является частью GitHub Actions CI и запускается ТОЛЬКО локально разработчиком.
+#
+#    Зависимости от AI в этом файле:
+#      - строка ~476:  claude -p --model sonnet/opus  (вызов Claude Code CLI)
+#      - строка ~294:  читает .claude/feedback/qa-patterns.md (self-improving loop)
+#      - строки ~593:  Co-Authored-By: Claude Code в git commit
+#
+#    Альтернатива без AI — GitHub Actions:
+#      - CI-проверки:         .github/workflows/ci.yml      (lint / test / typecheck / build)
+#      - Мониторинг CI:       .github/workflows/ci-watchdog.yml  (Telegram + Issue + PR comment)
+#      - Деплой:              .github/workflows/deploy.yml
+#      - PRD / ADR / Review:  делается разработчиком вручную по шаблонам в docs/
+#
 # Usage:
 #   ./scripts/pipeline.sh "Описание задачи"
 #   ./scripts/pipeline.sh --stages po,architect,developer,qa "Описание задачи"
