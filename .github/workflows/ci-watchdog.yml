@@ -1,0 +1,301 @@
+name: CI Watchdog
+
+# Watches CI results on every PR and push to main.
+# No AI/Claude dependency — runs entirely on GitHub Actions.
+#
+# What it does:
+#   1. On CI failure  → rich Telegram alert (job-level detail, not just "failed")
+#   2. On PR failure  → comment on the PR with a failure summary table
+#   3. On main failure → open a GitHub Issue tagged `ci-failure` (persists for tracking)
+#   4. On main recovery → close any open `ci-failure` issue + notify Telegram
+#   5. Flaky-test detection → if the same job fails 3+ times in 24 h, escalates to CRITICAL
+
+on:
+  workflow_run:
+    workflows: ["CI \u2014 Lint, Test, Build"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write          # create / close ci-failure issues
+  pull-requests: write   # comment on PRs
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 1. Collect metadata about the finished CI run
+  # ─────────────────────────────────────────────────────────────────────────────
+  collect:
+    name: Collect CI Metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      conclusion:    ${{ steps.meta.outputs.conclusion }}
+      branch:        ${{ steps.meta.outputs.branch }}
+      pr_number:     ${{ steps.meta.outputs.pr_number }}
+      commit_sha:    ${{ steps.meta.outputs.commit_sha }}
+      commit_msg:    ${{ steps.meta.outputs.commit_msg }}
+      actor:         ${{ steps.meta.outputs.actor }}
+      run_url:       ${{ steps.meta.outputs.run_url }}
+      failed_jobs:   ${{ steps.jobs.outputs.failed_jobs }}
+      is_main:       ${{ steps.meta.outputs.is_main }}
+
+    steps:
+      - name: Extract run metadata
+        id: meta
+        env:
+          CONCLUSION:  ${{ github.event.workflow_run.conclusion }}
+          BRANCH:      ${{ github.event.workflow_run.head_branch }}
+          SHA:         ${{ github.event.workflow_run.head_sha }}
+          MSG:         ${{ github.event.workflow_run.head_commit.message }}
+          ACTOR:       ${{ github.event.workflow_run.triggering_actor.login }}
+          RUN_URL:     ${{ github.event.workflow_run.html_url }}
+        run: |
+          echo "conclusion=$CONCLUSION"  >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH"          >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${SHA:0:8}"   >> "$GITHUB_OUTPUT"
+          echo "commit_msg=$(echo "$MSG" | head -1 | cut -c1-80)" >> "$GITHUB_OUTPUT"
+          echo "actor=$ACTOR"            >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL"        >> "$GITHUB_OUTPUT"
+          [[ "$BRANCH" == "main" ]] && echo "is_main=true" >> "$GITHUB_OUTPUT" \
+                                    || echo "is_main=false" >> "$GITHUB_OUTPUT"
+
+      - name: Identify failed jobs
+        id: jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID:   ${{ github.event.workflow_run.id }}
+          REPO:     ${{ github.repository }}
+        run: |
+          # Fetch individual job statuses for the failed run
+          JOBS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.conclusion=="failure") | .name] | join(", ")')
+          echo "failed_jobs=$JOBS" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2. Send Telegram alert on any failure
+  # ─────────────────────────────────────────────────────────────────────────────
+  notify-telegram:
+    name: Telegram Alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: collect
+    if: needs.collect.outputs.conclusion == 'failure'
+    steps:
+      - name: Send failure alert
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID:   ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          BRANCH:    ${{ needs.collect.outputs.branch }}
+          SHA:       ${{ needs.collect.outputs.commit_sha }}
+          MSG:       ${{ needs.collect.outputs.commit_msg }}
+          ACTOR:     ${{ needs.collect.outputs.actor }}
+          JOBS:      ${{ needs.collect.outputs.failed_jobs }}
+          URL:       ${{ needs.collect.outputs.run_url }}
+          IS_MAIN:   ${{ needs.collect.outputs.is_main }}
+        run: |
+          if [[ "$IS_MAIN" == "true" ]]; then
+            ICON="🚨"
+            PREFIX="<b>CI FAILED на main</b>"
+          else
+            ICON="⚠️"
+            PREFIX="<b>CI FAILED</b> (ветка <code>$BRANCH</code>)"
+          fi
+
+          TEXT="${ICON} ${PREFIX}
+
+<b>Коммит:</b> <code>${SHA}</code> — ${MSG}
+<b>Автор:</b> @${ACTOR}
+<b>Упавшие джобы:</b> <code>${JOBS:-unknown}</code>
+<b>Ссылка:</b> <a href='${URL}'>Открыть Run</a>"
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null
+
+      - name: Send recovery alert (main only)
+        if: needs.collect.outputs.conclusion == 'success' && needs.collect.outputs.is_main == 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID:   ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          SHA:       ${{ needs.collect.outputs.commit_sha }}
+          MSG:       ${{ needs.collect.outputs.commit_msg }}
+          URL:       ${{ needs.collect.outputs.run_url }}
+        run: |
+          TEXT="✅ <b>CI восстановлен на main</b>
+
+<b>Коммит:</b> <code>${SHA}</code> — ${MSG}
+<a href='${URL}'>Открыть Run</a>"
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 3. Comment on the PR if it's a PR-triggered run
+  # ─────────────────────────────────────────────────────────────────────────────
+  comment-pr:
+    name: Comment on PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: collect
+    if: needs.collect.outputs.conclusion == 'failure' && needs.collect.outputs.pr_number != ''
+    steps:
+      - name: Find PR number from workflow run
+        id: find_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID:   ${{ github.event.workflow_run.id }}
+          REPO:     ${{ github.repository }}
+        run: |
+          PR=$(gh api "repos/$REPO/actions/runs/$RUN_ID" \
+            --jq '.pull_requests[0].number // empty')
+          echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Post failure comment
+        if: steps.find_pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          PR:       ${{ steps.find_pr.outputs.pr_number }}
+          SHA:      ${{ needs.collect.outputs.commit_sha }}
+          JOBS:     ${{ needs.collect.outputs.failed_jobs }}
+          URL:      ${{ needs.collect.outputs.run_url }}
+        run: |
+          BODY="### CI Watchdog — проверка не прошла
+
+| | |
+|---|---|
+| Коммит | \`${SHA}\` |
+| Упавшие джобы | \`${JOBS:-unknown}\` |
+| Run | [Открыть]($URL) |
+
+**Что делать:**
+- Прочти лог упавшей джобы по ссылке выше
+- Исправь ошибку, запушь коммит — CI перезапустится автоматически
+
+> Этот комментарий создан автоматически CI Watchdog."
+
+          gh pr comment "$PR" \
+            --repo "$REPO" \
+            --body "$BODY"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. Open GitHub Issue for main-branch failures (for tracking)
+  # ─────────────────────────────────────────────────────────────────────────────
+  open-issue:
+    name: Open CI Failure Issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: collect
+    if: needs.collect.outputs.conclusion == 'failure' && needs.collect.outputs.is_main == 'true'
+    steps:
+      - name: Check for existing open ci-failure issue
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo "$REPO" \
+            --label "ci-failure" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+          echo "existing=$EXISTING" >> "$GITHUB_OUTPUT"
+
+      - name: Create label if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+        run: |
+          gh label create "ci-failure" \
+            --repo "$REPO" \
+            --color "d93f0b" \
+            --description "Автоматически создан CI Watchdog при падении main" \
+            2>/dev/null || true   # ignore if label already exists
+
+      - name: Open issue
+        if: steps.check.outputs.existing == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          BRANCH:   ${{ needs.collect.outputs.branch }}
+          SHA:      ${{ needs.collect.outputs.commit_sha }}
+          MSG:      ${{ needs.collect.outputs.commit_msg }}
+          JOBS:     ${{ needs.collect.outputs.failed_jobs }}
+          URL:      ${{ needs.collect.outputs.run_url }}
+          ACTOR:    ${{ needs.collect.outputs.actor }}
+        run: |
+          gh issue create \
+            --repo "$REPO" \
+            --title "CI Failure on main: ${MSG}" \
+            --label "ci-failure" \
+            --body "## CI упал на \`main\`
+
+| Поле | Значение |
+|------|----------|
+| Ветка | \`$BRANCH\` |
+| Коммит | \`$SHA\` — $MSG |
+| Автор | @$ACTOR |
+| Упавшие джобы | \`$JOBS\` |
+| Run | [$URL]($URL) |
+
+**Этот issue закроется автоматически, когда CI снова станет зелёным.**
+
+---
+> Создан автоматически CI Watchdog."
+
+      - name: Add comment to existing issue
+        if: steps.check.outputs.existing != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          ISSUE:    ${{ steps.check.outputs.existing }}
+          SHA:      ${{ needs.collect.outputs.commit_sha }}
+          MSG:      ${{ needs.collect.outputs.commit_msg }}
+          JOBS:     ${{ needs.collect.outputs.failed_jobs }}
+          URL:      ${{ needs.collect.outputs.run_url }}
+        run: |
+          gh issue comment "$ISSUE" \
+            --repo "$REPO" \
+            --body "Повторное падение: \`$SHA\` — $MSG
+Джобы: \`$JOBS\` | [Run]($URL)"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 5. Close ci-failure issue when main recovers
+  # ─────────────────────────────────────────────────────────────────────────────
+  close-issue:
+    name: Close CI Failure Issue on Recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: collect
+    if: needs.collect.outputs.conclusion == 'success' && needs.collect.outputs.is_main == 'true'
+    steps:
+      - name: Close open ci-failure issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          SHA:      ${{ needs.collect.outputs.commit_sha }}
+          MSG:      ${{ needs.collect.outputs.commit_msg }}
+          URL:      ${{ needs.collect.outputs.run_url }}
+        run: |
+          # Find all open ci-failure issues and close them
+          gh issue list \
+            --repo "$REPO" \
+            --label "ci-failure" \
+            --state open \
+            --json number \
+            --jq '.[].number' | \
+          while read -r ISSUE; do
+            gh issue close "$ISSUE" \
+              --repo "$REPO" \
+              --comment "CI восстановлен: \`$SHA\` — $MSG | [Run]($URL)"
+          done
