@@ -269,14 +269,18 @@ export async function requestPhoneAttach(
     }
   }
 
+  if (!redisAvailable) {
+    throw Object.assign(new Error("Сервис временно недоступен"), {
+      code: "SERVICE_UNAVAILABLE",
+    });
+  }
+
   // Generate OTP and store with phone
   const code = generateOTP();
   const otpKey = PROFILE_PHONE_OTP_PREFIX + userId;
 
   await redis.set(otpKey, `${normalized}:${code}:0`, "EX", PHONE_OTP_TTL);
-  if (redisAvailable) {
-    await redis.set(cooldownKey, "1", "EX", PHONE_COOLDOWN_TTL);
-  }
+  await redis.set(cooldownKey, "1", "EX", PHONE_COOLDOWN_TTL);
 
   const sendResult = await sendWhatsAppMessage(
     normalized,
@@ -284,6 +288,9 @@ export async function requestPhoneAttach(
   );
 
   if (!sendResult.success) {
+    // Rollback: clean up OTP so user can retry without waiting for TTL
+    await redis.del(otpKey);
+    await redis.del(cooldownKey);
     throw Object.assign(
       new Error("Не удалось отправить код. Проверьте номер и попробуйте позже."),
       { code: "SEND_FAILED" }

@@ -184,6 +184,43 @@ describe("confirmEmailAttach", () => {
   });
 });
 
+// ── requestEmailAttach – SEND_FAILED ─────────────────────────────────────────
+
+describe("requestEmailAttach – SEND_FAILED", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("throws SEND_FAILED when email send fails", async () => {
+    const { sendTransactionalEmail } = await import(
+      "@/modules/notifications/channels/email"
+    );
+    vi.mocked(sendTransactionalEmail).mockResolvedValueOnce({ success: false } as never);
+
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce({ email: null } as never)
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      requestEmailAttach("user-1", { email: "new@test.com" })
+    ).rejects.toMatchObject({ code: "SEND_FAILED" });
+  });
+});
+
+// ── confirmEmailAttach – race condition ───────────────────────────────────────
+
+describe("confirmEmailAttach – race condition", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("throws EMAIL_IN_USE if email taken by another user between request and confirm", async () => {
+    const token = "racetoken";
+    vi.mocked(redis.get).mockResolvedValue(`${token}:race@test.com` as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: "other-user" } as never);
+
+    await expect(
+      confirmEmailAttach("user-1", { token })
+    ).rejects.toMatchObject({ code: "EMAIL_IN_USE" });
+  });
+});
+
 // ── requestPhoneAttach ────────────────────────────────────────────────────────
 
 describe("requestPhoneAttach", () => {
@@ -220,6 +257,25 @@ describe("requestPhoneAttach", () => {
     await expect(
       requestPhoneAttach("user-1", { phone: "79001234567" })
     ).rejects.toMatchObject({ code: "PHONE_IN_USE" });
+  });
+
+  it("cleans up OTP on SEND_FAILED", async () => {
+    const { sendWhatsAppMessage } = await import("@/lib/green-api");
+    vi.mocked(sendWhatsAppMessage).mockResolvedValueOnce({ success: false } as never);
+
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce({ phone: null } as never)
+      .mockResolvedValueOnce(null);
+    vi.mocked(redis.get).mockResolvedValue(null);
+
+    await expect(
+      requestPhoneAttach("user-1", { phone: "79001234567" })
+    ).rejects.toMatchObject({ code: "SEND_FAILED" });
+
+    // Verify OTP was cleaned up
+    expect(redis.del).toHaveBeenCalledWith(
+      expect.stringContaining("profile:phone-otp:")
+    );
   });
 });
 
