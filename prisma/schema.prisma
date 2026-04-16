@@ -790,6 +790,30 @@ enum CallStatus {
   COMPLETED
 }
 
+model SmsLog {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  clientPhone String
+  message     String
+  status      SmsStatus @default(SENT)
+  externalId  String?
+  errorMessage String?
+  sentBy      String?   // userId of manager
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([clientPhone])
+  @@index([tenantId])
+  @@index([sentBy])
+}
+
+enum SmsStatus {
+  SENT
+  DELIVERED
+  FAILED
+}
+
 // === FEEDBACK ===
 
 enum FeedbackType {

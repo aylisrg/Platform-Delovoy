@@ -14,11 +14,17 @@ export default function AuthRedirectPage() {
       return;
     }
 
+    // Support callbackUrl for redirect-after-login
+    const params = new URLSearchParams(window.location.search);
+    const callbackUrl = params.get("callbackUrl");
+    const safeCallbackUrl =
+      callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : null;
+
     const role = session.user.role;
     if (role === "SUPERADMIN" || role === "MANAGER") {
-      window.location.href = "/admin/dashboard";
+      window.location.href = safeCallbackUrl ?? "/admin/dashboard";
     } else {
-      window.location.href = "/";
+      window.location.href = safeCallbackUrl ?? "/";
     }
   }, [session, status]);
 

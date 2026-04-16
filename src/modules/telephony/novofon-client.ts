@@ -8,6 +8,7 @@
  */
 
 const NOVOFON_CALL_API_BASE = "https://api.novofon.com/v1";
+const NOVOFON_DATA_API_BASE = "https://dataapi-jsonrpc.novofon.ru/2.0";
 
 export interface NovofonCallRequest {
   /** SIP line ID or manager phone number (caller side) */
@@ -65,6 +66,78 @@ export async function novofonStartCall(
       error:
         (data.error as string | undefined) ??
         (data.message as string | undefined),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Network error",
+    };
+  }
+}
+
+export interface NovofonSmsRequest {
+  /** Recipient phone in international format without + (e.g. 79161234567) */
+  number: string;
+  /** SMS text (up to 1000 chars; multipart SMS sent automatically) */
+  message: string;
+  /** Sender name displayed on recipient's phone (virtual number or alphanumeric) */
+  from?: string;
+}
+
+export interface NovofonSmsResponse {
+  success: boolean;
+  sms_id?: string;
+  error?: string;
+}
+
+/**
+ * Send an SMS via Novofon Data API (JSON-RPC 2.0).
+ * Method: sms.send
+ */
+export async function novofonSendSms(
+  apiKey: string,
+  params: NovofonSmsRequest
+): Promise<NovofonSmsResponse> {
+  try {
+    const res = await fetch(NOVOFON_DATA_API_BASE, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=UTF-8",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "sms.send",
+        params: {
+          number: params.number,
+          message: params.message,
+          ...(params.from && { from: params.from }),
+        },
+        id: Date.now(),
+      }),
+    });
+
+    if (!res.ok) {
+      return { success: false, error: `HTTP ${res.status}: ${res.statusText}` };
+    }
+
+    const data = (await res.json()) as {
+      result?: { sms_id?: string; id?: string };
+      error?: { message?: string; data?: unknown };
+    };
+
+    if (data.error) {
+      return {
+        success: false,
+        error: data.error.message ?? "Ошибка API Novofon",
+      };
+    }
+
+    return {
+      success: true,
+      sms_id:
+        (data.result?.sms_id as string | undefined) ??
+        (data.result?.id as string | undefined),
     };
   } catch (err) {
     return {
