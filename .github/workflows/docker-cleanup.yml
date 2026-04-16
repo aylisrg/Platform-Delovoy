@@ -14,12 +14,36 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             echo "=== Disk before ==="
             df -h /
 
-            echo "=== Remove unused Docker images (keep last 2) ==="
-            docker image prune -af --filter "until=72h" || true
+            echo "=== Docker disk usage ==="
+            docker system df
+
+            echo "=== Stop app temporarily ==="
+            cd /opt/delovoy-park
+            docker compose stop app || true
+
+            echo "=== Remove ALL unused images, containers, networks, build cache ==="
+            docker system prune -af --volumes 2>/dev/null || docker system prune -af || true
             docker builder prune -af || true
+
+            echo "=== Check large files outside Docker ==="
+            du -sh /opt/backups/ 2>/dev/null || true
+            du -sh /var/log/ 2>/dev/null || true
+            du -sh /tmp/ 2>/dev/null || true
+
+            echo "=== Clean old DB backups (keep last 3) ==="
+            ls -t /opt/backups/db-*.sql.gz 2>/dev/null | tail -n +4 | xargs rm -f || true
+
+            echo "=== Clean old logs ==="
+            find /var/log -name "*.gz" -mtime +7 -delete 2>/dev/null || true
+            journalctl --vacuum-size=50M 2>/dev/null || true
+
+            echo "=== Restart app ==="
+            cd /opt/delovoy-park
+            docker compose up -d app || true
 
             echo "=== Disk after ==="
             df -h /
