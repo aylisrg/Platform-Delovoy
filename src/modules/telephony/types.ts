@@ -42,3 +42,16 @@ export interface NovofonWebhookPayload {
   callee?: string;
   [key: string]: unknown;
 }
+
+export interface SmsLogRecord {
+  id: string;
+  tenantId: string | null;
+  clientPhone: string;
+  message: string;
+  status: import("@prisma/client").SmsStatus;
+  externalId: string | null;
+  errorMessage: string | null;
+  sentBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
