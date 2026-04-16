@@ -1,6 +1,16 @@
 name: Deploy to Production
 
 on:
+  # Auto-deploy: triggers when CI passes on main.
+  # The `production` environment has a 15-minute wait timer configured in
+  # GitHub Settings → Environments → production → Wait timer.
+  # After the timer expires the deploy runs automatically — no human click needed.
+  workflow_run:
+    workflows: ["CI \u2014 Lint, Test, Build"]
+    types: [completed]
+    branches: [main]
+
+  # Keep manual trigger for hotfixes / emergency re-deploys.
   workflow_dispatch:
     inputs:
       skip_snapshot:
@@ -17,8 +27,11 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
-  # Gate: CI must pass first (ci.yml runs on push to main too)
+  # Gate: only run when triggered by a successful CI run (or manually).
   build-and-push:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     permissions:
