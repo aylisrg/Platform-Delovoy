@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { setUserAdminSections } from "@/lib/permissions";
 import type { CreateUserInput, UpdateUserInput } from "./validation";
 
 const SALT_ROUNDS = 10;
@@ -36,6 +37,11 @@ export async function createUser(input: CreateUserInput) {
     },
     select: USER_SELECT,
   });
+
+  // Auto-assign "dashboard" permission for new managers so they can access admin panel
+  if (input.role === "MANAGER") {
+    await setUserAdminSections(user.id, ["dashboard"]);
+  }
 
   return user;
 }
@@ -93,6 +99,14 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
     },
     select: USER_SELECT,
   });
+
+  // When role changes to MANAGER, ensure at least "dashboard" permission exists
+  if (input.role === "MANAGER" && user.role !== "MANAGER") {
+    const existing = await prisma.adminPermission.count({ where: { userId: id } });
+    if (existing === 0) {
+      await setUserAdminSections(id, ["dashboard"]);
+    }
+  }
 
   return updated;
 }
