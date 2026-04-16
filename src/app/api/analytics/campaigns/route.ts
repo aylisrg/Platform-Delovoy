@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const params = Object.fromEntries(request.nextUrl.searchParams);
   const parsed = analyticsQuerySchema.safeParse(params);
   if (!parsed.success) {
-    return apiError("VALIDATION_ERROR", parsed.error.errors[0].message, 422);
+    return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
   }
 
   if (!process.env.YANDEX_OAUTH_TOKEN || !process.env.YANDEX_DIRECT_CLIENT_LOGIN) {

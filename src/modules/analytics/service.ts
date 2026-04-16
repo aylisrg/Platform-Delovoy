@@ -71,12 +71,20 @@ export async function getOverview(
 
   return withCache(cacheKey, async () => {
     const metrika = getMetrikaClient();
-    const direct = getDirectClient();
+
+    const directFetch = (async () => {
+      try {
+        const direct = getDirectClient();
+        return await direct.getCampaignStats(dateRange.dateFrom, dateRange.dateTo);
+      } catch {
+        return [];
+      }
+    })();
 
     const [traffic, goals, campaigns] = await Promise.all([
       metrika.getTrafficSummary(dateRange.dateFrom, dateRange.dateTo),
       metrika.getGoalConversions(dateRange.dateFrom, dateRange.dateTo),
-      direct.getCampaignStats(dateRange.dateFrom, dateRange.dateTo).catch(() => []),
+      directFetch,
     ]);
 
     const totalCost = campaigns.reduce((sum, c) => sum + c.cost, 0);
@@ -147,11 +155,19 @@ export async function getConversions(
 
   return withCache(cacheKey, async () => {
     const metrika = getMetrikaClient();
-    const direct = getDirectClient();
+
+    const directFetch = (async () => {
+      try {
+        const direct = getDirectClient();
+        return await direct.getCampaignStats(dateRange.dateFrom, dateRange.dateTo);
+      } catch {
+        return [];
+      }
+    })();
 
     const [goals, campaigns] = await Promise.all([
       metrika.getGoalConversions(dateRange.dateFrom, dateRange.dateTo),
-      direct.getCampaignStats(dateRange.dateFrom, dateRange.dateTo).catch(() => []),
+      directFetch,
     ]);
 
     const traffic = await metrika.getTrafficSummary(dateRange.dateFrom, dateRange.dateTo);
