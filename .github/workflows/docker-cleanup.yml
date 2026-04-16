@@ -1,0 +1,25 @@
+name: Docker Cleanup on VPS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean Docker on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "=== Disk before ==="
+            df -h /
+
+            echo "=== Remove unused Docker images (keep last 2) ==="
+            docker image prune -af --filter "until=72h" || true
+            docker builder prune -af || true
+
+            echo "=== Disk after ==="
+            df -h /
