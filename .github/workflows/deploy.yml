@@ -217,57 +217,117 @@ jobs:
             -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ github.sha }})" \
             -d "parse_mode=HTML" || true
 
-      - name: Send release notification to subscribers
+      - name: Generate release notes & notify subscribers
         if: success()
         env:
           RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           APP_URL: https://delovoy-park.ru
         run: |
           [ -z "$RELEASE_NOTIFY_SECRET" ] && echo "RELEASE_NOTIFY_SECRET not set, skipping" && exit 0
-
-          # Read release notes (docs/releases/current.md), strip the header comment block
-          NOTES=""
-          if [ -f "docs/releases/current.md" ]; then
-            # Remove lines starting with > (comments) and the H1 heading, trim blank lines at start
-            NOTES=$(sed '/^> /d;/^# /d' docs/releases/current.md | sed '/^[[:space:]]*$/d' | head -60)
-          fi
 
           VERSION="${{ needs.build-and-push.outputs.version }}"
           COMMIT_SHA="${{ github.sha }}"
           DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Escape for JSON (basic — newlines → \n)
+          # --- Step 1: Check for manual release notes in docs/releases/current.md ---
+          NOTES=""
+          if [ -f "docs/releases/current.md" ]; then
+            MANUAL=$(sed '/^>/d;/^#/d;/^[[:space:]]*$/d;/^-$/d;/^- *$/d' docs/releases/current.md | head -60)
+            if [ -n "$MANUAL" ]; then
+              NOTES="$MANUAL"
+              echo "Using manually written release notes"
+            fi
+          fi
+
+          # --- Step 2: Auto-generate with Gemini 2.5 Flash if no manual notes ---
+          if [ -z "$NOTES" ] && [ -n "$GEMINI_API_KEY" ]; then
+            echo "No manual notes — generating with Gemini 2.5 Flash..."
+
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges | head -40)
+            else
+              COMMITS=$(git log -20 --pretty=format:"- %s" --no-merges)
+            fi
+            [ -z "$COMMITS" ] && COMMITS="- (no commits found)"
+
+            PROMPT_TEXT="Ты — AI-ассистент бизнес-парка Деловой (Селятино). Сгенерируй краткие release notes на русском для Telegram.
+          Правила:
+          - Маркированный список, 3-7 пунктов
+          - Группируй: новое, исправления, техническое
+          - Понятно для менеджеров, не для разработчиков
+          - Только плоский текст с дефисами, без markdown
+          - Без заголовков, версии или даты
+          - Макс 500 символов
+
+          Коммиты:
+          ${COMMITS}"
+
+            PROMPT_JSON=$(printf '%s' "$PROMPT_TEXT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+            GEMINI_RESPONSE=$(curl -s --max-time 30 \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"contents\":[{\"parts\":[{\"text\":${PROMPT_JSON}}]}]}")
+
+            NOTES=$(echo "$GEMINI_RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              print(data['candidates'][0]['content']['parts'][0]['text'].strip())
+          except Exception:
+              print('')
+          " 2>/dev/null)
+
+            if [ -n "$NOTES" ]; then
+              echo "AI-generated release notes:"
+              echo "$NOTES"
+            else
+              echo "Gemini failed — falling back to commit list"
+              NOTES="$COMMITS"
+            fi
+
+          elif [ -z "$NOTES" ]; then
+            echo "No GEMINI_API_KEY — using raw commit list"
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              NOTES=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges | head -20)
+            else
+              NOTES=$(git log -10 --pretty=format:"- %s" --no-merges)
+            fi
+          fi
+
+          # --- Step 3: Send to subscribers ---
           NOTES_JSON=$(printf '%s' "$NOTES" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
 
-          PAYLOAD=$(cat <<EOF
+          PAYLOAD=$(cat <<EOFPAYLOAD
           {
-            "secret": "$RELEASE_NOTIFY_SECRET",
-            "version": "$VERSION",
-            "releaseNotes": $NOTES_JSON,
-            "commitSha": "$COMMIT_SHA",
-            "deployedAt": "$DEPLOYED_AT"
+            "secret": "${RELEASE_NOTIFY_SECRET}",
+            "version": "${VERSION}",
+            "releaseNotes": ${NOTES_JSON},
+            "commitSha": "${COMMIT_SHA}",
+            "deployedAt": "${DEPLOYED_AT}"
           }
-          EOF
+          EOFPAYLOAD
           )
 
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
             "${APP_URL}/api/admin/release-notify")
-
           echo "Release notify response: $RESPONSE"
 
-          # Archive current.md → docs/releases/{version}-{date}.md and reset template
+          # --- Step 4: Archive release notes ---
           ARCHIVE_NAME="docs/releases/${VERSION}-$(date +%Y-%m-%d).md"
-          if [ -f "docs/releases/current.md" ]; then
-            cp docs/releases/current.md "$ARCHIVE_NAME" || true
-            git config user.email "ci@delovoy-park.ru"
-            git config user.name "Delovoy CI"
-            git add "$ARCHIVE_NAME" || true
-            cat > docs/releases/current.md << 'TEMPLATE'
+          echo "# Release v${VERSION} — $(date +%Y-%m-%d)" > "$ARCHIVE_NAME"
+          echo "" >> "$ARCHIVE_NAME"
+          echo "$NOTES" >> "$ARCHIVE_NAME"
+
+          cat > docs/releases/current.md << 'EOFTEMPLATE'
           # Что выкатилось в этом релизе
 
-          > Заполни этот файл перед деплоем. После успешного деплоя файл архивируется автоматически.
+          > Заполни вручную перед деплоем. Если оставить пустым — AI сгенерирует из git log.
 
           ## Новое
 
@@ -280,13 +340,14 @@ jobs:
           ## Технические изменения
 
           -
-          TEMPLATE
-            # Strip leading whitespace from heredoc (YAML indentation artifact)
-            sed -i 's/^          //' docs/releases/current.md
-            git add docs/releases/current.md || true
-            git diff --staged --quiet || git commit -m "chore(releases): archive v${VERSION} release notes [skip ci]" || true
-            git push origin HEAD || true
-          fi
+          EOFTEMPLATE
+          sed -i 's/^          //' docs/releases/current.md
+
+          git config user.email "ci@delovoy-park.ru"
+          git config user.name "Delovoy CI"
+          git add "$ARCHIVE_NAME" docs/releases/current.md || true
+          git diff --staged --quiet || git commit -m "chore(releases): archive v${VERSION} notes [skip ci]" || true
+          git push origin HEAD || true
 
       - name: Notify on failure
         if: failure()
