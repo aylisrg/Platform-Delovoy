@@ -47,6 +47,7 @@ export function UsersList() {
   const [savingRole, setSavingRole] = useState<string | null>(null);
   const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
   const [togglingRelease, setTogglingRelease] = useState<string | null>(null);
+  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
 
   const fetchUsers = useCallback(async (searchQuery?: string) => {
     try {
@@ -336,6 +337,15 @@ export function UsersList() {
                             onClick={() => handleReleaseNotifyToggle(user)}
                           />
                         )}
+                        {user.email && (
+                          <button
+                            onClick={() => setResetPasswordUser(user)}
+                            className="rounded-lg border border-orange-200 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50 transition-colors"
+                            title="Сбросить пароль"
+                          >
+                            Пароль
+                          </button>
+                        )}
                         <button
                           onClick={() => setPermissionsUser(user)}
                           className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
@@ -371,6 +381,129 @@ export function UsersList() {
           onSaved={() => fetchUsers(search || undefined)}
         />
       )}
+
+      {/* Reset Password Modal */}
+      {resetPasswordUser && (
+        <ResetPasswordModal
+          userId={resetPasswordUser.id}
+          userName={resetPasswordUser.name}
+          userEmail={resetPasswordUser.email}
+          onClose={() => setResetPasswordUser(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResetPasswordModal({
+  userId,
+  userName,
+  userEmail,
+  onClose,
+}: {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/users/${userId}/password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDone(true);
+      } else {
+        setError(data.error?.message || "Ошибка сброса пароля");
+      }
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Сброс пароля</h2>
+            <p className="text-sm text-zinc-500">
+              {userName || "Без имени"} · {userEmail}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-6 py-4">
+          {done ? (
+            <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-sm text-green-700">
+              Пароль успешно обновлён. Пользователь может войти с новым паролем.
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Новый пароль</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  autoFocus
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="Минимум 6 символов"
+                />
+              </div>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={saving || password.length < 6}
+                  className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "Сохранение..." : "Установить пароль"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+                >
+                  Отмена
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+        {done && (
+          <div className="flex justify-end border-t border-zinc-200 px-6 py-4">
+            <button
+              onClick={onClose}
+              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
+            >
+              Закрыть
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
