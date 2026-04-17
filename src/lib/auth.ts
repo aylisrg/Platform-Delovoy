@@ -141,7 +141,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               // New user — PrismaAdapter will create them after signIn returns true.
               // We'll update on the next jwt callback when the id is available.
               // Store in user object so jwt callback can pick it up.
-              (user as Record<string, unknown>)._yandexExtra = extra;
+              (user as unknown as Record<string, unknown>)._yandexExtra = extra;
             }
           } catch (err) {
             // Never block sign-in due to profile enrichment failure
@@ -167,7 +167,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // On first login: save Yandex extra fields for new users
       // (signIn callback couldn't update because the user didn't exist yet)
       if (user && result.id) {
-        const yandexExtra = (user as Record<string, unknown>)._yandexExtra as
+        const yandexExtra = (user as unknown as Record<string, unknown>)._yandexExtra as
           | { phone?: string; birthday?: Date; gender?: string }
           | undefined;
 
