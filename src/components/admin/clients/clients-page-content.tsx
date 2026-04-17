@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { MergeDialog } from "./merge-dialog";
 
 type ModuleUsage = {
   moduleSlug: string;
@@ -87,6 +89,8 @@ function formatRelativeDate(iso: string): string {
 }
 
 export function ClientsPageContent() {
+  const { data: session } = useSession();
+  const isSuperadmin = session?.user?.role === "SUPERADMIN";
   const [clients, setClients] = useState<Client[]>([]);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +101,7 @@ export function ClientsPageContent() {
   const [sortOrder, setSortOrder] = useState("desc");
   const [page, setPage] = useState(0);
   const perPage = 25;
+  const [mergeClient, setMergeClient] = useState<{ id: string; name: string } | null>(null);
 
   const fetchClients = useCallback(async () => {
     try {
@@ -285,6 +290,7 @@ export function ClientsPageContent() {
                   <th className="px-6 py-3 font-medium">Потрачено</th>
                   <th className="px-6 py-3 font-medium">Активность</th>
                   <th className="px-6 py-3 font-medium">Регистрация</th>
+                  {isSuperadmin && <th className="px-6 py-3 font-medium text-right">Действия</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-50">
@@ -395,6 +401,16 @@ export function ClientsPageContent() {
                     <td className="px-6 py-3 text-zinc-400">
                       {formatDate(client.createdAt)}
                     </td>
+                    {isSuperadmin && (
+                      <td className="px-6 py-3 text-right">
+                        <button
+                          onClick={() => setMergeClient({ id: client.id, name: client.name || "Без имени" })}
+                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+                        >
+                          Объединить
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -430,6 +446,20 @@ export function ClientsPageContent() {
           </div>
         )}
       </div>
+
+      {/* Merge Dialog */}
+      {mergeClient && (
+        <MergeDialog
+          primaryId={mergeClient.id}
+          primaryName={mergeClient.name}
+          onMerged={() => {
+            setMergeClient(null);
+            fetchClients();
+            fetchStats();
+          }}
+          onClose={() => setMergeClient(null)}
+        />
+      )}
 
       {/* Top spenders */}
       {stats && stats.topSpenders.length > 0 && (

@@ -11,8 +11,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || undefined;
-    const users = await listUsers(search);
-    return apiResponse(users);
+    const role = searchParams.get("role") === "team" ? "team" as const : undefined;
+    const limit = Math.min(Number(searchParams.get("limit")) || 50, 200);
+    const offset = Math.max(Number(searchParams.get("offset")) || 0, 0);
+
+    const { users, total } = await listUsers({ search, role, limit, offset });
+    return apiResponse(users, { total, limit, offset });
   } catch {
     return apiError("INTERNAL_ERROR", "Ошибка загрузки пользователей", 500);
   }

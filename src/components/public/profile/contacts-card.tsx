@@ -1,12 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { signIn } from "next-auth/react";
+
+interface YandexInfo {
+  email: string;
+  name: string | null;
+}
 
 interface Contacts {
   telegram: string | null;
+  yandex: YandexInfo | null;
   email: string | null;
   phone: string | null;
-  vk: string | null;
 }
 
 interface ProfileResponse {
@@ -44,6 +50,15 @@ export function ContactsCard() {
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
+
+  // Detach state
+  const [detachConfirm, setDetachConfirm] = useState<string | null>(null);
+  const [detachLoading, setDetachLoading] = useState(false);
+  const [detachError, setDetachError] = useState("");
+
+  // Telegram link state
+  const [telegramLink, setTelegramLink] = useState<string | null>(null);
+  const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -105,6 +120,48 @@ export function ContactsCard() {
       setNameError("Ошибка соединения");
     } finally {
       setNameSaving(false);
+    }
+  }
+
+  // ── Detach channel ──────────────────────────────────────────────────────────
+
+  async function handleDetach(channel: string) {
+    setDetachLoading(true);
+    setDetachError("");
+    try {
+      const res = await fetch(`/api/profile/contacts/${channel}/detach`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchProfile();
+        setDetachConfirm(null);
+      } else {
+        setDetachError(data.error?.message ?? "Ошибка отвязки");
+      }
+    } catch {
+      setDetachError("Ошибка соединения");
+    } finally {
+      setDetachLoading(false);
+    }
+  }
+
+  // ── Telegram link ───────────────────────────────────────────────────────────
+
+  async function handleTelegramLink() {
+    setTelegramLinkLoading(true);
+    try {
+      const res = await fetch("/api/profile/telegram/generate-link", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTelegramLink(data.data.link);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setTelegramLinkLoading(false);
     }
   }
 
@@ -282,17 +339,53 @@ export function ContactsCard() {
         <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-3">Контакты</p>
         <div className="space-y-3">
           {/* Telegram */}
-          <ContactRow
+          <ContactRowWithDetach
             label="Telegram"
             value={profile.contacts.telegram}
             icon="💬"
+            channel="telegram"
+            isAttached={!!profile.contacts.telegram}
+            onDetach={() => setDetachConfirm("telegram")}
+            onAttach={handleTelegramLink}
+            attachLabel="Привязать Telegram"
+            attachLoading={telegramLinkLoading}
           />
 
-          {/* VK */}
-          <ContactRow
-            label="VK"
-            value={profile.contacts.vk}
-            icon="🎭"
+          {/* Telegram link flow */}
+          {telegramLink && !profile.contacts.telegram && (
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 space-y-2">
+              <p className="text-sm text-zinc-700">
+                Откройте ссылку в Telegram для привязки аккаунта:
+              </p>
+              <a
+                href={telegramLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm text-blue-600 hover:underline break-all"
+              >
+                {telegramLink}
+              </a>
+              <p className="text-xs text-zinc-500">Ссылка действительна 15 минут</p>
+              <button
+                onClick={() => setTelegramLink(null)}
+                className="text-xs text-zinc-500 hover:underline"
+              >
+                Закрыть
+              </button>
+            </div>
+          )}
+
+          {/* Yandex */}
+          <ContactRowWithDetach
+            label="Яндекс"
+            value={profile.contacts.yandex?.email ?? null}
+            icon="Y"
+            iconBg="bg-red-500 text-white"
+            channel="yandex"
+            isAttached={!!profile.contacts.yandex}
+            onDetach={() => setDetachConfirm("yandex")}
+            onAttach={() => signIn("yandex", { callbackUrl: "/dashboard" })}
+            attachLabel="Привязать Яндекс"
           />
 
           {/* Email */}
@@ -308,14 +401,24 @@ export function ContactsCard() {
                 )}
               </div>
             </div>
-            {!profile.contacts.email && activeFlow !== "email" && (
-              <button
-                onClick={() => setActiveFlow("email")}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                Добавить
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {profile.contacts.email && (
+                <button
+                  onClick={() => setDetachConfirm("email")}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  Отвязать
+                </button>
+              )}
+              {!profile.contacts.email && activeFlow !== "email" && (
+                <button
+                  onClick={() => setActiveFlow("email")}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  Добавить
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Email flow */}
@@ -388,14 +491,24 @@ export function ContactsCard() {
                 )}
               </div>
             </div>
-            {!profile.contacts.phone && activeFlow !== "phone" && (
-              <button
-                onClick={() => setActiveFlow("phone")}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                Добавить
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {profile.contacts.phone && (
+                <button
+                  onClick={() => setDetachConfirm("phone")}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  Отвязать
+                </button>
+              )}
+              {!profile.contacts.phone && activeFlow !== "phone" && (
+                <button
+                  onClick={() => setActiveFlow("phone")}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  Добавить
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Phone flow */}
@@ -457,23 +570,72 @@ export function ContactsCard() {
           )}
         </div>
       </div>
+
+      {/* Detach confirmation modal */}
+      {detachConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-base font-semibold text-zinc-900">Отвязать канал?</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Вы уверены? Вы не сможете войти через этот канал после отвязки.
+            </p>
+            {detachError && (
+              <p className="mt-2 text-sm text-red-500">{detachError}</p>
+            )}
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => handleDetach(detachConfirm)}
+                disabled={detachLoading}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {detachLoading ? "Отвязка..." : "Отвязать"}
+              </button>
+              <button
+                onClick={() => { setDetachConfirm(null); setDetachError(""); }}
+                className="flex-1 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ContactRow({
+function ContactRowWithDetach({
   label,
   value,
   icon,
+  iconBg,
+  isAttached,
+  onDetach,
+  onAttach,
+  attachLabel,
+  attachLoading,
 }: {
   label: string;
   value: string | null;
   icon: string;
+  iconBg?: string;
+  channel: string;
+  isAttached: boolean;
+  onDetach: () => void;
+  onAttach: () => void;
+  attachLabel: string;
+  attachLoading?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-zinc-100 px-4 py-3">
       <div className="flex items-center gap-3">
-        <span className="text-lg">{icon}</span>
+        {iconBg ? (
+          <span className={`flex h-7 w-7 items-center justify-center rounded text-xs font-bold ${iconBg}`}>
+            {icon}
+          </span>
+        ) : (
+          <span className="text-lg">{icon}</span>
+        )}
         <div>
           <p className="text-sm font-medium text-zinc-700">{label}</p>
           {value ? (
@@ -482,6 +644,25 @@ function ContactRow({
             <p className="text-xs text-zinc-400">Не привязан</p>
           )}
         </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {isAttached && (
+          <button
+            onClick={onDetach}
+            className="text-xs text-red-500 hover:underline"
+          >
+            Отвязать
+          </button>
+        )}
+        {!isAttached && (
+          <button
+            onClick={onAttach}
+            disabled={attachLoading}
+            className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+          >
+            {attachLoading ? "..." : attachLabel}
+          </button>
+        )}
       </div>
     </div>
   );

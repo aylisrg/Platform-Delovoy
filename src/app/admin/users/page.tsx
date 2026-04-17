@@ -1,5 +1,6 @@
+import { Suspense } from "react";
 import { AdminHeader } from "@/components/admin/header";
-import { UsersList } from "@/components/admin/users/users-list";
+import { UnifiedUsersPage } from "@/components/admin/users/unified-users-page";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +9,9 @@ export default function UsersPage() {
     <>
       <AdminHeader title="Пользователи" />
       <div className="p-8">
-        <UsersList />
+        <Suspense fallback={<div className="text-sm text-zinc-400">Загрузка...</div>}>
+          <UnifiedUsersPage />
+        </Suspense>
       </div>
     </>
   );

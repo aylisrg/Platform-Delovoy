@@ -2,6 +2,8 @@ import { AdminHeader } from "@/components/admin/header";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { TelegramSettings } from "@/components/admin/telegram/telegram-settings";
+import { NotificationFlowMap } from "@/components/admin/notifications/NotificationFlowMap";
 import { getRecentEvents, getEventStats } from "@/modules/monitoring/service";
 import type { EventLevel } from "@prisma/client";
 
@@ -90,6 +92,30 @@ export default async function MonitoringPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+        {/* Telegram & Notifications System */}
+        <div className="mt-8 space-y-8">
+          <section>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-zinc-900">Карта уведомлений</h2>
+              <p className="text-sm text-zinc-500 mt-1">
+                Визуальная схема: какие события куда и кому отправляет бот
+              </p>
+            </div>
+            <NotificationFlowMap />
+          </section>
+
+          <section>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-zinc-900">Настройки Telegram-бота</h2>
+              <p className="text-sm text-zinc-500 mt-1">
+                Chat ID, токены, пользователи Telegram
+              </p>
+            </div>
+            <TelegramSettings />
+          </section>
+        </div>
       </div>
     </>
   );
