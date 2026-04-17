@@ -36,7 +36,7 @@ export async function GET() {
     if (user?.telegramId) availableChannels.push("TELEGRAM");
     if (user?.phone) availableChannels.push("WHATSAPP");
     if (user?.email) availableChannels.push("EMAIL");
-    if (user?.vkId) availableChannels.push("VK");
+    // VK removed from available channels
 
     return apiResponse({
       preference: preference || {
