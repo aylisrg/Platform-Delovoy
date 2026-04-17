@@ -131,3 +131,37 @@
 - **← Developer**: код для проверки
 - **→ Developer**: список исправлений (если NEEDS_CHANGES)
 - **→ QA**: вердикт PASS — можно начинать тестирование
+
+---
+
+## Security — обязательная часть ревью
+
+Ты — **последний шлюз безопасности** перед QA (QA проверяет функциональность, не security). Полный чеклист: **[`agents/SECURITY.md`](./SECURITY.md)**.
+
+Обязательно проверь в каждом PR:
+
+### Secrets leakage
+- [ ] `grep -rE '(password|token|secret|NEXTAUTH|TELEGRAM_.*TOKEN|api[_-]key)' <changed>` — ничего не попадает в response/лог INFO
+- [ ] Нет хардкода паролей, токенов, ИНН в коде
+- [ ] `.env*` не добавлен в git
+
+### RBAC
+- [ ] Каждый новый endpoint проверяет роль ДО бизнес-логики
+- [ ] `MANAGER` дополнительно проверяется через `hasModuleAccess`
+- [ ] `userId` берётся из `session.user.id`, не из body
+- [ ] Нет клиентской-только проверки роли
+
+### Supply chain
+- [ ] Новые зависимости в `package.json`? Если да — обоснованы в ADR и проверены на typosquat
+- [ ] Нет патч-версий без пиннинга (`^` для security-critical — red flag)
+
+### Injection
+- [ ] Нет `$executeRawUnsafe` / raw SQL с user input
+- [ ] HTML из user input санитайзится (DOMPurify или аналог)
+- [ ] Нет `dangerouslySetInnerHTML` с user input
+
+### Dangerous ops
+- [ ] Нет `rm -rf`, `git push --force`, `git reset --hard` в скриптах
+- [ ] Миграции не дропают колонки/таблицы без backward-compat
+
+**Любой найденный инцидент → вердикт NEEDS_CHANGES, независимо от остальных проверок.** Запиши в отчёт отдельный раздел `## Security`.

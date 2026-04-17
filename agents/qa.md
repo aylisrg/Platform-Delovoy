@@ -135,3 +135,31 @@ cafe / ps-park / gazebos / parking / rental / auth / monitoring
 - **← Architect**: получаешь описание edge cases и технических ограничений
 - **← Developer**: получаешь готовый код для тестирования
 - **→ Developer**: передаёшь баг-репорты для исправления
+
+---
+
+## Security
+
+Основная security-проверка — задача Reviewer. QA добавляет **функциональные** security-тесты. Полный набор правил: **[`agents/SECURITY.md`](./SECURITY.md)**.
+
+Обязательные функциональные security-кейсы:
+
+### RBAC
+- [ ] Анонимный запрос к защищённому endpoint → 401
+- [ ] USER пытается дернуть MANAGER-only endpoint → 403
+- [ ] MANAGER модуля A дёргает endpoint модуля B → 403
+- [ ] Прямая подмена `userId` в body не позволяет действовать от чужого имени
+
+### Rate limiting
+- [ ] 60+ запросов/мин с одного IP на публичном endpoint → 429 после лимита
+
+### Input validation
+- [ ] Невалидный JSON → 400 с `VALIDATION_ERROR`
+- [ ] Поля сверх Zod-схемы игнорируются (не доходят до БД)
+- [ ] SQL-like строки (`' OR 1=1--`) в полях — безопасно (Prisma параметризует)
+
+### Data leakage
+- [ ] Публичные endpoint'ы не возвращают `email`, `phone`, `inn` других пользователей
+- [ ] Ошибки 500 в production не содержат stack trace или пути файлов
+
+Если хотя бы один security-кейс FAIL → вердикт FAIL, даже если всё остальное PASS.
