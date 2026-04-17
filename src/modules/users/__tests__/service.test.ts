@@ -171,6 +171,7 @@ describe("listUsers", () => {
             { name: { contains: "test", mode: "insensitive" } },
             { email: { contains: "test", mode: "insensitive" } },
             { phone: { contains: "test", mode: "insensitive" } },
+            { telegramId: { contains: "test", mode: "insensitive" } },
           ],
         },
       ],

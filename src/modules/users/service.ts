@@ -67,6 +67,7 @@ export async function listUsers(options?: {
         { name: { contains: search, mode: "insensitive" as const } },
         { email: { contains: search, mode: "insensitive" as const } },
         { phone: { contains: search, mode: "insensitive" as const } },
+        { telegramId: { contains: search, mode: "insensitive" as const } },
       ],
     });
   }

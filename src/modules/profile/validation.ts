@@ -34,6 +34,6 @@ export const attachPhoneConfirmSchema = z.object({
 
 export const detachChannelSchema = z.object({
   channel: z.enum(["telegram", "email", "phone", "yandex"], {
-    errorMap: () => ({ message: "Неподдерживаемый канал" }),
+    message: "Неподдерживаемый канал",
   }),
 });
