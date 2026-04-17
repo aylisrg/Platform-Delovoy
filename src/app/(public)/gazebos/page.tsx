@@ -4,6 +4,7 @@ import { listResources } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
+import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
@@ -97,6 +98,15 @@ export default async function GazebosPage() {
           )}
         </div>
       </section>
+
+      {/* Call widget */}
+      {phoneInfo && (
+        <CallWidget
+          phone={phoneInfo.phone}
+          displayPhone={phoneInfo.displayPhone}
+          variant="light"
+        />
+      )}
 
       {/* Gazebo cards */}
       <section className="px-6 pb-20">

@@ -7,6 +7,7 @@ import { AdvantagesSection } from "@landing/components/advantages-section";
 import { ReviewsSection } from "@landing/components/reviews-section";
 import { ContactsSection } from "@landing/components/contacts-section";
 import { Footer } from "@landing/components/footer";
+import { FadeInSection } from "@/components/ui/fade-in-section";
 
 export const metadata: Metadata = {
   title: "Деловой Парк — Бизнес-парк в Селятино",
@@ -116,10 +117,18 @@ export default function Home() {
         <Navbar />
         <HeroSectionWithVideo />
         <OfficesSection />
-        <ServicesSection />
-        <AdvantagesSection />
-        <ReviewsSection />
-        <ContactsSection />
+        <FadeInSection delay={0}>
+          <ServicesSection />
+        </FadeInSection>
+        <FadeInSection delay={0.05}>
+          <AdvantagesSection />
+        </FadeInSection>
+        <FadeInSection delay={0.05}>
+          <ReviewsSection />
+        </FadeInSection>
+        <FadeInSection delay={0.05}>
+          <ContactsSection />
+        </FadeInSection>
         <Footer />
       </div>
     </>

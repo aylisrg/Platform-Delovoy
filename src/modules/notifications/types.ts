@@ -42,5 +42,12 @@ export interface ChannelAdapter {
     message: string,
     options?: { botToken?: string }
   ): Promise<{ success: boolean; error?: string }>;
+  /** Send with pre-rendered HTML (email only). Falls back to send() if not implemented. */
+  sendHtml?(
+    recipient: string,
+    subject: string,
+    html: string,
+    text: string
+  ): Promise<{ success: boolean; error?: string }>;
   resolveRecipient(user: UserWithContacts): string | null;
 }

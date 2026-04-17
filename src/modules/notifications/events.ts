@@ -12,13 +12,13 @@ type EventRoute = {
 
 export const EVENT_ROUTING: Record<string, EventRoute> = {
   // Bookings (gazebos, ps-park)
-  "booking.created": { client: false, admin: true, category: "booking" },
+  "booking.created": { client: true, admin: true, category: "booking" },
   "booking.confirmed": { client: true, admin: false, category: "booking" },
   "booking.cancelled": { client: true, admin: true, category: "booking" },
   "booking.reminder": { client: true, admin: false, category: "reminder" },
 
   // Cafe orders
-  "order.placed": { client: false, admin: true, category: "order" },
+  "order.placed": { client: true, admin: true, category: "order" },
   "order.preparing": { client: true, admin: false, category: "order" },
   "order.ready": { client: true, admin: false, category: "order" },
   "order.delivered": { client: true, admin: false, category: "order" },

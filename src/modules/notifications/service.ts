@@ -3,6 +3,7 @@ import type { NotificationChannel } from "@prisma/client";
 import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
 import { renderClientMessage, renderAdminMessage } from "./templates";
+import { renderEmailTemplate } from "./email-templates";
 import { resolveChannelForUser, getAdapter } from "./channels/index";
 import { telegramAdapter } from "./channels/telegram";
 
@@ -102,7 +103,53 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
       return;
     }
 
-    // Render message
+    // Get adapter
+    const adapter = getAdapter(resolved.channel);
+    if (!adapter) return;
+
+    // ── Email: use HTML template with dedup guard ──────────────────────────
+    if (resolved.channel === "EMAIL" && adapter.sendHtml) {
+      // Dedup: skip if this exact event was already emailed successfully
+      const alreadySent = await prisma.notificationLog.findFirst({
+        where: {
+          entityId: event.entityId,
+          eventType: event.type,
+          channel: "EMAIL",
+          status: "SENT",
+        },
+      });
+      if (alreadySent) return;
+
+      const emailTemplate = renderEmailTemplate(
+        event.moduleSlug,
+        event.type,
+        event.data
+      );
+
+      if (emailTemplate) {
+        const result = await adapter.sendHtml(
+          resolved.recipient,
+          emailTemplate.subject,
+          emailTemplate.html,
+          emailTemplate.text
+        );
+        await logNotification({
+          userId: event.userId,
+          channel: resolved.channel,
+          eventType: event.type,
+          moduleSlug: event.moduleSlug,
+          entityId: event.entityId,
+          recipient: resolved.recipient,
+          message: emailTemplate.text,
+          status: result.success ? "SENT" : "FAILED",
+          error: result.error,
+        });
+        return;
+      }
+      // No HTML template → fall through to plain-text path
+    }
+
+    // ── Plain text (Telegram, WhatsApp, etc.) ─────────────────────────────
     const message = renderClientMessage(
       event.moduleSlug,
       event.type,
@@ -116,10 +163,6 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
       const config = await getModuleBotConfig(event.moduleSlug);
       botToken = config.telegramBotToken;
     }
-
-    // Send
-    const adapter = getAdapter(resolved.channel);
-    if (!adapter) return;
 
     const result = await adapter.send(resolved.recipient, message, { botToken });
 

@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { EVENT_ROUTING } from "../events";
 
 describe("EVENT_ROUTING", () => {
-  it("booking.created goes to admin only", () => {
+  it("booking.created goes to both client and admin", () => {
     expect(EVENT_ROUTING["booking.created"]).toEqual({
-      client: false,
+      client: true,
       admin: true,
       category: "booking",
     });
@@ -26,9 +26,9 @@ describe("EVENT_ROUTING", () => {
     });
   });
 
-  it("order.placed goes to admin only", () => {
+  it("order.placed goes to both client and admin", () => {
     expect(EVENT_ROUTING["order.placed"]).toEqual({
-      client: false,
+      client: true,
       admin: true,
       category: "order",
     });

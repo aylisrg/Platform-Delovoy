@@ -18,6 +18,7 @@ on:
           - server-shutdown        # Выключить сервер
           - server-start           # Включить сервер
           - server-logs            # Логи контейнеров (через SSH)
+          - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
           - backup-create          # Создать снапшот сервера
           - backup-list            # Список снапшотов
@@ -178,6 +179,24 @@ jobs:
             echo ""
             echo "=== Docker Disk ==="
             docker system df
+
+      - name: DB Migrate (via SSH)
+        if: inputs.action == 'db-migrate'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            echo "=== Applying migration: add_user_birthday_gender ==="
+            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
+              psql -U delovoy delovoy_park -c \
+              "ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"birthday\" TIMESTAMP(3); ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"gender\" TEXT;"
+            echo "=== Verifying columns ==="
+            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
+              psql -U delovoy delovoy_park -c "\d \"User\"" | grep -E "birthday|gender"
+            echo "=== Migration complete ==="
 
       # ==================== BACKUPS ====================
 
