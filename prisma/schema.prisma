@@ -21,6 +21,8 @@ model User {
   role          Role      @default(USER)
   telegramId    String?   @unique
   vkId          String?   @unique
+  birthday      DateTime?          // Дата рождения (из Яндекс OAuth / профиля)
+  gender        String?            // "male" | "female" | null (из Яндекс OAuth)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
