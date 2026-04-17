@@ -9,20 +9,24 @@ export function HeroSectionWithVideo() {
 
   return (
     <section className="relative min-h-screen flex flex-col justify-center bg-[#f5f5f7] pt-14 overflow-hidden">
-      {/* Video background (desktop only) */}
+      {/* Video background + fog (desktop only) */}
       {!videoError && (
-        <video
-          className="absolute inset-0 w-full h-full object-cover hidden md:block"
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="metadata"
-          poster="/media/hero-poster.jpg"
-          onError={() => setVideoError(true)}
-        >
-          <source src="/media/hero.mp4" type="video/mp4" />
-        </video>
+        <div className="absolute inset-0 hidden md:block">
+          <video
+            className="w-full h-full object-cover"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            poster="/media/hero-poster.jpg"
+            onError={() => setVideoError(true)}
+          >
+            <source src="/media/hero.mp4" type="video/mp4" />
+          </video>
+          {/* White fog — only over the video */}
+          <div className="absolute inset-0 bg-white/60" />
+        </div>
       )}
 
       {/* Mobile poster */}
@@ -37,11 +41,8 @@ export function HeroSectionWithVideo() {
         />
       </div>
 
-      {/* Light overlay for text readability */}
-      <div className="absolute inset-0 bg-white/40 z-[1]" />
-
       {/* Content */}
-      <div className="relative z-10 max-w-[1200px] mx-auto w-full py-24 md:py-32 px-6">
+      <div className="relative z-[10] max-w-[1200px] mx-auto w-full py-24 md:py-32 px-6">
         {/* Yandex rating badge */}
         <a
           href={yandexMapsUrl}
