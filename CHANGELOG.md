@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.2.0...v1.3.0) (2026-04-17)
+
+
+### Features
+
+* **admin:** mobile-first redesign of admin panel ([#104](https://github.com/aylisrg/Platform-Delovoy/issues/104)) ([d03ec32](https://github.com/aylisrg/Platform-Delovoy/commit/d03ec32c2efe51fcbcfdd4abe2282164d94fdb4c))
+* **agents:** поднять agent flow до 10/10 — security, evals, native sub-agents, dashboard ([#106](https://github.com/aylisrg/Platform-Delovoy/issues/106)) ([87cda1f](https://github.com/aylisrg/Platform-Delovoy/commit/87cda1f70cf5baa647a95f1c271e0cadae3c8eee))
+* **dashboard:** server status widget with host metrics ([#105](https://github.com/aylisrg/Platform-Delovoy/issues/105)) ([cb65366](https://github.com/aylisrg/Platform-Delovoy/commit/cb65366d0a600a70403501a3c1c90de5269e4337))
+* **notifications:** Telegram release notifications ([#97](https://github.com/aylisrg/Platform-Delovoy/issues/97)) ([2cc92b9](https://github.com/aylisrg/Platform-Delovoy/commit/2cc92b90d2b2a83f28c870ea21e9b53120ee5473))
+* аналитика рекламы, release notes, profile auth, Novofon CRM ([#102](https://github.com/aylisrg/Platform-Delovoy/issues/102)) ([6445fdb](https://github.com/aylisrg/Platform-Delovoy/commit/6445fdbcdc40a9a0826c733b5ca70ebd57b50dd4))
+
+
+### Bug Fixes
+
+* **auth:** hotfix manager email+password login — 3 bugs ([#108](https://github.com/aylisrg/Platform-Delovoy/issues/108)) ([620d9f3](https://github.com/aylisrg/Platform-Delovoy/commit/620d9f32dc5a142e54126dbc05bcf1f5ee2ecef1))
+* **ci:** aggressive Docker cleanup — disk 100% full ([5263668](https://github.com/aylisrg/Platform-Delovoy/commit/52636684963eba942c4a4eccff1d9a7dd8ca1ad3))
+* **users:** auto-assign dashboard permission when creating MANAGER ([#99](https://github.com/aylisrg/Platform-Delovoy/issues/99)) ([86aebc1](https://github.com/aylisrg/Platform-Delovoy/commit/86aebc19d2eb2f86354a65142bf2ec98c5d5a1df))
+
 ## [1.2.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.1.0...v1.2.0) (2026-04-16)
 
 
