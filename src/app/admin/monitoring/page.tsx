@@ -53,12 +53,20 @@ export default async function MonitoringPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-zinc-900">Последние события</h2>
-              <a
-                href="/admin/architect/logs"
-                className="text-sm text-blue-600 hover:underline"
-              >
-                Полный лог и аудит →
-              </a>
+              <div className="flex gap-4">
+                <a
+                  href="/admin/monitoring/pipelines"
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Pipeline агентов →
+                </a>
+                <a
+                  href="/admin/architect/logs"
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Полный лог и аудит →
+                </a>
+              </div>
             </div>
           </CardHeader>
           <CardContent>

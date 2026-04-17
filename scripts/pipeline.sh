@@ -52,6 +52,8 @@ TASK=""
 CUSTOM_RUN_ID=""
 AUTO_PR=true
 BASE_BRANCH=""
+RESUME_RUN_ID=""
+WITH_ANALYTICS=false
 
 # ── Parse args ──────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -94,6 +96,14 @@ while [[ $# -gt 0 ]]; do
       MAX_QA_ITERATIONS="$2"
       shift 2
       ;;
+    --resume)
+      RESUME_RUN_ID="$2"
+      shift 2
+      ;;
+    --with-analytics)
+      WITH_ANALYTICS=true
+      shift
+      ;;
     -h|--help)
       cat <<'HELPEOF'
 Usage: ./scripts/pipeline.sh [options] "Описание задачи"
@@ -108,6 +118,11 @@ Options:
   --run-id ID           Custom run ID (default: auto-generated)
   --no-pr               Don't create PR at the end
   --max-iterations N    Max QA↔Developer iterations (default: 3)
+  --resume RUN_ID       Resume a previously interrupted pipeline run.
+                        Reads docs/pipeline-runs/RUN_ID.state.json and
+                        skips already-completed stages.
+  --with-analytics      Run post-release analytics stage after QA (reads
+                        artefacts, proposes metrics to track).
   -h, --help            Show this help
 
 Environment variables:
@@ -130,14 +145,76 @@ HELPEOF
   esac
 done
 
+# ── Resume from saved state ─────────────────────────────────────────
+#
+# --resume <RUN_ID> reads docs/pipeline-runs/<RUN_ID>.state.json, restores TASK
+# and prunes STAGES to skip already-completed ones. Requires `jq` (standard
+# on most systems) or falls back to bash grep.
+if [[ -n "$RESUME_RUN_ID" ]]; then
+  RESUME_STATE="$DOCS_DIR/pipeline-runs/${RESUME_RUN_ID}.state.json"
+  if [[ ! -f "$RESUME_STATE" ]]; then
+    echo -e "${RED}Error: state file not found: $RESUME_STATE${NC}"
+    exit 1
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    RESUMED_TASK=$(jq -r '.task' "$RESUME_STATE")
+    COMPLETED=$(jq -r '.completed_stages[]' "$RESUME_STATE" | tr '\n' ' ')
+  else
+    # Fallback: extract task and completed stages without jq
+    RESUMED_TASK=$(sed -n 's/.*"task":[[:space:]]*"\([^"]*\)".*/\1/p' "$RESUME_STATE" | head -1)
+    COMPLETED=$(sed -n '/"completed_stages"/,/\]/p' "$RESUME_STATE" \
+      | grep -oE '"[a-z]+"' | tr -d '"' | tr '\n' ' ')
+  fi
+
+  if [[ -z "$TASK" ]]; then
+    TASK="$RESUMED_TASK"
+  fi
+  CUSTOM_RUN_ID="$RESUME_RUN_ID"
+
+  # Build new STAGES list without completed ones, but only from ALL_STAGES
+  NEW_STAGES=()
+  for s in "${STAGES[@]}"; do
+    skip=false
+    for c in $COMPLETED; do
+      [[ "$s" == "$c" ]] && skip=true
+    done
+    if ! $skip; then
+      NEW_STAGES+=("$s")
+    fi
+  done
+  STAGES=("${NEW_STAGES[@]}")
+
+  echo -e "${CYAN}Resuming run $RESUME_RUN_ID${NC}"
+  echo -e "${CYAN}  Completed: ${COMPLETED:-none}${NC}"
+  echo -e "${CYAN}  Remaining: ${STAGES[*]:-none}${NC}"
+
+  if [[ ${#STAGES[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}Nothing to resume — all requested stages already completed.${NC}"
+    exit 0
+  fi
+fi
+
 if [[ -z "$TASK" ]]; then
   echo -e "${RED}Error: task description required${NC}"
   echo "Usage: ./scripts/pipeline.sh \"Описание задачи\""
   exit 1
 fi
 
+# Append analytics stage if requested
+if $WITH_ANALYTICS; then
+  # Only append if not already present
+  HAS_ANALYTICS=false
+  for s in "${STAGES[@]}"; do
+    [[ "$s" == "analytics" ]] && HAS_ANALYTICS=true
+  done
+  if ! $HAS_ANALYTICS; then
+    STAGES+=("analytics")
+  fi
+fi
+
 # ── Ensure docs directories exist ───────────────────────────────────
-mkdir -p "$DOCS_DIR/requirements" "$DOCS_DIR/architecture" "$DOCS_DIR/qa-reports" "$DOCS_DIR/context"
+mkdir -p "$DOCS_DIR/requirements" "$DOCS_DIR/architecture" "$DOCS_DIR/qa-reports" "$DOCS_DIR/context" "$DOCS_DIR/analytics"
 
 # ── Slug from task (for filenames) ──────────────────────────────────
 if [[ -n "$CUSTOM_RUN_ID" ]]; then
@@ -151,10 +228,57 @@ fi
 LOG_DIR="$DOCS_DIR/pipeline-runs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/${RUN_ID}.log"
+METRICS_FILE="$LOG_DIR/${RUN_ID}.metrics.jsonl"
+STATE_FILE="$LOG_DIR/${RUN_ID}.state.json"
 
 log() {
   local msg="[$(date '+%H:%M:%S')] $1"
   echo -e "$msg" | tee -a "$LOG_FILE"
+}
+
+# ── JSON metrics (one JSONL event per stage) ────────────────────────
+#
+# Каждая стадия пишет одну строку JSON в $METRICS_FILE:
+#   {"ts":"2026-04-16T14:23:01Z","run_id":"...","stage":"po",
+#    "iteration":0,"model":"sonnet","status":"completed",
+#    "duration_sec":87,"verdict":"PASS","exit_code":0}
+#
+# Используется для:
+#   - /admin/monitoring/pipelines — дашборд метрик
+#   - scripts/agents-eval.ts — регрессионные прогоны
+#   - CI watchdog — алерты при падении pipeline
+metric() {
+  local stage="$1" iteration="$2" model="$3" status="$4" duration="$5" verdict="$6" exit_code="$7"
+  local ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Экранируем task (могут быть кавычки)
+  local task_esc="${TASK//\"/\\\"}"
+  printf '{"ts":"%s","run_id":"%s","task":"%s","stage":"%s","iteration":%s,"model":"%s","status":"%s","duration_sec":%s,"verdict":"%s","exit_code":%s}\n' \
+    "$ts" "$RUN_ID" "$task_esc" "$stage" "$iteration" "$model" "$status" "$duration" "$verdict" "$exit_code" \
+    >> "$METRICS_FILE"
+}
+
+# ── State persistence (for --resume) ────────────────────────────────
+#
+# Сохраняем состояние после каждой успешной стадии чтобы можно было продолжить
+# с места падения. Формат:
+#   {"run_id":"...","task":"...","completed_stages":["po","architect"],
+#    "last_stage":"architect","last_iteration":0,"started_at":"..."}
+save_state() {
+  local completed_stages="$1" last_stage="$2" last_iteration="$3"
+  local ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local task_esc="${TASK//\"/\\\"}"
+  cat > "$STATE_FILE" <<EOF
+{
+  "run_id": "$RUN_ID",
+  "task": "$task_esc",
+  "completed_stages": [$completed_stages],
+  "last_stage": "$last_stage",
+  "last_iteration": $last_iteration,
+  "updated_at": "$ts"
+}
+EOF
 }
 
 # ── Model selection per stage ───────────────────────────────────────
@@ -166,6 +290,7 @@ get_stage_model() {
     developer) echo "opus" ;;       # Code generation — Opus writes better code
     reviewer)  echo "sonnet" ;;     # Checklist-based review — Sonnet is sufficient
     qa)        echo "sonnet" ;;     # Testing, verification — Sonnet is sufficient
+    analytics) echo "sonnet" ;;     # Metrics / reports — Sonnet is sufficient
     *)         echo "sonnet" ;;
   esac
 }
@@ -185,6 +310,7 @@ get_allowed_tools() {
     developer) echo "default" ;;
     reviewer)  echo "Read,Write,Glob,Grep,Bash,Agent" ;;
     qa)        echo "Read,Write,Glob,Grep,Bash,Agent" ;;
+    analytics) echo "Read,Write,Glob,Grep,Bash,Agent" ;;
   esac
 }
 
@@ -196,6 +322,7 @@ get_permission_mode() {
     developer) echo "acceptEdits" ;;
     reviewer)  echo "acceptEdits" ;;
     qa)        echo "acceptEdits" ;;
+    analytics) echo "acceptEdits" ;;
   esac
 }
 
@@ -207,6 +334,7 @@ get_stage_label() {
     developer) echo "💻 DEV" ;;
     reviewer)  echo "🔍 REVIEW" ;;
     qa)        echo "🧪 QA" ;;
+    analytics) echo "📈 ANALYTICS" ;;
   esac
 }
 
@@ -436,6 +564,35 @@ $(cat "$DOCS_DIR/qa-reports/${RUN_ID}-review.md")"
 6. Если нашёл баги — опиши их в отчёте с шагами воспроизведения
 7. В конце отчёта обязательно укажи итоговый вердикт: **PASS** или **FAIL**"
       ;;
+
+    analytics)
+      local prd_content
+      prd_content="$(cat "$DOCS_DIR/requirements/${RUN_ID}-prd.md" 2>/dev/null || echo 'Нет PRD')"
+
+      prompt="## Задача — post-release аналитика
+
+${TASK}
+
+## PRD (включая метрики успеха)
+
+${prd_content}
+
+## Контекст — Решения предыдущих стейджей
+
+${context_content}
+
+## Инструкции
+
+1. Прочитай раздел 'Метрики успеха' в PRD — baseline и target
+2. Исследуй структуру БД (prisma/schema.prisma) — какие таблицы релевантны
+3. Напиши аналитический отчёт: как именно будем измерять эффект этой фичи
+4. Предложи SQL-запросы (read-only, без PII) для подсчёта метрик
+5. Предложи Telegram-дайджест: что отправлять суперадмину еженедельно
+6. Сохрани отчёт в: docs/analytics/${RUN_ID}-post-release-analytics.md
+7. Формат — по шаблону из agents/analytics.md (Цель, Источники, Методология, SQL, Рекомендации)
+
+НЕ меняй код. НЕ запускай реальные запросы к продакшен БД."
+      ;;
   esac
 
   echo "$prompt"
@@ -483,6 +640,8 @@ run_stage() {
     stage_log="$LOG_DIR/${RUN_ID}-${stage}-fix-${iteration}.log"
   fi
   local exit_code=0
+  local started_at
+  started_at="$(date +%s)"
 
   # Build claude command
   local cmd=(
@@ -502,42 +661,139 @@ run_stage() {
   # Run claude with the prompt piped in
   echo "$user_prompt" | "${cmd[@]}" 2>&1 | tee "$stage_log" || exit_code=$?
 
+  local duration=$(( $(date +%s) - started_at ))
+
+  # Read verdict from artifact if it's a judge stage
+  local verdict="n/a"
+  case "$stage" in
+    reviewer)
+      if [[ -f "$DOCS_DIR/qa-reports/${RUN_ID}-review.md" ]]; then
+        if verdict_status "$DOCS_DIR/qa-reports/${RUN_ID}-review.md"; then
+          verdict="PASS"
+        else
+          verdict="NEEDS_CHANGES"
+        fi
+      fi
+      ;;
+    qa)
+      if [[ -f "$DOCS_DIR/qa-reports/${RUN_ID}-qa-report.md" ]]; then
+        if verdict_status "$DOCS_DIR/qa-reports/${RUN_ID}-qa-report.md"; then
+          verdict="PASS"
+        else
+          verdict="FAIL"
+        fi
+      fi
+      ;;
+  esac
+
   if [[ $exit_code -ne 0 ]]; then
     log "${RED}${label} Stage $stage FAILED (exit code: $exit_code)${NC}"
     log "${RED}See log: $stage_log${NC}"
+    metric "$stage" "$iteration" "$model" "failed" "$duration" "$verdict" "$exit_code"
     return $exit_code
   fi
 
-  log "${GREEN}${label} Stage $stage completed${NC}"
+  metric "$stage" "$iteration" "$model" "completed" "$duration" "$verdict" 0
+  log "${GREEN}${label} Stage $stage completed in ${duration}s (verdict: $verdict)${NC}"
   log ""
 }
 
-# ── QA ↔ Developer feedback loop ────────────────────────────────────
-run_dev_qa_loop() {
-  # First run: Developer + Reviewer + QA
-  run_stage "developer" 0
-  run_stage "reviewer" 0
-  run_stage "qa" 0
+# ── Verdict parsing ─────────────────────────────────────────────────
+#
+# Каждый judge-агент (Reviewer, QA) выдаёт вердикт PASS или NEEDS_CHANGES/FAIL.
+# Мы ищем одну из строк в отчёте — case-insensitive, захватывает typical phrasing:
+#   "Вердикт: PASS" / "## Вердикт: PASS" / "Итог: PASS" / "# Verdict: PASS"
+# Если нашли хотя бы один FAIL/NEEDS_CHANGES — считаем что не прошло.
+#
+# Возврат: 0 = PASS, 1 = FAIL/NEEDS_CHANGES, 2 = отчёт отсутствует
+verdict_status() {
+  local report="$1"
+  [[ -f "$report" ]] || return 2
 
-  # Check QA report for failures
-  local qa_report="$DOCS_DIR/qa-reports/${RUN_ID}-qa-report.md"
+  if grep -qiE "(fail|needs[_ ]changes|требует.*правк|необходим.*исправ)" "$report"; then
+    return 1
+  fi
+  if grep -qiE "(вердикт|итог|результат|verdict|outcome)\s*[:*]*\s*\**\s*pass" "$report" \
+     || grep -qiE "^##?\s*.*pass\b" "$report"; then
+    return 0
+  fi
+  # Нет явного PASS-маркера — считаем что не прошло, чтобы не пропустить ошибку
+  return 1
+}
+
+# ── Reviewer ↔ Developer feedback loop ──────────────────────────────
+#
+# Reviewer — LLM-as-Judge, проверяет соответствие PRD/ADR. Запускается ПОСЛЕ Developer
+# и ДО QA. Если NEEDS_CHANGES — Developer исправляет, Reviewer прогоняется повторно.
+run_review_loop() {
+  local review_report="$DOCS_DIR/qa-reports/${RUN_ID}-review.md"
   local iteration=0
+  local vs=0
+
+  run_stage "reviewer" 0
+
+  # In dry-run mode reports don't exist yet — skip the loop
+  if $DRY_RUN; then
+    return 0
+  fi
 
   while [[ $iteration -lt $MAX_QA_ITERATIONS ]]; do
-    # Check if QA passed
-    if [[ -f "$qa_report" ]]; then
-      # Look for PASS verdict (case-insensitive)
-      if grep -qi "вердикт.*PASS\|итог.*PASS\|результат.*PASS\|## .*PASS" "$qa_report" && \
-         ! grep -qi "FAIL\|NEEDS_CHANGES" "$qa_report"; then
-        log "${GREEN}✅ QA PASSED — no bugs found${NC}"
-        # Collect feedback for self-improvement
-        if [[ -f "$ROOT_DIR/scripts/collect-qa-feedback.sh" ]]; then
-          log "${BLUE}📊 Collecting QA feedback patterns...${NC}"
-          bash "$ROOT_DIR/scripts/collect-qa-feedback.sh" "$qa_report" 2>/dev/null || true
-        fi
-        return 0
+    verdict_status "$review_report"
+    vs=$?
+    if [[ $vs -eq 0 ]]; then
+      log "${GREEN}✅ Reviewer PASS — code matches PRD/ADR${NC}"
+      return 0
+    fi
+    if [[ $vs -eq 2 ]]; then
+      log "${YELLOW}⚠️  Review report not found, skipping review loop${NC}"
+      return 0
+    fi
+
+    iteration=$((iteration + 1))
+
+    if [[ $iteration -ge $MAX_QA_ITERATIONS ]]; then
+      log "${RED}⚠️  Max Reviewer iterations ($MAX_QA_ITERATIONS) reached. Manual review needed.${NC}"
+      return 1
+    fi
+
+    log "${YELLOW}🔄 Reviewer NEEDS_CHANGES — fix iteration $iteration/$MAX_QA_ITERATIONS${NC}"
+
+    # Developer fixes based on Reviewer verdict
+    run_stage "developer" "$iteration"
+
+    # Re-run Reviewer
+    run_stage "reviewer" "$iteration"
+  done
+}
+
+# ── QA ↔ Developer feedback loop ────────────────────────────────────
+#
+# QA проверяет acceptance criteria. Запускается ПОСЛЕ успешного Review.
+# Если FAIL — Developer исправляет, QA прогоняется повторно.
+run_qa_loop() {
+  local qa_report="$DOCS_DIR/qa-reports/${RUN_ID}-qa-report.md"
+  local iteration=0
+  local vs=0
+
+  run_stage "qa" 0
+
+  # In dry-run mode reports don't exist yet — skip the loop
+  if $DRY_RUN; then
+    return 0
+  fi
+
+  while [[ $iteration -lt $MAX_QA_ITERATIONS ]]; do
+    verdict_status "$qa_report"
+    vs=$?
+    if [[ $vs -eq 0 ]]; then
+      log "${GREEN}✅ QA PASSED — all acceptance criteria met${NC}"
+      if [[ -f "$ROOT_DIR/scripts/collect-qa-feedback.sh" ]]; then
+        log "${BLUE}📊 Collecting QA feedback patterns...${NC}"
+        bash "$ROOT_DIR/scripts/collect-qa-feedback.sh" "$qa_report" 2>/dev/null || true
       fi
-    else
+      return 0
+    fi
+    if [[ $vs -eq 2 ]]; then
       log "${YELLOW}⚠️  QA report not found, assuming pass${NC}"
       return 0
     fi
@@ -546,7 +802,6 @@ run_dev_qa_loop() {
 
     if [[ $iteration -ge $MAX_QA_ITERATIONS ]]; then
       log "${RED}⚠️  Max QA iterations ($MAX_QA_ITERATIONS) reached. Manual review needed.${NC}"
-      # Collect feedback even on failure — this is where we learn most
       if [[ -f "$ROOT_DIR/scripts/collect-qa-feedback.sh" ]]; then
         log "${BLUE}📊 Collecting QA feedback patterns from failed run...${NC}"
         bash "$ROOT_DIR/scripts/collect-qa-feedback.sh" "$qa_report" 2>/dev/null || true
@@ -554,7 +809,7 @@ run_dev_qa_loop() {
       return 1
     fi
 
-    log "${YELLOW}🔄 QA found issues — starting fix iteration $iteration/$MAX_QA_ITERATIONS${NC}"
+    log "${YELLOW}🔄 QA found issues — fix iteration $iteration/$MAX_QA_ITERATIONS${NC}"
 
     # Developer fixes based on QA report
     run_stage "developer" "$iteration"
@@ -562,6 +817,24 @@ run_dev_qa_loop() {
     # Re-run QA
     run_stage "qa" 0
   done
+}
+
+# ── Combined dev+review+qa orchestration ─────────────────────────────
+run_dev_qa_loop() {
+  # 1. First development pass
+  run_stage "developer" 0
+
+  # 2. Reviewer loop (may bounce back to Developer)
+  if ! run_review_loop; then
+    return 1
+  fi
+
+  # 3. QA loop (may bounce back to Developer)
+  if ! run_qa_loop; then
+    return 1
+  fi
+
+  return 0
 }
 
 # ── Auto PR creation ────────────────────────────────────────────────
@@ -692,6 +965,18 @@ BASE_BRANCH=$(git branch --show-current)
 # Initialize context artifact
 init_context
 
+# Track completed stages for state persistence and --resume
+COMPLETED_STAGES=()
+
+# Helper: build JSON array from COMPLETED_STAGES
+completed_stages_json() {
+  local out=""
+  for s in "${COMPLETED_STAGES[@]}"; do
+    out+="\"$s\","
+  done
+  echo "${out%,}"
+}
+
 # Run stages
 FAILED=false
 for stage in "${STAGES[@]}"; do
@@ -709,18 +994,24 @@ for stage in "${STAGES[@]}"; do
       # Run dev+reviewer+qa as feedback loop
       if ! run_dev_qa_loop; then
         FAILED=true
-        log "${RED}Pipeline stopped: QA feedback loop did not converge${NC}"
+        save_state "$(completed_stages_json)" "$stage" 0
+        log "${RED}Pipeline stopped: feedback loop did not converge${NC}"
         break
       fi
+      COMPLETED_STAGES+=("developer" "reviewer" "qa")
+      save_state "$(completed_stages_json)" "qa" 0
       # Skip reviewer and qa in main loop (already handled)
       continue
     else
       # Just run developer stage
       if ! run_stage "$stage"; then
         FAILED=true
+        save_state "$(completed_stages_json)" "$stage" 0
         log "${RED}Pipeline stopped at stage: $stage${NC}"
         break
       fi
+      COMPLETED_STAGES+=("$stage")
+      save_state "$(completed_stages_json)" "$stage" 0
     fi
   elif [[ "$stage" == "reviewer" || "$stage" == "qa" ]]; then
     # Skip if already handled in feedback loop
@@ -737,15 +1028,21 @@ for stage in "${STAGES[@]}"; do
     # Run standalone
     if ! run_stage "$stage"; then
       FAILED=true
+      save_state "$(completed_stages_json)" "$stage" 0
       log "${RED}Pipeline stopped at stage: $stage${NC}"
       break
     fi
+    COMPLETED_STAGES+=("$stage")
+    save_state "$(completed_stages_json)" "$stage" 0
   else
     if ! run_stage "$stage"; then
       FAILED=true
+      save_state "$(completed_stages_json)" "$stage" 0
       log "${RED}Pipeline stopped at stage: $stage${NC}"
       break
     fi
+    COMPLETED_STAGES+=("$stage")
+    save_state "$(completed_stages_json)" "$stage" 0
   fi
 done
 
