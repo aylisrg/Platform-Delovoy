@@ -15,8 +15,11 @@ import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
-import type { CancellationPolicy, BookingMetadata } from "@/modules/booking/types";
+import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
+import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
+import type { DiscountReason } from "@/modules/booking/discount";
+import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -343,7 +346,8 @@ export async function updateBookingStatus(
   id: string,
   status: BookingStatus,
   managerId?: string,
-  cancelReason?: string
+  cancelReason?: string,
+  discountInput?: CheckoutDiscountInput
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -431,6 +435,87 @@ export async function updateBookingStatus(
         },
       });
       await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      return b;
+    });
+  } else if (status === "COMPLETED") {
+    // === CHECKOUT with optional discount ===
+    const existingMeta = (booking.metadata as BookingMetadata | null) ?? {};
+    let discountData: BookingDiscount | undefined;
+
+    if (discountInput && discountInput.discountPercent > 0) {
+      const maxPercent = await getMaxDiscountPercent(MODULE_SLUG);
+      if (discountInput.discountPercent > maxPercent) {
+        throw new BookingError(
+          "DISCOUNT_EXCEEDS_LIMIT",
+          `Максимальная скидка для этого модуля: ${maxPercent}%`
+        );
+      }
+
+      const originalAmount = Number(existingMeta.totalPrice ?? 0);
+      const { discountAmount, finalAmount } = applyDiscount(originalAmount, discountInput.discountPercent);
+
+      discountData = {
+        percent: discountInput.discountPercent,
+        amount: discountAmount.toFixed(2),
+        originalAmount: originalAmount.toFixed(2),
+        finalAmount: finalAmount.toFixed(2),
+        reason: discountInput.discountReason as DiscountReason,
+        ...(discountInput.discountNote && { note: discountInput.discountNote }),
+        appliedBy: managerId ?? booking.userId,
+        appliedAt: new Date().toISOString(),
+      };
+    }
+
+    const updatedMetadata = {
+      ...existingMeta,
+      ...(discountData && {
+        discount: discountData,
+        totalPrice: discountData.finalAmount,
+      }),
+    };
+
+    updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(googleEventId !== booking.googleEventId && { googleEventId }),
+          metadata: updatedMetadata as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+
+      if (discountData) {
+        const managerUser = await tx.user.findUnique({
+          where: { id: managerId ?? booking.userId },
+          select: { name: true, email: true },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId: managerId ?? booking.userId,
+            action: "booking.discount_applied",
+            entity: "Booking",
+            entityId: id,
+            metadata: {
+              managerId: managerId ?? booking.userId,
+              managerName: managerUser?.name ?? managerUser?.email ?? "Менеджер",
+              bookingId: id,
+              moduleSlug: MODULE_SLUG,
+              resourceName: resource?.name ?? "--",
+              clientName: booking.clientName ?? "--",
+              originalAmount: Number(discountData.originalAmount),
+              discountPercent: discountData.percent,
+              discountAmount: Number(discountData.amount),
+              finalAmount: Number(discountData.finalAmount),
+              discountReason: discountData.reason,
+              ...(discountData.note && { discountNote: discountData.note }),
+              appliedAt: discountData.appliedAt,
+            },
+          },
+        });
+      }
+
       return b;
     });
   } else {

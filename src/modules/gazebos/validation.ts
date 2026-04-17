@@ -55,6 +55,7 @@ export const moduleSettingsSchema = z.object({
   closeHour: z.number().int().min(0).max(23).optional(),
   minBookingHours: z.number().int().min(1).max(24).optional(),
   maxBookingHours: z.number().int().min(1).max(24).optional(),
+  maxDiscountPercent: z.number().int().min(1).max(100).optional(),
 });
 
 export const adminCreateBookingSchema = z.object({

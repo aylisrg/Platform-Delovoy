@@ -35,13 +35,19 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
     }
   }
 
-  async function handleConfirm({ cashAmount, cardAmount }: PaymentSplit) {
+  async function handleConfirm({ cashAmount, cardAmount, discountPercent, discountReason, discountNote }: PaymentSplit) {
     setConfirming(true);
     try {
+      const payload: Record<string, unknown> = { status: "COMPLETED", cashAmount, cardAmount };
+      if (discountPercent && discountPercent > 0 && discountReason) {
+        payload.discountPercent = discountPercent;
+        payload.discountReason = discountReason;
+        if (discountNote) payload.discountNote = discountNote;
+      }
       const res = await fetch(`/api/ps-park/bookings/${bookingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "COMPLETED", cashAmount, cardAmount }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.success) {

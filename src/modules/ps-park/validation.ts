@@ -75,4 +75,5 @@ export const moduleSettingsSchema = z.object({
   minBookingHours: z.number().int().min(1).max(24).optional(),
   slotRoundingMinutes: z.number().int().min(1).max(60).optional(),
   sessionAlertMinutes: z.number().int().min(1).max(60).optional(),
+  maxDiscountPercent: z.number().int().min(1).max(100).optional(),
 });
