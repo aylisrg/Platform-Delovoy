@@ -51,8 +51,8 @@ export default async function DashboardPage() {
   return (
     <>
       <AdminHeader title="Дашборд" />
-      <div className="p-8">
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="p-4 lg:p-8">
+        <div className="grid grid-cols-1 gap-4 lg:gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <ServerStatusCard />
           <StatusWidget
             title="Активные модули"

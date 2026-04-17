@@ -664,7 +664,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex w-64 flex-col border-r border-zinc-200 bg-white">
+    <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-zinc-200 bg-white">
       <div className="flex h-16 items-center border-b border-zinc-200 px-6">
         <Link href="/admin/dashboard" className="text-lg font-bold text-zinc-900">
           Деловой Парк

@@ -17,7 +17,7 @@ export default function PSParkLayout({
   return (
     <>
       <AdminHeader title="Плей Парк" />
-      <div className="p-8">
+      <div className="p-4 lg:p-8">
         <ModuleTabs tabs={TABS} />
         {children}
       </div>
