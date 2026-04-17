@@ -31,11 +31,17 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    module: {
+      findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30 } }),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       // Delegate tx calls to the top-level prisma mocks so existing assertions work
       const { prisma: p } = await import("@/lib/db");
       const tx = {
         booking: p.booking,
+        user: { findUnique: vi.fn().mockResolvedValue({ name: "Тест Менеджер", email: "test@test.com" }) },
+        resource: { findUnique: vi.fn().mockResolvedValue({ name: "Беседка №1" }) },
+        auditLog: { create: vi.fn() },
         inventoryTransaction: { create: vi.fn() },
         inventorySku: { update: vi.fn(), findUnique: vi.fn().mockResolvedValue({ stockQuantity: 100, isActive: true }) },
       };
@@ -216,8 +222,10 @@ describe("updateBookingStatus", () => {
     );
 
     await updateBookingStatus("booking-1", "COMPLETED");
+    // COMPLETED goes through $transaction
+    expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.booking.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: "COMPLETED" } })
+      expect.objectContaining({ data: expect.objectContaining({ status: "COMPLETED" }) })
     );
   });
 

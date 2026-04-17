@@ -1,5 +1,18 @@
 // Shared types for the booking engine (used by ps-park, gazebos)
 
+import type { DiscountReason } from "./discount";
+
+export type BookingDiscount = {
+  percent: number;
+  amount: string;
+  originalAmount: string;
+  finalAmount: string;
+  reason: DiscountReason;
+  note?: string;
+  appliedBy: string;
+  appliedAt: string;
+};
+
 export type BookingMetadata = {
   // ps-park specific
   playerCount?: number;
@@ -31,6 +44,9 @@ export type BookingMetadata = {
     reason: string;
     appliedAt: string;  // ISO datetime
   };
+
+  // Checkout discount
+  discount?: BookingDiscount;
 };
 
 export type CancellationPolicy = {

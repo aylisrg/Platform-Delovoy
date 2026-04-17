@@ -15,8 +15,11 @@ import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
-import type { CancellationPolicy, BookingMetadata } from "@/modules/booking/types";
+import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
+import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
+import type { DiscountReason } from "@/modules/booking/discount";
+import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -221,7 +224,8 @@ export async function updateBookingStatus(
   managerId?: string,
   cancelReason?: string,
   cashAmount?: number,
-  cardAmount?: number
+  cardAmount?: number,
+  discountInput?: CheckoutDiscountInput
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -354,6 +358,44 @@ export async function updateBookingStatus(
       return b;
     });
   } else if (status === "COMPLETED") {
+    // === Apply discount if provided ===
+    let discountData: BookingDiscount | undefined;
+
+    if (discountInput && discountInput.discountPercent > 0) {
+      const maxPercent = await getMaxDiscountPercent(MODULE_SLUG);
+      if (discountInput.discountPercent > maxPercent) {
+        throw new PSBookingError(
+          "DISCOUNT_EXCEEDS_LIMIT",
+          `Максимальная скидка для этого модуля: ${maxPercent}%`
+        );
+      }
+
+      const originalAmount = completedTotalBill;
+      const discountCalc = applyDiscount(originalAmount, discountInput.discountPercent);
+
+      discountData = {
+        percent: discountInput.discountPercent,
+        amount: discountCalc.discountAmount.toFixed(2),
+        originalAmount: originalAmount.toFixed(2),
+        finalAmount: discountCalc.finalAmount.toFixed(2),
+        reason: discountInput.discountReason,
+        ...(discountInput.discountNote && { note: discountInput.discountNote }),
+        appliedBy: managerId ?? booking.userId,
+        appliedAt: new Date().toISOString(),
+      };
+
+      // Enrich bill snapshot with discount info
+      if (billSnapshot) {
+        billSnapshot.originalAmount = originalAmount;
+        billSnapshot.discountPercent = discountInput.discountPercent;
+        billSnapshot.discountAmount = discountCalc.discountAmount;
+        billSnapshot.finalAmount = discountCalc.finalAmount;
+      }
+
+      // Use discounted amount for financial transaction
+      completedTotalBill = discountCalc.finalAmount;
+    }
+
     const resolvedCash = cashAmount ?? completedTotalBill;
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
@@ -361,19 +403,24 @@ export async function updateBookingStatus(
       : null;
     const managerName = managerUser?.name ?? managerUser?.email ?? "Менеджер";
 
+    // Add discount to booking metadata
+    const finalMetadata = discountData && metadataWithBill
+      ? { ...metadataWithBill, discount: discountData }
+      : metadataWithBill;
+
     updated = await prisma.$transaction(async (tx) => {
       const b = await tx.booking.update({
         where: { id },
         data: {
           status,
           ...(managerId && { managerId }),
-          ...(metadataWithBill && { metadata: metadataWithBill as unknown as import("@prisma/client").Prisma.InputJsonValue }),
+          ...(finalMetadata && { metadata: finalMetadata as unknown as import("@prisma/client").Prisma.InputJsonValue }),
           cashAmount: resolvedCash,
           cardAmount: resolvedCard,
         },
       });
 
-      // Financial ledger — immutable record
+      // Financial ledger — immutable record (totalAmount = after discount)
       await tx.financialTransaction.create({
         data: {
           moduleSlug: MODULE_SLUG,
@@ -388,6 +435,33 @@ export async function updateBookingStatus(
           metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
         },
       });
+
+      // Audit log for discount (inside transaction for atomicity)
+      if (discountData) {
+        await tx.auditLog.create({
+          data: {
+            userId: managerId ?? booking.userId,
+            action: "booking.discount_applied",
+            entity: "Booking",
+            entityId: id,
+            metadata: {
+              managerId: managerId ?? booking.userId,
+              managerName,
+              bookingId: id,
+              moduleSlug: MODULE_SLUG,
+              resourceName: resource?.name ?? "--",
+              clientName: booking.clientName ?? "--",
+              originalAmount: Number(discountData.originalAmount),
+              discountPercent: discountData.percent,
+              discountAmount: Number(discountData.amount),
+              finalAmount: Number(discountData.finalAmount),
+              discountReason: discountData.reason,
+              ...(discountData.note && { discountNote: discountData.note }),
+              appliedAt: discountData.appliedAt,
+            },
+          },
+        });
+      }
 
       return b;
     });

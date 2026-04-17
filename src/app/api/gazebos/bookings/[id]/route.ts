@@ -11,6 +11,8 @@ import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { getBooking, updateBookingStatus, cancelBooking, BookingError } from "@/modules/gazebos/service";
 import { hasRole } from "@/lib/permissions";
+import { checkoutDiscountSchema } from "@/modules/booking/validation";
+import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 
 /**
  * GET /api/gazebos/bookings/:id — get single booking
@@ -63,7 +65,22 @@ export async function PATCH(
       // Managers can change any status — check section permission
       const denied = await requireAdminSection(session, "gazebos");
       if (denied) return denied;
-      updated = await updateBookingStatus(id, status, session.user.id, reason);
+
+      // Parse discount fields for COMPLETED checkout
+      let discountInput: CheckoutDiscountInput | undefined;
+      if (status === "COMPLETED" && body.discountPercent !== undefined && body.discountPercent > 0) {
+        const parsed = checkoutDiscountSchema.safeParse({
+          discountPercent: body.discountPercent,
+          discountReason: body.discountReason,
+          discountNote: body.discountNote,
+        });
+        if (!parsed.success) {
+          return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
+        }
+        discountInput = parsed.data;
+      }
+
+      updated = await updateBookingStatus(id, status, session.user.id, reason, discountInput);
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
@@ -72,10 +89,25 @@ export async function PATCH(
       newStatus: status,
     });
 
+    // Enrich response with top-level discount fields per AC-1.8
+    const meta = updated.metadata as Record<string, unknown> | null;
+    const discount = meta?.discount as Record<string, unknown> | undefined;
+    if (discount) {
+      return apiResponse({
+        ...updated,
+        originalAmount: discount.originalAmount,
+        discountPercent: discount.percent,
+        discountAmount: discount.amount,
+        finalAmount: discount.finalAmount,
+        discountReason: discount.reason,
+      });
+    }
+
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof BookingError) {
-      return apiError(error.code, error.message);
+      const status = error.code === "DISCOUNT_EXCEEDS_LIMIT" ? 422 : 400;
+      return apiError(error.code, error.message, status);
     }
     return apiServerError();
   }

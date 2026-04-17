@@ -16,17 +16,25 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
   const [loadingBill, setLoadingBill] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [maxDiscount, setMaxDiscount] = useState(30);
 
   async function handleClick() {
     setLoadingBill(true);
     setError(null);
     try {
-      const res = await fetch(`/api/ps-park/bookings/${bookingId}/bill`);
-      const data = await res.json();
-      if (data.success) {
-        setBill(data.data);
+      const [billRes, settingsRes] = await Promise.all([
+        fetch(`/api/ps-park/bookings/${bookingId}/bill`),
+        fetch("/api/ps-park/settings"),
+      ]);
+      const billData = await billRes.json();
+      if (billData.success) {
+        setBill(billData.data);
       } else {
-        setError(data.error?.message ?? "Не удалось загрузить счёт");
+        setError(billData.error?.message ?? "Не удалось загрузить счёт");
+      }
+      const settingsData = await settingsRes.json();
+      if (settingsData.success && typeof settingsData.data?.maxDiscountPercent === "number") {
+        setMaxDiscount(settingsData.data.maxDiscountPercent);
       }
     } catch {
       setError("Ошибка при загрузке счёта");
@@ -35,13 +43,19 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
     }
   }
 
-  async function handleConfirm({ cashAmount, cardAmount }: PaymentSplit) {
+  async function handleConfirm({ cashAmount, cardAmount, discountPercent, discountReason, discountNote }: PaymentSplit) {
     setConfirming(true);
     try {
+      const payload: Record<string, unknown> = { status: "COMPLETED", cashAmount, cardAmount };
+      if (discountPercent && discountPercent > 0 && discountReason) {
+        payload.discountPercent = discountPercent;
+        payload.discountReason = discountReason;
+        if (discountNote) payload.discountNote = discountNote;
+      }
       const res = await fetch(`/api/ps-park/bookings/${bookingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "COMPLETED", cashAmount, cardAmount }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.success) {
@@ -79,6 +93,7 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
           onClose={() => setBill(null)}
           onConfirm={handleConfirm}
           confirming={confirming}
+          maxDiscountPercent={maxDiscount}
         />
       )}
     </>
