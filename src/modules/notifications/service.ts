@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { NotificationChannel } from "@prisma/client";
 import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
 import { renderClientMessage, renderAdminMessage } from "./templates";
@@ -273,10 +274,17 @@ export async function updateUserPreferences(
     preferredChannel?: string;
   }
 ) {
+  const { preferredChannel, ...restData } = data;
+  const typedData = {
+    ...restData,
+    ...(preferredChannel !== undefined
+      ? { preferredChannel: preferredChannel as NotificationChannel }
+      : {}),
+  };
   return prisma.notificationPreference.upsert({
     where: { userId },
-    create: { userId, ...data },
-    update: data,
+    create: { userId, ...typedData },
+    update: typedData,
   });
 }
 

@@ -10,7 +10,7 @@ vi.mock("@/lib/db", () => ({
       delete: vi.fn(),
     },
     adminPermission: {
-      count: vi.fn(),
+      upsert: vi.fn(),
     },
   },
 }));
@@ -222,23 +222,31 @@ describe("updateUser", () => {
     const updated = mockUser({ role: "MANAGER" });
     vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
     vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
-    vi.mocked(prisma.adminPermission.count).mockResolvedValue(0);
+    vi.mocked(prisma.adminPermission.upsert).mockResolvedValue({} as never);
 
     await updateUser("user-1", { role: "MANAGER" }, "admin-1");
 
-    expect(mockSetUserAdminSections).toHaveBeenCalledWith("user-1", ["dashboard"]);
+    expect(prisma.adminPermission.upsert).toHaveBeenCalledWith({
+      where: { userId_section: { userId: "user-1", section: "dashboard" } },
+      create: { userId: "user-1", section: "dashboard" },
+      update: {},
+    });
   });
 
-  it("does not overwrite existing permissions when promoting to MANAGER", async () => {
+  it("adds dashboard without clearing existing permissions when promoting to MANAGER", async () => {
+    // upsert is called in all cases — if dashboard already exists, update:{} is a no-op
     const user = mockUser({ role: "USER" });
     const updated = mockUser({ role: "MANAGER" });
     vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
     vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
-    vi.mocked(prisma.adminPermission.count).mockResolvedValue(3);
+    vi.mocked(prisma.adminPermission.upsert).mockResolvedValue({} as never);
 
     await updateUser("user-1", { role: "MANAGER" }, "admin-1");
 
+    // setUserAdminSections must NOT be called (would wipe existing permissions)
     expect(mockSetUserAdminSections).not.toHaveBeenCalled();
+    // only upsert of dashboard is done
+    expect(prisma.adminPermission.upsert).toHaveBeenCalledTimes(1);
   });
 
   it("throws CANNOT_DEMOTE_SELF", async () => {
