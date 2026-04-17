@@ -75,7 +75,7 @@ jobs:
   # 2. Send Telegram alert on any failure
   # ─────────────────────────────────────────────────────────────────────────────
   notify-telegram:
-    name: Telegram Alert
+    name: Telegram Alert (failure)
     runs-on: ubuntu-latest
     timeout-minutes: 3
     needs: collect
@@ -101,12 +101,12 @@ jobs:
             PREFIX="<b>CI FAILED</b> (ветка <code>$BRANCH</code>)"
           fi
 
-          TEXT="${ICON} ${PREFIX}
-
-<b>Коммит:</b> <code>${SHA}</code> — ${MSG}
-<b>Автор:</b> @${ACTOR}
-<b>Упавшие джобы:</b> <code>${JOBS:-unknown}</code>
-<b>Ссылка:</b> <a href='${URL}'>Открыть Run</a>"
+          TEXT="${ICON} ${PREFIX}"
+          TEXT+=$'\n\n'
+          TEXT+="<b>Коммит:</b> <code>${SHA}</code> — ${MSG}"$'\n'
+          TEXT+="<b>Автор:</b> @${ACTOR}"$'\n'
+          TEXT+="<b>Упавшие джобы:</b> <code>${JOBS:-unknown}</code>"$'\n'
+          TEXT+="<b>Ссылка:</b> <a href='${URL}'>Открыть Run</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -116,8 +116,18 @@ jobs:
             --data-urlencode "text=${TEXT}" \
             -o /dev/null
 
-      - name: Send recovery alert (main only)
-        if: needs.collect.outputs.conclusion == 'success' && needs.collect.outputs.is_main == 'true'
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2b. Send Telegram recovery alert when main goes green again
+  #     (separate job so it can have its own `if` without conflicting with failure gate)
+  # ─────────────────────────────────────────────────────────────────────────────
+  notify-recovery:
+    name: Telegram Alert (recovery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: collect
+    if: needs.collect.outputs.conclusion == 'success' && needs.collect.outputs.is_main == 'true'
+    steps:
+      - name: Send recovery alert
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID:   ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
@@ -125,10 +135,10 @@ jobs:
           MSG:       ${{ needs.collect.outputs.commit_msg }}
           URL:       ${{ needs.collect.outputs.run_url }}
         run: |
-          TEXT="✅ <b>CI восстановлен на main</b>
-
-<b>Коммит:</b> <code>${SHA}</code> — ${MSG}
-<a href='${URL}'>Открыть Run</a>"
+          TEXT="✅ <b>CI восстановлен на main</b>"
+          TEXT+=$'\n\n'
+          TEXT+="<b>Коммит:</b> <code>${SHA}</code> — ${MSG}"$'\n'
+          TEXT+="<a href='${URL}'>Открыть Run</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -169,19 +179,17 @@ jobs:
           JOBS:     ${{ needs.collect.outputs.failed_jobs }}
           URL:      ${{ needs.collect.outputs.run_url }}
         run: |
-          BODY="### CI Watchdog — проверка не прошла
-
-| | |
-|---|---|
-| Коммит | \`${SHA}\` |
-| Упавшие джобы | \`${JOBS:-unknown}\` |
-| Run | [Открыть]($URL) |
-
-**Что делать:**
-- Прочти лог упавшей джобы по ссылке выше
-- Исправь ошибку, запушь коммит — CI перезапустится автоматически
-
-> Этот комментарий создан автоматически CI Watchdog."
+          BODY="### CI Watchdog — проверка не прошла"
+          BODY+=$'\n\n'
+          BODY+="| | |"$'\n'
+          BODY+="|---|---|"$'\n'
+          BODY+="| Коммит | \`${SHA}\` |"$'\n'
+          BODY+="| Упавшие джобы | \`${JOBS:-unknown}\` |"$'\n'
+          BODY+="| Run | [Открыть]($URL) |"$'\n\n'
+          BODY+="**Что делать:**"$'\n'
+          BODY+="- Прочти лог упавшей джобы по ссылке выше"$'\n'
+          BODY+="- Исправь ошибку, запушь коммит — CI перезапустится автоматически"$'\n\n'
+          BODY+="> Этот комментарий создан автоматически CI Watchdog."
 
           gh pr comment "$PR" \
             --repo "$REPO" \
@@ -234,24 +242,24 @@ jobs:
           URL:      ${{ needs.collect.outputs.run_url }}
           ACTOR:    ${{ needs.collect.outputs.actor }}
         run: |
+          ISSUE_BODY="## CI упал на \`main\`"
+          ISSUE_BODY+=$'\n\n'
+          ISSUE_BODY+="| Поле | Значение |"$'\n'
+          ISSUE_BODY+="|------|----------|"$'\n'
+          ISSUE_BODY+="| Ветка | \`$BRANCH\` |"$'\n'
+          ISSUE_BODY+="| Коммит | \`$SHA\` — $MSG |"$'\n'
+          ISSUE_BODY+="| Автор | @$ACTOR |"$'\n'
+          ISSUE_BODY+="| Упавшие джобы | \`$JOBS\` |"$'\n'
+          ISSUE_BODY+="| Run | [$URL]($URL) |"$'\n\n'
+          ISSUE_BODY+="**Этот issue закроется автоматически, когда CI снова станет зелёным.**"$'\n\n'
+          ISSUE_BODY+="---"$'\n'
+          ISSUE_BODY+="> Создан автоматически CI Watchdog."
+
           gh issue create \
             --repo "$REPO" \
             --title "CI Failure on main: ${MSG}" \
             --label "ci-failure" \
-            --body "## CI упал на \`main\`
-
-| Поле | Значение |
-|------|----------|
-| Ветка | \`$BRANCH\` |
-| Коммит | \`$SHA\` — $MSG |
-| Автор | @$ACTOR |
-| Упавшие джобы | \`$JOBS\` |
-| Run | [$URL]($URL) |
-
-**Этот issue закроется автоматически, когда CI снова станет зелёным.**
-
----
-> Создан автоматически CI Watchdog."
+            --body "$ISSUE_BODY"
 
       - name: Add comment to existing issue
         if: steps.check.outputs.existing != ''
@@ -264,10 +272,11 @@ jobs:
           JOBS:     ${{ needs.collect.outputs.failed_jobs }}
           URL:      ${{ needs.collect.outputs.run_url }}
         run: |
+          COMMENT="Повторное падение: \`$SHA\` — $MSG"$'\n'
+          COMMENT+="Джобы: \`$JOBS\` | [Run]($URL)"
           gh issue comment "$ISSUE" \
             --repo "$REPO" \
-            --body "Повторное падение: \`$SHA\` — $MSG
-Джобы: \`$JOBS\` | [Run]($URL)"
+            --body "$COMMENT"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 5. Close ci-failure issue when main recovers
