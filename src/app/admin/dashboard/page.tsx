@@ -1,4 +1,5 @@
 import { AdminHeader } from "@/components/admin/header";
+import { ServerStatusCard } from "@/components/admin/server-status-card";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 
@@ -52,13 +53,7 @@ export default async function DashboardPage() {
       <AdminHeader title="Дашборд" />
       <div className="p-4 lg:p-8">
         <div className="grid grid-cols-1 gap-4 lg:gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <StatusWidget
-            title="Статус системы"
-            value="Онлайн"
-            status="success"
-            description="Все сервисы работают"
-            href="/admin/monitoring"
-          />
+          <ServerStatusCard />
           <StatusWidget
             title="Активные модули"
             value={stats.activeModules}
