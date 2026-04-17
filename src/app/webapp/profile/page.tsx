@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { useTelegram } from "@/components/webapp/TelegramProvider";
 
 export default function ProfilePage() {
@@ -97,6 +98,28 @@ export default function ProfilePage() {
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Notification settings link */}
+      <div className="px-4 mt-6">
+        <p className="tg-section-header">Настройки</p>
+        <div className="rounded-2xl overflow-hidden mt-2" style={{ background: "var(--tg-secondary-bg)" }}>
+          <Link
+            href="/webapp/settings"
+            className="flex items-center justify-between px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tg-hint)" strokeWidth="2">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+              <p className="text-[15px] font-medium">Уведомления</p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tg-hint)" strokeWidth="2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </Link>
         </div>
       </div>
 

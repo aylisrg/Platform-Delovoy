@@ -11,6 +11,17 @@ export const updatePreferenceSchema = z.object({
 
 export type UpdatePreferenceInput = z.infer<typeof updatePreferenceSchema>;
 
+export const webappPreferenceSchema = z.object({
+  preferredChannel: z
+    .enum(["AUTO", "TELEGRAM", "WHATSAPP", "EMAIL", "VK"])
+    .optional(),
+  enableBooking: z.boolean().optional(),
+  enableOrder: z.boolean().optional(),
+  enableReminder: z.boolean().optional(),
+});
+
+export type WebappPreferenceInput = z.infer<typeof webappPreferenceSchema>;
+
 export const historyFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

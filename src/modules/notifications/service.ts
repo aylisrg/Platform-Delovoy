@@ -223,6 +223,64 @@ async function getGlobalAdminChatId(): Promise<string | undefined> {
 }
 
 /**
+ * Get notification preferences for a user.
+ * Returns default preferences if none are set.
+ */
+export async function getUserPreferences(userId: string) {
+  const preference = await prisma.notificationPreference.findUnique({
+    where: { userId },
+  });
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, phone: true, telegramId: true, vkId: true },
+  });
+
+  const availableChannels = [
+    { channel: "TELEGRAM" as const, connected: !!user?.telegramId },
+    { channel: "WHATSAPP" as const, connected: !!user?.phone },
+    { channel: "EMAIL" as const, connected: !!user?.email },
+    { channel: "VK" as const, connected: !!user?.vkId },
+  ];
+
+  return {
+    preferences: preference
+      ? {
+          enableBooking: preference.enableBooking,
+          enableOrder: preference.enableOrder,
+          enableReminder: preference.enableReminder,
+          preferredChannel: preference.preferredChannel,
+        }
+      : {
+          enableBooking: true,
+          enableOrder: true,
+          enableReminder: true,
+          preferredChannel: "AUTO" as const,
+        },
+    availableChannels,
+  };
+}
+
+/**
+ * Update notification preferences for a user.
+ */
+export async function updateUserPreferences(
+  userId: string,
+  data: {
+    enableBooking?: boolean;
+    enableOrder?: boolean;
+    enableReminder?: boolean;
+    preferredChannel?: string;
+  }
+) {
+  return prisma.notificationPreference.upsert({
+    where: { userId },
+    create: { userId, ...data },
+    update: data,
+  });
+}
+
+/**
  * Log a notification attempt to the database.
  */
 async function logNotification(params: {
