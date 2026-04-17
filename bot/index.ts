@@ -13,6 +13,7 @@ import { registerGazeboHandlers } from "./handlers/gazebos";
 import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
+import { handleLinkDeepLink } from "./handlers/link";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -108,6 +109,11 @@ async function startBot() {
     const deepLink = ctx.match?.trim();
 
     // Handle deep links
+    if (deepLink?.startsWith("link_")) {
+      await handleLinkDeepLink(ctx, deepLink);
+      return;
+    }
+
     if (deepLink === "gazebos") {
       await ctx.reply(
         "🏕 *Барбекю Парк бизнес\\-парка «Деловой»*\n\nВыберите действие:",

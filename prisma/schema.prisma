@@ -34,6 +34,7 @@ model User {
   orders                 Order[]
   auditLogs              AuditLog[]
   feedbackItems          FeedbackItem[]
+  telegramLinkTokens     TelegramLinkToken[]
 }
 
 model Account {
@@ -858,4 +859,20 @@ model FeedbackComment {
   createdAt  DateTime     @default(now())
 
   @@index([feedbackId])
+}
+
+// === TELEGRAM ACCOUNT LINKING ===
+
+model TelegramLinkToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
 }

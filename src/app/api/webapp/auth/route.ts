@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { validateInitData } from "@/lib/telegram-webapp";
 import { prisma } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { SignJWT } from "jose";
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -34,12 +35,14 @@ export async function POST(request: NextRequest) {
     const name = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || tgUser.username || "Telegram User";
 
     // Find or create user
+    let isNewUser = false;
     let user = await prisma.user.findUnique({
       where: { telegramId },
       select: { id: true, name: true, role: true, image: true, telegramId: true },
     });
 
     if (!user) {
+      isNewUser = true;
       user = await prisma.user.create({
         data: {
           telegramId,
@@ -68,6 +71,12 @@ export async function POST(request: NextRequest) {
       .setExpirationTime("24h")
       .sign(JWT_SECRET);
 
+    // Check if linking was previously skipped
+    const skipped = await redis
+      .get(`tg-link:skipped:${telegramId}`)
+      .catch(() => null);
+    const needsLinking = isNewUser && !skipped;
+
     return apiResponse({
       token,
       user: {
@@ -77,6 +86,7 @@ export async function POST(request: NextRequest) {
         image: user.image,
         telegramId: user.telegramId,
       },
+      needsLinking,
     });
   } catch (error) {
     console.error("[WebApp Auth] Error:", error);

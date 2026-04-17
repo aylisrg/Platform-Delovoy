@@ -21,6 +21,10 @@ interface TelegramContextValue {
   ready: boolean;
   user: WebAppUser | null;
   token: string | null;
+  needsLinking: boolean;
+  setNeedsLinking: (v: boolean) => void;
+  setUser: (user: WebAppUser | null) => void;
+  setToken: (token: string | null) => void;
   colorScheme: "light" | "dark";
   themeParams: Record<string, string>;
   haptic: {
@@ -53,6 +57,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<WebAppUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [needsLinking, setNeedsLinking] = useState(false);
   const [colorScheme, setColorScheme] = useState<"light" | "dark">("light");
   const [themeParams, setThemeParams] = useState<Record<string, string>>({});
 
@@ -94,6 +99,9 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           if (data.success) {
             setToken(data.data.token);
             setUser(data.data.user);
+            if (data.data.needsLinking) {
+              setNeedsLinking(true);
+            }
           }
           setReady(true);
         })
@@ -167,6 +175,10 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         ready,
         user,
         token,
+        needsLinking,
+        setNeedsLinking,
+        setUser,
+        setToken,
         colorScheme,
         themeParams,
         haptic,

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { NotificationChannel } from "@prisma/client";
 import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
 import { renderClientMessage, renderAdminMessage } from "./templates";
@@ -220,6 +221,64 @@ async function getGlobalAdminChatId(): Promise<string | undefined> {
   } catch {
     return process.env.TELEGRAM_ADMIN_CHAT_ID || undefined;
   }
+}
+
+/**
+ * Get notification preferences for a user.
+ * Returns default preferences if none are set.
+ */
+export async function getUserPreferences(userId: string) {
+  const preference = await prisma.notificationPreference.findUnique({
+    where: { userId },
+  });
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, phone: true, telegramId: true, vkId: true },
+  });
+
+  const availableChannels = [
+    { channel: "TELEGRAM" as const, connected: !!user?.telegramId },
+    { channel: "WHATSAPP" as const, connected: !!user?.phone },
+    { channel: "EMAIL" as const, connected: !!user?.email },
+    { channel: "VK" as const, connected: !!user?.vkId },
+  ];
+
+  return {
+    preferences: preference
+      ? {
+          enableBooking: preference.enableBooking,
+          enableOrder: preference.enableOrder,
+          enableReminder: preference.enableReminder,
+          preferredChannel: preference.preferredChannel,
+        }
+      : {
+          enableBooking: true,
+          enableOrder: true,
+          enableReminder: true,
+          preferredChannel: "AUTO" as const,
+        },
+    availableChannels,
+  };
+}
+
+/**
+ * Update notification preferences for a user.
+ */
+export async function updateUserPreferences(
+  userId: string,
+  data: {
+    enableBooking?: boolean;
+    enableOrder?: boolean;
+    enableReminder?: boolean;
+    preferredChannel?: NotificationChannel;
+  }
+) {
+  return prisma.notificationPreference.upsert({
+    where: { userId },
+    create: { userId, ...data },
+    update: data,
+  });
 }
 
 /**
