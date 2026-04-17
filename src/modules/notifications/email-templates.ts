@@ -135,7 +135,7 @@ export function bookingConfirmationHtml(data: TemplateData): string {
         ${infoRow("Время", `${data.startTime} — ${data.endTime}`)}
       </tbody>
     </table>
-    ${primaryButton("Посмотреть бронирование", `${appUrl}/profile`, accent)}
+    ${primaryButton("Посмотреть бронирование", `${appUrl}/dashboard`, accent)}
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
       Если у вас возникнут вопросы, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
     </p>
