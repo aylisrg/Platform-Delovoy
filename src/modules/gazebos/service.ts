@@ -459,7 +459,7 @@ export async function updateBookingStatus(
         amount: discountAmount.toFixed(2),
         originalAmount: originalAmount.toFixed(2),
         finalAmount: finalAmount.toFixed(2),
-        reason: discountInput.discountReason as DiscountReason,
+        reason: discountInput.discountReason,
         ...(discountInput.discountNote && { note: discountInput.discountNote }),
         appliedBy: managerId ?? booking.userId,
         appliedAt: new Date().toISOString(),

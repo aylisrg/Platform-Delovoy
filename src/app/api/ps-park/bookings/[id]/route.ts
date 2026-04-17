@@ -96,7 +96,8 @@ export async function PATCH(
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof PSBookingError) {
-      return apiError(error.code, error.message);
+      const status = error.code === "DISCOUNT_EXCEEDS_LIMIT" ? 422 : 400;
+      return apiError(error.code, error.message, status);
     }
     return apiServerError();
   }
