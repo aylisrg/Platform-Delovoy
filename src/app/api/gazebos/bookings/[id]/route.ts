@@ -89,6 +89,20 @@ export async function PATCH(
       newStatus: status,
     });
 
+    // Enrich response with top-level discount fields per AC-1.8
+    const meta = updated.metadata as Record<string, unknown> | null;
+    const discount = meta?.discount as Record<string, unknown> | undefined;
+    if (discount) {
+      return apiResponse({
+        ...updated,
+        originalAmount: discount.originalAmount,
+        discountPercent: discount.percent,
+        discountAmount: discount.amount,
+        finalAmount: discount.finalAmount,
+        discountReason: discount.reason,
+      });
+    }
+
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof BookingError) {

@@ -174,6 +174,29 @@ export default async function LogsPage({ searchParams }: Props) {
           </a>
         </form>
 
+        {/* Discount summary when filtered by booking.discount_applied */}
+        {tab === "audit" && sp.action === "booking.discount_applied" && auditData.logs.length > 0 && (() => {
+          let totalDiscountAmount = 0;
+          let count = 0;
+          for (const log of auditData.logs) {
+            const meta = log.metadata as Record<string, unknown> | null;
+            if (meta && typeof meta.discountAmount === "number") {
+              totalDiscountAmount += meta.discountAmount;
+              count++;
+            }
+          }
+          return (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center justify-between">
+              <div className="text-sm text-amber-900">
+                <span className="font-semibold">Скидки за период:</span> {count} шт.
+              </div>
+              <div className="text-sm font-bold text-amber-900 tabular-nums">
+                −{totalDiscountAmount.toLocaleString("ru-RU")} ₽
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Content */}
         <Card>
           <CardHeader>
