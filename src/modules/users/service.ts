@@ -105,12 +105,13 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
     select: USER_SELECT,
   });
 
-  // When role changes to MANAGER, ensure at least "dashboard" permission exists
+  // When role changes to MANAGER, ensure "dashboard" permission always exists
   if (input.role === "MANAGER" && user.role !== "MANAGER") {
-    const existing = await prisma.adminPermission.count({ where: { userId: id } });
-    if (existing === 0) {
-      await setUserAdminSections(id, ["dashboard"]);
-    }
+    await prisma.adminPermission.upsert({
+      where: { userId_section: { userId: id, section: "dashboard" } },
+      create: { userId: id, section: "dashboard" },
+      update: {},
+    });
   }
 
   return updated;

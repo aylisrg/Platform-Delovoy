@@ -103,6 +103,9 @@ export const authConfig: NextAuthConfig = {
         if (!auth?.user) return false;
         const role = auth.user.role;
 
+        // /admin/forbidden is accessible to any authenticated user (error page)
+        if (pathname === "/admin/forbidden") return true;
+
         // SUPERADMIN always has full access
         if (role === "SUPERADMIN") return true;
 
@@ -112,8 +115,7 @@ export const authConfig: NextAuthConfig = {
           if (!section) return true; // /admin root — redirect will handle
 
           const adminSections: string[] = auth.user.adminSections ?? [];
-          if (adminSections.length === 0 || !adminSections.includes(section)) {
-            // Redirect to first allowed section or show forbidden
+          if (!adminSections.includes(section)) {
             return Response.redirect(
               new URL("/admin/forbidden", request.nextUrl.origin)
             );

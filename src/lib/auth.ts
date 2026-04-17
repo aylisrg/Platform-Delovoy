@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "./db";
 import { authConfig } from "./auth.config";
+import { ADMIN_SECTION_SLUGS } from "./permissions";
 
 // Custom Yandex OAuth provider
 function YandexProvider() {
@@ -94,10 +95,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           });
 
           if (dbUser && dbUser.role === "SUPERADMIN") {
-            result.adminSections = [
-              "dashboard", "gazebos", "ps-park", "cafe",
-              "rental", "modules", "users", "clients", "telegram", "feedback", "monitoring", "architect",
-            ];
+            result.adminSections = [...ADMIN_SECTION_SLUGS];
           } else if (dbUser && dbUser.role === "MANAGER") {
             const permissions = await prisma.adminPermission.findMany({
               where: { userId: result.id as string },
