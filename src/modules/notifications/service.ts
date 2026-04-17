@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { NotificationChannel } from "@prisma/client";
+import type { NotificationChannel } from "@prisma/client";
 import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
 import { renderClientMessage, renderAdminMessage } from "./templates";
@@ -271,20 +271,13 @@ export async function updateUserPreferences(
     enableBooking?: boolean;
     enableOrder?: boolean;
     enableReminder?: boolean;
-    preferredChannel?: string;
+    preferredChannel?: NotificationChannel;
   }
 ) {
-  const { preferredChannel, ...restData } = data;
-  const typedData = {
-    ...restData,
-    ...(preferredChannel !== undefined
-      ? { preferredChannel: preferredChannel as NotificationChannel }
-      : {}),
-  };
   return prisma.notificationPreference.upsert({
     where: { userId },
-    create: { userId, ...typedData },
-    update: typedData,
+    create: { userId, ...data },
+    update: data,
   });
 }
 
