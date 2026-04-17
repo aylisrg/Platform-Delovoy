@@ -88,6 +88,7 @@ export function HeroSectionWithVideo() {
           style={{
             fontSize: "clamp(48px, 8vw, 96px)",
             letterSpacing: "clamp(-2px, -0.04em, -4px)",
+            textShadow: "0 1px 3px rgba(255,255,255,0.6)",
           }}
         >
           Бизнес-парк,
@@ -98,7 +99,7 @@ export function HeroSectionWithVideo() {
         </h1>
 
         {/* Sub */}
-        <p className="mt-6 text-[#86868b] font-[family-name:var(--font-inter)] text-lg max-w-xl leading-relaxed">
+        <p className="mt-6 text-[#86868b] font-[family-name:var(--font-inter)] text-lg max-w-xl leading-relaxed" style={{ textShadow: "0 1px 3px rgba(255,255,255,0.5)" }}>
           Каждый отзыв — 5 звёзд. Это не случайность,
           это&nbsp;то, как мы работаем каждый день.
           <br />
