@@ -49,7 +49,7 @@ describe("requestLink", () => {
   it("returns sent=true on success for email", async () => {
     vi.mocked(prisma.user.findUnique)
       .mockResolvedValueOnce(null) // not linked by telegramId
-      .mockResolvedValueOnce({ id: "user-1", telegramId: null, email: "u@mail.com", phone: null }); // found by email
+      .mockResolvedValueOnce({ id: "user-1", telegramId: null, email: "u@mail.com", phone: null } as never); // found by email
     vi.mocked(redis.get).mockResolvedValue(null); // not blocked
     vi.mocked(redis.set).mockResolvedValue("OK");
 
@@ -61,7 +61,7 @@ describe("requestLink", () => {
   });
 
   it("throws TELEGRAM_ALREADY_LINKED if telegramId is already linked", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ id: "user-1" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ id: "user-1" } as never);
 
     await expect(
       requestLink("tg-123", { type: "email", value: "u@mail.com" })
@@ -105,7 +105,7 @@ describe("confirmLink", () => {
       name: "Ivan",
       role: "USER",
       telegramId: "tg-123",
-    });
+    } as never);
     vi.mocked(redis.del).mockResolvedValue(1);
     vi.mocked(prisma.user.findMany).mockResolvedValue([]);
 
@@ -203,7 +203,7 @@ describe("hasSkippedLinking", () => {
 
 describe("generateDeepLink", () => {
   it("generates deep link for user without telegram", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ telegramId: null });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ telegramId: null } as never);
     vi.mocked(prisma.telegramLinkToken.create).mockResolvedValue({} as never);
     vi.mocked(redis.set).mockResolvedValue("OK");
 
@@ -215,7 +215,7 @@ describe("generateDeepLink", () => {
   });
 
   it("throws TELEGRAM_ALREADY_LINKED if user has telegramId", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ telegramId: "tg-existing" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ telegramId: "tg-existing" } as never);
 
     await expect(generateDeepLink("user-1")).rejects.toMatchObject({
       code: "TELEGRAM_ALREADY_LINKED",
@@ -228,7 +228,7 @@ describe("processDeepLink", () => {
   it("links telegram via valid token from Redis", async () => {
     vi.mocked(redis.get).mockResolvedValue("user-1");
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null); // telegramId not linked to other user
-    vi.mocked(prisma.user.update).mockResolvedValue({ id: "user-1", name: "Ivan" });
+    vi.mocked(prisma.user.update).mockResolvedValue({ id: "user-1", name: "Ivan" } as never);
     vi.mocked(prisma.telegramLinkToken.update).mockResolvedValue({} as never);
     vi.mocked(redis.del).mockResolvedValue(1);
 
@@ -252,7 +252,7 @@ describe("processDeepLink", () => {
 
   it("throws TELEGRAM_ALREADY_LINKED if telegramId belongs to another user", async () => {
     vi.mocked(redis.get).mockResolvedValue("user-1");
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: "user-OTHER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: "user-OTHER" } as never);
 
     await expect(
       processDeepLink({ token: "a".repeat(48), telegramId: "tg-999" })
