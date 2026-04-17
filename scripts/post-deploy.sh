@@ -1,8 +1,17 @@
 #!/bin/bash
-# Post-deploy: apply migrations and seed admin password
-# NOTE: This is now handled by docker-entrypoint.sh automatically.
-# This script is kept for manual use only.
+# Post-deploy: clean Docker, apply migrations, seed admin password
+# NOTE: Migrations are now handled by docker-entrypoint.sh automatically.
+# This script is kept for manual use and Docker cleanup.
 
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+echo "🧹 Cleaning Docker system before deploy..."
+bash "$SCRIPT_DIR/docker-cleanup.sh" || true
+
+echo ""
 echo "Running post-deploy tasks..."
 
 # Apply database schema changes (without --accept-data-loss for safety)

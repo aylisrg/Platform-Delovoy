@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm install
+RUN npm ci --only=production && npm ci --only=development
 
 COPY . .
 
@@ -21,8 +21,8 @@ ENV NEXT_PUBLIC_YANDEX_MAPS_URL=$NEXT_PUBLIC_YANDEX_MAPS_URL
 
 RUN npm run build
 
-# Clean Next.js build cache to reduce image size
-RUN rm -rf .next/cache
+# Clean up build artifacts and caches to reduce final image size
+RUN rm -rf .next/cache .next/turbo /root/.npm
 
 # Stage 2: Minimal production runner
 FROM node:20-alpine AS runner
