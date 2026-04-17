@@ -20,8 +20,10 @@ const USER_SELECT = {
 } as const;
 
 export async function createUser(input: CreateUserInput) {
+  const normalizedEmail = input.email.toLowerCase().trim();
+
   const existing = await prisma.user.findUnique({
-    where: { email: input.email },
+    where: { email: normalizedEmail },
   });
 
   if (existing) {
@@ -32,7 +34,7 @@ export async function createUser(input: CreateUserInput) {
 
   const user = await prisma.user.create({
     data: {
-      email: input.email,
+      email: normalizedEmail,
       name: input.name,
       role: input.role,
       phone: input.phone || null,
@@ -112,6 +114,20 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
   }
 
   return updated;
+}
+
+export async function resetUserPassword(id: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    throw new Error("USER_NOT_FOUND");
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  await prisma.user.update({
+    where: { id },
+    data: { passwordHash },
+  });
 }
 
 export async function deleteUser(id: string, currentUserId: string) {

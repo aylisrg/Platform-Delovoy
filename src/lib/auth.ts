@@ -87,24 +87,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       // On login or session update, fetch admin sections from DB
       if ((user || trigger === "update") && result.id) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: result.id as string },
-          select: { role: true },
-        });
-
-        if (dbUser && dbUser.role === "SUPERADMIN") {
-          result.adminSections = [
-            "dashboard", "gazebos", "ps-park", "cafe",
-            "rental", "modules", "users", "clients", "telegram", "feedback", "monitoring", "architect",
-          ];
-        } else if (dbUser && dbUser.role === "MANAGER") {
-          const permissions = await prisma.adminPermission.findMany({
-            where: { userId: result.id as string },
-            select: { section: true },
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: result.id as string },
+            select: { role: true },
           });
-          result.adminSections = permissions.map((p) => p.section);
-        } else {
-          result.adminSections = [];
+
+          if (dbUser && dbUser.role === "SUPERADMIN") {
+            result.adminSections = [
+              "dashboard", "gazebos", "ps-park", "cafe",
+              "rental", "modules", "users", "clients", "telegram", "feedback", "monitoring", "architect",
+            ];
+          } else if (dbUser && dbUser.role === "MANAGER") {
+            const permissions = await prisma.adminPermission.findMany({
+              where: { userId: result.id as string },
+              select: { section: true },
+            });
+            result.adminSections = permissions.map((p) => p.section);
+          } else {
+            result.adminSections = [];
+          }
+        } catch (err) {
+          // DB error must not block login — return token with empty sections,
+          // user will be redirected to /admin/forbidden and can retry
+          console.error("[Auth] JWT callback DB error:", err);
+          result.adminSections = result.adminSections ?? [];
         }
       }
 
@@ -123,8 +130,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
+        const normalizedEmail = (credentials.email as string).toLowerCase().trim();
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
+          where: { email: normalizedEmail },
         });
 
         if (!user || !user.passwordHash) return null;
