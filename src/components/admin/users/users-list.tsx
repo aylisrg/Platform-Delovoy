@@ -18,7 +18,16 @@ interface User {
   telegramId: string | null;
   createdAt: string;
   notificationPreference: { notifyReleases: boolean } | null;
+  authProviders?: string[];
 }
+
+const PROVIDER_BADGE: Record<string, { icon: string; color: string; label: string }> = {
+  telegram: { icon: "TG", color: "bg-sky-100 text-sky-700", label: "Telegram" },
+  yandex: { icon: "Ya", color: "bg-yellow-100 text-yellow-700", label: "Yandex" },
+  credentials: { icon: "@", color: "bg-zinc-100 text-zinc-600", label: "Email" },
+  google: { icon: "G", color: "bg-red-50 text-red-600", label: "Google" },
+  whatsapp: { icon: "WA", color: "bg-green-100 text-green-700", label: "WhatsApp" },
+};
 
 const roleVariant: Record<Role, "danger" | "warning" | "default"> = {
   SUPERADMIN: "danger",
@@ -32,13 +41,27 @@ const roleLabel: Record<Role, string> = {
   USER: "Пользователь",
 };
 
-function getAuthProvider(user: User): string {
-  if (user.telegramId) return "Telegram";
-  if (user.email?.includes("@")) return "Email";
-  return "—";
+function AuthProviderBadges({ providers }: { providers?: string[] }) {
+  if (!providers || providers.length === 0) return <span className="text-zinc-300">—</span>;
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {providers.map((p) => {
+        const info = PROVIDER_BADGE[p];
+        return (
+          <span
+            key={p}
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${info?.color || "bg-zinc-100 text-zinc-600"}`}
+            title={info?.label || p}
+          >
+            {info?.icon || p}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
-export function UsersList() {
+export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -48,30 +71,40 @@ export function UsersList() {
   const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
   const [togglingRelease, setTogglingRelease] = useState<string | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 50;
 
-  const fetchUsers = useCallback(async (searchQuery?: string) => {
+  const fetchUsers = useCallback(async (searchQuery?: string, pageNum = 0) => {
     try {
-      const params = searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : "";
-      const res = await fetch(`/api/users${params}`);
+      const params = new URLSearchParams();
+      if (searchQuery) params.set("search", searchQuery);
+      if (filterRole === "team") params.set("role", "team");
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(pageNum * PAGE_SIZE));
+      const qs = params.toString();
+      const res = await fetch(`/api/users${qs ? `?${qs}` : ""}`);
       const data = await res.json();
       if (data.success) {
         setUsers(data.data);
+        if (data.meta?.total !== undefined) setTotal(data.meta.total);
       }
     } catch {
       // silently fail
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterRole]);
 
   useEffect(() => {
-    fetchUsers();
+    fetchUsers(undefined, 0);
   }, [fetchUsers]);
 
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchUsers(search || undefined);
+      setPage(0);
+      fetchUsers(search || undefined, 0);
     }, 300);
     return () => clearTimeout(timer);
   }, [search, fetchUsers]);
@@ -265,11 +298,9 @@ export function UsersList() {
                       </div>
                     </td>
 
-                    {/* Auth provider */}
+                    {/* Auth providers */}
                     <td className="px-6 py-3">
-                      <span className="text-xs text-zinc-400">
-                        {getAuthProvider(user)}
-                      </span>
+                      <AuthProviderBadges providers={user.authProviders} />
                     </td>
 
                     {/* Role */}
@@ -370,6 +401,31 @@ export function UsersList() {
           )}
         </div>
       </div>
+
+      {/* Pagination */}
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between px-2">
+          <p className="text-sm text-zinc-500">
+            Показано {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} из {total}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { const p = page - 1; setPage(p); fetchUsers(search || undefined, p); }}
+              disabled={page === 0}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition-colors"
+            >
+              Назад
+            </button>
+            <button
+              onClick={() => { const p = page + 1; setPage(p); fetchUsers(search || undefined, p); }}
+              disabled={(page + 1) * PAGE_SIZE >= total}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition-colors"
+            >
+              Далее
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Permissions Modal */}
       {permissionsUser && (

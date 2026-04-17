@@ -5,12 +5,16 @@ vi.mock("@/lib/db", () => ({
     user: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
+      count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
     },
     adminPermission: {
       upsert: vi.fn(),
+    },
+    auditLog: {
+      create: vi.fn(),
     },
   },
 }));
@@ -136,38 +140,65 @@ describe("listUsers", () => {
     vi.clearAllMocks();
   });
 
-  it("returns users ordered by createdAt desc", async () => {
-    const users = [mockUser(), mockUser({ id: "user-2", email: "other@example.com" })];
+  it("returns users with total and pagination", async () => {
+    const users = [
+      { ...mockUser(), accounts: [{ provider: "yandex" }] },
+      { ...mockUser({ id: "user-2", email: "other@example.com" }), accounts: [] },
+    ];
     vi.mocked(prisma.user.findMany).mockResolvedValue(users as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(2);
 
     const result = await listUsers();
 
-    expect(prisma.user.findMany).toHaveBeenCalledWith({
-      where: undefined,
-      select: USER_SELECT,
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
-    expect(result).toEqual(users);
+    expect(result.total).toBe(2);
+    expect(result.users).toHaveLength(2);
+    // Check authProviders mapping
+    const first = result.users[0] as Record<string, unknown>;
+    expect(first.authProviders).toContain("yandex");
   });
 
   it("filters by search query", async () => {
     vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0);
 
-    await listUsers("test");
+    await listUsers({ search: "test" });
 
-    expect(prisma.user.findMany).toHaveBeenCalledWith({
-      where: {
-        OR: [
-          { name: { contains: "test", mode: "insensitive" } },
-          { email: { contains: "test", mode: "insensitive" } },
-          { phone: { contains: "test", mode: "insensitive" } },
-        ],
-      },
-      select: USER_SELECT,
-      orderBy: { createdAt: "desc" },
-      take: 200,
+    const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
+    expect(callArgs?.where).toEqual({
+      AND: [
+        {
+          OR: [
+            { name: { contains: "test", mode: "insensitive" } },
+            { email: { contains: "test", mode: "insensitive" } },
+            { phone: { contains: "test", mode: "insensitive" } },
+            { telegramId: { contains: "test", mode: "insensitive" } },
+          ],
+        },
+      ],
     });
+  });
+
+  it("filters team (SUPERADMIN + MANAGER) when role=team", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0);
+
+    await listUsers({ role: "team" });
+
+    const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
+    expect(callArgs?.where).toEqual({
+      AND: [{ role: { in: ["SUPERADMIN", "MANAGER"] } }],
+    });
+  });
+
+  it("respects limit and offset", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0);
+
+    await listUsers({ limit: 10, offset: 20 });
+
+    const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
+    expect(callArgs?.take).toBe(10);
+    expect(callArgs?.skip).toBe(20);
   });
 });
 
@@ -247,6 +278,27 @@ describe("updateUser", () => {
     expect(mockSetUserAdminSections).not.toHaveBeenCalled();
     // only upsert of dashboard is done
     expect(prisma.adminPermission.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates audit log when role changes", async () => {
+    const user = mockUser({ role: "USER" });
+    const updated = mockUser({ role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+    vi.mocked(prisma.adminPermission.upsert).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    await updateUser("user-1", { role: "MANAGER" }, "admin-1");
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        userId: "admin-1",
+        action: "user.role.change",
+        entity: "User",
+        entityId: "user-1",
+        metadata: { oldRole: "USER", newRole: "MANAGER" },
+      },
+    });
   });
 
   it("throws CANNOT_DEMOTE_SELF", async () => {

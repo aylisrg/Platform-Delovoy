@@ -173,7 +173,7 @@ export function ClientProfile({ clientId }: { clientId: string }) {
       <div className="py-12 text-center">
         <p className="text-zinc-400">Клиент не найден</p>
         <Link
-          href="/admin/clients"
+          href="/admin/users?tab=clients"
           className="mt-2 inline-block text-sm text-blue-600 hover:underline"
         >
           Вернуться к списку
@@ -186,7 +186,7 @@ export function ClientProfile({ clientId }: { clientId: string }) {
     <div className="space-y-6">
       {/* Back link */}
       <Link
-        href="/admin/clients"
+        href="/admin/users?tab=clients"
         className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
       >
         ← Все клиенты

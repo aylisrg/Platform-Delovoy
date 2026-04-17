@@ -1,15 +1,5 @@
-import { AdminHeader } from "@/components/admin/header";
-import { ClientsPageContent } from "@/components/admin/clients/clients-page-content";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default function ClientsPage() {
-  return (
-    <>
-      <AdminHeader title="Клиенты" />
-      <div className="p-8">
-        <ClientsPageContent />
-      </div>
-    </>
-  );
+export default function ClientsRedirect() {
+  redirect("/admin/users?tab=clients");
 }

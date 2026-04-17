@@ -51,23 +51,59 @@ export async function createUser(input: CreateUserInput) {
   return user;
 }
 
-export async function listUsers(search?: string) {
-  const where = search
-    ? {
-        OR: [
-          { name: { contains: search, mode: "insensitive" as const } },
-          { email: { contains: search, mode: "insensitive" as const } },
-          { phone: { contains: search, mode: "insensitive" as const } },
-        ],
-      }
-    : undefined;
+export async function listUsers(options?: {
+  search?: string;
+  role?: "team";
+  limit?: number;
+  offset?: number;
+}) {
+  const { search, role, limit = 50, offset = 0 } = options ?? {};
 
-  return prisma.user.findMany({
-    where,
-    select: USER_SELECT,
-    orderBy: { createdAt: "desc" },
-    take: 200,
+  const conditions: Record<string, unknown>[] = [];
+
+  if (search) {
+    conditions.push({
+      OR: [
+        { name: { contains: search, mode: "insensitive" as const } },
+        { email: { contains: search, mode: "insensitive" as const } },
+        { phone: { contains: search, mode: "insensitive" as const } },
+        { telegramId: { contains: search, mode: "insensitive" as const } },
+      ],
+    });
+  }
+
+  if (role === "team") {
+    conditions.push({ role: { in: ["SUPERADMIN", "MANAGER"] } });
+  }
+
+  const where = conditions.length > 0 ? { AND: conditions } : undefined;
+
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: {
+        ...USER_SELECT,
+        accounts: { select: { provider: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.user.count({ where }),
+  ]);
+
+  const mapped = users.map((u) => {
+    const providers: string[] = [];
+    if (u.telegramId) providers.push("telegram");
+    if (u.email) providers.push("credentials");
+    for (const acc of u.accounts) {
+      if (!providers.includes(acc.provider)) providers.push(acc.provider);
+    }
+    const { accounts: _accounts, ...rest } = u;
+    return { ...rest, authProviders: providers };
   });
+
+  return { users: mapped, total };
 }
 
 export async function getUser(id: string) {
@@ -111,6 +147,19 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
       where: { userId_section: { userId: id, section: "dashboard" } },
       create: { userId: id, section: "dashboard" },
       update: {},
+    });
+  }
+
+  // Audit log for role changes
+  if (input.role && input.role !== user.role) {
+    await prisma.auditLog.create({
+      data: {
+        userId: currentUserId,
+        action: "user.role.change",
+        entity: "User",
+        entityId: id,
+        metadata: { oldRole: user.role, newRole: input.role },
+      },
     });
   }
 
