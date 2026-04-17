@@ -199,10 +199,6 @@ export async function confirmLink(
   // Clean up OTP
   await redis.del(otpKey(telegramId));
 
-  // Try to clean up the temp user created during Mini App auth
-  // (only if they have no bookings/orders)
-  await cleanupTempUser(telegramId, otpData.userId);
-
   return {
     linked: true,
     user: {
@@ -324,38 +320,6 @@ export async function processDeepLink(
     linked: true,
     userName: updatedUser.name,
   };
-}
-
-/**
- * Clean up a temporary user created during Mini App auth,
- * if they have no bookings or orders.
- */
-async function cleanupTempUser(
-  telegramId: string,
-  linkedUserId: string
-): Promise<void> {
-  try {
-    // Find if there's another user with this telegramId that isn't the linked one
-    // This shouldn't happen after the update, but check via created-during-auth pattern
-    const tempUsers = await prisma.user.findMany({
-      where: {
-        telegramId: null,
-        id: { not: linkedUserId },
-      },
-      select: {
-        id: true,
-        _count: { select: { bookings: true, orders: true } },
-      },
-      take: 1,
-    });
-
-    // We can't reliably identify the temp user after telegramId was moved,
-    // so this is a no-op for now. The temp user (if any) stays orphaned
-    // but harmless.
-    void tempUsers;
-  } catch {
-    // Non-critical — don't fail the linking
-  }
 }
 
 /**

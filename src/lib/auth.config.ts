@@ -87,11 +87,17 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/bot/");
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
+      // Webapp (Mini App) routes use their own JWT — not NextAuth sessions
+      const isWebappRoute = pathname.startsWith("/api/webapp/");
+      // Bot-internal endpoints use x-bot-token header auth
+      const isBotInternalRoute = pathname.startsWith("/api/webapp/link/deep-link");
 
       if (isAuthRoute || isHealthRoute) return true;
       if (isPublicApiRoute && request.method === "GET") return true;
       if (isPublicPostRoute && request.method === "POST") return true;
       if (isCiWebhook && request.method === "POST") return true;
+      // Webapp and bot-internal routes handle their own auth (JWT / x-bot-token)
+      if (isWebappRoute || isBotInternalRoute) return true;
 
       if (isAdminRoute) {
         if (!auth?.user) return false;
