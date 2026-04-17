@@ -21,12 +21,10 @@ jobs:
             echo "=== Docker disk usage ==="
             docker system df
 
-            echo "=== Stop app temporarily ==="
-            cd /opt/delovoy-park
-            docker compose stop app || true
-
-            echo "=== Remove ALL unused images, containers, networks, build cache ==="
-            docker system prune -af --volumes 2>/dev/null || docker system prune -af || true
+            # Prune unused images/containers/build-cache without touching running containers.
+            # The app container keeps its image in use — no stop needed and no downtime.
+            echo "=== Remove unused Docker resources ==="
+            docker system prune -af || true
             docker builder prune -af || true
 
             echo "=== Check large files outside Docker ==="
@@ -40,10 +38,6 @@ jobs:
             echo "=== Clean old logs ==="
             find /var/log -name "*.gz" -mtime +7 -delete 2>/dev/null || true
             journalctl --vacuum-size=50M 2>/dev/null || true
-
-            echo "=== Restart app ==="
-            cd /opt/delovoy-park
-            docker compose up -d app || true
 
             echo "=== Disk after ==="
             df -h /
