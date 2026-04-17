@@ -7,6 +7,8 @@ type TemplateFn = (d: TemplateData) => string;
  */
 export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
+    "booking.created": (d) =>
+      `Заявка принята!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\n\nОжидайте подтверждения.`,
     "booking.confirmed": (d) =>
       `Бронирование подтверждено!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.cancelled": (d) =>
@@ -15,6 +17,8 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
   },
   "ps-park": {
+    "booking.created": (d) =>
+      `Заявка принята!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\n\nОжидайте подтверждения.`,
     "booking.confirmed": (d) =>
       `Бронирование подтверждено!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.cancelled": (d) =>
@@ -23,6 +27,8 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
   },
   cafe: {
+    "order.placed": (d) =>
+      `Заказ #${d.orderNumber} принят!\n\nСумма: ${d.totalAmount} руб.${d.deliveryTo ? `\nДоставка в офис: ${d.deliveryTo}` : ""}`,
     "order.preparing": (d) =>
       `Ваш заказ #${d.orderNumber} готовится.`,
     "order.ready": (d) =>

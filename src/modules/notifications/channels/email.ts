@@ -77,6 +77,10 @@ export const emailAdapter: ChannelAdapter = {
     });
   },
 
+  async sendHtml(recipient, subject, html, text) {
+    return sendTransactionalEmail({ to: recipient, subject, html, text });
+  },
+
   resolveRecipient(user: UserWithContacts) {
     return user.email || null;
   },

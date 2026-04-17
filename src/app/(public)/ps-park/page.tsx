@@ -5,6 +5,7 @@ import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
 import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
+import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
@@ -260,6 +261,15 @@ export default async function PSParkPage() {
           </div>
         )}
       </section>
+
+      {/* Call widget */}
+      {phoneInfo && (
+        <CallWidget
+          phone={phoneInfo.phone}
+          displayPhone={phoneInfo.displayPhone}
+          variant="dark"
+        />
+      )}
 
       {/* ── FEATURES ── */}
       <section className="border-y border-zinc-800/60 bg-zinc-900/40 py-16">

@@ -38,7 +38,7 @@ export function HeroSectionWithVideo() {
       </div>
 
       {/* Light overlay for text readability */}
-      <div className="absolute inset-0 bg-white/70 z-[1]" />
+      <div className="absolute inset-0 bg-white/40 z-[1]" />
 
       {/* Content */}
       <div className="relative z-10 max-w-[1200px] mx-auto w-full py-24 md:py-32 px-6">

@@ -10,11 +10,11 @@ const services = [
     href: "/gazebos",
     accent: "#16A34A",
     photos: [
-      "/media/IMG_3843-HDR_Custom.JPG.webp",
+      "/media/IMG_3724_Custom.JPG.webp",
       "/media/IMG_3874-HDR_Custom.JPG.webp",
       "/media/IMG_3891-HDR_Custom.JPG.webp",
     ],
-    coverPhoto: "/media/IMG_3843-HDR_Custom.JPG.webp",
+    coverPhoto: "/media/IMG_3724_Custom.JPG.webp",
     tag: "Беседки · Мангал · Природа",
   },
   {
@@ -61,7 +61,7 @@ export function ServicesSection() {
           {services.map((s) => (
             <div
               key={s.id}
-              className="bg-white rounded-2xl overflow-hidden flex flex-col group hover:shadow-xl transition-all duration-300"
+              className="bg-white rounded-2xl overflow-hidden flex flex-col group hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
             >
               {/* Photo */}
               <div className="relative w-full h-52 overflow-hidden bg-[#f5f5f7]">

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { redis, redisAvailable } from "@/lib/redis";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
+import { magicLinkHtml, magicLinkText } from "@/modules/notifications/email-templates";
 
 const TOKEN_TTL_SECONDS = 15 * 60; // 15 minutes
 const COOLDOWN_TTL_SECONDS = 60; // 1 minute between sends
@@ -91,30 +92,12 @@ export async function sendMagicLinkEmail(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const url = `${appUrl}/api/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
 
+  const templateData = { url, expires: "15 минут" };
   const result = await sendTransactionalEmail({
     to: email,
     subject: "Деловой Парк — ссылка для входа",
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #fff;">
-        <h2 style="color: #1d1d1f; font-size: 22px; margin-bottom: 8px;">Войти в Деловой Парк</h2>
-        <p style="color: #6e6e73; font-size: 15px; margin-bottom: 24px;">
-          Нажмите кнопку ниже, чтобы войти в аккаунт. Ссылка действительна 15 минут.
-        </p>
-        <a href="${url}"
-           style="display: inline-block; background: #0071e3; color: #fff; text-decoration: none;
-                  padding: 14px 28px; border-radius: 980px; font-size: 15px; font-weight: 500;">
-          Войти
-        </a>
-        <p style="color: #aeaeb2; font-size: 13px; margin-top: 24px;">
-          Если вы не запрашивали этот email — просто проигнорируйте его.
-        </p>
-        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
-        <p style="color: #aeaeb2; font-size: 12px; word-break: break-all;">
-          Если кнопка не работает, перейдите по ссылке:<br>${url}
-        </p>
-      </div>
-    `,
-    text: `Войти в Деловой Парк\n\nПерейдите по ссылке для входа (действительна 15 минут):\n${url}\n\nЕсли вы не запрашивали этот email — проигнорируйте его.`,
+    html: magicLinkHtml(templateData),
+    text: magicLinkText(templateData),
   });
 
   if (!result.success) {

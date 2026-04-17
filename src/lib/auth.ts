@@ -78,6 +78,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma) as never,
   callbacks: {
     ...authConfig.callbacks,
+    async signIn({ user, account }) {
+      // Allow Yandex OAuth to link to an existing account with the same email.
+      // Without this, a user who previously logged in via Telegram or magic-link
+      // would get OAuthAccountNotLinked when trying Yandex with the same email.
+      if (account?.provider === "yandex" && user.email) {
+        const existing = await prisma.user.findUnique({
+          where: { email: user.email },
+          select: { id: true },
+        });
+        if (existing) {
+          // Returning true lets NextAuth proceed and link the OAuth account
+          return true;
+        }
+      }
+      // Call base signIn callback if defined, otherwise allow
+      if (authConfig.callbacks?.signIn) {
+        return (authConfig.callbacks.signIn as (args: unknown) => Promise<boolean | string>)({ user, account });
+      }
+      return true;
+    },
     async jwt({ token, user, trigger }) {
       // Call the base jwt callback first
       const result = authConfig.callbacks?.jwt
