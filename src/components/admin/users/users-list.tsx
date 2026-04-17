@@ -18,7 +18,16 @@ interface User {
   telegramId: string | null;
   createdAt: string;
   notificationPreference: { notifyReleases: boolean } | null;
+  authProviders?: string[];
 }
+
+const PROVIDER_BADGE: Record<string, { icon: string; color: string; label: string }> = {
+  telegram: { icon: "TG", color: "bg-sky-100 text-sky-700", label: "Telegram" },
+  yandex: { icon: "Ya", color: "bg-yellow-100 text-yellow-700", label: "Yandex" },
+  credentials: { icon: "@", color: "bg-zinc-100 text-zinc-600", label: "Email" },
+  google: { icon: "G", color: "bg-red-50 text-red-600", label: "Google" },
+  whatsapp: { icon: "WA", color: "bg-green-100 text-green-700", label: "WhatsApp" },
+};
 
 const roleVariant: Record<Role, "danger" | "warning" | "default"> = {
   SUPERADMIN: "danger",
@@ -32,10 +41,24 @@ const roleLabel: Record<Role, string> = {
   USER: "Пользователь",
 };
 
-function getAuthProvider(user: User): string {
-  if (user.telegramId) return "Telegram";
-  if (user.email?.includes("@")) return "Email";
-  return "—";
+function AuthProviderBadges({ providers }: { providers?: string[] }) {
+  if (!providers || providers.length === 0) return <span className="text-zinc-300">—</span>;
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {providers.map((p) => {
+        const info = PROVIDER_BADGE[p];
+        return (
+          <span
+            key={p}
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${info?.color || "bg-zinc-100 text-zinc-600"}`}
+            title={info?.label || p}
+          >
+            {info?.icon || p}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
@@ -275,11 +298,9 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                       </div>
                     </td>
 
-                    {/* Auth provider */}
+                    {/* Auth providers */}
                     <td className="px-6 py-3">
-                      <span className="text-xs text-zinc-400">
-                        {getAuthProvider(user)}
-                      </span>
+                      <AuthProviderBadges providers={user.authProviders} />
                     </td>
 
                     {/* Role */}

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function TelegramRedirect() {
-  redirect("/admin/monitoring");
+  redirect("/admin/monitoring?tab=system");
 }

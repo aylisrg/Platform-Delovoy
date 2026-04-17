@@ -56,7 +56,7 @@ export async function listUsers(options?: {
   role?: "team";
   limit?: number;
   offset?: number;
-}): Promise<{ users: unknown[]; total: number }> {
+}) {
   const { search, role, limit = 50, offset = 0 } = options ?? {};
 
   const conditions: Record<string, unknown>[] = [];
@@ -146,6 +146,19 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
       where: { userId_section: { userId: id, section: "dashboard" } },
       create: { userId: id, section: "dashboard" },
       update: {},
+    });
+  }
+
+  // Audit log for role changes
+  if (input.role && input.role !== user.role) {
+    await prisma.auditLog.create({
+      data: {
+        userId: currentUserId,
+        action: "user.role.change",
+        entity: "User",
+        entityId: id,
+        metadata: { oldRole: user.role, newRole: input.role },
+      },
     });
   }
 

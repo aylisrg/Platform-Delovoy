@@ -92,7 +92,6 @@ export default async function MonitoringPage() {
             )}
           </CardContent>
         </Card>
-      </div>
 
         {/* Telegram & Notifications System */}
         <div className="mt-8 space-y-8">

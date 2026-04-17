@@ -69,7 +69,7 @@ export async function getProfile(userId: string): Promise<ProfileData> {
     contacts: {
       telegram: user.telegramId,
       yandex: user.accounts.length > 0
-        ? { email: user.email ?? "yandex", name: user.name }
+        ? { email: user.email ?? user.accounts[0].providerAccountId, name: user.name }
         : null,
       email: user.email,
       phone: user.phone,

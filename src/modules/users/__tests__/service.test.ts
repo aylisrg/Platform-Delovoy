@@ -13,6 +13,9 @@ vi.mock("@/lib/db", () => ({
     adminPermission: {
       upsert: vi.fn(),
     },
+    auditLog: {
+      create: vi.fn(),
+    },
   },
 }));
 
@@ -274,6 +277,27 @@ describe("updateUser", () => {
     expect(mockSetUserAdminSections).not.toHaveBeenCalled();
     // only upsert of dashboard is done
     expect(prisma.adminPermission.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates audit log when role changes", async () => {
+    const user = mockUser({ role: "USER" });
+    const updated = mockUser({ role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+    vi.mocked(prisma.adminPermission.upsert).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    await updateUser("user-1", { role: "MANAGER" }, "admin-1");
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        userId: "admin-1",
+        action: "user.role.change",
+        entity: "User",
+        entityId: "user-1",
+        metadata: { oldRole: "USER", newRole: "MANAGER" },
+      },
+    });
   });
 
   it("throws CANNOT_DEMOTE_SELF", async () => {
