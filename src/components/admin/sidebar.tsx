@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 import {
   DndContext,
@@ -50,6 +51,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
+  { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
@@ -752,6 +754,12 @@ export function Sidebar() {
         >
           ← На сайт
         </Link>
+        <button
+          onClick={() => signOut({ callbackUrl: "/" })}
+          className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors"
+        >
+          Выйти
+        </button>
       </div>
     </aside>
   );

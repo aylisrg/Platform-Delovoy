@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { signOut } from "next-auth/react";
 import type { DayReport, ShiftHandoverData } from "@/modules/ps-park/types";
 
 type ShiftData = {
@@ -25,6 +26,7 @@ export function ShiftPanel({ date }: { date: string }) {
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
   const [notes, setNotes] = useState("");
 
   const load = useCallback(async () => {
@@ -79,6 +81,7 @@ export function ShiftPanel({ date }: { date: string }) {
         setShowCloseConfirm(false);
         setNotes("");
         await load();
+        setShowLogoutPrompt(true);
       } else {
         setError(json.error?.message ?? "Ошибка");
       }
@@ -223,6 +226,41 @@ export function ShiftPanel({ date }: { date: string }) {
           </div>
         )}
       </div>
+
+      {/* Logout prompt after shift close */}
+      {showLogoutPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowLogoutPrompt(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white shadow-2xl mx-4 p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">👋</span>
+              <h2 className="text-base font-semibold text-zinc-900">Смена сдана</h2>
+            </div>
+            <p className="text-sm text-zinc-500 mb-5">
+              Хотите выйти из аккаунта? Это защитит данные, если за терминалом будет другой сотрудник.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLogoutPrompt(false)}
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+              >
+                Остаться
+              </button>
+              <button
+                type="button"
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 transition-colors"
+              >
+                Выйти
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Close shift confirm modal */}
       {showCloseConfirm && (
