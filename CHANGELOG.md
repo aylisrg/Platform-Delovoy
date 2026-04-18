@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.3.0...v1.4.0) (2026-04-17)
+
+
+### Features
+
+* **telegram:** notification flow map, Mini App auth linking, notification preferences ([#109](https://github.com/aylisrg/Platform-Delovoy/issues/109)) ([1856d71](https://github.com/aylisrg/Platform-Delovoy/commit/1856d719db151e64f560b0078b041d7cfc287cb8))
+* Yandex OAuth + HTML email service + call widget + landing polish ([#113](https://github.com/aylisrg/Platform-Delovoy/issues/113)) ([6407e36](https://github.com/aylisrg/Platform-Delovoy/commit/6407e36816256975aab7d567a2ecb90acb38be93))
+
+
+### Bug Fixes
+
+* **auth:** resolve MANAGER login — forbidden redirect loop + section sync ([#111](https://github.com/aylisrg/Platform-Delovoy/issues/111)) ([4f5c3ba](https://github.com/aylisrg/Platform-Delovoy/commit/4f5c3bac1b796e3d3d14699c08730281d7df00c9))
+* **ci:** repair broken workflows — watchdog YAML, deploy, build-once ([#112](https://github.com/aylisrg/Platform-Delovoy/issues/112)) ([2a82b26](https://github.com/aylisrg/Platform-Delovoy/commit/2a82b26b50385a515ccaf74c202014cc34a15e65))
+
 ## [1.3.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.2.0...v1.3.0) (2026-04-17)
 
 

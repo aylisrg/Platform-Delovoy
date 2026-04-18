@@ -49,8 +49,6 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
-  { label: "Клиенты", href: "/admin/clients", icon: "👤", section: "clients" },
-  { label: "Telegram", href: "/admin/telegram", icon: "📨", section: "telegram" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
   { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },

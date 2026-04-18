@@ -24,3 +24,12 @@ export const updateUserSchema = z.object({
 });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+export const listUsersSchema = z.object({
+  search: z.string().max(200).optional(),
+  role: z.enum(["team"]).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+});
+
+export type ListUsersInput = z.infer<typeof listUsersSchema>;

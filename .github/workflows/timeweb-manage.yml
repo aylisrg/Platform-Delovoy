@@ -18,6 +18,7 @@ on:
           - server-shutdown        # Выключить сервер
           - server-start           # Включить сервер
           - server-logs            # Логи контейнеров (через SSH)
+          - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
           - backup-create          # Создать снапшот сервера
@@ -179,6 +180,47 @@ jobs:
             echo ""
             echo "=== Docker Disk ==="
             docker system df
+
+      - name: Disk Cleanup (via SSH)
+        if: inputs.action == 'disk-cleanup'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "=== DISK BEFORE ==="
+            df -h /
+
+            echo ""
+            echo "=== Docker BEFORE ==="
+            docker system df
+
+            echo ""
+            echo "=== Removing unused Docker images ==="
+            docker image prune -af
+            echo "Done."
+
+            echo ""
+            echo "=== Removing old DB backups (older than 7 days) ==="
+            find /opt/backups/ -name "*.sql.gz" -mtime +7 -delete 2>/dev/null && echo "Done." || echo "No backups dir or nothing to delete."
+
+            echo ""
+            echo "=== Rotating journal logs (keep 7 days) ==="
+            sudo journalctl --vacuum-time=7d 2>/dev/null || true
+
+            echo ""
+            echo "=== Setting up weekly Docker auto-cleanup cron ==="
+            echo "0 3 * * 0 root docker image prune -af --filter until=168h >> /var/log/docker-cleanup.log 2>&1" | sudo tee /etc/cron.d/docker-weekly-cleanup > /dev/null
+            echo "Done."
+
+            echo ""
+            echo "=== Docker AFTER ==="
+            docker system df
+
+            echo ""
+            echo "=== DISK AFTER ==="
+            df -h /
 
       - name: DB Migrate (via SSH)
         if: inputs.action == 'db-migrate'

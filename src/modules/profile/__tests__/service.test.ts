@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getProfile,
   updateName,
+  detachChannel,
   requestEmailAttach,
   confirmEmailAttach,
   requestPhoneAttach,
@@ -16,6 +17,12 @@ vi.mock("@/lib/db", () => ({
       findUniqueOrThrow: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+    },
+    account: {
+      deleteMany: vi.fn(),
+    },
+    auditLog: {
+      create: vi.fn(),
     },
   },
 }));
@@ -46,7 +53,7 @@ vi.mock("@/modules/notifications/channels/email", () => ({
 import { prisma } from "@/lib/db";
 import { redis } from "@/lib/redis";
 
-function mockUser(overrides = {}) {
+function mockUser(overrides: Record<string, unknown> = {}) {
   return {
     id: "user-1",
     name: "Иван",
@@ -55,6 +62,8 @@ function mockUser(overrides = {}) {
     phone: null,
     telegramId: "tg-123",
     vkId: null,
+    accounts: [],
+    passwordHash: null,
     ...overrides,
   };
 }
@@ -64,9 +73,13 @@ function mockUser(overrides = {}) {
 describe("getProfile", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns profile with contacts", async () => {
+  it("returns profile with contacts and yandex account", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
-      mockUser({ email: "test@test.com", phone: "+79001234567" }) as never
+      mockUser({
+        email: "test@test.com",
+        phone: "+79001234567",
+        accounts: [{ providerAccountId: "yandex-123" }],
+      }) as never
     );
 
     const profile = await getProfile("user-1");
@@ -76,17 +89,17 @@ describe("getProfile", () => {
     expect(profile.contacts.telegram).toBe("tg-123");
     expect(profile.contacts.email).toBe("test@test.com");
     expect(profile.contacts.phone).toBe("+79001234567");
-    expect(profile.contacts.vk).toBeNull();
+    expect(profile.contacts.yandex).toEqual({ email: "test@test.com", name: "Иван" });
   });
 
-  it("returns null contacts for empty user", async () => {
+  it("returns null yandex when no yandex account", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never);
 
     const profile = await getProfile("user-1");
 
     expect(profile.contacts.email).toBeNull();
     expect(profile.contacts.phone).toBeNull();
-    expect(profile.contacts.vk).toBeNull();
+    expect(profile.contacts.yandex).toBeNull();
   });
 });
 
@@ -312,5 +325,85 @@ describe("confirmPhoneAttach", () => {
     await expect(
       confirmPhoneAttach("user-1", { phone: "79001234567", code: "999999" })
     ).rejects.toMatchObject({ code: "INVALID_CODE" });
+  });
+});
+
+// ── detachChannel ────────────────────────────────────────────────────────────
+
+describe("detachChannel", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("detaches telegram when user has multiple auth methods", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser({ telegramId: "tg-123", email: "a@b.com", accounts: [] }) as never
+    );
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    const result = await detachChannel("user-1", "telegram");
+
+    expect(result.detached).toBe("telegram");
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { telegramId: null },
+    });
+  });
+
+  it("detaches yandex account", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser({
+        telegramId: "tg-123",
+        accounts: [{ provider: "yandex" }],
+      }) as never
+    );
+    vi.mocked(prisma.account.deleteMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    const result = await detachChannel("user-1", "yandex");
+
+    expect(result.detached).toBe("yandex");
+    expect(prisma.account.deleteMany).toHaveBeenCalledWith({
+      where: { userId: "user-1", provider: "yandex" },
+    });
+  });
+
+  it("throws LAST_AUTH_METHOD when only one auth method left", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser({ telegramId: "tg-123", email: null, phone: null, accounts: [] }) as never
+    );
+
+    await expect(detachChannel("user-1", "telegram")).rejects.toMatchObject({
+      code: "LAST_AUTH_METHOD",
+    });
+  });
+
+  it("throws NOT_ATTACHED when channel not connected", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser({ telegramId: "tg-123", email: "a@b.com", phone: null, accounts: [] }) as never
+    );
+
+    await expect(detachChannel("user-1", "phone")).rejects.toMatchObject({
+      code: "NOT_ATTACHED",
+    });
+  });
+
+  it("creates audit log on successful detach", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser({ telegramId: "tg-123", email: "a@b.com", accounts: [] }) as never
+    );
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    await detachChannel("user-1", "email");
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        userId: "user-1",
+        action: "profile.detach",
+        entity: "User",
+        entityId: "user-1",
+        metadata: { channel: "email" },
+      },
+    });
   });
 });

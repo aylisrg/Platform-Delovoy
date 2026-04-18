@@ -5,6 +5,7 @@ import {
   attachEmailConfirmSchema,
   attachPhoneRequestSchema,
   attachPhoneConfirmSchema,
+  detachChannelSchema,
 } from "../validation";
 
 describe("updateNameSchema", () => {
@@ -112,6 +113,38 @@ describe("attachPhoneConfirmSchema", () => {
 
   it("rejects missing code", () => {
     const result = attachPhoneConfirmSchema.safeParse({ phone: "+79001234567" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("detachChannelSchema", () => {
+  it("accepts telegram", () => {
+    const result = detachChannelSchema.safeParse({ channel: "telegram" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts email", () => {
+    const result = detachChannelSchema.safeParse({ channel: "email" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts phone", () => {
+    const result = detachChannelSchema.safeParse({ channel: "phone" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts yandex", () => {
+    const result = detachChannelSchema.safeParse({ channel: "yandex" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unsupported channel", () => {
+    const result = detachChannelSchema.safeParse({ channel: "vk" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing channel", () => {
+    const result = detachChannelSchema.safeParse({});
     expect(result.success).toBe(false);
   });
 });

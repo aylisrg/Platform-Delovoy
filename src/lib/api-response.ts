@@ -7,6 +7,8 @@ type ApiSuccessResponse<T> = {
     page?: number;
     perPage?: number;
     total?: number;
+    limit?: number;
+    offset?: number;
   };
 };
 

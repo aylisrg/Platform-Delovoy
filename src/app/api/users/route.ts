@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { apiResponse, apiError, apiForbidden, apiUnauthorized, apiValidationError } from "@/lib/api-response";
-import { createUserSchema } from "@/modules/users/validation";
+import { createUserSchema, listUsersSchema } from "@/modules/users/validation";
 import { createUser, listUsers } from "@/modules/users/service";
 
 export async function GET(request: Request) {
@@ -10,9 +10,19 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const search = searchParams.get("search") || undefined;
-    const users = await listUsers(search);
-    return apiResponse(users);
+    const parsed = listUsersSchema.safeParse({
+      search: searchParams.get("search") || undefined,
+      role: searchParams.get("role") || undefined,
+      limit: searchParams.get("limit") || undefined,
+      offset: searchParams.get("offset") || undefined,
+    });
+
+    if (!parsed.success) {
+      return apiValidationError(parsed.error.issues.map((i) => i.message).join(", "));
+    }
+
+    const { users, total } = await listUsers(parsed.data);
+    return apiResponse(users, { total, limit: parsed.data.limit, offset: parsed.data.offset });
   } catch {
     return apiError("INTERNAL_ERROR", "Ошибка загрузки пользователей", 500);
   }

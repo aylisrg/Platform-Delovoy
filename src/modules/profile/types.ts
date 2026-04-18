@@ -1,9 +1,11 @@
 export interface ProfileContacts {
   telegram: string | null;
+  yandex: { email: string; name: string | null } | null;
   email: string | null;
   phone: string | null;
-  vk: string | null;
 }
+
+export type DetachableChannel = "telegram" | "email" | "phone" | "yandex";
 
 export interface ProfileData {
   id: string;

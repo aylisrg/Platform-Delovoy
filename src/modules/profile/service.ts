@@ -14,6 +14,7 @@ import type {
   AttachEmailConfirmResult,
   AttachPhoneRequestResult,
   AttachPhoneConfirmResult,
+  DetachableChannel,
 } from "./types";
 
 // Redis key prefixes — separate from auth flows
@@ -53,7 +54,11 @@ export async function getProfile(userId: string): Promise<ProfileData> {
       email: true,
       phone: true,
       telegramId: true,
-      vkId: true,
+      accounts: {
+        where: { provider: "yandex" },
+        select: { providerAccountId: true },
+        take: 1,
+      },
     },
   });
 
@@ -63,11 +68,98 @@ export async function getProfile(userId: string): Promise<ProfileData> {
     image: user.image,
     contacts: {
       telegram: user.telegramId,
+      yandex: user.accounts.length > 0
+        ? { email: user.email ?? user.accounts[0].providerAccountId, name: user.name }
+        : null,
       email: user.email,
       phone: user.phone,
-      vk: user.vkId,
     },
   };
+}
+
+// ── DETACH CHANNEL ──────────────────────────────────────────────────────────
+
+export async function detachChannel(
+  userId: string,
+  channel: DetachableChannel
+): Promise<{ detached: string }> {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: {
+      telegramId: true,
+      email: true,
+      phone: true,
+      passwordHash: true,
+      accounts: {
+        select: { provider: true },
+      },
+    },
+  });
+
+  // Count active auth methods
+  let authMethodCount = 0;
+  if (user.telegramId) authMethodCount++;
+  if (user.email) authMethodCount++;
+  if (user.phone) authMethodCount++;
+  if (user.passwordHash) authMethodCount++;
+  for (const acc of user.accounts) {
+    if (acc.provider === "yandex" || acc.provider === "google") {
+      authMethodCount++;
+    }
+  }
+
+  if (authMethodCount <= 1) {
+    throw Object.assign(
+      new Error("Это единственный способ входа. Привяжите другой канал перед отвязкой."),
+      { code: "LAST_AUTH_METHOD" }
+    );
+  }
+
+  // Verify channel is attached
+  switch (channel) {
+    case "telegram":
+      if (!user.telegramId) {
+        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+      }
+      await prisma.user.update({ where: { id: userId }, data: { telegramId: null } });
+      break;
+
+    case "email":
+      if (!user.email) {
+        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+      }
+      await prisma.user.update({ where: { id: userId }, data: { email: null, emailVerified: null } });
+      break;
+
+    case "phone":
+      if (!user.phone) {
+        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+      }
+      await prisma.user.update({ where: { id: userId }, data: { phone: null } });
+      break;
+
+    case "yandex": {
+      const yandexAccount = user.accounts.find((a) => a.provider === "yandex");
+      if (!yandexAccount) {
+        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+      }
+      await prisma.account.deleteMany({ where: { userId, provider: "yandex" } });
+      break;
+    }
+  }
+
+  // Audit log
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "profile.detach",
+      entity: "User",
+      entityId: userId,
+      metadata: { channel },
+    },
+  });
+
+  return { detached: channel };
 }
 
 // ── UPDATE NAME ───────────────────────────────────────────────────────────────
