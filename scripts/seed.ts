@@ -147,6 +147,59 @@ async function main() {
   });
   console.log("  ✓ Inventory module registered (items added via 'Приехал новый товар')");
 
+  // === MANAGEMENT MODULE (Управленка) ===
+  await prisma.module.upsert({
+    where: { slug: "management" },
+    update: { name: "Управленка", description: "Управленческий учёт расходов" },
+    create: { slug: "management", name: "Управленка", description: "Управленческий учёт расходов" },
+  });
+
+  // Seed initial recurring expenses (known IT costs with amount=0)
+  const admin = await prisma.user.findFirst({ where: { role: "SUPERADMIN" } });
+  const adminId = admin?.id ?? "system";
+
+  const initialRecurring = [
+    {
+      name: "Timeweb VPS",
+      description: "Хостинг на Timeweb Cloud — ОБНОВИТЕ СУММУ!",
+      category: "IT_INFRASTRUCTURE" as const,
+      frequency: "MONTHLY" as const,
+      amount: 0,
+      startDate: new Date("2026-04-17"),
+      nextBillingDate: new Date("2026-05-17"),
+    },
+    {
+      name: "Домен delovoy-park.ru",
+      description: "Регистрация домена — ОБНОВИТЕ СУММУ И ДАТУ!",
+      category: "IT_INFRASTRUCTURE" as const,
+      frequency: "YEARLY" as const,
+      amount: 0,
+      startDate: new Date("2026-04-17"),
+      nextBillingDate: new Date("2027-04-17"),
+    },
+    {
+      name: "GitHub",
+      description: "GitHub Team/Pro — ОБНОВИТЕ СУММУ! Если Free, деактивируйте.",
+      category: "IT_INFRASTRUCTURE" as const,
+      frequency: "MONTHLY" as const,
+      amount: 0,
+      startDate: new Date("2026-04-17"),
+      nextBillingDate: new Date("2026-05-17"),
+    },
+  ];
+
+  for (const r of initialRecurring) {
+    const existing = await prisma.recurringExpense.findFirst({
+      where: { name: r.name, deletedAt: null },
+    });
+    if (!existing) {
+      await prisma.recurringExpense.create({
+        data: { ...r, createdById: adminId },
+      });
+    }
+  }
+  console.log(`  ✓ Management module + ${initialRecurring.length} initial recurring expenses`);
+
   console.log("\n✅ Seed completed successfully!");
 }
 
