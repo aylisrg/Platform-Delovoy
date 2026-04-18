@@ -12,6 +12,7 @@ type RecurringExpense = {
   frequency: string;
   amount: string;
   currency: string;
+  serviceUrl?: string;
   startDate: string;
   nextBillingDate: string;
   isActive: boolean;
@@ -60,6 +61,7 @@ export default function RecurringPage() {
   const [formStartDate, setFormStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [formNextBilling, setFormNextBilling] = useState("");
   const [formDescription, setFormDescription] = useState("");
+  const [formServiceUrl, setFormServiceUrl] = useState("");
   const [formSaving, setFormSaving] = useState(false);
 
   const fetchItems = useCallback(async () => {
@@ -87,6 +89,7 @@ export default function RecurringPage() {
     setFormStartDate(new Date().toISOString().split("T")[0]);
     setFormNextBilling("");
     setFormDescription("");
+    setFormServiceUrl("");
     setEditingId(null);
   }
 
@@ -99,6 +102,7 @@ export default function RecurringPage() {
     setFormStartDate(item.startDate.split("T")[0]);
     setFormNextBilling(item.nextBillingDate.split("T")[0]);
     setFormDescription(item.description || "");
+    setFormServiceUrl(item.serviceUrl || "");
     setShowForm(true);
   }
 
@@ -114,6 +118,7 @@ export default function RecurringPage() {
         startDate: formStartDate,
         nextBillingDate: formNextBilling || formStartDate,
         description: formDescription || undefined,
+        serviceUrl: formServiceUrl || undefined,
       };
 
       if (editingId) {
@@ -374,6 +379,17 @@ export default function RecurringPage() {
                   maxLength={1000}
                   rows={2}
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">URL сервиса (необязательно)</label>
+                <input
+                  type="url"
+                  value={formServiceUrl}
+                  onChange={(e) => setFormServiceUrl(e.target.value)}
+                  maxLength={500}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="https://timeweb.cloud"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">

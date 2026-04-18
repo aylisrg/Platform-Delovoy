@@ -114,6 +114,7 @@ export async function createRecurringExpense(
       frequency: input.frequency,
       amount: input.amount,
       currency: input.currency ?? "RUB",
+      serviceUrl: input.serviceUrl,
       startDate: startOfDay(input.startDate),
       nextBillingDate: startOfDay(input.nextBillingDate),
       createdById: userId,
@@ -175,6 +176,7 @@ export async function updateRecurringExpense(
     data.amount = input.amount;
   }
   if (input.currency !== undefined) data.currency = input.currency;
+  if (input.serviceUrl !== undefined) data.serviceUrl = input.serviceUrl;
   if (input.startDate !== undefined) {
     data.startDate = startOfDay(input.startDate);
   }

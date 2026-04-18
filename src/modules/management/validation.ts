@@ -18,6 +18,7 @@ export const createRecurringExpenseSchema = z.object({
   frequency: expenseFrequencyEnum,
   amount: z.number().min(0, "Сумма не может быть отрицательной"),
   currency: z.string().length(3).optional(),
+  serviceUrl: z.string().url().max(500).optional(),
   startDate: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
   nextBillingDate: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),
 });
@@ -29,6 +30,7 @@ export const updateRecurringExpenseSchema = z.object({
   frequency: expenseFrequencyEnum.optional(),
   amount: z.number().min(0).optional(),
   currency: z.string().length(3).optional(),
+  serviceUrl: z.string().url().max(500).optional().nullable(),
   startDate: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
   nextBillingDate: z
     .string()

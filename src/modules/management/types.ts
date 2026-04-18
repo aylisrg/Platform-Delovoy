@@ -7,6 +7,7 @@ export type CreateRecurringExpenseInput = {
   frequency: ExpenseFrequency;
   amount: number;
   currency?: string;
+  serviceUrl?: string;
   startDate: string; // YYYY-MM-DD
   nextBillingDate: string; // YYYY-MM-DD
 };
@@ -18,6 +19,7 @@ export type UpdateRecurringExpenseInput = {
   frequency?: ExpenseFrequency;
   amount?: number;
   currency?: string;
+  serviceUrl?: string | null;
   startDate?: string;
   nextBillingDate?: string;
   isActive?: boolean;
