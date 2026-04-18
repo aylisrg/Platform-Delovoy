@@ -14,7 +14,8 @@ export async function POST(_request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const results = await writeOffExpiredBatches(session.user.id);
 

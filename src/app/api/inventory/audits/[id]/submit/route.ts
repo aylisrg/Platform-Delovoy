@@ -18,7 +18,8 @@ export async function POST(
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const { id } = await params;
     const audit = await finalizeAudit(id, session.user.id);
