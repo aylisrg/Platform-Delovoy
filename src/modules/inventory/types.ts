@@ -161,7 +161,21 @@ export type CreateStockReceiptInput = {
   invoiceNumber?: string;
   receivedAt: string;
   notes?: string;
+  moduleSlug?: string;
   items: StockReceiptItemInput[];
+};
+
+export type EditDraftReceiptInput = {
+  supplierId?: string | null;
+  invoiceNumber?: string | null;
+  receivedAt?: string;
+  notes?: string | null;
+  items?: StockReceiptItemInput[];
+};
+
+export type CorrectReceiptInput = {
+  items: StockReceiptItemInput[];
+  correctionReason?: string;
 };
 
 export type StockReceiptWithItems = StockReceipt & {

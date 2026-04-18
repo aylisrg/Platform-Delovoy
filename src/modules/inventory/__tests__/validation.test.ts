@@ -12,6 +12,10 @@ import {
   createWriteOffSchema,
   auditCountsSchema,
   movementFilterSchema,
+  flagProblemSchema,
+  editReceiptSchema,
+  pendingReceiptsFilterSchema,
+  receiptFilterSchema,
 } from "../validation";
 
 describe("createSkuSchema", () => {
@@ -242,6 +246,24 @@ describe("createStockReceiptSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts valid moduleSlug", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "2026-04-10",
+      moduleSlug: "cafe",
+      items: [{ skuId: "sku1", quantity: 5 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid moduleSlug", () => {
+    const result = createStockReceiptSchema.safeParse({
+      receivedAt: "2026-04-10",
+      moduleSlug: "rental",
+      items: [{ skuId: "sku1", quantity: 5 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects empty items array", () => {
     const result = createStockReceiptSchema.safeParse({
       receivedAt: "2026-04-10",
@@ -346,5 +368,95 @@ describe("movementFilterSchema", () => {
     expect(result.success).toBe(true);
     expect(result.data?.page).toBe(1);
     expect(result.data?.perPage).toBe(50);
+  });
+
+  it("accepts CORRECTION referenceType", () => {
+    const result = movementFilterSchema.safeParse({ referenceType: "CORRECTION" });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("flagProblemSchema", () => {
+  it("accepts valid problem note", () => {
+    const result = flagProblemSchema.safeParse({ problemNote: "Не совпадает количество" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects note shorter than 10 chars", () => {
+    const result = flagProblemSchema.safeParse({ problemNote: "Короткий" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing problemNote", () => {
+    const result = flagProblemSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects note longer than 2000 chars", () => {
+    const result = flagProblemSchema.safeParse({ problemNote: "a".repeat(2001) });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("editReceiptSchema", () => {
+  it("accepts empty object (all optional)", () => {
+    const result = editReceiptSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts partial update", () => {
+    const result = editReceiptSchema.safeParse({
+      invoiceNumber: "INV-001",
+      receivedAt: "2026-04-10",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts null supplierId", () => {
+    const result = editReceiptSchema.safeParse({ supplierId: null });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects items with zero quantity", () => {
+    const result = editReceiptSchema.safeParse({
+      items: [{ skuId: "sku1", quantity: 0 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("pendingReceiptsFilterSchema", () => {
+  it("accepts valid moduleSlug", () => {
+    const result = pendingReceiptsFilterSchema.safeParse({ moduleSlug: "bbq" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts empty object", () => {
+    const result = pendingReceiptsFilterSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid moduleSlug", () => {
+    const result = pendingReceiptsFilterSchema.safeParse({ moduleSlug: "rental" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("receiptFilterSchema", () => {
+  it("accepts status filter", () => {
+    const result = receiptFilterSchema.safeParse({ status: "DRAFT" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts all valid statuses", () => {
+    for (const status of ["DRAFT", "CONFIRMED", "PROBLEM", "CORRECTED"]) {
+      const result = receiptFilterSchema.safeParse({ status });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects invalid status", () => {
+    const result = receiptFilterSchema.safeParse({ status: "PENDING" });
+    expect(result.success).toBe(false);
   });
 });

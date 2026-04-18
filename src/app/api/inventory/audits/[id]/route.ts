@@ -16,7 +16,8 @@ export async function GET(
   try {
     const session = await auth();
     if (!session?.user) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const { id } = await params;
     const audit = await getAudit(id);

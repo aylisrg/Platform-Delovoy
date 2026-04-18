@@ -109,8 +109,8 @@ export const authConfig: NextAuthConfig = {
         // SUPERADMIN always has full access
         if (role === "SUPERADMIN") return true;
 
-        // MANAGER needs to be checked against admin sections
-        if (role === "MANAGER") {
+        // ADMIN and MANAGER need to be checked against their assigned admin sections
+        if (role === "ADMIN" || role === "MANAGER") {
           const section = getAdminSection(pathname);
           if (!section) return true; // /admin root — redirect will handle
 
@@ -135,7 +135,7 @@ export const authConfig: NextAuthConfig = {
           );
         }
         const role = auth.user.role;
-        if (role !== "SUPERADMIN" && role !== "MANAGER") {
+        if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") {
           return Response.json(
             { success: false, error: { code: "FORBIDDEN", message: "Доступ запрещён" } },
             { status: 403 }
