@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 import {
   DndContext,
@@ -754,6 +755,12 @@ export function Sidebar() {
         >
           ← На сайт
         </Link>
+        <button
+          onClick={() => signOut({ callbackUrl: "/" })}
+          className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors"
+        >
+          Выйти
+        </button>
       </div>
     </aside>
   );

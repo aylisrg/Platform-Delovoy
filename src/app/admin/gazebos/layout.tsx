@@ -18,7 +18,7 @@ export default function GazebosLayout({
   return (
     <>
       <AdminHeader title="Барбекю Парк" />
-      <div className="p-8">
+      <div className="p-4 lg:p-8">
         <ModuleTabs tabs={TABS} />
         {children}
       </div>
