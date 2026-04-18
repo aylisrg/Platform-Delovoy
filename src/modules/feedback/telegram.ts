@@ -1,9 +1,29 @@
 import { readFileSync, existsSync } from "fs";
+import { prisma } from "@/lib/db";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // TELEGRAM_OWNER_CHAT_ID — личный чат владельца (для СРОЧНО обращений)
 // Если не задан, fallback на TELEGRAM_ADMIN_CHAT_ID (групповой чат)
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
+
+/**
+ * Resolve feedback chat ID: module config → owner env → admin env
+ */
+async function resolveFeedbackChatId(): Promise<string | undefined> {
+  try {
+    const mod = await prisma.module.findUnique({
+      where: { slug: "feedback" },
+      select: { config: true },
+    });
+    const config = (mod?.config as Record<string, unknown>) || {};
+    if (config.telegramAdminChatId) {
+      return config.telegramAdminChatId as string;
+    }
+  } catch {
+    // DB not available — fall through to env
+  }
+  return OWNER_CHAT_ID || undefined;
+}
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 /**
@@ -18,8 +38,14 @@ export async function sendUrgentFeedbackAlert(params: {
   pageUrl: string;
   screenshotPath?: string;
 }): Promise<boolean> {
-  if (!BOT_TOKEN || !OWNER_CHAT_ID) {
-    console.warn("[Feedback] TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_CHAT_ID not set, skipping alert");
+  if (!BOT_TOKEN) {
+    console.warn("[Feedback] TELEGRAM_BOT_TOKEN not set, skipping alert");
+    return false;
+  }
+
+  const chatId = await resolveFeedbackChatId();
+  if (!chatId) {
+    console.warn("[Feedback] No chat ID configured for feedback, skipping alert");
     return false;
   }
 
@@ -47,7 +73,7 @@ export async function sendUrgentFeedbackAlert(params: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: OWNER_CHAT_ID,
+          chat_id: chatId,
           text,
           parse_mode: "HTML",
         }),
@@ -63,7 +89,7 @@ export async function sendUrgentFeedbackAlert(params: {
     if (params.screenshotPath && existsSync(params.screenshotPath)) {
       const fileBuffer = readFileSync(params.screenshotPath);
       const formData = new FormData();
-      formData.append("chat_id", OWNER_CHAT_ID!);
+      formData.append("chat_id", chatId);
       formData.append(
         "photo",
         new Blob([fileBuffer]),
