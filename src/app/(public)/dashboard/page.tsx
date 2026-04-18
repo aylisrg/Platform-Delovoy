@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -9,6 +10,12 @@ import { ContactsCard } from "@/components/public/profile/contacts-card";
 import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Личный кабинет",
+  description: "Ваши бронирования и заказы в бизнес-парке Деловой.",
+  robots: { index: false, follow: false },
+};
 
 const bookingStatusLabel: Record<BookingStatus, string> = {
   PENDING: "Ожидает",

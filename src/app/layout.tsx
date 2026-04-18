@@ -43,11 +43,16 @@ export const metadata: Metadata = {
     "бизнес-парк Селятино",
     "аренда офисов Селятино",
     "офисы Московская область",
-    "барбекю парк аренда",
-    "Плей Парк",
-    "кафе Селятино",
+    "аренда офиса Нарофоминск",
+    "барбекю парк аренда беседки",
+    "беседки с мангалом аренда Селятино",
+    "Плей Парк PS5 аренда",
+    "PlayStation 5 Селятино",
+    "кафе Селятино доставка в офис",
     "Деловой Парк",
     "бизнес центр Нарофоминск",
+    "снять офис Москва область запад",
+    "бизнес-парк Московская область",
   ],
   authors: [{ name: "Деловой Парк", url: APP_URL }],
   creator: "Деловой Парк",
@@ -90,11 +95,16 @@ export const metadata: Metadata = {
       "Аренда офисов, Барбекю Парк с мангалом, Плей Парк, кафе. Селятино, Московская область.",
     images: ["/og-image.png"],
   },
-  verification: {
-    yandex: "yandex-verification-placeholder",
-    google: "google-verification-placeholder",
-  },
   category: "business",
+  other: {
+    // GEO tags for local SEO (Selyatino, Moscow Oblast)
+    "geo.region": "RU-MOS",
+    "geo.placename": "Селятино, Московская область",
+    "geo.position": "55.5167;36.9667",
+    ICBM: "55.5167, 36.9667",
+    // Yandex Metrika additional hints
+    "yandex-tableau-widget": `logo=https://delovoy-park.ru/favicon.ico, color=#09090b`,
+  },
 };
 
 export default function RootLayout({

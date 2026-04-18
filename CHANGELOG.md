@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.4.0...v1.5.0) (2026-04-18)
+
+
+### Features
+
+* **admin:** mobile UI for gazebos, shift logout prompt, sidebar sign-out ([#118](https://github.com/aylisrg/Platform-Delovoy/issues/118)) ([01cfb41](https://github.com/aylisrg/Platform-Delovoy/commit/01cfb41520a6209c4e13e6b882e2a8cb3a2531da))
+* **booking:** checkout discount system ([#117](https://github.com/aylisrg/Platform-Delovoy/issues/117)) ([0504a6c](https://github.com/aylisrg/Platform-Delovoy/commit/0504a6c5c19922982cd53adb9849934ca675babe))
+* unified user management — signin, profile channels, admin registry ([#115](https://github.com/aylisrg/Platform-Delovoy/issues/115)) ([2d0b8bc](https://github.com/aylisrg/Platform-Delovoy/commit/2d0b8bc810d9a539e29c41f7a0849227daa0e440))
+
+
+### Bug Fixes
+
+* **admin:** RBAC fixes for ADMIN role — auth middleware, TypeScript errors, test coverage ([#122](https://github.com/aylisrg/Platform-Delovoy/issues/122)) ([dd23fe2](https://github.com/aylisrg/Platform-Delovoy/commit/dd23fe2641eafd5c98d63280ffedfafba7e58d2c))
+
 ## [1.4.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.3.0...v1.4.0) (2026-04-17)
 
 

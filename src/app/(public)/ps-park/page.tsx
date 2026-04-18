@@ -12,6 +12,63 @@ import type { DayAvailability } from "@/modules/ps-park/types";
 
 export const dynamic = "force-dynamic";
 
+const APP_URL = "https://delovoy-park.ru";
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Главная", item: APP_URL },
+        { "@type": "ListItem", position: 2, name: "Плей Парк", item: `${APP_URL}/ps-park` },
+      ],
+    },
+    {
+      "@type": "EntertainmentBusiness",
+      "@id": `${APP_URL}/ps-park`,
+      name: "Плей Парк — аренда PlayStation 5",
+      description: "Аренда столов с PlayStation 5 по часам. PS5, FIFA, гоночные симуляторы, большие экраны. Онлайн-бронирование.",
+      url: `${APP_URL}/ps-park`,
+      address: {
+        "@type": "PostalAddress",
+        addressLocality: "Селятино",
+        addressRegion: "Московская область",
+        addressCountry: "RU",
+      },
+      geo: {
+        "@type": "GeoCoordinates",
+        latitude: 55.5167,
+        longitude: 36.9667,
+      },
+      openingHoursSpecification: [
+        {
+          "@type": "OpeningHoursSpecification",
+          dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+          opens: "10:00",
+          closes: "22:00",
+        },
+      ],
+      hasOfferCatalog: {
+        "@type": "OfferCatalog",
+        name: "Аренда PlayStation 5",
+        itemListElement: [
+          {
+            "@type": "Offer",
+            name: "Аренда стола PS5",
+            description: "Аренда стола с PlayStation 5 по часам",
+            priceCurrency: "RUB",
+            priceSpecification: {
+              "@type": "UnitPriceSpecification",
+              unitText: "час",
+            },
+          },
+        ],
+      },
+    },
+  ],
+};
+
 export const metadata: Metadata = {
   title: "Плей Парк",
   description:
@@ -117,239 +174,245 @@ export default async function PSParkPage() {
   const initialAvailability = serializeAvailability(rawAvailability);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar dark />
-      <div className="pt-14">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <div className="min-h-screen bg-zinc-950 text-white">
+        <Navbar dark />
+        <div className="pt-14">
 
-      {/* ── HERO ── */}
-      <section className="relative overflow-hidden">
-        {/* Background photo — IMG_4364 */}
-        <div className="absolute inset-0">
-          <Image
-            src="/media/ps-park/IMG_4364.jpeg"
-            alt=""
-            fill
-            priority
-            className="object-cover object-center"
-            sizes="100vw"
-            quality={80}
-          />
-          {/* Dark overlay so text stays readable and grid shows through */}
-          <div className="absolute inset-0 bg-zinc-950/75" />
-          <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/40 via-transparent to-zinc-950" />
-        </div>
-        {/* Animated cyberpunk grid */}
-        <div className="absolute inset-0">
-          <CyberpunkGrid />
-        </div>
-        {/* Purple glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-violet-600/15 blur-[120px] pointer-events-none" />
-
-        <div className="relative max-w-6xl mx-auto px-4 pt-10 pb-16 md:pt-16 md:pb-24">
-          {/* Back link */}
-          <nav className="mb-8">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Главная
-            </Link>
-          </nav>
-
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-            <span className="text-violet-300 text-xs font-medium tracking-wide uppercase">
-              Бизнес-парк Деловой
-            </span>
+        {/* ── HERO ── */}
+        <section className="relative overflow-hidden">
+          {/* Background photo — IMG_4364 */}
+          <div className="absolute inset-0">
+            <Image
+              src="/media/ps-park/IMG_4364.jpeg"
+              alt=""
+              fill
+              priority
+              className="object-cover object-center"
+              sizes="100vw"
+              quality={80}
+            />
+            {/* Dark overlay so text stays readable and grid shows through */}
+            <div className="absolute inset-0 bg-zinc-950/75" />
+            <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/40 via-transparent to-zinc-950" />
           </div>
+          {/* Animated cyberpunk grid */}
+          <div className="absolute inset-0">
+            <CyberpunkGrid />
+          </div>
+          {/* Purple glow */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-violet-600/15 blur-[120px] pointer-events-none" />
 
-          {/* Headline */}
-          <h1
-            className="font-[family-name:var(--font-manrope)] font-bold text-white leading-[0.92]"
-            style={{
-              fontSize: "clamp(48px, 9vw, 100px)",
-              letterSpacing: "clamp(-2px, -0.04em, -5px)",
-            }}
-          >
-            Плей
-            <br />
-            <span
-              className="text-transparent bg-clip-text"
-              style={{ backgroundImage: "linear-gradient(135deg, #a855f7, #6366f1)" }}
-            >
-              Парк
-            </span>
-          </h1>
-
-          <p className="mt-6 text-zinc-400 font-[family-name:var(--font-inter)] text-lg max-w-lg leading-relaxed">
-            PS5, большие экраны, комфортные кресла. Аренда по часам — забронируйте стол прямо сейчас.
-          </p>
-
-          {/* CTAs */}
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 flex-wrap">
-            <a
-              href="#booking"
-              className="inline-flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[15px] px-8 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
-            >
-              Забронировать стол
-            </a>
-            <a
-              href="#tables"
-              className="inline-flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200 font-medium text-[15px] px-8 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
-            >
-              Посмотреть столы
-            </a>
-            {phoneInfo && (
-              <a
-                href={`tel:${phoneInfo.phone}`}
-                className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200 font-medium text-[15px] px-6 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
+          <div className="relative max-w-6xl mx-auto px-4 pt-10 pb-16 md:pt-16 md:pb-24">
+            {/* Back link */}
+            <nav className="mb-8">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.69 13.5a19.79 19.79 0 01-3.07-8.67A2 2 0 013.6 2.69h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L7.91 9.4a16 16 0 006.29 6.29l.94-.94a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                {phoneInfo.displayPhone}
+                Главная
+              </Link>
+            </nav>
+
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+              <span className="text-violet-300 text-xs font-medium tracking-wide uppercase">
+                Бизнес-парк Деловой
+              </span>
+            </div>
+
+            {/* Headline */}
+            <h1
+              className="font-[family-name:var(--font-manrope)] font-bold text-white leading-[0.92]"
+              style={{
+                fontSize: "clamp(48px, 9vw, 100px)",
+                letterSpacing: "clamp(-2px, -0.04em, -5px)",
+              }}
+            >
+              Плей
+              <br />
+              <span
+                className="text-transparent bg-clip-text"
+                style={{ backgroundImage: "linear-gradient(135deg, #a855f7, #6366f1)" }}
+              >
+                Парк
+              </span>
+            </h1>
+
+            <p className="mt-6 text-zinc-400 font-[family-name:var(--font-inter)] text-lg max-w-lg leading-relaxed">
+              PS5, большие экраны, комфортные кресла. Аренда по часам — забронируйте стол прямо сейчас.
+            </p>
+
+            {/* CTAs */}
+            <div className="mt-8 flex flex-col sm:flex-row gap-3 flex-wrap">
+              <a
+                href="#booking"
+                className="inline-flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[15px] px-8 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
+              >
+                Забронировать стол
               </a>
-            )}
-          </div>
-
-          {/* Stats */}
-          <div className="mt-12 pt-8 border-t border-zinc-800 grid grid-cols-3 gap-6 max-w-sm">
-            {[
-              { value: `${tables.length}`, label: "стола" },
-              { value: "60 мин", label: "минимум" },
-              { value: "PS5", label: "консоли" },
-            ].map((stat) => (
-              <div key={stat.label}>
-                <p
-                  className="font-[family-name:var(--font-manrope)] font-bold text-white text-2xl leading-tight"
-                  style={{ letterSpacing: "-0.5px" }}
+              <a
+                href="#tables"
+                className="inline-flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200 font-medium text-[15px] px-8 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
+              >
+                Посмотреть столы
+              </a>
+              {phoneInfo && (
+                <a
+                  href={`tel:${phoneInfo.phone}`}
+                  className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200 font-medium text-[15px] px-6 py-3.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
                 >
-                  {stat.value}
-                </p>
-                <p className="text-zinc-600 text-xs mt-0.5">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.69 13.5a19.79 19.79 0 01-3.07-8.67A2 2 0 013.6 2.69h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L7.91 9.4a16 16 0 006.29 6.29l.94-.94a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+                  </svg>
+                  {phoneInfo.displayPhone}
+                </a>
+              )}
+            </div>
 
-      {/* ── TABLES ── */}
-      <section id="tables" className="max-w-6xl mx-auto px-4 pb-20">
-        <div className="mb-8">
-          <h2
-            className="font-[family-name:var(--font-manrope)] font-bold text-white"
-            style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
-          >
-            Наши столы
-          </h2>
-          <p className="text-zinc-500 text-sm mt-2">
-            Выберите стол и нажмите «Забронировать» ниже
-          </p>
-        </div>
-
-        {tables.length === 0 ? (
-          <p className="text-zinc-600 py-8">Столы пока не добавлены</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {tables.map((table, i) => (
-              <TableCard key={table.id} resource={table} index={i} />
-            ))}
+            {/* Stats */}
+            <div className="mt-12 pt-8 border-t border-zinc-800 grid grid-cols-3 gap-6 max-w-sm">
+              {[
+                { value: `${tables.length}`, label: "стола" },
+                { value: "60 мин", label: "минимум" },
+                { value: "PS5", label: "консоли" },
+              ].map((stat) => (
+                <div key={stat.label}>
+                  <p
+                    className="font-[family-name:var(--font-manrope)] font-bold text-white text-2xl leading-tight"
+                    style={{ letterSpacing: "-0.5px" }}
+                  >
+                    {stat.value}
+                  </p>
+                  <p className="text-zinc-600 text-xs mt-0.5">{stat.label}</p>
+                </div>
+              ))}
+            </div>
           </div>
+        </section>
+
+        {/* ── TABLES ── */}
+        <section id="tables" className="max-w-6xl mx-auto px-4 pb-20">
+          <div className="mb-8">
+            <h2
+              className="font-[family-name:var(--font-manrope)] font-bold text-white"
+              style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
+            >
+              Наши столы
+            </h2>
+            <p className="text-zinc-500 text-sm mt-2">
+              Выберите стол и нажмите «Забронировать» ниже
+            </p>
+          </div>
+
+          {tables.length === 0 ? (
+            <p className="text-zinc-600 py-8">Столы пока не добавлены</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              {tables.map((table, i) => (
+                <TableCard key={table.id} resource={table} index={i} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Call widget */}
+        {phoneInfo && (
+          <CallWidget
+            phone={phoneInfo.phone}
+            displayPhone={phoneInfo.displayPhone}
+            variant="dark"
+          />
         )}
-      </section>
 
-      {/* Call widget */}
-      {phoneInfo && (
-        <CallWidget
-          phone={phoneInfo.phone}
-          displayPhone={phoneInfo.displayPhone}
-          variant="dark"
-        />
-      )}
-
-      {/* ── FEATURES ── */}
-      <section className="border-y border-zinc-800/60 bg-zinc-900/40 py-16">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
-            {[
-              {
-                icon: (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ),
-                title: "Аренда от 1 часа",
-                desc: "Минимальная аренда — 60 минут. Оплата по факту.",
-              },
-              {
-                icon: (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                ),
-                title: "PlayStation 5",
-                desc: "Последнее поколение консолей с широким выбором игр.",
-              },
-              {
-                icon: (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                ),
-                title: "Онлайн-бронирование",
-                desc: "Выберите время и стол — подтверждение придёт сразу.",
-              },
-            ].map((f) => (
-              <div key={f.title} className="flex gap-4">
-                <div className="shrink-0 w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
-                  {f.icon}
+        {/* ── FEATURES ── */}
+        <section className="border-y border-zinc-800/60 bg-zinc-900/40 py-16">
+          <div className="max-w-6xl mx-auto px-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+              {[
+                {
+                  icon: (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ),
+                  title: "Аренда от 1 часа",
+                  desc: "Минимальная аренда — 60 минут. Оплата по факту.",
+                },
+                {
+                  icon: (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  ),
+                  title: "PlayStation 5",
+                  desc: "Последнее поколение консолей с широким выбором игр.",
+                },
+                {
+                  icon: (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  ),
+                  title: "Онлайн-бронирование",
+                  desc: "Выберите время и стол — подтверждение придёт сразу.",
+                },
+              ].map((f) => (
+                <div key={f.title} className="flex gap-4">
+                  <div className="shrink-0 w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+                    {f.icon}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-white text-sm mb-1">{f.title}</h3>
+                    <p className="text-zinc-500 text-sm leading-relaxed">{f.desc}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-white text-sm mb-1">{f.title}</h3>
-                  <p className="text-zinc-500 text-sm leading-relaxed">{f.desc}</p>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ── BOOKING ── */}
-      <section id="booking" className="max-w-6xl mx-auto px-4 py-16">
-        <div className="mb-8">
-          <h2
-            className="font-[family-name:var(--font-manrope)] font-bold text-white"
-            style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
-          >
-            Выберите время
-          </h2>
-          <p className="text-zinc-500 text-sm mt-2">
-            Нажмите на доступные слоты, чтобы выбрать время сеанса
-          </p>
-        </div>
+        {/* ── BOOKING ── */}
+        <section id="booking" className="max-w-6xl mx-auto px-4 py-16">
+          <div className="mb-8">
+            <h2
+              className="font-[family-name:var(--font-manrope)] font-bold text-white"
+              style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
+            >
+              Выберите время
+            </h2>
+            <p className="text-zinc-500 text-sm mt-2">
+              Нажмите на доступные слоты, чтобы выбрать время сеанса
+            </p>
+          </div>
 
-        <DarkAvailabilityGrid
-          initialAvailability={initialAvailability}
-          initialDate={today}
-        />
-      </section>
+          <DarkAvailabilityGrid
+            initialAvailability={initialAvailability}
+            initialDate={today}
+          />
+        </section>
 
-      {/* ── FOOTER BAR ── */}
-      <footer className="border-t border-zinc-800 bg-zinc-900/40">
-        <div className="max-w-6xl mx-auto px-4 py-8 flex items-center justify-between gap-4 flex-wrap">
-          <p className="text-zinc-600 text-sm">
-            Плей Парк · Бизнес-парк Деловой, Селятино
-          </p>
-          <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
-            ← На главную
-          </Link>
+        {/* ── FOOTER BAR ── */}
+        <footer className="border-t border-zinc-800 bg-zinc-900/40">
+          <div className="max-w-6xl mx-auto px-4 py-8 flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-zinc-600 text-sm">
+              Плей Парк · Бизнес-парк Деловой, Селятино
+            </p>
+            <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
+              ← На главную
+            </Link>
+          </div>
+        </footer>
         </div>
-      </footer>
       </div>
-    </div>
+    </>
   );
 }
