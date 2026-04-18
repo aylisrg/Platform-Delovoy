@@ -33,13 +33,14 @@ export const ADMIN_SECTION_SLUGS: AdminSection[] = ADMIN_SECTIONS.map((s) => s.s
 
 /**
  * Check if user has the required role or higher.
- * Hierarchy: SUPERADMIN > MANAGER > USER
+ * Hierarchy: SUPERADMIN (3) > ADMIN (2) > MANAGER (1) > USER (0)
  */
 export function hasRole(user: SessionUser, requiredRole: Role): boolean {
   const hierarchy: Record<Role, number> = {
     USER: 0,
     MANAGER: 1,
-    SUPERADMIN: 2,
+    ADMIN: 2,
+    SUPERADMIN: 3,
   };
   return hierarchy[user.role] >= hierarchy[requiredRole];
 }
@@ -102,7 +103,7 @@ export async function getUserModules(userId: string): Promise<string[]> {
 /**
  * Check if user has access to a specific admin panel section.
  * SUPERADMIN always has access to everything.
- * MANAGER needs explicit AdminPermission records.
+ * ADMIN and MANAGER need explicit AdminPermission records.
  */
 export async function hasAdminSectionAccess(
   userId: string,
@@ -117,7 +118,7 @@ export async function hasAdminSectionAccess(
   if (user.role === "SUPERADMIN") return true;
   if (user.role === "USER") return false;
 
-  // MANAGER — check explicit permission
+  // ADMIN and MANAGER — check explicit permission
   const permission = await prisma.adminPermission.findUnique({
     where: { userId_section: { userId, section } },
   });
@@ -127,7 +128,7 @@ export async function hasAdminSectionAccess(
 
 /**
  * Get all admin sections a user has access to.
- * SUPERADMIN gets all sections. MANAGER gets only granted ones.
+ * SUPERADMIN gets all sections. ADMIN and MANAGER get only granted ones.
  */
 export async function getUserAdminSections(userId: string): Promise<string[]> {
   const user = await prisma.user.findUnique({
@@ -148,6 +149,71 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
   });
 
   return permissions.map((p) => p.section);
+}
+
+/**
+ * Find all users with ADMIN role who have access to a specific module.
+ * Used for sending notifications to the right ADMIN(s).
+ */
+export async function getModuleAdmins(moduleSlug: string): Promise<{
+  id: string;
+  name: string | null;
+  telegramId: string | null;
+}[]> {
+  const assignments = await prisma.moduleAssignment.findMany({
+    where: {
+      module: { slug: moduleSlug, isActive: true },
+      user: { role: "ADMIN" },
+    },
+    include: {
+      user: {
+        select: { id: true, name: true, telegramId: true },
+      },
+    },
+  });
+  return assignments.map((a) => a.user);
+}
+
+/**
+ * Check if user can confirm a receipt in the given module.
+ * Only ADMIN (with module access) and SUPERADMIN.
+ */
+export async function canConfirmReceipt(
+  user: SessionUser,
+  moduleSlug: string
+): Promise<boolean> {
+  if (user.role === "SUPERADMIN") return true;
+  if (user.role !== "ADMIN") return false;
+  return hasModuleAccess(user.id, moduleSlug);
+}
+
+/**
+ * Check if user can correct a CONFIRMED receipt in the given module.
+ * Same requirements as canConfirmReceipt.
+ */
+export async function canCorrectReceipt(
+  user: SessionUser,
+  moduleSlug: string
+): Promise<boolean> {
+  return canConfirmReceipt(user, moduleSlug);
+}
+
+/**
+ * Check if user can flag a problem on a receipt.
+ * MANAGER can flag their own receipts. ADMIN can flag any in their module.
+ * SUPERADMIN can flag any.
+ */
+export async function canFlagProblem(
+  user: SessionUser,
+  moduleSlug: string,
+  receiptPerformedById: string
+): Promise<boolean> {
+  if (user.role === "SUPERADMIN") return true;
+  if (user.role === "ADMIN") return hasModuleAccess(user.id, moduleSlug);
+  if (user.role === "MANAGER") {
+    return user.id === receiptPerformedById && await hasModuleAccess(user.id, moduleSlug);
+  }
+  return false;
 }
 
 /**

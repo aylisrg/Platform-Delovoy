@@ -75,6 +75,7 @@ model VerificationToken {
 
 enum Role {
   SUPERADMIN
+  ADMIN
   MANAGER
   USER
 }
@@ -554,6 +555,14 @@ enum ReferenceType {
   WRITE_OFF
   AUDIT
   MANUAL
+  CORRECTION
+}
+
+enum ReceiptStatus {
+  DRAFT
+  CONFIRMED
+  PROBLEM
+  CORRECTED
 }
 
 enum WriteOffReason {
@@ -586,19 +595,47 @@ model Supplier {
 }
 
 model StockReceipt {
-  id            String    @id @default(cuid())
-  supplierId    String?
-  supplier      Supplier? @relation(fields: [supplierId], references: [id])
-  invoiceNumber String?
-  receivedAt    DateTime
-  notes         String?
-  performedById String
-  createdAt     DateTime  @default(now())
+  id                  String        @id @default(cuid())
+  supplierId          String?
+  supplier            Supplier?     @relation(fields: [supplierId], references: [id])
+  invoiceNumber       String?
+  receivedAt          DateTime
+  notes               String?
+  performedById       String
+  moduleSlug          String?                           // "cafe" | "bbq" | "ps-park"
+  status              ReceiptStatus @default(DRAFT)
+  confirmedById       String?
+  confirmedAt         DateTime?
+  problemNote         String?       @db.Text
+  problemReportedAt   DateTime?
+  problemReportedById String?
+  correctedById       String?
+  correctedAt         DateTime?
+  createdAt           DateTime      @default(now())
 
-  items StockReceiptItem[]
+  items       StockReceiptItem[]
+  corrections StockReceiptCorrection[]
 
   @@index([supplierId])
   @@index([receivedAt])
+  @@index([status])
+  @@index([moduleSlug])
+  @@index([performedById])
+}
+
+model StockReceiptCorrection {
+  id            String       @id @default(cuid())
+  receiptId     String
+  receipt       StockReceipt @relation(fields: [receiptId], references: [id])
+  correctedById String
+  reason        String?      @db.Text
+  itemsBefore   Json
+  itemsAfter    Json
+  createdAt     DateTime     @default(now())
+
+  @@index([receiptId])
+  @@index([correctedById])
+  @@index([createdAt])
 }
 
 model StockReceiptItem {

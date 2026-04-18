@@ -10,10 +10,20 @@ import type {
   MovementFilter,
   FifoDeductResult,
   ExpiringBatchRow,
+  EditDraftReceiptInput,
+  CorrectReceiptInput,
 } from "./types";
 import { InventoryError } from "./service";
 export { InventoryError } from "./service";
 import { checkAndSendLowStockAlert } from "./alerts";
+import {
+  notifyModuleAdmins,
+  notifyUser,
+  buildReceiptCreatedMessage,
+  buildReceiptConfirmedMessage,
+  buildReceiptProblemMessage,
+  buildReceiptCorrectedMessage,
+} from "./notifications";
 
 // ============================================================
 // SUPPLIERS
@@ -90,69 +100,127 @@ export async function createStockReceipt(
 ) {
   const receivedAt = new Date(input.receivedAt);
 
-  const result = await prisma.$transaction(async (tx) => {
-    // 1. Create receipt document
-    const receipt = await tx.stockReceipt.create({
+  const receipt = await prisma.$transaction(async (tx) => {
+    // 1. Validate all SKUs exist and are active
+    for (const item of input.items) {
+      const sku = await tx.inventorySku.findUnique({
+        where: { id: item.skuId },
+        select: { id: true, isActive: true },
+      });
+      if (!sku || !sku.isActive) {
+        throw new InventoryError("SKU_NOT_FOUND", `Товар не найден: ${item.skuId}`);
+      }
+    }
+
+    // 2. Create receipt document with DRAFT status — stock is NOT updated yet
+    const created = await tx.stockReceipt.create({
       data: {
         supplierId: input.supplierId ?? null,
         invoiceNumber: input.invoiceNumber ?? null,
         receivedAt,
         notes: input.notes ?? null,
         performedById,
+        moduleSlug: input.moduleSlug ?? null,
+        status: "DRAFT",
       },
     });
 
-    const batchIds: string[] = [];
-
+    // 3. Create receipt items (no batches, no movements)
     for (const item of input.items) {
-      // Validate SKU exists and is active
-      const sku = await tx.inventorySku.findUnique({
-        where: { id: item.skuId },
-        select: { id: true, isActive: true, stockQuantity: true },
-      });
-      if (!sku || !sku.isActive) {
-        throw new InventoryError("SKU_NOT_FOUND", `Товар не найден: ${item.skuId}`);
-      }
-
-      // 2. Create receipt item
-      const receiptItem = await tx.stockReceiptItem.create({
+      await tx.stockReceiptItem.create({
         data: {
-          receiptId: receipt.id,
+          receiptId: created.id,
           skuId: item.skuId,
           quantity: item.quantity,
           costPerUnit: item.costPerUnit ?? null,
           expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
         },
       });
+    }
 
-      // 3. Create stock batch
+    return created;
+  });
+
+  // Post-transaction: notify module admins about new receipt
+  setImmediate(async () => {
+    try {
+      const performer = await prisma.user.findUnique({
+        where: { id: performedById },
+        select: { name: true },
+      });
+      const totalAmount = input.items
+        .reduce((sum, i) => sum + (i.costPerUnit ?? 0) * i.quantity, 0)
+        .toFixed(2);
+      if (input.moduleSlug) {
+        await notifyModuleAdmins(
+          input.moduleSlug,
+          buildReceiptCreatedMessage({
+            managerName: performer?.name ?? "Менеджер",
+            itemCount: input.items.length,
+            totalAmount,
+            receivedAt: receivedAt.toLocaleDateString("ru-RU"),
+            receiptId: receipt.id,
+          }),
+          receipt.id
+        );
+      }
+    } catch (err) {
+      console.error("[createStockReceipt] Notification failed:", err);
+    }
+  });
+
+  return { receiptId: receipt.id, status: "DRAFT" as const };
+}
+
+/**
+ * Confirm a receipt (DRAFT or PROBLEM → CONFIRMED).
+ * Only ADMIN or SUPERADMIN. Updates stock balances.
+ */
+export async function confirmReceipt(receiptId: string, confirmedById: string) {
+  const result = await prisma.$transaction(async (tx) => {
+    const receipt = await tx.stockReceipt.findUnique({
+      where: { id: receiptId },
+      include: { items: true },
+    });
+    if (!receipt) throw new InventoryError("RECEIPT_NOT_FOUND", "Приход не найден");
+    if (receipt.status !== "DRAFT" && receipt.status !== "PROBLEM") {
+      throw new InventoryError(
+        "INVALID_STATUS",
+        "Приход можно подтвердить только в статусе DRAFT или PROBLEM"
+      );
+    }
+
+    const batchIds: string[] = [];
+
+    for (const item of receipt.items) {
+      // Create stock batch
       const batch = await tx.stockBatch.create({
         data: {
           skuId: item.skuId,
-          receiptItemId: receiptItem.id,
+          receiptItemId: item.id,
           initialQty: item.quantity,
           remainingQty: item.quantity,
           costPerUnit: item.costPerUnit ?? null,
-          receiptDate: receivedAt,
-          expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
+          receiptDate: receipt.receivedAt,
+          expiresAt: item.expiresAt ?? null,
         },
       });
       batchIds.push(batch.id);
 
-      // 4. Update receipt item with batch reference
+      // Link batch to receipt item
       await tx.stockReceiptItem.update({
-        where: { id: receiptItem.id },
+        where: { id: item.id },
         data: { batchId: batch.id },
       });
 
-      // 5. Update aggregate stock quantity
+      // Update aggregate stock
       const updatedSku = await tx.inventorySku.update({
         where: { id: item.skuId },
         data: { stockQuantity: { increment: item.quantity } },
         select: { stockQuantity: true },
       });
 
-      // 6. Record stock movement
+      // Record movement
       await tx.stockMovement.create({
         data: {
           skuId: item.skuId,
@@ -162,28 +230,467 @@ export async function createStockReceipt(
           balanceAfter: updatedSku.stockQuantity,
           referenceType: "RECEIPT",
           referenceId: receipt.id,
-          performedById,
-          note: `Приход от поставщика — накладная ${input.invoiceNumber ?? receipt.id}`,
+          performedById: confirmedById,
+          note: `Приход подтверждён — накладная ${receipt.invoiceNumber ?? receipt.id}`,
         },
       });
     }
 
-    return { receiptId: receipt.id, batchIds };
+    await tx.stockReceipt.update({
+      where: { id: receiptId },
+      data: {
+        status: "CONFIRMED",
+        confirmedById,
+        confirmedAt: new Date(),
+      },
+    });
+
+    return { receiptId, status: "CONFIRMED" as const, batchIds, receipt };
   });
 
-  // 7. Post-transaction: trigger menu auto-enable for linked items
+  // Post-transaction: notify author and auto-enable menu items
   setImmediate(async () => {
-    for (const item of input.items) {
-      await autoEnableMenuItems(item.skuId);
+    try {
+      const confirmer = await prisma.user.findUnique({
+        where: { id: confirmedById },
+        select: { name: true },
+      });
+      await notifyUser(
+        result.receipt.performedById,
+        result.receipt.moduleSlug ?? "cafe",
+        buildReceiptConfirmedMessage({
+          adminName: confirmer?.name ?? "ADMIN",
+          receivedAt: result.receipt.receivedAt.toLocaleDateString("ru-RU"),
+        }),
+        receiptId
+      );
+      for (const item of result.receipt.items) {
+        await autoEnableMenuItems(item.skuId);
+      }
+    } catch (err) {
+      console.error("[confirmReceipt] Post-tx action failed:", err);
     }
   });
 
-  return result;
+  return { receiptId: result.receiptId, status: result.status, batchIds: result.batchIds };
+}
+
+/**
+ * Flag a problem on a receipt (DRAFT or CONFIRMED → PROBLEM).
+ */
+export async function flagProblem(
+  receiptId: string,
+  problemNote: string,
+  reportedById: string
+) {
+  const receipt = await prisma.stockReceipt.findUnique({
+    where: { id: receiptId },
+    include: { items: true },
+  });
+  if (!receipt) throw new InventoryError("RECEIPT_NOT_FOUND", "Приход не найден");
+  if (receipt.status !== "DRAFT" && receipt.status !== "CONFIRMED") {
+    throw new InventoryError(
+      "INVALID_STATUS",
+      "Можно сообщить о проблеме только для DRAFT или CONFIRMED приходов"
+    );
+  }
+
+  await prisma.stockReceipt.update({
+    where: { id: receiptId },
+    data: {
+      status: "PROBLEM",
+      problemNote,
+      problemReportedAt: new Date(),
+      problemReportedById: reportedById,
+    },
+  });
+
+  // Notify module admins
+  setImmediate(async () => {
+    try {
+      const reporter = await prisma.user.findUnique({
+        where: { id: reportedById },
+        select: { name: true },
+      });
+      if (receipt.moduleSlug) {
+        await notifyModuleAdmins(
+          receipt.moduleSlug,
+          buildReceiptProblemMessage({
+            managerName: reporter?.name ?? "Менеджер",
+            receivedAt: receipt.receivedAt.toLocaleDateString("ru-RU"),
+            problemNote,
+          }),
+          receiptId
+        );
+      }
+    } catch (err) {
+      console.error("[flagProblem] Notification failed:", err);
+    }
+  });
+
+  return { receiptId, status: "PROBLEM" as const };
+}
+
+/**
+ * Edit a receipt in DRAFT or PROBLEM status.
+ * Does NOT change status; does NOT touch stock balances.
+ */
+export async function editDraftReceipt(
+  receiptId: string,
+  input: EditDraftReceiptInput,
+  editedById: string
+) {
+  const receipt = await prisma.stockReceipt.findUnique({
+    where: { id: receiptId },
+    include: { items: true },
+  });
+  if (!receipt) throw new InventoryError("RECEIPT_NOT_FOUND", "Приход не найден");
+  if (receipt.status !== "DRAFT" && receipt.status !== "PROBLEM") {
+    throw new InventoryError(
+      "INVALID_STATUS",
+      "Редактировать напрямую можно только приходы в статусе DRAFT или PROBLEM"
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Update header fields
+    await tx.stockReceipt.update({
+      where: { id: receiptId },
+      data: {
+        ...(input.supplierId !== undefined && { supplierId: input.supplierId }),
+        ...(input.invoiceNumber !== undefined && { invoiceNumber: input.invoiceNumber }),
+        ...(input.receivedAt && { receivedAt: new Date(input.receivedAt) }),
+        ...(input.notes !== undefined && { notes: input.notes }),
+      },
+    });
+
+    // Replace items if provided
+    if (input.items) {
+      for (const item of input.items) {
+        const sku = await tx.inventorySku.findUnique({
+          where: { id: item.skuId },
+          select: { id: true, isActive: true },
+        });
+        if (!sku || !sku.isActive) {
+          throw new InventoryError("SKU_NOT_FOUND", `Товар не найден: ${item.skuId}`);
+        }
+      }
+      await tx.stockReceiptItem.deleteMany({ where: { receiptId } });
+      for (const item of input.items) {
+        await tx.stockReceiptItem.create({
+          data: {
+            receiptId,
+            skuId: item.skuId,
+            quantity: item.quantity,
+            costPerUnit: item.costPerUnit ?? null,
+            expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
+          },
+        });
+      }
+    }
+  });
+
+  void editedById; // logged by route handler
+  return { receiptId, status: receipt.status };
+}
+
+/**
+ * Correct a CONFIRMED (or CORRECTED) receipt.
+ * Creates compensating StockMovements and a StockReceiptCorrection snapshot.
+ */
+export async function correctReceipt(
+  receiptId: string,
+  input: CorrectReceiptInput,
+  correctedById: string
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    const receipt = await tx.stockReceipt.findUnique({
+      where: { id: receiptId },
+      include: { items: true },
+    });
+    if (!receipt) throw new InventoryError("RECEIPT_NOT_FOUND", "Приход не найден");
+    if (receipt.status !== "CONFIRMED" && receipt.status !== "CORRECTED") {
+      throw new InventoryError(
+        "INVALID_STATUS",
+        "Коррекция возможна только для подтверждённых приходов (CONFIRMED или CORRECTED)"
+      );
+    }
+    if (!input.correctionReason) {
+      throw new InventoryError(
+        "CORRECTION_REASON_REQUIRED",
+        "Для коррекции подтверждённого прихода укажите причину"
+      );
+    }
+
+    // Snapshot before
+    const itemsBefore = receipt.items.map((i) => ({
+      skuId: i.skuId,
+      quantity: i.quantity,
+      costPerUnit: i.costPerUnit ? Number(i.costPerUnit) : null,
+      expiresAt: i.expiresAt?.toISOString() ?? null,
+    }));
+
+    // Validate new items
+    for (const item of input.items) {
+      const sku = await tx.inventorySku.findUnique({
+        where: { id: item.skuId },
+        select: { id: true, isActive: true },
+      });
+      if (!sku || !sku.isActive) {
+        throw new InventoryError("SKU_NOT_FOUND", `Товар не найден: ${item.skuId}`);
+      }
+    }
+
+    // Compute deltas per SKU
+    const oldQtyMap = new Map<string, number>();
+    for (const i of receipt.items) oldQtyMap.set(i.skuId, (oldQtyMap.get(i.skuId) ?? 0) + i.quantity);
+
+    const newQtyMap = new Map<string, number>();
+    for (const i of input.items) newQtyMap.set(i.skuId, (newQtyMap.get(i.skuId) ?? 0) + i.quantity);
+
+    const allSkuIds = new Set([...oldQtyMap.keys(), ...newQtyMap.keys()]);
+
+    // Create the correction record first (for referenceId)
+    const itemsAfter = input.items.map((i) => ({
+      skuId: i.skuId,
+      quantity: i.quantity,
+      costPerUnit: i.costPerUnit ?? null,
+      expiresAt: i.expiresAt ?? null,
+    }));
+
+    const correction = await tx.stockReceiptCorrection.create({
+      data: {
+        receiptId,
+        correctedById,
+        reason: input.correctionReason,
+        itemsBefore,
+        itemsAfter,
+      },
+    });
+
+    // Apply deltas
+    for (const skuId of allSkuIds) {
+      const oldQty = oldQtyMap.get(skuId) ?? 0;
+      const newQty = newQtyMap.get(skuId) ?? 0;
+      const delta = newQty - oldQty;
+      if (delta === 0) continue;
+
+      if (delta > 0) {
+        // Add a new batch
+        const batch = await tx.stockBatch.create({
+          data: {
+            skuId,
+            initialQty: delta,
+            remainingQty: delta,
+            receiptDate: receipt.receivedAt,
+          },
+        });
+        const updatedSku = await tx.inventorySku.update({
+          where: { id: skuId },
+          data: { stockQuantity: { increment: delta } },
+          select: { stockQuantity: true },
+        });
+        await tx.stockMovement.create({
+          data: {
+            skuId,
+            batchId: batch.id,
+            type: "MANUAL_CORRECTION",
+            delta,
+            balanceAfter: updatedSku.stockQuantity,
+            referenceType: "CORRECTION",
+            referenceId: correction.id,
+            performedById: correctedById,
+            note: `Коррекция прихода: +${delta}`,
+          },
+        });
+      } else {
+        // Deduct via FIFO
+        const absQty = Math.abs(delta);
+        const batches = await tx.$queryRaw<Array<{ id: string; remainingQty: number }>>`
+          SELECT id, "remainingQty"
+          FROM "StockBatch"
+          WHERE "skuId" = ${skuId}
+            AND "isExhausted" = false
+            AND "remainingQty" > 0
+          ORDER BY "expiresAt" ASC NULLS LAST, "receiptDate" ASC
+          FOR UPDATE
+        `;
+        const totalAvail = batches.reduce((s, b) => s + b.remainingQty, 0);
+        if (totalAvail < absQty) {
+          const sku = await tx.inventorySku.findUnique({ where: { id: skuId }, select: { name: true } });
+          throw new InventoryError(
+            "INVENTORY_INSUFFICIENT",
+            `Недостаточно товара "${sku?.name ?? skuId}" для коррекции: доступно ${totalAvail}`
+          );
+        }
+        let remaining = absQty;
+        for (const batch of batches) {
+          if (remaining <= 0) break;
+          const take = Math.min(batch.remainingQty, remaining);
+          const newR = batch.remainingQty - take;
+          await tx.stockBatch.update({
+            where: { id: batch.id },
+            data: { remainingQty: newR, isExhausted: newR === 0 },
+          });
+          remaining -= take;
+        }
+        const updatedSku = await tx.inventorySku.update({
+          where: { id: skuId },
+          data: { stockQuantity: { decrement: absQty } },
+          select: { stockQuantity: true },
+        });
+        await tx.stockMovement.create({
+          data: {
+            skuId,
+            type: "MANUAL_CORRECTION",
+            delta,
+            balanceAfter: updatedSku.stockQuantity,
+            referenceType: "CORRECTION",
+            referenceId: correction.id,
+            performedById: correctedById,
+            note: `Коррекция прихода: ${delta}`,
+          },
+        });
+      }
+    }
+
+    // Replace receipt items
+    await tx.stockReceiptItem.deleteMany({ where: { receiptId } });
+    for (const item of input.items) {
+      await tx.stockReceiptItem.create({
+        data: {
+          receiptId,
+          skuId: item.skuId,
+          quantity: item.quantity,
+          costPerUnit: item.costPerUnit ?? null,
+          expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
+        },
+      });
+    }
+
+    // Update receipt status
+    await tx.stockReceipt.update({
+      where: { id: receiptId },
+      data: {
+        status: "CORRECTED",
+        correctedById,
+        correctedAt: new Date(),
+      },
+    });
+
+    return { correctionId: correction.id, receipt };
+  });
+
+  // Post-transaction: notify author
+  setImmediate(async () => {
+    try {
+      const corrector = await prisma.user.findUnique({
+        where: { id: correctedById },
+        select: { name: true },
+      });
+      await notifyUser(
+        result.receipt.performedById,
+        result.receipt.moduleSlug ?? "cafe",
+        buildReceiptCorrectedMessage({
+          adminName: corrector?.name ?? "ADMIN",
+          receivedAt: result.receipt.receivedAt.toLocaleDateString("ru-RU"),
+        }),
+        receiptId
+      );
+      // Auto-enable/disable menu items for affected SKUs
+      for (const item of input.items) {
+        await autoEnableMenuItems(item.skuId);
+      }
+    } catch (err) {
+      console.error("[correctReceipt] Post-tx action failed:", err);
+    }
+  });
+
+  return { receiptId, status: "CORRECTED" as const, correctionId: result.correctionId };
+}
+
+/**
+ * List receipts pending confirmation (DRAFT or PROBLEM status).
+ */
+export async function listPendingReceipts(filter: {
+  moduleSlug?: string;
+  modulesSlugs?: string[];
+}) {
+  const now = new Date();
+
+  const receipts = await prisma.stockReceipt.findMany({
+    where: {
+      status: { in: ["DRAFT", "PROBLEM"] },
+      ...(filter.moduleSlug && { moduleSlug: filter.moduleSlug }),
+      ...(filter.modulesSlugs && { moduleSlug: { in: filter.modulesSlugs } }),
+    },
+    include: {
+      items: true,
+      supplier: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return receipts.map((r) => {
+    const msWaiting = now.getTime() - r.createdAt.getTime();
+    const daysPending = Math.floor(msWaiting / (1000 * 60 * 60 * 24));
+    const totalAmount = r.items.reduce(
+      (s, i) => s + (i.costPerUnit ? Number(i.costPerUnit) * i.quantity : 0),
+      0
+    );
+    return {
+      id: r.id,
+      status: r.status,
+      moduleSlug: r.moduleSlug,
+      performedById: r.performedById,
+      receivedAt: r.receivedAt.toISOString(),
+      createdAt: r.createdAt.toISOString(),
+      daysPending,
+      itemCount: r.items.length,
+      totalAmount: totalAmount.toFixed(2),
+      problemNote: r.problemNote ?? null,
+      supplier: r.supplier,
+    };
+  });
+}
+
+/**
+ * Get correction history for a receipt.
+ */
+export async function getReceiptCorrections(receiptId: string) {
+  const receipt = await prisma.stockReceipt.findUnique({ where: { id: receiptId } });
+  if (!receipt) throw new InventoryError("RECEIPT_NOT_FOUND", "Приход не найден");
+
+  const corrections = await prisma.stockReceiptCorrection.findMany({
+    where: { receiptId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const correctorIds = [...new Set(corrections.map((c) => c.correctedById))];
+  const correctors = await prisma.user.findMany({
+    where: { id: { in: correctorIds } },
+    select: { id: true, name: true },
+  });
+  const correctorMap = new Map(correctors.map((u) => [u.id, u.name]));
+
+  return corrections.map((c) => ({
+    id: c.id,
+    correctedById: c.correctedById,
+    correctedByName: correctorMap.get(c.correctedById) ?? null,
+    reason: c.reason ?? null,
+    itemsBefore: c.itemsBefore,
+    itemsAfter: c.itemsAfter,
+    createdAt: c.createdAt.toISOString(),
+  }));
 }
 
 export async function listReceipts(filter: {
   supplierId?: string;
   skuId?: string;
+  status?: "DRAFT" | "CONFIRMED" | "PROBLEM" | "CORRECTED";
+  moduleSlug?: string;
+  moduleSlugs?: string[];
+  performedById?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: number;
@@ -195,6 +702,10 @@ export async function listReceipts(filter: {
   const where: Prisma.StockReceiptWhereInput = {
     ...(filter.supplierId && { supplierId: filter.supplierId }),
     ...(filter.skuId && { items: { some: { skuId: filter.skuId } } }),
+    ...(filter.status && { status: filter.status }),
+    ...(filter.moduleSlug && { moduleSlug: filter.moduleSlug }),
+    ...(filter.moduleSlugs && { moduleSlug: { in: filter.moduleSlugs } }),
+    ...(filter.performedById && { performedById: filter.performedById }),
     ...((filter.dateFrom || filter.dateTo) && {
       receivedAt: {
         ...(filter.dateFrom && { gte: new Date(filter.dateFrom) }),
@@ -229,6 +740,9 @@ export async function getReceipt(id: string) {
       supplier: { select: { id: true, name: true } },
       items: {
         include: { sku: { select: { id: true, name: true, unit: true } } },
+      },
+      corrections: {
+        orderBy: { createdAt: "asc" },
       },
     },
   });

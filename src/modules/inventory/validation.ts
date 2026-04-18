@@ -120,21 +120,47 @@ const stockReceiptItemSchema = z.object({
   expiresAt: z.string().regex(dateRegex, "Дата в формате YYYY-MM-DD").optional(),
 });
 
+const WAREHOUSE_MODULE_SLUGS = ["cafe", "bbq", "ps-park"] as const;
+
 export const createStockReceiptSchema = z.object({
   supplierId: z.string().optional(),
   invoiceNumber: z.string().max(100).optional(),
   receivedAt: z.string().regex(dateRegex, "Дата в формате YYYY-MM-DD"),
   notes: z.string().max(1000).optional(),
+  moduleSlug: z.enum(WAREHOUSE_MODULE_SLUGS, { message: "Допустимые модули: cafe, bbq, ps-park" }).optional(),
   items: z.array(stockReceiptItemSchema).min(1, "Минимум одна позиция").max(100),
 });
 
 export const receiptFilterSchema = z.object({
   supplierId: z.string().optional(),
   skuId: z.string().optional(),
+  status: z.enum(["DRAFT", "CONFIRMED", "PROBLEM", "CORRECTED"]).optional(),
+  moduleSlug: z.enum(WAREHOUSE_MODULE_SLUGS).optional(),
+  performedById: z.string().optional(),
   dateFrom: z.string().regex(dateRegex).optional(),
   dateTo: z.string().regex(dateRegex).optional(),
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().positive().max(100).default(50),
+});
+
+export const flagProblemSchema = z.object({
+  problemNote: z
+    .string()
+    .min(10, "Описание проблемы должно быть не менее 10 символов")
+    .max(2000, "Описание проблемы не более 2000 символов"),
+});
+
+export const editReceiptSchema = z.object({
+  supplierId: z.string().nullable().optional(),
+  invoiceNumber: z.string().max(100).nullable().optional(),
+  receivedAt: z.string().regex(dateRegex, "Дата в формате YYYY-MM-DD").optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  items: z.array(stockReceiptItemSchema).min(1).max(100).optional(),
+  correctionReason: z.string().max(2000).optional(),
+});
+
+export const pendingReceiptsFilterSchema = z.object({
+  moduleSlug: z.enum(WAREHOUSE_MODULE_SLUGS).optional(),
 });
 
 export const createWriteOffSchema = z.object({
@@ -176,7 +202,7 @@ export const auditCountsSchema = z.object({
 export const movementFilterSchema = z.object({
   skuId: z.string().optional(),
   type: z.enum(["RECEIPT", "SALE", "RESERVATION", "RELEASE", "WRITE_OFF", "AUDIT_ADJUSTMENT", "MANUAL_CORRECTION"]).optional(),
-  referenceType: z.enum(["BOOKING", "ORDER", "RECEIPT", "WRITE_OFF", "AUDIT", "MANUAL"]).optional(),
+  referenceType: z.enum(["BOOKING", "ORDER", "RECEIPT", "WRITE_OFF", "AUDIT", "MANUAL", "CORRECTION"]).optional(),
   performedById: z.string().optional(),
   dateFrom: z.string().regex(dateRegex).optional(),
   dateTo: z.string().regex(dateRegex).optional(),

@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const { searchParams } = new URL(request.url);
     const parsed = supplierFilterSchema.safeParse({
@@ -36,7 +37,8 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const body = await request.json();
     const parsed = createSupplierSchema.safeParse(body);

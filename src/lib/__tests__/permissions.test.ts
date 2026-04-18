@@ -32,6 +32,10 @@ import {
   extractAdminSection,
   ADMIN_SECTIONS,
   ADMIN_SECTION_SLUGS,
+  getModuleAdmins,
+  canConfirmReceipt,
+  canCorrectReceipt,
+  canFlagProblem,
 } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 
@@ -77,6 +81,26 @@ describe("hasRole", () => {
 
   it("USER fails SUPERADMIN check", () => {
     expect(hasRole({ id: "1", role: "USER" }, "SUPERADMIN")).toBe(false);
+  });
+
+  it("ADMIN passes ADMIN check", () => {
+    expect(hasRole({ id: "1", role: "ADMIN" }, "ADMIN")).toBe(true);
+  });
+
+  it("ADMIN passes MANAGER check", () => {
+    expect(hasRole({ id: "1", role: "ADMIN" }, "MANAGER")).toBe(true);
+  });
+
+  it("ADMIN passes USER check", () => {
+    expect(hasRole({ id: "1", role: "ADMIN" }, "USER")).toBe(true);
+  });
+
+  it("ADMIN fails SUPERADMIN check", () => {
+    expect(hasRole({ id: "1", role: "ADMIN" }, "SUPERADMIN")).toBe(false);
+  });
+
+  it("MANAGER fails ADMIN check", () => {
+    expect(hasRole({ id: "1", role: "MANAGER" }, "ADMIN")).toBe(false);
   });
 });
 
@@ -312,5 +336,133 @@ describe("ADMIN_SECTIONS", () => {
       expect(s.label).toBeTruthy();
       expect(s.icon).toBeTruthy();
     });
+  });
+});
+
+// ============================================================
+// getModuleAdmins
+// ============================================================
+describe("getModuleAdmins", () => {
+  it("returns admins assigned to the module", async () => {
+    vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([
+      { user: { id: "a1", name: "Алексей", telegramId: "123" } },
+      { user: { id: "a2", name: "Мария", telegramId: null } },
+    ] as never);
+
+    const result = await getModuleAdmins("cafe");
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("a1");
+    expect(result[1].telegramId).toBeNull();
+  });
+
+  it("returns empty array when no admins assigned", async () => {
+    vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([]);
+
+    const result = await getModuleAdmins("ps-park");
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// canConfirmReceipt
+// ============================================================
+describe("canConfirmReceipt", () => {
+  it("returns true for SUPERADMIN without checking module access", async () => {
+    const result = await canConfirmReceipt({ id: "sa", role: "SUPERADMIN" }, "cafe");
+    expect(result).toBe(true);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns false for MANAGER role", async () => {
+    const result = await canConfirmReceipt({ id: "m1", role: "MANAGER" }, "cafe");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for USER role", async () => {
+    const result = await canConfirmReceipt({ id: "u1", role: "USER" }, "cafe");
+    expect(result).toBe(false);
+  });
+
+  it("returns true for ADMIN with module access", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "assign-1" } as never);
+
+    const result = await canConfirmReceipt({ id: "a1", role: "ADMIN" }, "cafe");
+    expect(result).toBe(true);
+  });
+
+  it("returns false for ADMIN without module access", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue(null);
+
+    const result = await canConfirmReceipt({ id: "a1", role: "ADMIN" }, "bbq");
+    expect(result).toBe(false);
+  });
+});
+
+// ============================================================
+// canCorrectReceipt
+// ============================================================
+describe("canCorrectReceipt", () => {
+  it("delegates to canConfirmReceipt — SUPERADMIN returns true", async () => {
+    const result = await canCorrectReceipt({ id: "sa", role: "SUPERADMIN" }, "ps-park");
+    expect(result).toBe(true);
+  });
+
+  it("delegates to canConfirmReceipt — MANAGER returns false", async () => {
+    const result = await canCorrectReceipt({ id: "m1", role: "MANAGER" }, "cafe");
+    expect(result).toBe(false);
+  });
+
+  it("delegates to canConfirmReceipt — ADMIN with access returns true", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "a" } as never);
+
+    const result = await canCorrectReceipt({ id: "a1", role: "ADMIN" }, "cafe");
+    expect(result).toBe(true);
+  });
+});
+
+// ============================================================
+// canFlagProblem
+// ============================================================
+describe("canFlagProblem", () => {
+  it("SUPERADMIN can flag any receipt", async () => {
+    const result = await canFlagProblem({ id: "sa", role: "SUPERADMIN" }, "cafe", "other-user");
+    expect(result).toBe(true);
+  });
+
+  it("ADMIN with module access can flag any receipt in the module", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "a" } as never);
+
+    const result = await canFlagProblem({ id: "a1", role: "ADMIN" }, "cafe", "some-manager");
+    expect(result).toBe(true);
+  });
+
+  it("ADMIN without module access cannot flag", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue(null);
+
+    const result = await canFlagProblem({ id: "a1", role: "ADMIN" }, "bbq", "some-manager");
+    expect(result).toBe(false);
+  });
+
+  it("MANAGER can flag their own receipt with module access", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "a" } as never);
+
+    const result = await canFlagProblem({ id: "m1", role: "MANAGER" }, "cafe", "m1");
+    expect(result).toBe(true);
+  });
+
+  it("MANAGER cannot flag another manager's receipt", async () => {
+    const result = await canFlagProblem({ id: "m1", role: "MANAGER" }, "cafe", "m2");
+    expect(result).toBe(false);
+  });
+
+  it("USER cannot flag any receipt", async () => {
+    const result = await canFlagProblem({ id: "u1", role: "USER" }, "cafe", "u1");
+    expect(result).toBe(false);
   });
 });
