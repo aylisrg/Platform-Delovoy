@@ -1,17 +1,22 @@
 import type { ChannelAdapter, UserWithContacts } from "../types";
+import nodemailer from "nodemailer";
 
-let resendClient: import("resend").Resend | null = null;
+let transporterInstance: nodemailer.Transporter | null = null;
 
-function getResend(): import("resend").Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  if (!resendClient) {
-    // Dynamic require to avoid import issues in test/edge environments
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Resend } = require("resend") as typeof import("resend");
-    resendClient = new Resend(key);
+function getTransporter(): nodemailer.Transporter | null {
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!user || !pass) return null;
+
+  if (!transporterInstance) {
+    transporterInstance = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.yandex.ru",
+      port: Number(process.env.SMTP_PORT) || 465,
+      secure: true,
+      auth: { user, pass },
+    });
   }
-  return resendClient;
+  return transporterInstance;
 }
 
 export type TransactionalEmailParams = {
@@ -23,35 +28,28 @@ export type TransactionalEmailParams = {
 
 /**
  * Send a transactional email (magic links, verification, etc.)
- * Falls back to console.log when RESEND_API_KEY is not configured.
+ * Falls back to console.log when SMTP_USER / SMTP_PASS are not configured.
  */
 export async function sendTransactionalEmail(
   params: TransactionalEmailParams
 ): Promise<{ success: boolean; error?: string }> {
-  const client = getResend();
-  const from =
-    process.env.RESEND_FROM_EMAIL || "noreply@delovoy-park.ru";
+  const transporter = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@delovoy-park.ru";
 
-  if (!client) {
-    console.log("[Email] (no RESEND_API_KEY) To:", params.to, "Subject:", params.subject);
+  if (!transporter) {
+    console.log("[Email] (no SMTP credentials) To:", params.to, "Subject:", params.subject);
     console.log("[Email] HTML:", params.html);
     return { success: true };
   }
 
   try {
-    const { error } = await client.emails.send({
+    await transporter.sendMail({
       from,
       to: params.to,
       subject: params.subject,
       html: params.html,
       text: params.text,
     });
-
-    if (error) {
-      console.error("[Email] Resend error:", error);
-      return { success: false, error: error.message };
-    }
-
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -63,7 +61,7 @@ export async function sendTransactionalEmail(
 /**
  * Email channel adapter for the notifications system.
  * Used for booking confirmations, order updates, etc.
- * Falls back to console.log when RESEND_API_KEY is not configured.
+ * Falls back to console.log when SMTP credentials are not configured.
  */
 export const emailAdapter: ChannelAdapter = {
   channel: "EMAIL",
