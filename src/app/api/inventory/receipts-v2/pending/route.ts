@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     });
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
-    let filter: { moduleSlug?: string; modulesSlugs?: string[] } = {};
+    const filter: { moduleSlug?: string; modulesSlugs?: string[] } = {};
 
     if (role === "SUPERADMIN") {
       // Can see all or filter by requested module
