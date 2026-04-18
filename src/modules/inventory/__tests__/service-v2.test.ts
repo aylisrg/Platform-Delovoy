@@ -105,6 +105,7 @@ import {
   confirmReceipt,
   flagProblem,
   editDraftReceipt,
+  correctReceipt,
   listPendingReceipts,
   listReceipts,
   getReceipt,
@@ -678,6 +679,114 @@ describe("editDraftReceipt", () => {
     await expect(editDraftReceipt("r1", { invoiceNumber: "X" }, "admin1")).rejects.toMatchObject({
       code: "INVALID_STATUS",
     });
+  });
+});
+
+// ============================================================
+// correctReceipt
+// ============================================================
+
+describe("correctReceipt", () => {
+  it("returns CORRECTED status and correctionId on positive delta", async () => {
+    const mockReceipt = {
+      id: "r1",
+      status: "CONFIRMED",
+      items: [{ id: "ri1", skuId: "sku1", quantity: 5, costPerUnit: null, expiresAt: null }],
+      receivedAt: new Date("2026-04-10"),
+      moduleSlug: "cafe",
+      performedById: "manager1",
+    };
+
+    const txFn = vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        stockReceipt: {
+          findUnique: vi.fn().mockResolvedValue(mockReceipt),
+          update: vi.fn().mockResolvedValue({}),
+        },
+        inventorySku: {
+          findUnique: vi.fn().mockResolvedValue({ id: "sku1", isActive: true }),
+          update: vi.fn().mockResolvedValue({ stockQuantity: 10 }),
+        },
+        stockReceiptCorrection: {
+          create: vi.fn().mockResolvedValue({ id: "corr1" }),
+        },
+        stockBatch: {
+          create: vi.fn().mockResolvedValue({ id: "b2" }),
+        },
+        stockMovement: { create: vi.fn().mockResolvedValue({}) },
+        stockReceiptItem: {
+          deleteMany: vi.fn().mockResolvedValue({}),
+          create: vi.fn().mockResolvedValue({}),
+        },
+        $queryRaw: vi.fn().mockResolvedValue([]),
+      };
+      return fn(tx);
+    });
+    db.$transaction.mockImplementation(txFn);
+    db.user.findUnique.mockResolvedValue({ name: "Сергей" });
+
+    const result = await correctReceipt(
+      "r1",
+      {
+        items: [{ skuId: "sku1", quantity: 10 }],
+        correctionReason: "Пересчитали — было больше",
+      },
+      "admin1"
+    );
+
+    expect(result.status).toBe("CORRECTED");
+    expect(result.receiptId).toBe("r1");
+    expect(result.correctionId).toBe("corr1");
+  });
+
+  it("throws RECEIPT_NOT_FOUND when receipt missing", async () => {
+    const txFn = vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        stockReceipt: { findUnique: vi.fn().mockResolvedValue(null) },
+      };
+      return fn(tx);
+    });
+    db.$transaction.mockImplementation(txFn);
+
+    await expect(
+      correctReceipt("ghost", { items: [{ skuId: "sku1", quantity: 1 }], correctionReason: "x" }, "admin1")
+    ).rejects.toMatchObject({ code: "RECEIPT_NOT_FOUND" });
+  });
+
+  it("throws INVALID_STATUS for DRAFT receipt", async () => {
+    const txFn = vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        stockReceipt: {
+          findUnique: vi.fn().mockResolvedValue({ id: "r1", status: "DRAFT", items: [] }),
+        },
+      };
+      return fn(tx);
+    });
+    db.$transaction.mockImplementation(txFn);
+
+    await expect(
+      correctReceipt("r1", { items: [{ skuId: "sku1", quantity: 1 }], correctionReason: "x" }, "admin1")
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+  });
+
+  it("throws CORRECTION_REASON_REQUIRED when no reason given", async () => {
+    const txFn = vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        stockReceipt: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: "r1",
+            status: "CONFIRMED",
+            items: [{ skuId: "sku1", quantity: 5, costPerUnit: null, expiresAt: null }],
+          }),
+        },
+      };
+      return fn(tx);
+    });
+    db.$transaction.mockImplementation(txFn);
+
+    await expect(
+      correctReceipt("r1", { items: [{ skuId: "sku1", quantity: 3 }] }, "admin1")
+    ).rejects.toMatchObject({ code: "CORRECTION_REASON_REQUIRED" });
   });
 });
 

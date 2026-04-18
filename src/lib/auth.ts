@@ -201,7 +201,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
           if (dbUser && dbUser.role === "SUPERADMIN") {
             result.adminSections = [...ADMIN_SECTION_SLUGS];
-          } else if (dbUser && dbUser.role === "MANAGER") {
+          } else if (dbUser && (dbUser.role === "ADMIN" || dbUser.role === "MANAGER")) {
             const permissions = await prisma.adminPermission.findMany({
               where: { userId: result.id as string },
               select: { section: true },
