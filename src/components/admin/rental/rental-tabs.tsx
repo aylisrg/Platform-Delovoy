@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 
-type Tab = "overview" | "tenants" | "offices" | "contracts";
+type Tab = "overview" | "pipeline" | "tenants" | "offices" | "contracts";
 
 const tabs: { id: Tab; label: string }[] = [
   { id: "overview", label: "Обзор" },
+  { id: "pipeline", label: "Воронка" },
   { id: "tenants", label: "Арендаторы" },
   { id: "offices", label: "Помещения" },
   { id: "contracts", label: "Договоры" },

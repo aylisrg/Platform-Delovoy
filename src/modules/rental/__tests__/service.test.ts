@@ -37,6 +37,15 @@ vi.mock("@/lib/db", () => ({
       create: vi.fn(),
       update: vi.fn(),
     },
+    rentalDeal: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      aggregate: vi.fn(),
+    },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -60,6 +69,12 @@ import {
   getExpiringContracts,
   getMonthlyReport,
   getOccupancyReport,
+  listDeals,
+  getDeal,
+  createDeal,
+  updateDeal,
+  deleteDeal,
+  reorderDeals,
   RentalError,
 } from "@/modules/rental/service";
 import { prisma } from "@/lib/db";
@@ -663,5 +678,204 @@ describe("getOccupancyReport", () => {
     expect(report[1].total).toBe(3);
     expect(report[1].occupied).toBe(2);
     expect(report[1].maintenance).toBe(1);
+  });
+});
+
+// === DEALS ===
+
+const mockDeal = (overrides = {}) => ({
+  id: "deal-1",
+  contactName: "Иван Петров",
+  phone: "+7 999 123-45-67",
+  email: "ivan@example.com",
+  companyName: "ООО Рога",
+  stage: "NEW_LEAD" as const,
+  priority: "WARM" as const,
+  source: "PHONE" as const,
+  desiredArea: "30-50 м²",
+  budget: "до 50 000 ₽",
+  moveInDate: null,
+  requirements: null,
+  officeId: null,
+  office: null,
+  inquiryId: null,
+  tenantId: null,
+  contractId: null,
+  dealValue: null,
+  nextActionDate: null,
+  nextAction: null,
+  lostReason: null,
+  adminNotes: null,
+  sortOrder: 0,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  ...overrides,
+});
+
+describe("listDeals", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns all deals ordered by sortOrder", async () => {
+    const deals = [mockDeal(), mockDeal({ id: "deal-2", sortOrder: 1 })];
+    vi.mocked(prisma.rentalDeal.findMany).mockResolvedValue(deals);
+
+    const result = await listDeals();
+
+    expect(prisma.rentalDeal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      })
+    );
+    expect(result).toHaveLength(2);
+  });
+
+  it("filters by stage", async () => {
+    vi.mocked(prisma.rentalDeal.findMany).mockResolvedValue([]);
+
+    await listDeals({ stage: "SHOWING" });
+
+    expect(prisma.rentalDeal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ stage: "SHOWING" }),
+      })
+    );
+  });
+
+  it("filters by priority", async () => {
+    vi.mocked(prisma.rentalDeal.findMany).mockResolvedValue([]);
+
+    await listDeals({ priority: "HOT" });
+
+    expect(prisma.rentalDeal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ priority: "HOT" }),
+      })
+    );
+  });
+});
+
+describe("getDeal", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns deal by id", async () => {
+    const deal = mockDeal();
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(deal);
+
+    const result = await getDeal("deal-1");
+    expect(result.id).toBe("deal-1");
+  });
+
+  it("throws DEAL_NOT_FOUND for missing deal", async () => {
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(null);
+
+    await expect(getDeal("nonexistent")).rejects.toThrow(RentalError);
+    await expect(getDeal("nonexistent")).rejects.toThrow("Сделка не найдена");
+  });
+});
+
+describe("createDeal", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("creates a deal with correct fields", async () => {
+    const deal = mockDeal();
+    vi.mocked(prisma.rentalDeal.aggregate).mockResolvedValue({
+      _max: { sortOrder: 2 },
+      _min: { sortOrder: null },
+      _avg: { sortOrder: null },
+      _sum: { sortOrder: null },
+      _count: { sortOrder: 0 },
+    } as never);
+    vi.mocked(prisma.rentalDeal.create).mockResolvedValue(deal);
+
+    await createDeal({
+      contactName: "Иван Петров",
+      phone: "+7 999 123-45-67",
+      email: "ivan@example.com",
+      companyName: "ООО Рога",
+      priority: "WARM",
+      source: "PHONE",
+    });
+
+    expect(prisma.rentalDeal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          contactName: "Иван Петров",
+          phone: "+7 999 123-45-67",
+          sortOrder: 3,
+        }),
+      })
+    );
+  });
+
+  it("validates office exists when officeId is provided", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
+
+    await expect(
+      createDeal({
+        contactName: "Test",
+        phone: "+7 000 000-00-00",
+        officeId: "nonexistent",
+      })
+    ).rejects.toThrow("Помещение не найдено");
+  });
+});
+
+describe("updateDeal", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("updates deal fields", async () => {
+    const deal = mockDeal();
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(deal);
+    vi.mocked(prisma.rentalDeal.update).mockResolvedValue({
+      ...deal,
+      stage: "QUALIFICATION",
+    });
+
+    const result = await updateDeal("deal-1", { stage: "QUALIFICATION" });
+    expect(result.stage).toBe("QUALIFICATION");
+  });
+
+  it("throws for nonexistent deal", async () => {
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(null);
+
+    await expect(updateDeal("bad-id", { stage: "WON" })).rejects.toThrow(
+      "Сделка не найдена"
+    );
+  });
+});
+
+describe("deleteDeal", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("deletes existing deal", async () => {
+    const deal = mockDeal();
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(deal);
+    vi.mocked(prisma.rentalDeal.delete).mockResolvedValue(deal);
+
+    const result = await deleteDeal("deal-1");
+    expect(result.id).toBe("deal-1");
+  });
+
+  it("throws for nonexistent deal", async () => {
+    vi.mocked(prisma.rentalDeal.findUnique).mockResolvedValue(null);
+
+    await expect(deleteDeal("bad-id")).rejects.toThrow("Сделка не найдена");
+  });
+});
+
+describe("reorderDeals", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("updates sort order in a transaction", async () => {
+    vi.mocked(prisma.$transaction).mockResolvedValue([]);
+
+    await reorderDeals([
+      { dealId: "deal-1", newStage: "QUALIFICATION", sortOrder: 0 },
+      { dealId: "deal-2", newStage: "QUALIFICATION", sortOrder: 1 },
+    ]);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.anything(), expect.anything()])
+    );
   });
 });

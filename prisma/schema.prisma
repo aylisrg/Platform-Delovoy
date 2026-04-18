@@ -349,6 +349,7 @@ model Office {
 
   contracts RentalContract[]
   inquiries RentalInquiry[]
+  deals     RentalDeal[]
 
   @@unique([building, floor, number])
   @@index([building])
@@ -424,6 +425,75 @@ model RentalInquiry {
 
   @@index([status, createdAt])
   @@index([isRead])
+}
+
+// === RENTAL DEALS (sales pipeline / kanban) ===
+
+enum DealStage {
+  NEW_LEAD
+  QUALIFICATION
+  SHOWING
+  PROPOSAL
+  NEGOTIATION
+  CONTRACT_DRAFT
+  WON
+  LOST
+}
+
+enum DealPriority {
+  HOT
+  WARM
+  COLD
+}
+
+enum DealSource {
+  WEBSITE
+  PHONE
+  WALK_IN
+  REFERRAL
+  AVITO
+  CIAN
+  OTHER
+}
+
+model RentalDeal {
+  id            String       @id @default(cuid())
+  contactName   String
+  phone         String
+  email         String?
+  companyName   String?
+
+  stage         DealStage    @default(NEW_LEAD)
+  priority      DealPriority @default(WARM)
+  source        DealSource   @default(WEBSITE)
+
+  desiredArea   String?
+  budget        String?
+  moveInDate    DateTime?
+  requirements  String?      @db.Text
+
+  officeId      String?
+  office        Office?      @relation(fields: [officeId], references: [id])
+
+  inquiryId     String?
+  tenantId      String?
+  contractId    String?
+
+  dealValue     Decimal?
+  nextActionDate DateTime?
+  nextAction    String?
+  lostReason    String?
+
+  adminNotes    String?      @db.Text
+  sortOrder     Int          @default(0)
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([stage])
+  @@index([priority])
+  @@index([nextActionDate])
+  @@index([createdAt])
 }
 
 // === RENTAL CHANGE LOG (financial audit trail) ===
