@@ -187,6 +187,68 @@ export type InquiryFilter = {
   isRead?: boolean;
 };
 
+// === Deal Types (Sales Pipeline) ===
+
+export type CreateDealInput = {
+  contactName: string;
+  phone: string;
+  email?: string;
+  companyName?: string;
+  stage?: DealStage;
+  priority?: DealPriority;
+  source?: DealSource;
+  desiredArea?: string;
+  budget?: string;
+  moveInDate?: string;
+  requirements?: string;
+  officeId?: string;
+  inquiryId?: string;
+  dealValue?: number;
+  nextActionDate?: string;
+  nextAction?: string;
+  adminNotes?: string;
+};
+
+export type UpdateDealInput = Partial<CreateDealInput> & {
+  lostReason?: string;
+  tenantId?: string;
+  contractId?: string;
+  sortOrder?: number;
+};
+
+export type DealFilter = {
+  stage?: DealStage | DealStage[];
+  priority?: DealPriority;
+  source?: DealSource;
+};
+
+export type ReorderDealInput = {
+  dealId: string;
+  newStage: DealStage;
+  sortOrder: number;
+};
+
+export type DealStage =
+  | "NEW_LEAD"
+  | "QUALIFICATION"
+  | "SHOWING"
+  | "PROPOSAL"
+  | "NEGOTIATION"
+  | "CONTRACT_DRAFT"
+  | "WON"
+  | "LOST";
+
+export type DealPriority = "HOT" | "WARM" | "COLD";
+
+export type DealSource =
+  | "WEBSITE"
+  | "PHONE"
+  | "WALK_IN"
+  | "REFERRAL"
+  | "AVITO"
+  | "CIAN"
+  | "OTHER";
+
 // === Reports ===
 
 export type MonthlyReport = {

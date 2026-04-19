@@ -1,0 +1,63 @@
+name: Disk Space Monitor
+
+on:
+  schedule:
+    # Check every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check disk space on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            USAGE=$(df / --output=pcent | tail -1 | tr -d ' %')
+            echo "Current disk usage: ${USAGE}%"
+
+            # Warn at 75%, critical at 90%
+            if [ "$USAGE" -lt 75 ]; then
+              echo "Disk usage OK"
+              exit 0
+            fi
+
+            TG_TOKEN=$(grep -oP 'TELEGRAM_BOT_TOKEN=\K.*' /opt/delovoy-park/.env 2>/dev/null || echo "")
+            TG_CHAT=$(grep -oP 'TELEGRAM_ADMIN_CHAT_ID=\K.*' /opt/delovoy-park/.env 2>/dev/null || echo "")
+
+            if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+              echo "No Telegram credentials — cannot alert"
+              exit 1
+            fi
+
+            DISK_INFO=$(df -h / | tail -1)
+            DOCKER_USAGE=$(docker system df --format "table {{.Type}}\t{{.Size}}\t{{.Reclaimable}}" 2>/dev/null || echo "n/a")
+            LARGE_DIRS=$(du -sh /var/lib/docker /opt/backups /var/log /tmp 2>/dev/null | sort -rh)
+
+            if [ "$USAGE" -ge 90 ]; then
+              EMOJI="🔴"
+              LEVEL="CRITICAL"
+            else
+              EMOJI="🟡"
+              LEVEL="WARNING"
+            fi
+
+            MSG=$(printf "%s Диск %s — %s%%\n\n%s\n\nDocker:\n%s\n\nДиректории:\n%s" "$EMOJI" "$LEVEL" "$USAGE" "$DISK_INFO" "$DOCKER_USAGE" "$LARGE_DIRS")
+
+            if [ "$USAGE" -ge 90 ]; then
+              MSG=$(printf "%s\n\n⚡ Запусти Docker Cleanup: gh workflow run docker-cleanup.yml" "$MSG")
+            fi
+
+            curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" \
+              --data-urlencode "text=${MSG}" || true
+
+            # Exit with error so GitHub shows the run as failed
+            if [ "$USAGE" -ge 90 ]; then
+              exit 1
+            fi

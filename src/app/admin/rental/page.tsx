@@ -9,6 +9,7 @@ import { RentalTabs } from "@/components/admin/rental/rental-tabs";
 import { TenantList } from "@/components/admin/rental/tenant-list";
 import { OfficeList } from "@/components/admin/rental/office-list";
 import { ContractList } from "@/components/admin/rental/contract-list";
+import { DealKanban } from "@/components/admin/rental/deal-kanban";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export default async function RentalManagerPage() {
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [offices, tenants, contracts, allContracts, expiringCount, newThisMonth, totalRevenue, inquiries] =
+  const [offices, tenants, contracts, allContracts, expiringCount, newThisMonth, totalRevenue, inquiries, deals] =
     await Promise.all([
       prisma.office.findMany({
         orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
@@ -105,6 +106,12 @@ export default async function RentalManagerPage() {
         include: { office: { select: { number: true, floor: true, building: true } } },
         orderBy: { createdAt: "desc" },
         take: 50,
+      }),
+      prisma.rentalDeal.findMany({
+        include: {
+          office: { select: { id: true, number: true, floor: true, building: true, area: true, pricePerMonth: true } },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
       }),
     ]);
 
@@ -390,6 +397,36 @@ export default async function RentalManagerPage() {
                   </CardContent>
                 </Card>
               </div>
+            ),
+
+            pipeline: (
+              <DealKanban
+                now={now.getTime()}
+                initialDeals={deals.map((d) => ({
+                  ...d,
+                  dealValue: d.dealValue ? Number(d.dealValue) : null,
+                  moveInDate: d.moveInDate ? d.moveInDate.toISOString() : null,
+                  nextActionDate: d.nextActionDate ? d.nextActionDate.toISOString() : null,
+                  createdAt: d.createdAt.toISOString(),
+                  updatedAt: d.updatedAt.toISOString(),
+                  office: d.office
+                    ? {
+                        ...d.office,
+                        area: Number(d.office.area),
+                        pricePerMonth: Number(d.office.pricePerMonth),
+                      }
+                    : null,
+                }))}
+                offices={offices.map((o) => ({
+                  id: o.id,
+                  number: o.number,
+                  floor: o.floor,
+                  building: o.building,
+                  area: Number(o.area),
+                  pricePerMonth: Number(o.pricePerMonth),
+                  status: o.status,
+                }))}
+              />
             ),
 
             tenants: (

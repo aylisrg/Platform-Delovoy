@@ -135,6 +135,76 @@ export const inquiryFilterSchema = z.object({
   isRead: z.coerce.boolean().optional(),
 });
 
+// === Deals (Sales Pipeline) ===
+
+const DEAL_STAGES = [
+  "NEW_LEAD",
+  "QUALIFICATION",
+  "SHOWING",
+  "PROPOSAL",
+  "NEGOTIATION",
+  "CONTRACT_DRAFT",
+  "WON",
+  "LOST",
+] as const;
+
+const DEAL_PRIORITIES = ["HOT", "WARM", "COLD"] as const;
+
+const DEAL_SOURCES = [
+  "WEBSITE",
+  "PHONE",
+  "WALK_IN",
+  "REFERRAL",
+  "AVITO",
+  "CIAN",
+  "OTHER",
+] as const;
+
+export const createDealSchema = z.object({
+  contactName: z.string().min(1, "Имя контакта обязательно").max(200),
+  phone: z.string().min(7, "Некорректный телефон").max(20),
+  email: z.string().email("Некорректный email").optional(),
+  companyName: z.string().max(200).optional(),
+  stage: z.enum(DEAL_STAGES).optional(),
+  priority: z.enum(DEAL_PRIORITIES).optional(),
+  source: z.enum(DEAL_SOURCES).optional(),
+  desiredArea: z.string().max(100).optional(),
+  budget: z.string().max(100).optional(),
+  moveInDate: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
+  requirements: z.string().max(5000).optional(),
+  officeId: z.string().optional(),
+  inquiryId: z.string().optional(),
+  dealValue: z.number().nonnegative().optional(),
+  nextActionDate: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
+  nextAction: z.string().max(500).optional(),
+  adminNotes: z.string().max(5000).optional(),
+});
+
+export const updateDealSchema = createDealSchema.partial().extend({
+  lostReason: z.string().max(1000).optional(),
+  tenantId: z.string().optional(),
+  contractId: z.string().optional(),
+  sortOrder: z.number().int().nonnegative().optional(),
+});
+
+export const dealFilterSchema = z.object({
+  stage: z
+    .union([z.enum(DEAL_STAGES), z.array(z.enum(DEAL_STAGES))])
+    .optional(),
+  priority: z.enum(DEAL_PRIORITIES).optional(),
+  source: z.enum(DEAL_SOURCES).optional(),
+});
+
+export const reorderDealSchema = z.object({
+  dealId: z.string().min(1),
+  newStage: z.enum(DEAL_STAGES),
+  sortOrder: z.number().int().nonnegative(),
+});
+
+export const reorderDealsSchema = z.object({
+  updates: z.array(reorderDealSchema).min(1).max(50),
+});
+
 // === Reports ===
 
 export const reportQuerySchema = z.object({

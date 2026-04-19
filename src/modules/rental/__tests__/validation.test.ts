@@ -14,6 +14,11 @@ import {
   revenueReportSchema,
   expiringReportSchema,
   createInquirySchema,
+  createDealSchema,
+  updateDealSchema,
+  dealFilterSchema,
+  reorderDealSchema,
+  reorderDealsSchema,
 } from "@/modules/rental/validation";
 
 // === Office Schemas ===
@@ -566,6 +571,170 @@ describe("createInquirySchema", () => {
       name: "Иван",
       phone: "+7999123",
       email: "not-an-email",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// === Deal Schemas ===
+
+describe("createDealSchema", () => {
+  it("accepts valid deal with required fields only", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Иван Петров",
+      phone: "+7 999 123-45-67",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts deal with all fields", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Иван Петров",
+      phone: "+7 999 123-45-67",
+      email: "ivan@example.com",
+      companyName: "ООО Рога и Копыта",
+      stage: "QUALIFICATION",
+      priority: "HOT",
+      source: "AVITO",
+      desiredArea: "30-50 м²",
+      budget: "до 50 000 ₽/мес",
+      moveInDate: "2026-05-01",
+      requirements: "Нужен отдельный вход",
+      officeId: "cuid123",
+      dealValue: 45000,
+      nextActionDate: "2026-04-20",
+      nextAction: "Перезвонить",
+      adminNotes: "Горячий клиент",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty contactName", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "",
+      phone: "+7 999 123-45-67",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects short phone", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid stage", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "+7 999 000-00-00",
+      stage: "INVALID",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid priority", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "+7 999 000-00-00",
+      priority: "LUKEWARM",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid source", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "+7 999 000-00-00",
+      source: "INSTAGRAM",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid moveInDate format", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "+7 999 000-00-00",
+      moveInDate: "01.05.2026",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects negative dealValue", () => {
+    const result = createDealSchema.safeParse({
+      contactName: "Test",
+      phone: "+7 999 000-00-00",
+      dealValue: -1000,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("updateDealSchema", () => {
+  it("accepts partial update", () => {
+    const result = updateDealSchema.safeParse({
+      stage: "WON",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts lostReason", () => {
+    const result = updateDealSchema.safeParse({
+      stage: "LOST",
+      lostReason: "Ушёл к конкуренту",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts sortOrder", () => {
+    const result = updateDealSchema.safeParse({
+      sortOrder: 5,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("dealFilterSchema", () => {
+  it("accepts single stage", () => {
+    const result = dealFilterSchema.safeParse({ stage: "SHOWING" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts stage array", () => {
+    const result = dealFilterSchema.safeParse({
+      stage: ["NEW_LEAD", "QUALIFICATION"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts priority filter", () => {
+    const result = dealFilterSchema.safeParse({ priority: "HOT" });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("reorderDealsSchema", () => {
+  it("accepts valid reorder payload", () => {
+    const result = reorderDealsSchema.safeParse({
+      updates: [
+        { dealId: "deal-1", newStage: "QUALIFICATION", sortOrder: 0 },
+        { dealId: "deal-2", newStage: "QUALIFICATION", sortOrder: 1 },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty updates array", () => {
+    const result = reorderDealsSchema.safeParse({ updates: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing dealId", () => {
+    const result = reorderDealSchema.safeParse({
+      dealId: "",
+      newStage: "SHOWING",
+      sortOrder: 0,
     });
     expect(result.success).toBe(false);
   });
