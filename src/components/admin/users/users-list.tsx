@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CreateUserForm } from "./create-user-form";
 import { PermissionsModal } from "./permissions-modal";
 
-type Role = "SUPERADMIN" | "MANAGER" | "USER";
+type Role = "SUPERADMIN" | "ADMIN" | "MANAGER" | "USER";
 
 interface User {
   id: string;
@@ -31,12 +31,14 @@ const PROVIDER_BADGE: Record<string, { icon: string; color: string; label: strin
 
 const roleVariant: Record<Role, "danger" | "warning" | "default"> = {
   SUPERADMIN: "danger",
+  ADMIN: "danger",
   MANAGER: "warning",
   USER: "default",
 };
 
 const roleLabel: Record<Role, string> = {
   SUPERADMIN: "Суперадмин",
+  ADMIN: "Администратор",
   MANAGER: "Менеджер",
   USER: "Пользователь",
 };

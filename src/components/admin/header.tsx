@@ -1,7 +1,13 @@
+"use client";
+
+import { useSession } from "next-auth/react";
 import { NotificationBell } from "./notification-bell";
 import type { ReactNode } from "react";
 
 export function AdminHeader({ title, actions }: { title: string; actions?: ReactNode }) {
+  const { data: session } = useSession();
+  const userName = session?.user?.name || "Пользователь";
+
   return (
     <header className="flex h-14 lg:h-16 items-center justify-between border-b border-zinc-200 bg-white px-4 lg:px-8">
       <h1 className="truncate text-lg lg:text-xl font-semibold text-zinc-900">{title}</h1>
@@ -10,7 +16,7 @@ export function AdminHeader({ title, actions }: { title: string; actions?: React
         <span className="hidden lg:inline-flex">
           <NotificationBell />
         </span>
-        <span className="hidden lg:inline text-sm text-zinc-500">Администратор</span>
+        <span className="hidden lg:inline text-sm text-zinc-500">{userName}</span>
       </div>
     </header>
   );
