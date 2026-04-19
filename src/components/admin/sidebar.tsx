@@ -53,6 +53,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
   { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
+  { label: "Уведомления", href: "/admin/notifications", icon: "🔔", section: "notifications" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
