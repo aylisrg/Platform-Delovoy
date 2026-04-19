@@ -95,7 +95,7 @@ export function PermissionsModal({
               Права доступа
             </h2>
             <p className="text-sm text-zinc-500">
-              {userName || "Без имени"} — {userRole === "SUPERADMIN" ? "Суперадмин" : userRole === "MANAGER" ? "Менеджер" : "Пользователь"}
+              {userName || "Без имени"} — {userRole === "SUPERADMIN" ? "Суперадмин" : userRole === "ADMIN" ? "Администратор" : userRole === "MANAGER" ? "Менеджер" : "Пользователь"}
             </p>
           </div>
           <button

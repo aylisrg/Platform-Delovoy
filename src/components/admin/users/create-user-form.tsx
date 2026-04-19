@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-type Role = "SUPERADMIN" | "MANAGER" | "USER";
+type Role = "SUPERADMIN" | "ADMIN" | "MANAGER" | "USER";
 
 interface CreateUserFormProps {
   onUserCreated: () => void;
@@ -116,6 +116,7 @@ export function CreateUserForm({ onUserCreated }: CreateUserFormProps) {
             >
               <option value="USER">Пользователь</option>
               <option value="MANAGER">Менеджер</option>
+              <option value="ADMIN">Администратор</option>
               <option value="SUPERADMIN">Суперадмин</option>
             </select>
           </div>
