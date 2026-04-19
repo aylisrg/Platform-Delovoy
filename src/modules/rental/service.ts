@@ -940,6 +940,23 @@ export async function createInquiry(input: CreateInquiryInput) {
     include: { office: { select: { number: true } } },
   });
 
+  // Auto-create deal in NEW_LEAD stage
+  const deal = await prisma.rentalDeal.create({
+    data: {
+      contactName: input.name,
+      phone: input.phone,
+      email: input.email,
+      companyName: input.companyName,
+      stage: "NEW_LEAD",
+      priority: "WARM",
+      source: "WEBSITE",
+      requirements: input.message,
+      officeId: resolvedOfficeIds[0] || undefined,
+      inquiryId: inquiry.id,
+      adminNotes: `Автоматически создано из заявки на сайте`,
+    },
+  });
+
   enqueueNotification({
     type: "inquiry.created",
     moduleSlug: "rental",
@@ -951,6 +968,19 @@ export async function createInquiry(input: CreateInquiryInput) {
       companyName: input.companyName || "—",
       message: finalMessage || "—",
       officeNumber: officeNumbers.length > 0 ? officeNumbers.join(", ") : "Общий запрос",
+    },
+  });
+
+  // Also notify admin about new deal in pipeline
+  enqueueNotification({
+    type: "deal.created",
+    moduleSlug: "rental",
+    entityId: deal.id,
+    data: {
+      contactName: input.name,
+      phone: input.phone,
+      companyName: input.companyName || "—",
+      stage: "NEW_LEAD",
     },
   });
 
