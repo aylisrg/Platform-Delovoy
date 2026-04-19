@@ -1,6 +1,14 @@
 name: Docker Cleanup on VPS
 
 on:
+  # Run daily at midnight MSK (21:00 UTC)
+  schedule:
+    - cron: "0 21 * * *"
+  # Run after every deploy
+  workflow_run:
+    workflows: ["Deploy to Production"]
+    types: [completed]
+  # Keep manual trigger
   workflow_dispatch:
 
 jobs:
@@ -32,12 +40,46 @@ jobs:
             du -sh /var/log/ 2>/dev/null || true
             du -sh /tmp/ 2>/dev/null || true
 
-            echo "=== Clean old DB backups (keep last 3) ==="
-            ls -t /opt/backups/db-*.sql.gz 2>/dev/null | tail -n +4 | xargs rm -f || true
+            echo "=== Clean old DB backups (keep last 5) ==="
+            ls -t /opt/backups/db-*.sql.gz 2>/dev/null | tail -n +6 | xargs rm -f || true
 
             echo "=== Clean old logs ==="
             find /var/log -name "*.gz" -mtime +7 -delete 2>/dev/null || true
             journalctl --vacuum-size=50M 2>/dev/null || true
 
+            echo "=== Clean /tmp older than 3 days ==="
+            find /tmp -type f -mtime +3 -delete 2>/dev/null || true
+
+            echo "=== Clean apt cache ==="
+            apt-get clean 2>/dev/null || true
+
             echo "=== Disk after ==="
             df -h /
+
+      - name: Alert if disk still above 85%
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            USAGE=$(df / --output=pcent | tail -1 | tr -d ' %')
+            echo "Disk usage after cleanup: ${USAGE}%"
+
+            if [ "$USAGE" -gt 85 ]; then
+              echo "WARNING: Disk still above 85% after cleanup!"
+
+              # Send Telegram alert
+              TG_TOKEN=$(grep -oP 'TELEGRAM_BOT_TOKEN=\K.*' /opt/delovoy-park/.env 2>/dev/null || echo "")
+              TG_CHAT=$(grep -oP 'TELEGRAM_ADMIN_CHAT_ID=\K.*' /opt/delovoy-park/.env 2>/dev/null || echo "")
+
+              if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+                DISK_INFO=$(df -h / | tail -1)
+                LARGE_DIRS=$(du -sh /opt/delovoy-park /var/lib/docker /var/log /opt/backups /tmp 2>/dev/null | sort -rh | head -5)
+                MSG=$(printf "🚨 Диск заполнен на %s%% после автоочистки!\n\n%s\n\n%s\n\nТребуется ручная проверка." "$USAGE" "$DISK_INFO" "$LARGE_DIRS")
+                curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+                  -d "chat_id=${TG_CHAT}" \
+                  --data-urlencode "text=${MSG}" || true
+              fi
+              exit 1
+            fi

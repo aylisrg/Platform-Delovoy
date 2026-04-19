@@ -18,6 +18,10 @@ import type {
   CreateInquiryInput,
   UpdateInquiryInput,
   InquiryFilter,
+  CreateDealInput,
+  UpdateDealInput,
+  DealFilter,
+  ReorderDealInput,
 } from "./types";
 
 // === ERROR ===
@@ -978,4 +982,129 @@ export async function updateInquiry(id: string, input: UpdateInquiryInput) {
     },
     include: { office: { select: { id: true, number: true, floor: true, building: true } } },
   });
+}
+
+// === DEALS (Sales Pipeline) ===
+
+export async function listDeals(filter?: DealFilter) {
+  const where: Prisma.RentalDealWhereInput = {};
+
+  if (filter?.stage) {
+    where.stage = Array.isArray(filter.stage) ? { in: filter.stage } : filter.stage;
+  }
+  if (filter?.priority) where.priority = filter.priority;
+  if (filter?.source) where.source = filter.source;
+
+  return prisma.rentalDeal.findMany({
+    where,
+    include: {
+      office: { select: { id: true, number: true, floor: true, building: true, area: true, pricePerMonth: true } },
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+  });
+}
+
+export async function getDeal(id: string) {
+  const deal = await prisma.rentalDeal.findUnique({
+    where: { id },
+    include: {
+      office: { select: { id: true, number: true, floor: true, building: true, area: true, pricePerMonth: true } },
+    },
+  });
+  if (!deal) throw new RentalError("DEAL_NOT_FOUND", "Сделка не найдена");
+  return deal;
+}
+
+export async function createDeal(input: CreateDealInput) {
+  if (input.officeId) {
+    const office = await prisma.office.findUnique({ where: { id: input.officeId } });
+    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
+  }
+
+  const maxSort = await prisma.rentalDeal.aggregate({
+    where: { stage: input.stage ?? "NEW_LEAD" },
+    _max: { sortOrder: true },
+  });
+
+  return prisma.rentalDeal.create({
+    data: {
+      contactName: input.contactName,
+      phone: input.phone,
+      email: input.email,
+      companyName: input.companyName,
+      stage: input.stage,
+      priority: input.priority,
+      source: input.source,
+      desiredArea: input.desiredArea,
+      budget: input.budget,
+      moveInDate: input.moveInDate ? new Date(input.moveInDate) : undefined,
+      requirements: input.requirements,
+      officeId: input.officeId,
+      inquiryId: input.inquiryId,
+      dealValue: input.dealValue,
+      nextActionDate: input.nextActionDate ? new Date(input.nextActionDate) : undefined,
+      nextAction: input.nextAction,
+      adminNotes: input.adminNotes,
+      sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+    },
+    include: {
+      office: { select: { id: true, number: true, floor: true, building: true, area: true, pricePerMonth: true } },
+    },
+  });
+}
+
+export async function updateDeal(id: string, input: UpdateDealInput) {
+  const deal = await prisma.rentalDeal.findUnique({ where: { id } });
+  if (!deal) throw new RentalError("DEAL_NOT_FOUND", "Сделка не найдена");
+
+  if (input.officeId) {
+    const office = await prisma.office.findUnique({ where: { id: input.officeId } });
+    if (!office) throw new RentalError("OFFICE_NOT_FOUND", "Помещение не найдено");
+  }
+
+  return prisma.rentalDeal.update({
+    where: { id },
+    data: {
+      ...(input.contactName !== undefined && { contactName: input.contactName }),
+      ...(input.phone !== undefined && { phone: input.phone }),
+      ...(input.email !== undefined && { email: input.email }),
+      ...(input.companyName !== undefined && { companyName: input.companyName }),
+      ...(input.stage !== undefined && { stage: input.stage }),
+      ...(input.priority !== undefined && { priority: input.priority }),
+      ...(input.source !== undefined && { source: input.source }),
+      ...(input.desiredArea !== undefined && { desiredArea: input.desiredArea }),
+      ...(input.budget !== undefined && { budget: input.budget }),
+      ...(input.moveInDate !== undefined && { moveInDate: input.moveInDate ? new Date(input.moveInDate) : null }),
+      ...(input.requirements !== undefined && { requirements: input.requirements }),
+      ...(input.officeId !== undefined && { officeId: input.officeId || null }),
+      ...(input.inquiryId !== undefined && { inquiryId: input.inquiryId }),
+      ...(input.tenantId !== undefined && { tenantId: input.tenantId }),
+      ...(input.contractId !== undefined && { contractId: input.contractId }),
+      ...(input.dealValue !== undefined && { dealValue: input.dealValue }),
+      ...(input.nextActionDate !== undefined && { nextActionDate: input.nextActionDate ? new Date(input.nextActionDate) : null }),
+      ...(input.nextAction !== undefined && { nextAction: input.nextAction }),
+      ...(input.lostReason !== undefined && { lostReason: input.lostReason }),
+      ...(input.adminNotes !== undefined && { adminNotes: input.adminNotes }),
+      ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),
+    },
+    include: {
+      office: { select: { id: true, number: true, floor: true, building: true, area: true, pricePerMonth: true } },
+    },
+  });
+}
+
+export async function deleteDeal(id: string) {
+  const deal = await prisma.rentalDeal.findUnique({ where: { id } });
+  if (!deal) throw new RentalError("DEAL_NOT_FOUND", "Сделка не найдена");
+  return prisma.rentalDeal.delete({ where: { id } });
+}
+
+export async function reorderDeals(updates: ReorderDealInput[]) {
+  const txOps = updates.map((u) =>
+    prisma.rentalDeal.update({
+      where: { id: u.dealId },
+      data: { stage: u.newStage, sortOrder: u.sortOrder },
+    })
+  );
+  return prisma.$transaction(txOps);
 }
