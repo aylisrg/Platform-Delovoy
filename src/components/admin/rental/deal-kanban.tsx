@@ -38,6 +38,7 @@ type OfficeOption = {
 type Props = {
   initialDeals: DealCardData[];
   offices: OfficeOption[];
+  now: number;
 };
 
 type StageConfig = {
@@ -58,7 +59,7 @@ const STAGES: StageConfig[] = [
   { id: "LOST", label: "Проиграно", color: "bg-red-500", bgColor: "bg-red-50/30" },
 ];
 
-export function DealKanban({ initialDeals, offices }: Props) {
+export function DealKanban({ initialDeals, offices, now }: Props) {
   const router = useRouter();
   const [deals, setDeals] = useState<DealCardData[]>(initialDeals);
   const [activeDeal, setActiveDeal] = useState<DealCardData | null>(null);
@@ -241,6 +242,7 @@ export function DealKanban({ initialDeals, offices }: Props) {
               key={stage.id}
               stage={stage}
               deals={dealsByStage[stage.id]}
+              now={now}
               onAddDeal={() => openCreate(stage.id)}
               onEditDeal={openEdit}
             />
@@ -248,7 +250,7 @@ export function DealKanban({ initialDeals, offices }: Props) {
         </div>
 
         <DragOverlay>
-          {activeDeal ? <DealCardOverlay deal={activeDeal} /> : null}
+          {activeDeal ? <DealCardOverlay deal={activeDeal} now={now} /> : null}
         </DragOverlay>
       </DndContext>
 
@@ -268,11 +270,13 @@ export function DealKanban({ initialDeals, offices }: Props) {
 function KanbanColumn({
   stage,
   deals,
+  now,
   onAddDeal,
   onEditDeal,
 }: {
   stage: StageConfig;
   deals: DealCardData[];
+  now: number;
   onAddDeal: () => void;
   onEditDeal: (deal: DealCardData) => void;
 }) {
@@ -317,7 +321,7 @@ function KanbanColumn({
         >
           <div className="space-y-2">
             {deals.map((deal) => (
-              <DealCard key={deal.id} deal={deal} onEdit={onEditDeal} />
+              <DealCard key={deal.id} deal={deal} now={now} onEdit={onEditDeal} />
             ))}
           </div>
         </SortableContext>

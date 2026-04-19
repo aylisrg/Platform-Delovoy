@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
@@ -58,11 +59,12 @@ const sourceLabels: Record<DealSource, string> = {
 
 type Props = {
   deal: DealCardData;
+  now: number;
   onEdit: (deal: DealCardData) => void;
   overlay?: boolean;
 };
 
-export function DealCard({ deal, onEdit, overlay }: Props) {
+export function DealCard({ deal, now, onEdit, overlay }: Props) {
   const {
     attributes,
     listeners,
@@ -82,12 +84,15 @@ export function DealCard({ deal, onEdit, overlay }: Props) {
   };
 
   const prio = priorityConfig[deal.priority];
-  const isOverdue =
-    deal.nextActionDate && new Date(deal.nextActionDate) < new Date();
 
-  const daysAgo = Math.floor(
-    (Date.now() - new Date(deal.createdAt).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  const { isOverdue, daysAgo } = useMemo(() => ({
+    isOverdue: deal.nextActionDate
+      ? new Date(deal.nextActionDate).getTime() < now
+      : false,
+    daysAgo: Math.floor(
+      (now - new Date(deal.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+    ),
+  }), [deal.nextActionDate, deal.createdAt, now]);
 
   return (
     <div
@@ -183,6 +188,6 @@ export function DealCard({ deal, onEdit, overlay }: Props) {
   );
 }
 
-export function DealCardOverlay({ deal }: { deal: DealCardData }) {
-  return <DealCard deal={deal} onEdit={() => {}} overlay />;
+export function DealCardOverlay({ deal, now }: { deal: DealCardData; now: number }) {
+  return <DealCard deal={deal} now={now} onEdit={() => {}} overlay />;
 }

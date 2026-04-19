@@ -401,6 +401,7 @@ export default async function RentalManagerPage() {
 
             pipeline: (
               <DealKanban
+                now={now.getTime()}
                 initialDeals={deals.map((d) => ({
                   ...d,
                   dealValue: d.dealValue ? Number(d.dealValue) : null,
