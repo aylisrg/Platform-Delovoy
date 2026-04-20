@@ -21,7 +21,7 @@ export default function AuthRedirectPage() {
       callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : null;
 
     const role = session.user.role;
-    if (role === "SUPERADMIN" || role === "MANAGER") {
+    if (role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER") {
       window.location.href = safeCallbackUrl ?? "/admin/dashboard";
     } else {
       window.location.href = safeCallbackUrl ?? "/";

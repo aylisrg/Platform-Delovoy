@@ -3,6 +3,7 @@ import { MobileTopBar } from "@/components/admin/mobile-top-bar";
 import { VersionFooter } from "@/components/admin/version-footer";
 import { FeedbackButton } from "@/components/public/feedback-button";
 import { AdminHelperWrapper } from "@/components/admin/admin-helper-wrapper";
+import { AdminThemeProvider } from "@/components/admin/theme-provider";
 
 export default function AdminLayout({
   children,
@@ -10,7 +11,7 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-[100dvh] lg:h-screen">
+    <AdminThemeProvider>
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <MobileTopBar />
@@ -21,6 +22,6 @@ export default function AdminLayout({
       </div>
       <FeedbackButton />
       <AdminHelperWrapper />
-    </div>
+    </AdminThemeProvider>
   );
 }

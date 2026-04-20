@@ -26,3 +26,143 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* =======================================================
+ * Admin Dark Theme
+ * Scoped overrides — applied only when .admin-dark wraps
+ * the admin panel. Public pages remain unaffected.
+ * ======================================================= */
+
+.admin-dark {
+  color-scheme: dark;
+  color: #e4e4e7;
+}
+
+/* Surfaces */
+.admin-dark .bg-white { background-color: #18181b !important; }
+.admin-dark .bg-zinc-50 { background-color: #0c0c0e !important; }
+.admin-dark .bg-zinc-100 { background-color: #27272a !important; }
+.admin-dark .bg-zinc-200 { background-color: #3f3f46 !important; }
+.admin-dark .bg-zinc-900 { background-color: #fafafa !important; }
+.admin-dark .bg-zinc-800 { background-color: #e4e4e7 !important; }
+
+/* Semi-transparent surfaces */
+.admin-dark .bg-zinc-50\/50 { background-color: rgb(12 12 14 / 0.5) !important; }
+.admin-dark .bg-zinc-50\/60 { background-color: rgb(12 12 14 / 0.6) !important; }
+.admin-dark .bg-zinc-50\/80 { background-color: rgb(12 12 14 / 0.8) !important; }
+.admin-dark .hover\:bg-zinc-50\/50:hover { background-color: rgb(39 39 42 / 0.5) !important; }
+
+/* Text */
+.admin-dark .text-zinc-900 { color: #fafafa !important; }
+.admin-dark .text-zinc-800 { color: #f4f4f5 !important; }
+.admin-dark .text-zinc-700 { color: #e4e4e7 !important; }
+.admin-dark .text-zinc-600 { color: #d4d4d8 !important; }
+.admin-dark .text-zinc-500 { color: #a1a1aa !important; }
+.admin-dark .text-zinc-400 { color: #71717a !important; }
+.admin-dark .text-zinc-300 { color: #52525b !important; }
+.admin-dark .text-zinc-200 { color: #3f3f46 !important; }
+.admin-dark .text-black { color: #fafafa !important; }
+
+/* Placeholders */
+.admin-dark .placeholder-zinc-400::placeholder { color: #52525b !important; }
+.admin-dark .placeholder-zinc-500::placeholder { color: #71717a !important; }
+.admin-dark input::placeholder,
+.admin-dark textarea::placeholder { color: #52525b; }
+
+/* Borders */
+.admin-dark .border-zinc-50 { border-color: #18181b !important; }
+.admin-dark .border-zinc-100 { border-color: #1f1f22 !important; }
+.admin-dark .border-zinc-200 { border-color: #27272a !important; }
+.admin-dark .border-zinc-300 { border-color: #3f3f46 !important; }
+.admin-dark .border-zinc-400 { border-color: #52525b !important; }
+
+/* Dividers */
+.admin-dark .divide-zinc-50 > :not([hidden]) ~ :not([hidden]) { border-color: #18181b !important; }
+.admin-dark .divide-zinc-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1f1f22 !important; }
+.admin-dark .divide-zinc-200 > :not([hidden]) ~ :not([hidden]) { border-color: #27272a !important; }
+
+/* Hover states */
+.admin-dark .hover\:bg-zinc-50:hover { background-color: #27272a !important; }
+.admin-dark .hover\:bg-zinc-100:hover { background-color: #3f3f46 !important; }
+.admin-dark .hover\:bg-zinc-200:hover { background-color: #52525b !important; }
+.admin-dark .hover\:bg-white:hover { background-color: #27272a !important; }
+.admin-dark .hover\:text-zinc-600:hover { color: #d4d4d8 !important; }
+.admin-dark .hover\:text-zinc-700:hover { color: #e4e4e7 !important; }
+.admin-dark .hover\:text-zinc-900:hover { color: #fafafa !important; }
+.admin-dark .hover\:border-zinc-300:hover { border-color: #52525b !important; }
+
+/* Inputs */
+.admin-dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+.admin-dark select,
+.admin-dark textarea {
+  background-color: #18181b;
+  color: #fafafa;
+  border-color: #3f3f46;
+}
+
+.admin-dark input:focus,
+.admin-dark select:focus,
+.admin-dark textarea:focus {
+  border-color: #3b82f6;
+}
+
+/* Accent tints — keep hue, darken background */
+.admin-dark .bg-blue-50 { background-color: rgb(30 58 138 / 0.3) !important; }
+.admin-dark .bg-blue-100 { background-color: rgb(30 58 138 / 0.5) !important; }
+.admin-dark .hover\:bg-blue-50:hover { background-color: rgb(30 58 138 / 0.4) !important; }
+.admin-dark .hover\:bg-blue-100:hover { background-color: rgb(30 58 138 / 0.6) !important; }
+.admin-dark .border-blue-200 { border-color: rgb(37 99 235 / 0.4) !important; }
+.admin-dark .border-blue-400 { border-color: #60a5fa !important; }
+.admin-dark .text-blue-600 { color: #60a5fa !important; }
+.admin-dark .text-blue-700 { color: #93c5fd !important; }
+
+.admin-dark .bg-red-50 { background-color: rgb(127 29 29 / 0.3) !important; }
+.admin-dark .hover\:bg-red-50:hover { background-color: rgb(127 29 29 / 0.4) !important; }
+.admin-dark .border-red-200 { border-color: rgb(220 38 38 / 0.4) !important; }
+.admin-dark .border-red-300 { border-color: rgb(220 38 38 / 0.5) !important; }
+.admin-dark .border-red-400 { border-color: #f87171 !important; }
+.admin-dark .text-red-500 { color: #f87171 !important; }
+.admin-dark .text-red-600 { color: #f87171 !important; }
+.admin-dark .text-red-700 { color: #fca5a5 !important; }
+.admin-dark .hover\:text-red-500:hover { color: #fca5a5 !important; }
+.admin-dark .hover\:text-red-600:hover { color: #fca5a5 !important; }
+
+.admin-dark .bg-green-50 { background-color: rgb(20 83 45 / 0.3) !important; }
+.admin-dark .border-green-200 { border-color: rgb(22 163 74 / 0.4) !important; }
+.admin-dark .text-green-700 { color: #86efac !important; }
+.admin-dark .text-green-800 { color: #bbf7d0 !important; }
+
+.admin-dark .bg-amber-50 { background-color: rgb(120 53 15 / 0.3) !important; }
+.admin-dark .border-amber-200 { border-color: rgb(217 119 6 / 0.4) !important; }
+.admin-dark .text-amber-600 { color: #fbbf24 !important; }
+.admin-dark .text-amber-700 { color: #fcd34d !important; }
+
+.admin-dark .bg-orange-50 { background-color: rgb(124 45 18 / 0.3) !important; }
+.admin-dark .hover\:bg-orange-50:hover { background-color: rgb(124 45 18 / 0.4) !important; }
+.admin-dark .border-orange-200 { border-color: rgb(234 88 12 / 0.4) !important; }
+.admin-dark .text-orange-700 { color: #fdba74 !important; }
+
+.admin-dark .bg-purple-50 { background-color: rgb(76 29 149 / 0.3) !important; }
+.admin-dark .text-purple-700 { color: #c4b5fd !important; }
+
+.admin-dark .bg-rose-50 { background-color: rgb(136 19 55 / 0.3) !important; }
+.admin-dark .text-rose-600 { color: #fb7185 !important; }
+.admin-dark .text-rose-700 { color: #fda4af !important; }
+.admin-dark .border-rose-200 { border-color: rgb(225 29 72 / 0.4) !important; }
+
+.admin-dark .bg-sky-100 { background-color: rgb(3 105 161 / 0.4) !important; }
+.admin-dark .text-sky-700 { color: #7dd3fc !important; }
+.admin-dark .bg-yellow-100 { background-color: rgb(161 98 7 / 0.4) !important; }
+.admin-dark .text-yellow-700 { color: #fde047 !important; }
+.admin-dark .bg-green-100 { background-color: rgb(22 101 52 / 0.4) !important; }
+
+/* Shadows */
+.admin-dark .shadow-sm { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4) !important; }
+.admin-dark .shadow { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5) !important; }
+.admin-dark .shadow-md { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5) !important; }
+.admin-dark .shadow-lg { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.6), 0 4px 6px -4px rgb(0 0 0 / 0.6) !important; }
+.admin-dark .shadow-xl { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.7), 0 8px 10px -6px rgb(0 0 0 / 0.7) !important; }
+.admin-dark .shadow-2xl { box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.8) !important; }
+
+/* Backdrop — make sure modals & overlays stay dark */
+.admin-dark .bg-black\/50 { background-color: rgb(0 0 0 / 0.75) !important; }

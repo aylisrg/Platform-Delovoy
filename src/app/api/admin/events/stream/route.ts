@@ -16,7 +16,7 @@ export async function GET() {
   }
 
   const { role } = session.user;
-  if (role !== "SUPERADMIN" && role !== "MANAGER") {
+  if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") {
     return new Response("Forbidden", { status: 403 });
   }
 

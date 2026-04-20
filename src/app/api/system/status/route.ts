@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await auth();
   if (!session?.user) return apiUnauthorized();
-  if (session.user.role !== "SUPERADMIN" && session.user.role !== "MANAGER") {
+  if (
+    session.user.role !== "SUPERADMIN" &&
+    session.user.role !== "ADMIN" &&
+    session.user.role !== "MANAGER"
+  ) {
     return apiForbidden();
   }
 

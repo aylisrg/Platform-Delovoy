@@ -73,7 +73,7 @@ export async function listUsers(options?: {
   }
 
   if (role === "team") {
-    conditions.push({ role: { in: ["SUPERADMIN", "MANAGER"] } });
+    conditions.push({ role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } });
   }
 
   const where = conditions.length > 0 ? { AND: conditions } : undefined;

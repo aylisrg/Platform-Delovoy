@@ -178,7 +178,7 @@ describe("listUsers", () => {
     });
   });
 
-  it("filters team (SUPERADMIN + MANAGER) when role=team", async () => {
+  it("filters team (SUPERADMIN + ADMIN + MANAGER) when role=team", async () => {
     vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.user.count).mockResolvedValue(0);
 
@@ -186,7 +186,7 @@ describe("listUsers", () => {
 
     const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
     expect(callArgs?.where).toEqual({
-      AND: [{ role: { in: ["SUPERADMIN", "MANAGER"] } }],
+      AND: [{ role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } }],
     });
   });
 

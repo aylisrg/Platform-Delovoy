@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const requestedUserId = request.nextUrl.searchParams.get("userId");
     if (
       requestedUserId &&
-      (session.user.role === "SUPERADMIN" || session.user.role === "MANAGER")
+      (session.user.role === "SUPERADMIN" || session.user.role === "ADMIN" || session.user.role === "MANAGER")
     ) {
       userId = requestedUserId;
     }

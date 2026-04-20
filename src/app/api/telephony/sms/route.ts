@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) return apiUnauthorized();
 
     const role = session.user.role;
-    if (role !== "SUPERADMIN" && role !== "MANAGER") {
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") {
       return apiError("FORBIDDEN", "Недостаточно прав", 403);
     }
 
