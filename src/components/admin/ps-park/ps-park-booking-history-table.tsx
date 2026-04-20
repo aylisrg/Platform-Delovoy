@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 
 const statusLabel: Record<string, string> = {
@@ -33,6 +34,9 @@ type Booking = {
 };
 
 export function PSParkBookingHistoryTable() {
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "SUPERADMIN";
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -40,6 +44,8 @@ export function PSParkBookingHistoryTable() {
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const perPage = 20;
 
   useEffect(() => {
@@ -73,6 +79,20 @@ export function PSParkBookingHistoryTable() {
       // keep old data
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deletingId) return;
+    try {
+      const res = await fetch(`/api/ps-park/bookings/${deletingId}`, { method: "DELETE" });
+      if (res.ok) {
+        setBookings(bookings.filter((b) => b.id !== deletingId));
+        setShowDeleteConfirm(false);
+        setDeletingId(null);
+      }
+    } catch {
+      alert("Ошибка при удалении брони");
     }
   }
 
@@ -120,6 +140,7 @@ export function PSParkBookingHistoryTable() {
                 <th className="pb-3 font-medium">Клиент</th>
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
+                {isSuperAdmin && <th className="pb-3 font-medium text-right">Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -135,6 +156,17 @@ export function PSParkBookingHistoryTable() {
                       {statusLabel[b.status] ?? b.status}
                     </Badge>
                   </td>
+                  {isSuperAdmin && (
+                    <td className="py-3 text-right">
+                      <button
+                        onClick={() => { setDeletingId(b.id); setShowDeleteConfirm(true); }}
+                        className="text-red-500 hover:text-red-700 transition-colors"
+                        title="Удалить бронь"
+                      >
+                        🗑️
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -150,6 +182,32 @@ export function PSParkBookingHistoryTable() {
             </div>
           )}
         </>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm">
+            <h2 className="text-lg font-semibold text-zinc-900 mb-2">Удалить бронь?</h2>
+            <p className="text-sm text-zinc-600 mb-6">
+              Это действие удалит запись о бронировании. Данные сохранятся в системе (soft delete).
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 rounded-lg px-4 py-2 text-sm font-medium border border-zinc-300 hover:bg-zinc-50 transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDelete}
+                className="flex-1 rounded-lg px-4 py-2 text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
