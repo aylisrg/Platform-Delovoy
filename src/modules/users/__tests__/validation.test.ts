@@ -13,7 +13,7 @@ describe("createUserSchema", () => {
   });
 
   it("accepts all roles", () => {
-    for (const role of ["SUPERADMIN", "MANAGER", "USER"]) {
+    for (const role of ["SUPERADMIN", "ADMIN", "MANAGER", "USER"]) {
       const result = createUserSchema.safeParse({
         email: "test@example.com",
         password: "password123",
@@ -70,7 +70,7 @@ describe("createUserSchema", () => {
       email: "test@example.com",
       password: "password123",
       name: "Test",
-      role: "ADMIN",
+      role: "GUEST",
     });
     expect(result.success).toBe(false);
   });

@@ -4,7 +4,7 @@ export const createUserSchema = z.object({
   email: z.string().email("Некорректный email"),
   password: z.string().min(6, "Пароль должен быть не менее 6 символов"),
   name: z.string().min(1, "Имя обязательно"),
-  role: z.enum(["SUPERADMIN", "MANAGER", "USER"]),
+  role: z.enum(["SUPERADMIN", "ADMIN", "MANAGER", "USER"]),
   phone: z.string().optional(),
 });
 
@@ -17,7 +17,7 @@ export const resetPasswordSchema = z.object({
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export const updateUserSchema = z.object({
-  role: z.enum(["SUPERADMIN", "MANAGER", "USER"]).optional(),
+  role: z.enum(["SUPERADMIN", "ADMIN", "MANAGER", "USER"]).optional(),
   name: z.string().min(1, "Имя не может быть пустым").optional(),
   phone: z.string().optional(),
   telegramId: z.string().nullable().optional(),
