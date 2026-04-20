@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "./notification-bell";
 import type { ReactNode } from "react";
 
@@ -16,7 +16,16 @@ export function AdminHeader({ title, actions }: { title: string; actions?: React
         <span className="hidden lg:inline-flex">
           <NotificationBell />
         </span>
-        <span className="hidden lg:inline text-sm text-zinc-500">{userName}</span>
+        <div className="hidden lg:flex items-center gap-3 pl-3 border-l border-zinc-200">
+          <span className="text-sm text-zinc-500">{userName}</span>
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="text-sm text-red-500 hover:text-red-600 transition-colors font-medium"
+            title="Выйти из системы"
+          >
+            Выйти
+          </button>
+        </div>
       </div>
     </header>
   );
