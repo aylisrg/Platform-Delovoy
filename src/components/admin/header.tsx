@@ -2,6 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "./notification-bell";
+import { ThemeToggle } from "./theme-toggle";
 import type { ReactNode } from "react";
 
 export function AdminHeader({ title, actions }: { title: string; actions?: ReactNode }) {
@@ -13,6 +14,9 @@ export function AdminHeader({ title, actions }: { title: string; actions?: React
       <h1 className="truncate text-lg lg:text-xl font-semibold text-zinc-900">{title}</h1>
       <div className="flex items-center gap-2 lg:gap-4">
         {actions}
+        <span className="hidden lg:inline-flex">
+          <ThemeToggle />
+        </span>
         <span className="hidden lg:inline-flex">
           <NotificationBell />
         </span>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { MobileNav } from "./mobile-nav";
 import { NotificationBell } from "./notification-bell";
+import { ThemeToggle } from "./theme-toggle";
 
 /**
  * Top bar visible only on < lg screens (mobile + tablet).
@@ -38,7 +39,8 @@ export function MobileTopBar() {
           Деловой Парк
         </Link>
 
-        <div className="flex items-center">
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
           <NotificationBell />
         </div>
       </header>
