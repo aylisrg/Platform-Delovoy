@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) return apiUnauthorized();
     if (
       session.user.role !== "SUPERADMIN" &&
+      session.user.role !== "ADMIN" &&
       session.user.role !== "MANAGER"
     ) {
       return apiForbidden();

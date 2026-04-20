@@ -13,7 +13,7 @@ export async function GET() {
     if (!session?.user?.id) return apiUnauthorized();
 
     const { role } = session.user;
-    if (role !== "SUPERADMIN" && role !== "MANAGER") {
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") {
       return apiUnauthorized();
     }
 

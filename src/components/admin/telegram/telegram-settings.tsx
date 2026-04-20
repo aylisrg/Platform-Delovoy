@@ -16,7 +16,7 @@ type TelegramUser = {
   email: string | null;
   phone: string | null;
   telegramId: string | null;
-  role: "USER" | "MANAGER" | "SUPERADMIN";
+  role: "USER" | "MANAGER" | "ADMIN" | "SUPERADMIN";
   image: string | null;
   createdAt: string;
   _count: { bookings: number };
@@ -28,7 +28,7 @@ type AllUser = {
   email: string | null;
   phone: string | null;
   telegramId: string | null;
-  role: "USER" | "MANAGER" | "SUPERADMIN";
+  role: "USER" | "MANAGER" | "ADMIN" | "SUPERADMIN";
 };
 
 // === Message Route Types ===
@@ -196,7 +196,7 @@ export function TelegramSettings() {
       const res = await fetch("/api/users?search=");
       const data = await res.json();
       if (data.success) {
-        setManagers(data.data.filter((u: AllUser) => u.role === "MANAGER" || u.role === "SUPERADMIN"));
+        setManagers(data.data.filter((u: AllUser) => u.role === "MANAGER" || u.role === "ADMIN" || u.role === "SUPERADMIN"));
       }
     } catch { /* ignore */ }
   }, []);
@@ -589,9 +589,11 @@ export function TelegramSettings() {
                       <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-medium ${
                         user.role === "SUPERADMIN"
                           ? "bg-purple-50 text-purple-700"
+                          : user.role === "ADMIN"
+                          ? "bg-rose-50 text-rose-700"
                           : "bg-blue-50 text-blue-700"
                       }`}>
-                        {user.role === "SUPERADMIN" ? "Суперадмин" : "Менеджер"}
+                        {user.role === "SUPERADMIN" ? "Суперадмин" : user.role === "ADMIN" ? "Администратор" : "Менеджер"}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-zinc-500">{user.email || user.phone || "—"}</td>
@@ -709,6 +711,8 @@ export function TelegramSettings() {
                         className={`rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
                           user.role === "SUPERADMIN"
                             ? "border-purple-200 bg-purple-50 text-purple-700"
+                            : user.role === "ADMIN"
+                            ? "border-rose-200 bg-rose-50 text-rose-700"
                             : user.role === "MANAGER"
                             ? "border-blue-200 bg-blue-50 text-blue-700"
                             : "border-zinc-200 bg-zinc-50 text-zinc-600"
@@ -716,6 +720,7 @@ export function TelegramSettings() {
                       >
                         <option value="USER">Пользователь</option>
                         <option value="MANAGER">Менеджер</option>
+                        <option value="ADMIN">Администратор</option>
                         <option value="SUPERADMIN">Суперадмин</option>
                       </select>
                     </td>

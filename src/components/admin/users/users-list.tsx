@@ -190,6 +190,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
   const stats = {
     total: users.length,
     superadmins: users.filter((u) => u.role === "SUPERADMIN").length,
+    admins: users.filter((u) => u.role === "ADMIN").length,
     managers: users.filter((u) => u.role === "MANAGER").length,
     regular: users.filter((u) => u.role === "USER").length,
   };
@@ -197,9 +198,10 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
   return (
     <div className="space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <StatCard label="Всего" value={stats.total} />
         <StatCard label="Суперадмины" value={stats.superadmins} color="text-red-600" />
+        <StatCard label="Администраторы" value={stats.admins} color="text-rose-600" />
         <StatCard label="Менеджеры" value={stats.managers} color="text-amber-600" />
         <StatCard label="Пользователи" value={stats.regular} color="text-zinc-600" />
       </div>
@@ -319,6 +321,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                           >
                             <option value="USER">Пользователь</option>
                             <option value="MANAGER">Менеджер</option>
+                            <option value="ADMIN">Администратор</option>
                             <option value="SUPERADMIN">Суперадмин</option>
                           </select>
                           <button
@@ -362,7 +365,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                     {/* Actions */}
                     <td className="px-6 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {(user.role === "SUPERADMIN" || user.role === "MANAGER") && (
+                        {(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER") && (
                           <ReleaseNotifyToggle
                             enabled={user.notificationPreference?.notifyReleases ?? false}
                             loading={togglingRelease === user.id}

@@ -94,7 +94,7 @@ export default function ProfilePage() {
             <div className="flex-1">
               <p className="text-[13px]" style={{ color: "var(--tg-hint)" }}>Роль</p>
               <p className="text-[15px] font-medium">
-                {user.role === "SUPERADMIN" ? "Администратор" : user.role === "MANAGER" ? "Менеджер" : "Клиент"}
+                {user.role === "SUPERADMIN" ? "Суперадмин" : user.role === "ADMIN" ? "Администратор" : user.role === "MANAGER" ? "Менеджер" : "Клиент"}
               </p>
             </div>
           </div>

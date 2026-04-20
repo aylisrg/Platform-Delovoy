@@ -9,7 +9,7 @@ type Tab = "all" | "team" | "clients";
 
 const TABS: { id: Tab; label: string; description: string }[] = [
   { id: "all", label: "Все", description: "Все пользователи системы" },
-  { id: "team", label: "Команда", description: "Суперадмины и менеджеры" },
+  { id: "team", label: "Команда", description: "Суперадмины, администраторы и менеджеры" },
   { id: "clients", label: "Клиенты", description: "Клиенты с бронированиями и заказами" },
 ];
 

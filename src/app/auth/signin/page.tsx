@@ -79,7 +79,7 @@ function SignInInner() {
     const sessionRes = await fetch("/api/auth/session");
     const session = await sessionRes.json();
     const role = session?.user?.role;
-    if (role === "SUPERADMIN" || role === "MANAGER") {
+    if (role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER") {
       window.location.href = "/admin/dashboard";
     } else {
       window.location.href = "/";
