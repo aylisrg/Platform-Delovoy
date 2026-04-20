@@ -112,3 +112,38 @@ export async function PATCH(
     return apiServerError();
   }
 }
+
+/**
+ * DELETE /api/gazebos/bookings/:id — delete booking (soft delete)
+ * Only SUPERADMIN can delete bookings
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return apiUnauthorized();
+
+    // Only SUPERADMIN can delete bookings
+    if (session.user.role !== "SUPERADMIN") {
+      return apiError("FORBIDDEN", "Только суперадмин может удалять брони", 403);
+    }
+
+    const { id } = await params;
+    const booking = await getBooking(id);
+    if (!booking) return apiNotFound("Бронирование не найдено");
+
+    // Soft delete
+    const { prisma } = await import("@/lib/db");
+    await prisma.booking.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    await logAudit(session.user.id, "booking.delete", "Booking", id);
+    return apiResponse(null);
+  } catch {
+    return apiServerError();
+  }
+}
