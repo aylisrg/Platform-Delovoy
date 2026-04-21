@@ -34,7 +34,6 @@ export async function GET() {
 
     const availableChannels = [];
     if (user?.telegramId) availableChannels.push("TELEGRAM");
-    if (user?.phone) availableChannels.push("WHATSAPP");
     if (user?.email) availableChannels.push("EMAIL");
     // VK removed from available channels
 

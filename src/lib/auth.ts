@@ -309,24 +309,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
-    // WhatsApp OTP (verified via /api/auth/whatsapp/verify, then signed in here)
-    Credentials({
-      id: "whatsapp",
-      name: "WhatsApp",
-      credentials: {
-        userId: { type: "text" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.userId) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { id: credentials.userId as string },
-        });
-
-        return user;
-      },
-    }),
-
     // Magic Link Email (token verified via GET /api/auth/verify-email, then signed in here)
     Credentials({
       id: "magic-link",

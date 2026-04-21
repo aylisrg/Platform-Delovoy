@@ -5,8 +5,7 @@ import {
   detachChannel,
   requestEmailAttach,
   confirmEmailAttach,
-  requestPhoneAttach,
-  confirmPhoneAttach,
+  attachPhone,
 } from "../service";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -38,11 +37,6 @@ vi.mock("@/lib/redis", () => {
     },
   };
 });
-
-vi.mock("@/lib/green-api", () => ({
-  isGreenApiConfigured: vi.fn(() => true),
-  sendWhatsAppMessage: vi.fn(async () => ({ success: true })),
-}));
 
 vi.mock("@/modules/notifications/channels/email", () => ({
   sendTransactionalEmail: vi.fn(async () => ({ success: true })),
@@ -234,21 +228,35 @@ describe("confirmEmailAttach – race condition", () => {
   });
 });
 
-// ── requestPhoneAttach ────────────────────────────────────────────────────────
+// ── attachPhone ───────────────────────────────────────────────────────────────
 
-describe("requestPhoneAttach", () => {
+describe("attachPhone", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("sends OTP for new phone", async () => {
+  it("directly attaches a new phone number", async () => {
     vi.mocked(prisma.user.findUnique)
       .mockResolvedValueOnce({ phone: null } as never)
       .mockResolvedValueOnce(null);
-    vi.mocked(redis.get).mockResolvedValue(null); // no cooldown
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
 
-    const result = await requestPhoneAttach("user-1", { phone: "+79001234567" });
+    const result = await attachPhone("user-1", { phone: "79001234567" });
 
-    expect(result.sent).toBe(true);
-    expect(result.phone).toContain("***");
+    expect(result.phone).toBe("+79001234567");
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { phone: "+79001234567" },
+    });
+  });
+
+  it("normalizes 8-prefixed Russian numbers", async () => {
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce({ phone: null } as never)
+      .mockResolvedValueOnce(null);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    const result = await attachPhone("user-1", { phone: "89001234567" });
+
+    expect(result.phone).toBe("+79001234567");
   });
 
   it("throws PHONE_ALREADY_ATTACHED if same phone", async () => {
@@ -257,74 +265,24 @@ describe("requestPhoneAttach", () => {
     );
 
     await expect(
-      requestPhoneAttach("user-1", { phone: "79001234567" })
+      attachPhone("user-1", { phone: "79001234567" })
     ).rejects.toMatchObject({ code: "PHONE_ALREADY_ATTACHED" });
   });
 
-  it("throws PHONE_IN_USE if owned by another", async () => {
+  it("throws PHONE_IN_USE if owned by another user", async () => {
     vi.mocked(prisma.user.findUnique)
       .mockResolvedValueOnce({ phone: null } as never)
       .mockResolvedValueOnce({ id: "other" } as never);
-    vi.mocked(redis.get).mockResolvedValue(null);
 
     await expect(
-      requestPhoneAttach("user-1", { phone: "79001234567" })
+      attachPhone("user-1", { phone: "79001234567" })
     ).rejects.toMatchObject({ code: "PHONE_IN_USE" });
   });
 
-  it("cleans up OTP on SEND_FAILED", async () => {
-    const { sendWhatsAppMessage } = await import("@/lib/green-api");
-    vi.mocked(sendWhatsAppMessage).mockResolvedValueOnce({ success: false } as never);
-
-    vi.mocked(prisma.user.findUnique)
-      .mockResolvedValueOnce({ phone: null } as never)
-      .mockResolvedValueOnce(null);
-    vi.mocked(redis.get).mockResolvedValue(null);
-
+  it("throws VALIDATION_ERROR for invalid phone", async () => {
     await expect(
-      requestPhoneAttach("user-1", { phone: "79001234567" })
-    ).rejects.toMatchObject({ code: "SEND_FAILED" });
-
-    // Verify OTP was cleaned up
-    expect(redis.del).toHaveBeenCalledWith(
-      expect.stringContaining("profile:phone-otp:")
-    );
-  });
-});
-
-// ── confirmPhoneAttach ────────────────────────────────────────────────────────
-
-describe("confirmPhoneAttach", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("attaches phone on valid OTP", async () => {
-    vi.mocked(redis.get).mockResolvedValue("79001234567:123456:0" as never);
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
-
-    const result = await confirmPhoneAttach("user-1", {
-      phone: "79001234567",
-      code: "123456",
-    });
-
-    expect(result.phone).toBe("+79001234567");
-  });
-
-  it("throws CODE_EXPIRED when no Redis entry", async () => {
-    vi.mocked(redis.get).mockResolvedValue(null);
-
-    await expect(
-      confirmPhoneAttach("user-1", { phone: "79001234567", code: "111111" })
-    ).rejects.toMatchObject({ code: "CODE_EXPIRED" });
-  });
-
-  it("throws INVALID_CODE on wrong code", async () => {
-    vi.mocked(redis.get).mockResolvedValue("79001234567:123456:0" as never);
-    vi.mocked(redis.set).mockResolvedValue("OK" as never);
-
-    await expect(
-      confirmPhoneAttach("user-1", { phone: "79001234567", code: "999999" })
-    ).rejects.toMatchObject({ code: "INVALID_CODE" });
+      attachPhone("user-1", { phone: "123" })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });
 

@@ -23,7 +23,7 @@ describe("updatePreferenceSchema", () => {
   });
 
   it("accepts all valid channels", () => {
-    for (const ch of ["AUTO", "TELEGRAM", "WHATSAPP", "EMAIL", "VK"]) {
+    for (const ch of ["AUTO", "TELEGRAM", "EMAIL", "VK"]) {
       const result = updatePreferenceSchema.safeParse({ preferredChannel: ch });
       expect(result.success, `${ch} should be valid`).toBe(true);
     }
