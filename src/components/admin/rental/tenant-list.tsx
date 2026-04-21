@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { TenantEditModal } from "./tenant-edit-modal";
+import { SendEmailModal } from "./send-email-modal";
 import { PhoneActions } from "@/components/admin/telephony/phone-actions";
 import type { TenantType, ContractStatus, OfficeType } from "@prisma/client";
 
@@ -93,6 +94,7 @@ export function TenantList({ tenants }: { tenants: Tenant[] }) {
   const [typeFilter, setTypeFilter] = useState<TenantType | "">("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState<Tenant | null>(null);
+  const [emailing, setEmailing] = useState<Tenant | null>(null);
 
   const filtered = useMemo(() => {
     let result = tenants;
@@ -218,12 +220,22 @@ export function TenantList({ tenants }: { tenants: Tenant[] }) {
                         <span className="text-zinc-500 font-mono text-xs self-center">ИНН {t.inn}</span>
                       )}
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setEditing(t); }}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors shrink-0 ml-3"
-                    >
-                      Редактировать
-                    </button>
+                    <div className="flex gap-1 shrink-0 ml-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEmailing(t); }}
+                        disabled={!(t.email || (t.emailsExtra && t.emailsExtra.length > 0))}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={t.email || t.emailsExtra?.length ? "Написать письмо" : "Нет email у арендатора"}
+                      >
+                        ✉ Письмо
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditing(t); }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                      >
+                        Редактировать
+                      </button>
+                    </div>
                   </div>
 
                   {/* Арендуемые помещения */}
@@ -341,6 +353,19 @@ export function TenantList({ tenants }: { tenants: Tenant[] }) {
           tenant={editing}
           open={true}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {emailing && (
+        <SendEmailModal
+          open={true}
+          onClose={() => setEmailing(null)}
+          tenantId={emailing.id}
+          tenantName={emailing.companyName}
+          availableEmails={[
+            ...(emailing.email ? [emailing.email] : []),
+            ...(Array.isArray(emailing.emailsExtra) ? emailing.emailsExtra : []),
+          ].filter((v): v is string => typeof v === "string" && v.length > 0)}
         />
       )}
     </div>

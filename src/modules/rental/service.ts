@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
 import type { ContractStatus, OfficeStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import {
+  generatePaymentsForContract,
+  regeneratePendingPayments,
+  autoResolveTasksForContract,
+} from "./payments";
 import type {
   CreateOfficeInput,
   UpdateOfficeInput,
@@ -406,6 +411,8 @@ export async function createContract(input: CreateContractInput) {
     });
   }
 
+  await generatePaymentsForContract(contract);
+
   enqueueNotification({
     type: "contract.created",
     moduleSlug: "rental",
@@ -469,11 +476,20 @@ export async function updateContract(id: string, input: UpdateContractInput) {
       where: { id: contract.officeId },
       data: { status: "AVAILABLE" },
     });
+    await autoResolveTasksForContract(id);
   } else if (input.status === "ACTIVE" || input.status === "EXPIRING") {
     await prisma.office.update({
       where: { id: contract.officeId },
       data: { status: "OCCUPIED" },
     });
+  }
+
+  const affectsSchedule =
+    input.monthlyRate !== undefined ||
+    input.endDate !== undefined ||
+    input.startDate !== undefined;
+  if (affectsSchedule && updated.status !== "TERMINATED" && updated.status !== "EXPIRED") {
+    await regeneratePendingPayments(id);
   }
 
   return updated;
@@ -509,11 +525,15 @@ export async function renewContract(id: string, input: RenewContractInput) {
     }
   }
 
-  return prisma.rentalContract.update({
+  const renewed = await prisma.rentalContract.update({
     where: { id },
     data,
     include: { tenant: true, office: true },
   });
+
+  await generatePaymentsForContract(renewed);
+
+  return renewed;
 }
 
 export async function terminateContract(id: string, reason?: string) {
@@ -538,6 +558,8 @@ export async function terminateContract(id: string, reason?: string) {
     where: { id: contract.officeId },
     data: { status: "AVAILABLE" },
   });
+
+  await autoResolveTasksForContract(id);
 
   return updated;
 }

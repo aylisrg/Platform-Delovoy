@@ -21,8 +21,8 @@ model User {
   role          Role      @default(USER)
   telegramId    String?   @unique
   vkId          String?   @unique
-  birthday      DateTime?          // Дата рождения (из Яндекс OAuth / профиля)
-  gender        String?            // "male" | "female" | null (из Яндекс OAuth)
+  birthday      DateTime? // Дата рождения (из Яндекс OAuth / профиля)
+  gender        String? // "male" | "female" | null (из Яндекс OAuth)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -110,7 +110,7 @@ model ModuleAssignment {
 model AdminPermission {
   id        String   @id @default(cuid())
   userId    String
-  section   String   // "dashboard", "gazebos", "ps-park", "cafe", "rental", "modules", "users", "monitoring", "architect"
+  section   String // "dashboard", "gazebos", "ps-park", "cafe", "rental", "modules", "users", "monitoring", "architect"
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
@@ -121,29 +121,29 @@ model AdminPermission {
 // === BOOKING (общая для беседок, PS Park) ===
 
 model Booking {
-  id              String        @id @default(cuid())
-  moduleSlug      String
-  resourceId      String
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  date            DateTime
-  startTime       DateTime
-  endTime         DateTime
-  status          BookingStatus @default(PENDING)
-  clientName      String?
-  clientPhone     String?
-  clientTelegram  String?
-  cancelReason    String?
-  googleEventId   String?
-  managerId       String?
-  cashAmount      Decimal?
-  cardAmount      Decimal?
-  metadata        Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  moduleSlug     String
+  resourceId     String
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  date           DateTime
+  startTime      DateTime
+  endTime        DateTime
+  status         BookingStatus @default(PENDING)
+  clientName     String?
+  clientPhone    String?
+  clientTelegram String?
+  cancelReason   String?
+  googleEventId  String?
+  managerId      String?
+  cashAmount     Decimal?
+  cardAmount     Decimal?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  deletedAt       DateTime?
-  callLogs        CallLog[]
+  deletedAt DateTime?
+  callLogs  CallLog[]
 
   @@index([moduleSlug, date])
   @@index([userId])
@@ -165,7 +165,7 @@ enum BookingStatus {
 model ShiftHandover {
   id           String      @id @default(cuid())
   moduleSlug   String      @default("ps-park")
-  date         String      // YYYY-MM-DD
+  date         String // YYYY-MM-DD
   openedAt     DateTime    @default(now())
   openedById   String
   openedByName String
@@ -196,7 +196,7 @@ model FinancialTransaction {
   performedById   String
   performedByName String
   description     String
-  metadata        Json?           // bill snapshot at time of payment
+  metadata        Json? // bill snapshot at time of payment
   createdAt       DateTime        @default(now())
   // No updatedAt — immutable financial audit log
 
@@ -219,18 +219,18 @@ enum ShiftStatus {
 // === BOOKABLE RESOURCES (беседки, столы PS) ===
 
 model Resource {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   moduleSlug       String
   name             String
   description      String?
   capacity         Int?
   pricePerHour     Decimal?
-  isActive         Boolean  @default(true)
+  isActive         Boolean   @default(true)
   googleCalendarId String?
   metadata         Json?
   deletedAt        DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([moduleSlug])
   @@index([deletedAt])
@@ -273,21 +273,21 @@ model OrderItem {
 }
 
 model MenuItem {
-  id                  String       @id @default(cuid())
-  moduleSlug          String       @default("cafe")
+  id                  String        @id @default(cuid())
+  moduleSlug          String        @default("cafe")
   category            String
   name                String
   description         String?
   price               Decimal
   imageUrl            String?
-  isAvailable         Boolean      @default(true)
-  sortOrder           Int          @default(0)
+  isAvailable         Boolean       @default(true)
+  sortOrder           Int           @default(0)
   inventorySkuId      String?
   inventorySku        InventorySku? @relation(fields: [inventorySkuId], references: [id])
-  autoDisabledByStock Boolean      @default(false)
+  autoDisabledByStock Boolean       @default(false)
   deletedAt           DateTime?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   @@index([moduleSlug, category])
   @@index([inventorySkuId])
@@ -384,6 +384,8 @@ model RentalContract {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
+  payments RentalPayment[]
+
   @@index([tenantId])
   @@index([officeId])
   @@index([status, endDate])
@@ -396,6 +398,138 @@ enum ContractStatus {
   EXPIRING
   EXPIRED
   TERMINATED
+}
+
+// === RENTAL PAYMENTS & EMAIL NOTIFICATIONS ===
+
+model RentalPayment {
+  id                     String         @id @default(cuid())
+  contractId             String
+  contract               RentalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  periodYear             Int
+  periodMonth            Int
+  dueDate                DateTime
+  amount                 Decimal
+  currency               String         @default("RUB")
+  paidAt                 DateTime?
+  markedPaidById         String?
+  firstReminderSentAt    DateTime?
+  dueDateReminderSentAt  DateTime?
+  escalatedAt            DateTime?
+  amountAdjustmentReason String?        @db.Text
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  @@unique([contractId, periodYear, periodMonth])
+  @@index([dueDate, paidAt])
+  @@index([contractId, paidAt])
+}
+
+enum EmailLogType {
+  MANUAL
+  PAYMENT_PRE_REMINDER
+  PAYMENT_DUE_REMINDER
+  ESCALATION_INTERNAL
+}
+
+enum EmailLogStatus {
+  SENT
+  FAILED
+}
+
+model EmailTemplate {
+  id         String   @id @default(cuid())
+  moduleSlug String   @default("rental")
+  key        String   @unique
+  name       String
+  subject    String
+  bodyHtml   String   @db.Text
+  bodyText   String?  @db.Text
+  variables  Json
+  isActive   Boolean  @default(true)
+  isSystem   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([moduleSlug])
+}
+
+model EmailLog {
+  id          String         @id @default(cuid())
+  moduleSlug  String         @default("rental")
+  type        EmailLogType
+  templateKey String?
+  to          String[]
+  subject     String
+  bodyHtml    String?        @db.Text
+  tenantId    String?
+  contractId  String?
+  paymentId   String?
+  periodYear  Int?
+  periodMonth Int?
+  sentById    String?
+  status      EmailLogStatus
+  error       String?        @db.Text
+  sentAt      DateTime       @default(now())
+
+  @@index([tenantId, sentAt])
+  @@index([contractId, sentAt])
+  @@index([status, sentAt])
+  @@index([type, sentAt])
+}
+
+model RentalNotificationSettings {
+  id                        String   @id @default("singleton")
+  preReminderDays           Int      @default(5)
+  escalationDaysAfter       Int      @default(5)
+  autoSendEnabled           Boolean  @default(false)
+  fromEmail                 String   @default("buh@delovoy-park.ru")
+  fromName                  String   @default("Бухгалтерия Делового Парка")
+  bankDetails               String?  @db.Text
+  managerName               String?
+  managerPhone              String?
+  escalationTelegramEnabled Boolean  @default(true)
+  escalationTelegramChatId  String?
+  updatedAt                 DateTime @updatedAt
+  updatedById               String?
+}
+
+enum ManagerTaskType {
+  OVERDUE_PAYMENT
+}
+
+enum ManagerTaskStatus {
+  OPEN
+  RESOLVED
+  DEFERRED
+}
+
+model ManagerTask {
+  id             String            @id @default(cuid())
+  moduleSlug     String            @default("rental")
+  type           ManagerTaskType
+  status         ManagerTaskStatus @default(OPEN)
+  title          String
+  description    String?           @db.Text
+  contractId     String?
+  tenantId       String?
+  paymentId      String?
+  periodYear     Int?
+  periodMonth    Int?
+  assignedToId   String?
+  createdById    String?
+  dueDate        DateTime?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolution     String?
+  resolutionNote String?           @db.Text
+  deferUntil     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([type, contractId, periodYear, periodMonth])
+  @@index([status, assignedToId])
+  @@index([moduleSlug, status])
 }
 
 // === RENTAL INQUIRIES ===
@@ -457,38 +591,38 @@ enum DealSource {
 }
 
 model RentalDeal {
-  id            String       @id @default(cuid())
-  contactName   String
-  phone         String
-  email         String?
-  companyName   String?
+  id          String  @id @default(cuid())
+  contactName String
+  phone       String
+  email       String?
+  companyName String?
 
-  stage         DealStage    @default(NEW_LEAD)
-  priority      DealPriority @default(WARM)
-  source        DealSource   @default(WEBSITE)
+  stage    DealStage    @default(NEW_LEAD)
+  priority DealPriority @default(WARM)
+  source   DealSource   @default(WEBSITE)
 
-  desiredArea   String?
-  budget        String?
-  moveInDate    DateTime?
-  requirements  String?      @db.Text
+  desiredArea  String?
+  budget       String?
+  moveInDate   DateTime?
+  requirements String?   @db.Text
 
-  officeId      String?
-  office        Office?      @relation(fields: [officeId], references: [id])
+  officeId String?
+  office   Office? @relation(fields: [officeId], references: [id])
 
-  inquiryId     String?
-  tenantId      String?
-  contractId    String?
+  inquiryId  String?
+  tenantId   String?
+  contractId String?
 
-  dealValue     Decimal?
+  dealValue      Decimal?
   nextActionDate DateTime?
-  nextAction    String?
-  lostReason    String?
+  nextAction     String?
+  lostReason     String?
 
-  adminNotes    String?      @db.Text
-  sortOrder     Int          @default(0)
+  adminNotes String? @db.Text
+  sortOrder  Int     @default(0)
 
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([stage])
   @@index([priority])
@@ -499,16 +633,16 @@ model RentalDeal {
 // === RENTAL CHANGE LOG (financial audit trail) ===
 
 model RentalChangeLog {
-  id          String   @id @default(cuid())
-  userId      String
-  entity      String            // "Tenant", "Office", "RentalContract"
-  entityId    String
-  field       String            // "monthlyRate", "pricePerSqm", "status", etc.
-  oldValue    String?           // JSON-serialized previous value
-  newValue    String?           // JSON-serialized new value
-  reason      String?           // optional justification
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  entity    String // "Tenant", "Office", "RentalContract"
+  entityId  String
+  field     String // "monthlyRate", "pricePerSqm", "status", etc.
+  oldValue  String? // JSON-serialized previous value
+  newValue  String? // JSON-serialized new value
+  reason    String? // optional justification
+  ipAddress String?
+  createdAt DateTime @default(now())
 
   @@index([entity, entityId])
   @@index([userId])
@@ -549,6 +683,42 @@ model AuditLog {
 
   @@index([userId])
   @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// === DELETION LOG (Dedicated SUPERADMIN deletion audit) ===
+//
+// Captures everything industry best practice recommends for a destructive-action
+// audit trail: who did it (id + denormalised name/email/role so the record stays
+// meaningful even if the user is later deleted), what was removed (entity kind,
+// id, full snapshot of the row so it can be restored if needed), why
+// (free-form reason), how (soft vs hard), and from where (IP + user agent).
+
+enum DeletionType {
+  SOFT
+  HARD
+}
+
+model DeletionLog {
+  id           String       @id @default(cuid())
+  userId       String
+  userEmail    String? // Denormalised at write time
+  userName     String? // Denormalised at write time
+  userRole     String // Role at the time of deletion
+  entity       String // "Booking", "Order", "MenuItem", "Resource", "InventorySku", ...
+  entityId     String
+  entityLabel  String? // Human-readable hint ("Беседка №3", "Заказ от 2026-04-20 ...")
+  moduleSlug   String? // "gazebos" | "ps-park" | "cafe" | "inventory" | ...
+  deletionType DeletionType @default(SOFT)
+  snapshot     Json // Full serialized row state BEFORE deletion (for recovery / forensics)
+  reason       String?      @db.Text
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime     @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([moduleSlug, createdAt])
   @@index([createdAt])
 }
 
@@ -672,7 +842,7 @@ model StockReceipt {
   receivedAt          DateTime
   notes               String?
   performedById       String
-  moduleSlug          String?                           // "cafe" | "bbq" | "ps-park"
+  moduleSlug          String? // "cafe" | "bbq" | "ps-park"
   status              ReceiptStatus @default(DRAFT)
   confirmedById       String?
   confirmedAt         DateTime?
@@ -902,17 +1072,17 @@ enum CallStatus {
 }
 
 model SmsLog {
-  id          String    @id @default(cuid())
-  tenantId    String?
-  clientPhone String
-  message     String
-  status      SmsStatus @default(SENT)
-  externalId  String?
+  id           String    @id @default(cuid())
+  tenantId     String?
+  clientPhone  String
+  message      String
+  status       SmsStatus @default(SENT)
+  externalId   String?
   errorMessage String?
-  sentBy      String?   // userId of manager
-  metadata    Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  sentBy       String? // userId of manager
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([clientPhone])
   @@index([tenantId])
@@ -952,7 +1122,7 @@ model FeedbackItem {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  comments       FeedbackComment[]
+  comments FeedbackComment[]
 
   @@index([userId])
   @@index([status, isUrgent, createdAt])
@@ -1026,20 +1196,20 @@ model RecurringExpense {
 }
 
 model Expense {
-  id                 String           @id @default(cuid())
+  id                 String            @id @default(cuid())
   name               String
   description        String?
   category           ExpenseCategory
   amount             Decimal
-  currency           String           @default("RUB")
+  currency           String            @default("RUB")
   date               DateTime
-  isAutoGenerated    Boolean          @default(false)
+  isAutoGenerated    Boolean           @default(false)
   recurringExpenseId String?
   recurringExpense   RecurringExpense? @relation(fields: [recurringExpenseId], references: [id])
   deletedAt          DateTime?
   createdById        String
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@index([category, date])
   @@index([recurringExpenseId])

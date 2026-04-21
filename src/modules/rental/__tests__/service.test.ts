@@ -45,6 +45,16 @@ vi.mock("@/lib/db", () => ({
       delete: vi.fn(),
       aggregate: vi.fn(),
     },
+    rentalPayment: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn(),
+    },
+    managerTask: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      create: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
