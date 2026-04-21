@@ -157,6 +157,11 @@ export async function sendDueReminders(now: Date = new Date()): Promise<Reminder
             paymentId: payment.id,
             templateKey: "rental.payment_reminder_due",
           });
+        } else if (result.outcome === "NO_RECIPIENT") {
+          await logSystemEvent("WARNING", "tenant_no_email", {
+            paymentId: payment.id,
+            tenantId: payment.contract.tenantId,
+          });
         }
       }
     } catch (err) {
