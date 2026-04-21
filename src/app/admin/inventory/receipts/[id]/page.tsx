@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 type Receipt = {
@@ -26,20 +25,20 @@ type Receipt = {
   }>;
 };
 
+type ReceiptItem = {
+  skuId: string;
+  quantity: number;
+  costPerUnit: number | null;
+};
+
 type Correction = {
   id: string;
   correctedById: string;
   correctedByName: string | null;
   reason: string | null;
-  itemsBefore: any;
-  itemsAfter: any;
+  itemsBefore: ReceiptItem[];
+  itemsAfter: ReceiptItem[];
   createdAt: string;
-};
-
-type User = {
-  id: string;
-  role: string;
-  name?: string;
 };
 
 type SkuOption = {
@@ -89,7 +88,6 @@ function formatDateTime(iso: string) {
 }
 
 export default function ReceiptDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const router = useRouter();
   const { data: session } = useSession();
   const [id, setId] = useState<string>("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -104,7 +102,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [receivedAt, setReceivedAt] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<ReceiptItem[]>([]);
   const [correctionReason, setCorrectionReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -138,7 +136,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
             setReceivedAt(rJson.data.receivedAt.slice(0, 10));
             setNotes(rJson.data.notes || "");
             setItems(
-              rJson.data.items.map((item: any) => ({
+              rJson.data.items.map((item: Receipt["items"][number]) => ({
                 skuId: item.skuId,
                 quantity: item.quantity,
                 costPerUnit: item.costPerUnit,
@@ -198,15 +196,22 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
     setSubmitting(true);
 
     try {
-      const body: any = {
+      const body: {
+        supplierId: string | null;
+        invoiceNumber: string | null;
+        receivedAt: string;
+        notes: string | null;
+        items: Array<{ skuId: string; quantity: number; costPerUnit: number | null }>;
+        correctionReason?: string;
+      } = {
         supplierId: supplierId || null,
         invoiceNumber: invoiceNumber.trim() || null,
         receivedAt,
         notes: notes.trim() || null,
         items: items.map((item) => ({
           skuId: item.skuId,
-          quantity: parseInt(item.quantity),
-          costPerUnit: item.costPerUnit ? parseFloat(item.costPerUnit) : null,
+          quantity: parseInt(String(item.quantity)),
+          costPerUnit: item.costPerUnit ? parseFloat(String(item.costPerUnit)) : null,
         })),
       };
 
@@ -258,25 +263,26 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  function updateItem(idx: number, field: string, value: any) {
+  function updateItem(idx: number, field: keyof ReceiptItem, value: string | number | null) {
     setItems((prev) =>
       prev.map((item, i) => {
-        if (i === idx) {
-          return { ...item, [field]: value };
-        }
+        if (i !== idx) return item;
+        if (field === "skuId") return { ...item, skuId: value as string };
+        if (field === "quantity") return { ...item, quantity: typeof value === "string" ? parseInt(value) || 0 : (value as number) };
+        if (field === "costPerUnit") return { ...item, costPerUnit: typeof value === "string" ? (value ? parseFloat(value) : null) : (value as number | null) };
         return item;
       })
     );
   }
 
   const getSkuName = (skuId: string) => skus.find((s) => s.id === skuId);
-  const getItemsChanges = (before: any, after: any) => {
-    const changes = [];
-    const skuIds = new Set([...before.map((b: any) => b.skuId), ...after.map((a: any) => a.skuId)]);
+  const getItemsChanges = (before: ReceiptItem[], after: ReceiptItem[]) => {
+    const changes: Array<{ skuId: string; oldQty: number; qty: number; delta: number }> = [];
+    const skuIds = new Set([...before.map((b) => b.skuId), ...after.map((a) => a.skuId)]);
 
     for (const skuId of skuIds) {
-      const beforeItem = before.find((b: any) => b.skuId === skuId);
-      const afterItem = after.find((a: any) => a.skuId === skuId);
+      const beforeItem = before.find((b) => b.skuId === skuId);
+      const afterItem = after.find((a) => a.skuId === skuId);
       const qty = afterItem?.quantity || 0;
       const oldQty = beforeItem?.quantity || 0;
       const delta = qty - oldQty;
