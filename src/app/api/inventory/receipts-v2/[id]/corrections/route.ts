@@ -19,12 +19,17 @@ export async function GET(
     if (!session?.user?.id) return apiUnauthorized();
 
     const { role } = session.user;
-    if (role !== "SUPERADMIN" && role !== "ADMIN") return apiForbidden();
+    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
 
     const { id } = await params;
 
     const receipt = await getReceipt(id).catch(() => null);
     if (!receipt) return apiNotFound("Приход не найден");
+
+    // MANAGER can only see corrections for their own receipts
+    if (role === "MANAGER" && receipt.performedById !== session.user.id) {
+      return apiForbidden();
+    }
 
     const allowed = await canConfirmReceipt(
       { id: session.user.id, role },
