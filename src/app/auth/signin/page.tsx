@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-type AuthView = "main" | "email" | "whatsapp" | "whatsapp-verify";
+type AuthView = "main" | "email";
 type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
 
 // Telegram Login Widget component
@@ -70,8 +70,6 @@ function SignInInner() {
   const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otpCode, setOtpCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -168,67 +166,6 @@ function SignInInner() {
     }
   }, [email, password, redirectAfterLogin]);
 
-  const handleSendOtp = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/auth/whatsapp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setView("whatsapp-verify");
-      } else {
-        setError(data.error?.message || "Ошибка отправки кода");
-      }
-    } catch {
-      setError("Ошибка сети");
-    } finally {
-      setLoading(false);
-    }
-  }, [phone]);
-
-  const handleVerifyOtp = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      const verifyRes = await fetch("/api/auth/whatsapp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code: otpCode }),
-      });
-      const verifyData = await verifyRes.json();
-
-      if (!verifyData.success) {
-        setError(verifyData.error?.message || "Неверный код");
-        setLoading(false);
-        return;
-      }
-
-      const result = await signIn("whatsapp", {
-        userId: verifyData.data.userId,
-        redirect: false,
-      });
-
-      if (result?.error || !result?.ok) {
-        setError("Ошибка входа");
-        setLoading(false);
-      } else {
-        await redirectAfterLogin();
-      }
-    } catch {
-      setError("Ошибка сети");
-      setLoading(false);
-    }
-  }, [phone, otpCode, redirectAfterLogin]);
-
   const handleOAuthLogin = useCallback(async (provider: string) => {
     setError("");
     setLoading(true);
@@ -271,15 +208,6 @@ function SignInInner() {
                 >
                   <YandexIcon />
                   Войти через Яндекс
-                </button>
-
-                <button
-                  onClick={() => { setView("whatsapp"); setError(""); }}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  <WhatsAppIcon />
-                  Войти через WhatsApp
                 </button>
 
                 <button
@@ -399,102 +327,6 @@ function SignInInner() {
             </div>
           )}
 
-          {/* WhatsApp — send OTP */}
-          {view === "whatsapp" && (
-            <div className="space-y-4">
-              <button
-                onClick={() => { setView("main"); setError(""); }}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                ← Назад
-              </button>
-              <form onSubmit={handleSendOtp} className="space-y-4">
-                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                  <WhatsAppIcon />
-                  <span className="text-sm text-[#25D366]">Код придёт в WhatsApp</span>
-                </div>
-
-                <div>
-                  <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
-                    Номер телефона
-                  </label>
-                  <input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    required
-                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="+7 999 123-45-67"
-                  />
-                </div>
-
-                {error && <p className="text-sm text-red-400">{error}</p>}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-[#25D366] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#20BD5A] disabled:opacity-50"
-                >
-                  {loading ? "Отправка..." : "Получить код в WhatsApp"}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* WhatsApp — verify OTP */}
-          {view === "whatsapp-verify" && (
-            <div className="space-y-4">
-              <button
-                onClick={() => { setView("main"); setError(""); }}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                ← Назад
-              </button>
-              <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                  <WhatsAppIcon />
-                  <span className="text-sm text-[#25D366]">Код отправлен в WhatsApp</span>
-                </div>
-
-                <div>
-                  <label htmlFor="otp" className="block text-sm font-medium text-zinc-300">
-                    Код из WhatsApp
-                  </label>
-                  <input
-                    id="otp"
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                    required
-                    autoFocus
-                    className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white text-center tracking-[0.3em] font-mono text-lg placeholder-zinc-500 focus:border-[#25D366] focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                    placeholder="******"
-                  />
-                </div>
-
-                {error && <p className="text-sm text-red-400">{error}</p>}
-
-                <button
-                  type="submit"
-                  disabled={loading || otpCode.length !== 6}
-                  className="w-full rounded-xl bg-[#25D366] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#20BD5A] disabled:opacity-50"
-                >
-                  {loading ? "Проверка..." : "Войти"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setView("whatsapp"); setOtpCode(""); setError(""); }}
-                  className="w-full text-center text-sm text-zinc-400 hover:text-white transition-colors"
-                >
-                  Отправить код повторно
-                </button>
-              </form>
-            </div>
-          )}
         </div>
 
         {/* Footer link */}
@@ -546,15 +378,6 @@ function MailIconSmall() {
       <rect width="24" height="24" rx="4" fill="#3b82f6" />
       <rect x="4" y="6" width="16" height="12" rx="1.5" stroke="white" strokeWidth="1.5" fill="none" />
       <path d="M4 8l8 5 8-5" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-    </svg>
-  );
-}
-
-function WhatsAppIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#25D366" />
-      <path d="M17.47 14.38c-.29-.15-1.73-.85-2-.95-.27-.1-.46-.15-.66.15-.2.29-.76.95-.93 1.14-.17.2-.34.22-.64.07-.29-.15-1.24-.46-2.37-1.46-.88-.78-1.47-1.74-1.64-2.04-.17-.29-.02-.45.13-.6.13-.13.29-.34.44-.51.15-.17.2-.29.29-.49.1-.2.05-.37-.02-.51-.07-.15-.66-1.58-.9-2.17-.24-.57-.48-.49-.66-.5h-.56c-.2 0-.51.07-.78.37s-1.02 1-1.02 2.44c0 1.43 1.05 2.82 1.2 3.01.14.2 2.06 3.14 4.99 4.41.7.3 1.24.48 1.67.61.7.22 1.34.19 1.84.12.56-.08 1.73-.71 1.97-1.39.25-.68.25-1.27.17-1.39-.07-.12-.27-.2-.56-.34z" fill="white" />
     </svg>
   );
 }

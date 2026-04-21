@@ -162,7 +162,7 @@ export async function GET() {
         type: "users" as const,
         label: "Клиенты",
         connectedCount: clientCount,
-        channelPriority: ["TELEGRAM", "WHATSAPP", "EMAIL", "VK"],
+        channelPriority: ["TELEGRAM", "EMAIL", "VK"],
         status: "active" as EventStatus,
       },
     };

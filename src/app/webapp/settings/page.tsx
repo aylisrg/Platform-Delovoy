@@ -7,18 +7,17 @@ interface Preferences {
   enableBooking: boolean;
   enableOrder: boolean;
   enableReminder: boolean;
-  preferredChannel: "AUTO" | "TELEGRAM" | "WHATSAPP" | "EMAIL" | "VK";
+  preferredChannel: "AUTO" | "TELEGRAM" | "EMAIL" | "VK";
 }
 
 interface ChannelInfo {
-  channel: "TELEGRAM" | "WHATSAPP" | "EMAIL" | "VK";
+  channel: "TELEGRAM" | "EMAIL" | "VK";
   connected: boolean;
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
   AUTO: "Автоматически",
   TELEGRAM: "Telegram",
-  WHATSAPP: "WhatsApp",
   EMAIL: "Email",
   VK: "ВКонтакте",
 };

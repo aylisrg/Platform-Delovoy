@@ -89,7 +89,7 @@ export async function sendMagicLinkEmail(
   email: string,
   token: string
 ): Promise<void> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const url = `${appUrl}/api/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
 
   const templateData = { url, expires: "15 минут" };

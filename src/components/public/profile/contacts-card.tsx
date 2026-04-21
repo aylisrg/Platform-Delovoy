@@ -45,9 +45,6 @@ export function ContactsCard() {
 
   // Phone flow state
   const [phoneInput, setPhoneInput] = useState("");
-  const [phoneSent, setPhoneSent] = useState(false);
-  const [phoneMasked, setPhoneMasked] = useState("");
-  const [phoneCode, setPhoneCode] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
 
@@ -228,36 +225,11 @@ export function ContactsCard() {
       });
       const data = await res.json();
       if (data.success) {
-        setPhoneSent(true);
-        setPhoneMasked(data.data.phone);
-      } else {
-        setPhoneError(data.error?.message ?? "Ошибка отправки");
-      }
-    } catch {
-      setPhoneError("Ошибка соединения");
-    } finally {
-      setPhoneLoading(false);
-    }
-  }
-
-  async function handlePhoneConfirm() {
-    setPhoneLoading(true);
-    setPhoneError("");
-    try {
-      const res = await fetch("/api/profile/contacts/phone/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneInput, code: phoneCode }),
-      });
-      const data = await res.json();
-      if (data.success) {
         await fetchProfile();
         setActiveFlow(null);
-        setPhoneSent(false);
         setPhoneInput("");
-        setPhoneCode("");
       } else {
-        setPhoneError(data.error?.message ?? "Неверный код");
+        setPhoneError(data.error?.message ?? "Ошибка сохранения");
       }
     } catch {
       setPhoneError("Ошибка соединения");
@@ -272,9 +244,7 @@ export function ContactsCard() {
     setEmailInput("");
     setEmailToken("");
     setEmailError("");
-    setPhoneSent(false);
     setPhoneInput("");
-    setPhoneCode("");
     setPhoneError("");
   }
 
@@ -483,7 +453,7 @@ export function ContactsCard() {
             <div className="flex items-center gap-3">
               <span className="text-lg">📱</span>
               <div>
-                <p className="text-sm font-medium text-zinc-700">Телефон (WhatsApp)</p>
+                <p className="text-sm font-medium text-zinc-700">Телефон</p>
                 {profile.contacts.phone ? (
                   <p className="text-xs text-zinc-500">{profile.contacts.phone}</p>
                 ) : (
@@ -514,57 +484,29 @@ export function ContactsCard() {
           {/* Phone flow */}
           {activeFlow === "phone" && (
             <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 space-y-3">
-              {!phoneSent ? (
-                <>
-                  <p className="text-sm text-zinc-700">
-                    Введите номер телефона — пришлём код в WhatsApp.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="tel"
-                      value={phoneInput}
-                      onChange={(e) => setPhoneInput(e.target.value)}
-                      placeholder="+79001234567"
-                      className="flex-1 max-w-xs rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      onKeyDown={(e) => e.key === "Enter" && handlePhoneRequest()}
-                    />
-                    <button
-                      onClick={handlePhoneRequest}
-                      disabled={phoneLoading || !phoneInput}
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                    >
-                      {phoneLoading ? "..." : "Получить код"}
-                    </button>
-                    <button onClick={cancelFlow} className="text-xs text-zinc-500 hover:underline">Отмена</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-zinc-700">
-                    Код отправлен в WhatsApp на номер{" "}
-                    <span className="font-medium">{phoneMasked}</span>.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={phoneCode}
-                      onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      placeholder="Код из WhatsApp"
-                      maxLength={6}
-                      className="w-36 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-center font-mono tracking-widest focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      onKeyDown={(e) => e.key === "Enter" && handlePhoneConfirm()}
-                    />
-                    <button
-                      onClick={handlePhoneConfirm}
-                      disabled={phoneLoading || phoneCode.length !== 6}
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                    >
-                      {phoneLoading ? "..." : "Подтвердить"}
-                    </button>
-                    <button onClick={cancelFlow} className="text-xs text-zinc-500 hover:underline">Отмена</button>
-                  </div>
-                </>
-              )}
+              <>
+                <p className="text-sm text-zinc-700">
+                  Введите номер телефона для привязки к аккаунту.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="tel"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value)}
+                    placeholder="+79001234567"
+                    className="flex-1 max-w-xs rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onKeyDown={(e) => e.key === "Enter" && handlePhoneRequest()}
+                  />
+                  <button
+                    onClick={handlePhoneRequest}
+                    disabled={phoneLoading || !phoneInput}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {phoneLoading ? "..." : "Сохранить"}
+                  </button>
+                  <button onClick={cancelFlow} className="text-xs text-zinc-500 hover:underline">Отмена</button>
+                </div>
+              </>
               {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
             </div>
           )}

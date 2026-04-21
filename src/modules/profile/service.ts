@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { redis, redisAvailable } from "@/lib/redis";
-import { sendWhatsAppMessage, isGreenApiConfigured } from "@/lib/green-api";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 import type {
   ProfileData,
@@ -306,16 +305,10 @@ export async function confirmEmailAttach(
 
 // ── ATTACH PHONE ─────────────────────────────────────────────────────────────
 
-export async function requestPhoneAttach(
+export async function attachPhone(
   userId: string,
   input: AttachPhoneRequestInput
-): Promise<AttachPhoneRequestResult> {
-  if (!isGreenApiConfigured()) {
-    throw Object.assign(new Error("WhatsApp не настроен"), {
-      code: "NOT_CONFIGURED",
-    });
-  }
-
+): Promise<AttachPhoneConfirmResult> {
   const normalized = normalizePhone(input.phone);
   if (normalized.length < 10 || normalized.length > 15) {
     throw Object.assign(new Error("Некорректный номер телефона"), {
@@ -325,7 +318,6 @@ export async function requestPhoneAttach(
 
   const phoneFormatted = "+" + normalized;
 
-  // Check if already attached to this account
   const currentUser = await prisma.user.findUnique({
     where: { id: userId },
     select: { phone: true },
@@ -337,7 +329,6 @@ export async function requestPhoneAttach(
     });
   }
 
-  // Check if used by another account
   const existingOwner = await prisma.user.findUnique({
     where: { phone: phoneFormatted },
     select: { id: true },
@@ -349,108 +340,6 @@ export async function requestPhoneAttach(
     });
   }
 
-  // Cooldown check (per user, not per phone)
-  const cooldownKey = PROFILE_PHONE_COOLDOWN_PREFIX + userId;
-  if (redisAvailable) {
-    const hasCooldown = await redis.get(cooldownKey);
-    if (hasCooldown) {
-      throw Object.assign(
-        new Error("Подождите минуту перед повторной отправкой"),
-        { code: "RATE_LIMIT" }
-      );
-    }
-  }
-
-  if (!redisAvailable) {
-    throw Object.assign(new Error("Сервис временно недоступен"), {
-      code: "SERVICE_UNAVAILABLE",
-    });
-  }
-
-  // Generate OTP and store with phone
-  const code = generateOTP();
-  const otpKey = PROFILE_PHONE_OTP_PREFIX + userId;
-
-  await redis.set(otpKey, `${normalized}:${code}:0`, "EX", PHONE_OTP_TTL);
-  await redis.set(cooldownKey, "1", "EX", PHONE_COOLDOWN_TTL);
-
-  const sendResult = await sendWhatsAppMessage(
-    normalized,
-    `Деловой Парк — код для привязки телефона: ${code}\n\nКод действителен 5 минут. Не сообщайте его никому.`
-  );
-
-  if (!sendResult.success) {
-    // Rollback: clean up OTP so user can retry without waiting for TTL
-    await redis.del(otpKey);
-    await redis.del(cooldownKey);
-    throw Object.assign(
-      new Error("Не удалось отправить код. Проверьте номер и попробуйте позже."),
-      { code: "SEND_FAILED" }
-    );
-  }
-
-  const masked = normalized.slice(0, 4) + "***" + normalized.slice(-2);
-  return { sent: true, phone: masked };
-}
-
-export async function confirmPhoneAttach(
-  userId: string,
-  input: AttachPhoneConfirmInput
-): Promise<AttachPhoneConfirmResult> {
-  const normalized = normalizePhone(input.phone);
-  const otpKey = PROFILE_PHONE_OTP_PREFIX + userId;
-
-  const stored = await redis.get(otpKey);
-  if (!stored) {
-    throw Object.assign(new Error("Код истёк. Запросите новый."), {
-      code: "CODE_EXPIRED",
-    });
-  }
-
-  const parts = stored.split(":");
-  const [storedPhone, storedCode, attemptsStr] = parts;
-  const attempts = parseInt(attemptsStr ?? "0", 10);
-
-  if (attempts >= MAX_PHONE_ATTEMPTS) {
-    await redis.del(otpKey);
-    throw Object.assign(
-      new Error("Слишком много попыток. Запросите новый код."),
-      { code: "TOO_MANY_ATTEMPTS" }
-    );
-  }
-
-  if (storedPhone !== normalized) {
-    throw Object.assign(new Error("Неверный код"), { code: "INVALID_CODE" });
-  }
-
-  if (storedCode !== input.code.trim()) {
-    // Increment attempts
-    await redis.set(
-      otpKey,
-      `${storedPhone}:${storedCode}:${attempts + 1}`,
-      "KEEPTTL"
-    );
-    throw Object.assign(new Error("Неверный код"), { code: "INVALID_CODE" });
-  }
-
-  // Code valid — clean up OTP
-  await redis.del(otpKey);
-
-  const phoneFormatted = "+" + normalized;
-
-  // Race condition check
-  const existingOwner = await prisma.user.findUnique({
-    where: { phone: phoneFormatted },
-    select: { id: true },
-  });
-
-  if (existingOwner && existingOwner.id !== userId) {
-    throw Object.assign(new Error("Номер уже привязан к другому аккаунту"), {
-      code: "PHONE_IN_USE",
-    });
-  }
-
-  // Attach phone
   await prisma.user.update({
     where: { id: userId },
     data: { phone: phoneFormatted },

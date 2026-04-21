@@ -1,20 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-vi.mock("@/lib/green-api", () => ({
-  sendWhatsAppMessage: vi.fn(),
-}));
+import { describe, it, expect, beforeEach } from "vitest";
 
 import { resolveChannelForUser, getAdapter } from "../channels/index";
 import { telegramAdapter } from "../channels/telegram";
-import { whatsappAdapter } from "../channels/whatsapp";
 import { emailAdapter } from "../channels/email";
 import { vkAdapter } from "../channels/vk";
-import { sendWhatsAppMessage } from "@/lib/green-api";
 import type { UserWithContacts } from "../types";
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+beforeEach(() => {});
 
 const fullUser: UserWithContacts = {
   id: "user-1",
@@ -31,25 +23,15 @@ describe("resolveChannelForUser", () => {
     expect(result).toEqual({ channel: "TELEGRAM", recipient: "123456" });
   });
 
-  it("returns WhatsApp when no telegramId", () => {
+  it("returns Email when no telegramId", () => {
     const result = resolveChannelForUser({ ...fullUser, telegramId: null });
-    expect(result).toEqual({ channel: "WHATSAPP", recipient: "+79991234567" });
-  });
-
-  it("returns Email when no TG or WA", () => {
-    const result = resolveChannelForUser({
-      ...fullUser,
-      telegramId: null,
-      phone: null,
-    });
     expect(result).toEqual({ channel: "EMAIL", recipient: "test@example.com" });
   });
 
-  it("returns VK as last resort", () => {
+  it("returns VK when no TG or email", () => {
     const result = resolveChannelForUser({
       ...fullUser,
       telegramId: null,
-      phone: null,
       email: null,
     });
     expect(result).toEqual({ channel: "VK", recipient: "vk-789" });
@@ -76,7 +58,12 @@ describe("resolveChannelForUser", () => {
       { ...fullUser, vkId: null },
       "VK"
     );
-    // Should fall back to Telegram (AUTO priority)
+    expect(result).toEqual({ channel: "TELEGRAM", recipient: "123456" });
+  });
+
+  it("returns null for WHATSAPP preference (channel removed)", () => {
+    const result = resolveChannelForUser(fullUser, "WHATSAPP");
+    // adapter not registered → falls back to AUTO
     expect(result).toEqual({ channel: "TELEGRAM", recipient: "123456" });
   });
 });
@@ -90,8 +77,8 @@ describe("getAdapter", () => {
     expect(getAdapter("TELEGRAM")).toBe(telegramAdapter);
   });
 
-  it("returns whatsapp adapter", () => {
-    expect(getAdapter("WHATSAPP")).toBe(whatsappAdapter);
+  it("returns null for WHATSAPP (channel removed)", () => {
+    expect(getAdapter("WHATSAPP")).toBeNull();
   });
 
   it("returns email adapter", () => {
@@ -119,23 +106,6 @@ describe("telegramAdapter", () => {
     const result = await telegramAdapter.send("123", "test");
     expect(result.success).toBe(false);
     expect(result.error).toContain("not configured");
-  });
-});
-
-describe("whatsappAdapter", () => {
-  it("resolves recipient from phone", () => {
-    expect(whatsappAdapter.resolveRecipient(fullUser)).toBe("+79991234567");
-  });
-
-  it("delegates to sendWhatsAppMessage", async () => {
-    vi.mocked(sendWhatsAppMessage).mockResolvedValue({
-      success: true,
-      messageId: "msg-1",
-    });
-
-    const result = await whatsappAdapter.send("+79991234567", "Hello");
-    expect(sendWhatsAppMessage).toHaveBeenCalledWith("+79991234567", "Hello");
-    expect(result.success).toBe(true);
   });
 });
 

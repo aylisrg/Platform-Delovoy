@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from "react";
 
-type Channel = "AUTO" | "TELEGRAM" | "WHATSAPP" | "EMAIL";
+type Channel = "AUTO" | "TELEGRAM" | "EMAIL";
 
 const channelLabels: Record<Channel, string> = {
   AUTO: "Автоматически",
   TELEGRAM: "Telegram",
-  WHATSAPP: "WhatsApp",
   EMAIL: "Email",
 };
 
