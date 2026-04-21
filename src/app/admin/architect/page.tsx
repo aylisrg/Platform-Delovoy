@@ -76,6 +76,13 @@ export default async function ArchitectPage() {
             <h3 className="font-semibold text-zinc-900">Мониторинг</h3>
             <p className="mt-1 text-sm text-zinc-500">Последние события и статистика ошибок</p>
           </a>
+          <a
+            href="/admin/architect/deletions"
+            className="block rounded-xl border border-zinc-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <h3 className="font-semibold text-zinc-900">Журнал удалений</h3>
+            <p className="mt-1 text-sm text-zinc-500">Кто, что и когда удалил — с полным снапшотом</p>
+          </a>
         </div>
       </div>
     </>

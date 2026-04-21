@@ -3,6 +3,8 @@ import { apiResponse, apiNotFound, apiServerError, apiValidationError, apiUnauth
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
 import { logAudit } from "@/lib/logger";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
+import { prisma } from "@/lib/db";
 import { getTable, updateTable } from "@/modules/ps-park/service";
 import { updateTableSchema } from "@/modules/ps-park/validation";
 
@@ -60,6 +62,41 @@ export async function PATCH(
     }
 
     return apiResponse(updated);
+  } catch {
+    return apiServerError();
+  }
+}
+
+/**
+ * DELETE /api/ps-park/:id — soft delete a PS Park table (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
+
+    const { id } = await params;
+    const resource = await getTable(id);
+    if (!resource) return apiNotFound("Стол не найден");
+
+    await prisma.resource.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+
+    await logDeletion(authz, {
+      entity: "Resource",
+      entityId: id,
+      entityLabel: `PS Park · ${resource.name}`,
+      moduleSlug: "ps-park",
+      snapshot: resource,
+    });
+    return apiResponse({ id, deletedAt: new Date().toISOString() });
   } catch {
     return apiServerError();
   }

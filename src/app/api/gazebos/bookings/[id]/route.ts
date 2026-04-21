@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { getBooking, updateBookingStatus, cancelBooking, BookingError } from "@/modules/gazebos/service";
 import { hasRole } from "@/lib/permissions";
 import { checkoutDiscountSchema } from "@/modules/booking/validation";
@@ -114,35 +115,36 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/gazebos/bookings/:id — delete booking (soft delete)
- * Only SUPERADMIN can delete bookings
+ * DELETE /api/gazebos/bookings/:id — soft delete booking (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
  */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) return apiUnauthorized();
-
-    // Only SUPERADMIN can delete bookings
-    if (session.user.role !== "SUPERADMIN") {
-      return apiError("FORBIDDEN", "Только суперадмин может удалять брони", 403);
-    }
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
     const booking = await getBooking(id);
     if (!booking) return apiNotFound("Бронирование не найдено");
 
-    // Soft delete
     const { prisma } = await import("@/lib/db");
     await prisma.booking.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
 
-    await logAudit(session.user.id, "booking.delete", "Booking", id);
-    return apiResponse(null);
+    await logDeletion(authz, {
+      entity: "Booking",
+      entityId: id,
+      entityLabel: `Беседка · бронь ${id.slice(0, 8)} (${booking.clientName ?? "без имени"})`,
+      moduleSlug: "gazebos",
+      snapshot: booking,
+    });
+    return apiResponse({ id, deletedAt: new Date().toISOString() });
   } catch {
     return apiServerError();
   }
