@@ -42,6 +42,7 @@ function YandexProvider() {
     },
     token: "https://oauth.yandex.ru/token",
     userinfo: "https://login.yandex.ru/info?format=json",
+    checks: ["state"],
     profile(profile: YandexProfile) {
       return {
         id: profile.id,
@@ -304,24 +305,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             },
           });
         }
-
-        return user;
-      },
-    }),
-
-    // WhatsApp OTP (verified via /api/auth/whatsapp/verify, then signed in here)
-    Credentials({
-      id: "whatsapp",
-      name: "WhatsApp",
-      credentials: {
-        userId: { type: "text" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.userId) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { id: credentials.userId as string },
-        });
 
         return user;
       },

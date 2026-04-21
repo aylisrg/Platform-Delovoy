@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const updatePreferenceSchema = z.object({
   preferredChannel: z
-    .enum(["AUTO", "TELEGRAM", "WHATSAPP", "EMAIL", "VK"])
+    .enum(["AUTO", "TELEGRAM", "EMAIL", "VK"])
     .optional(),
   enableBooking: z.boolean().optional(),
   enableOrder: z.boolean().optional(),
@@ -13,7 +13,7 @@ export type UpdatePreferenceInput = z.infer<typeof updatePreferenceSchema>;
 
 export const webappPreferenceSchema = z.object({
   preferredChannel: z
-    .enum(["AUTO", "TELEGRAM", "WHATSAPP", "EMAIL", "VK"])
+    .enum(["AUTO", "TELEGRAM", "EMAIL", "VK"])
     .optional(),
   enableBooking: z.boolean().optional(),
   enableOrder: z.boolean().optional(),

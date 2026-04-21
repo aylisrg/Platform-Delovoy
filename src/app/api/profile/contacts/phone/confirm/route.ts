@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { apiResponse, apiError } from "@/lib/api-response";
-import { confirmPhoneAttach } from "@/modules/profile/service";
+import { attachPhone } from "@/modules/profile/service";
 import { attachPhoneConfirmSchema } from "@/modules/profile/validation";
 
 /**
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await confirmPhoneAttach(session.user.id, parsed.data);
+    const result = await attachPhone(session.user.id, parsed.data);
     return apiResponse(result);
   } catch (err) {
     const error = err as Error & { code?: string };

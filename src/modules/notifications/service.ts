@@ -282,7 +282,6 @@ export async function getUserPreferences(userId: string) {
 
   const availableChannels = [
     { channel: "TELEGRAM" as const, connected: !!user?.telegramId },
-    { channel: "WHATSAPP" as const, connected: !!user?.phone },
     { channel: "EMAIL" as const, connected: !!user?.email },
     { channel: "VK" as const, connected: !!user?.vkId },
   ];

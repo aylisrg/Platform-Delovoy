@@ -1,13 +1,11 @@
 import { NotificationChannel } from "@prisma/client";
 import type { ChannelAdapter, UserWithContacts } from "../types";
 import { telegramAdapter } from "./telegram";
-import { whatsappAdapter } from "./whatsapp";
 import { emailAdapter } from "./email";
 import { vkAdapter } from "./vk";
 
 const adapters: Record<string, ChannelAdapter> = {
   TELEGRAM: telegramAdapter,
-  WHATSAPP: whatsappAdapter,
   EMAIL: emailAdapter,
   VK: vkAdapter,
 };
@@ -48,7 +46,6 @@ export function resolveChannelForUser(
   // AUTO: priority order
   const priority: NotificationChannel[] = [
     "TELEGRAM",
-    "WHATSAPP",
     "EMAIL",
     "VK",
   ];

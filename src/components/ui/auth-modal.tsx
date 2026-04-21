@@ -3,7 +3,7 @@
 import { signIn } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
 
-type AuthTab = "telegram" | "other" | "email" | "whatsapp";
+type AuthTab = "telegram" | "other" | "email";
 type EmailSubView = "form" | "magic-link-sent";
 
 export function AuthModal({
@@ -17,9 +17,6 @@ export function AuthModal({
   const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -95,68 +92,6 @@ export function AuthModal({
     [email, password, onClose]
   );
 
-  const handleSendOtp = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError("");
-      setLoading(true);
-      try {
-        const res = await fetch("/api/auth/whatsapp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setOtpSent(true);
-        } else {
-          setError(data.error?.message || "Ошибка отправки кода");
-        }
-      } catch {
-        setError("Ошибка сети");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [phone]
-  );
-
-  const handleVerifyOtp = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError("");
-      setLoading(true);
-      try {
-        const verifyRes = await fetch("/api/auth/whatsapp/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, code: otpCode }),
-        });
-        const verifyData = await verifyRes.json();
-        if (!verifyData.success) {
-          setError(verifyData.error?.message || "Неверный код");
-          setLoading(false);
-          return;
-        }
-        const result = await signIn("whatsapp", {
-          userId: verifyData.data.userId,
-          redirect: false,
-        });
-        if (result?.error || !result?.ok) {
-          setError("Ошибка входа");
-          setLoading(false);
-        } else {
-          onClose();
-          window.location.reload();
-        }
-      } catch {
-        setError("Ошибка сети");
-        setLoading(false);
-      }
-    },
-    [phone, otpCode, onClose]
-  );
-
   const handleOAuth = useCallback(async (provider: string) => {
     setError("");
     setLoading(true);
@@ -223,13 +158,6 @@ export function AuthModal({
 
               {/* Secondary auth links */}
               <div className="flex justify-center gap-4 pt-1">
-                <button
-                  onClick={() => { setTab("whatsapp"); setError(""); }}
-                  className="text-xs text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
-                >
-                  WhatsApp
-                </button>
-                <span className="text-[#86868b]/30">|</span>
                 <button
                   onClick={() => { setTab("email"); setError(""); }}
                   className="text-xs text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
@@ -316,90 +244,6 @@ export function AuthModal({
             </div>
           )}
 
-          {/* WhatsApp */}
-          {tab === "whatsapp" && !otpSent && (
-            <div className="space-y-3">
-              <button
-                onClick={() => { setTab("telegram"); setError(""); }}
-                className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
-              >
-                ← Назад
-              </button>
-              <form onSubmit={handleSendOtp} className="space-y-3">
-                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                  <WhatsAppIcon />
-                  <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
-                    Код придёт в WhatsApp
-                  </span>
-                </div>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                  placeholder="+7 999 123-45-67"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20"
-                />
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
-                >
-                  {loading ? "Отправка..." : "Получить код"}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {tab === "whatsapp" && otpSent && (
-            <div className="space-y-3">
-              <button
-                onClick={() => { setTab("telegram"); setError(""); }}
-                className="text-sm text-[#0071e3] hover:text-[#0077ED] font-[family-name:var(--font-inter)] mb-1"
-              >
-                ← Назад
-              </button>
-              <form onSubmit={handleVerifyOtp} className="space-y-3">
-                <div className="flex items-center gap-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 px-4 py-2.5">
-                  <WhatsAppIcon />
-                  <span className="text-sm text-[#25D366] font-[family-name:var(--font-inter)]">
-                    Код отправлен
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                  required
-                  autoFocus
-                  placeholder="Код из WhatsApp"
-                  className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm text-center tracking-[0.3em] font-mono font-[family-name:var(--font-inter)] placeholder-[#86868b]/50 focus:outline-none focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366]/20"
-                />
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={loading || otpCode.length !== 6}
-                  className="w-full bg-[#25D366] text-white font-medium text-sm py-3 rounded-full hover:bg-[#20BD5A] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
-                >
-                  {loading ? "Проверка..." : "Войти"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOtpSent(false);
-                    setOtpCode("");
-                    setError("");
-                  }}
-                  className="w-full text-center text-sm text-[#86868b] hover:text-[#1d1d1f] transition-colors font-[family-name:var(--font-inter)]"
-                >
-                  Отправить код повторно
-                </button>
-              </form>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -519,11 +363,3 @@ function YandexIcon() {
   );
 }
 
-function WhatsAppIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#25D366" />
-      <path d="M17.47 14.38c-.29-.15-1.73-.85-2-.95-.27-.1-.46-.15-.66.15-.2.29-.76.95-.93 1.14-.17.2-.34.22-.64.07-.29-.15-1.24-.46-2.37-1.46-.88-.78-1.47-1.74-1.64-2.04-.17-.29-.02-.45.13-.6.13-.13.29-.34.44-.51.15-.17.2-.29.29-.49.1-.2.05-.37-.02-.51-.07-.15-.66-1.58-.9-2.17-.24-.57-.48-.49-.66-.5h-.56c-.2 0-.51.07-.78.37s-1.02 1-1.02 2.44c0 1.43 1.05 2.82 1.2 3.01.14.2 2.06 3.14 4.99 4.41.7.3 1.24.48 1.67.61.7.22 1.34.19 1.84.12.56-.08 1.73-.71 1.97-1.39.25-.68.25-1.27.17-1.39-.07-.12-.27-.2-.56-.34z" fill="white" />
-    </svg>
-  );
-}
