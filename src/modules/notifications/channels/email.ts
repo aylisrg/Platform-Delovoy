@@ -9,10 +9,11 @@ function getTransporter(): nodemailer.Transporter | null {
   if (!user || !pass) return null;
 
   if (!transporterInstance) {
+    const port = Number(process.env.SMTP_PORT) || 587;
     transporterInstance = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.yandex.ru",
-      port: Number(process.env.SMTP_PORT) || 465,
-      secure: true,
+      port,
+      secure: port === 465,
       auth: { user, pass },
     });
   }
