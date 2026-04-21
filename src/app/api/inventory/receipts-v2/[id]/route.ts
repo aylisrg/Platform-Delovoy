@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { canCorrectReceipt, hasModuleAccess } from "@/lib/permissions";
 import {
   getReceipt,
@@ -143,31 +144,44 @@ export async function PATCH(
   }
 }
 
+/**
+ * DELETE /api/inventory/receipts-v2/:id — hard delete a stock receipt (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
+ *
+ * Единственный HARD delete в системе: StockReceipt не имеет `deletedAt`,
+ * StockMovement ссылается через строковый `referenceId` (без FK). Поэтому
+ * в DeletionLog кладём полный снапшот (шапка + items + corrections) чтобы
+ * при необходимости восстановить данные.
+ */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) return apiUnauthorized();
-
-    // Only SUPERADMIN can delete receipts
-    if (session.user.role !== "SUPERADMIN") return apiForbidden();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
     const receipt = await getReceipt(id).catch(() => null);
     if (!receipt) return apiNotFound("Приход не найден");
 
-    // For confirmed/corrected receipts: only delete record, movements remain as audit trail
-    // The service layer doesn't soft-delete, so we do a hard delete of the receipt
-    // (movements referencing it remain — referential integrity is via referenceId string, not FK)
+    const [items, corrections] = await Promise.all([
+      prisma.stockReceiptItem.findMany({ where: { receiptId: id } }),
+      prisma.stockReceiptCorrection.findMany({ where: { receiptId: id } }),
+    ]);
+
     await prisma.stockReceiptItem.deleteMany({ where: { receiptId: id } });
     await prisma.stockReceiptCorrection.deleteMany({ where: { receiptId: id } });
     await prisma.stockReceipt.delete({ where: { id } });
 
-    await logAudit(session.user.id, "inventory.receipt.delete", "StockReceipt", id, {
-      status: receipt.status,
-      moduleSlug: receipt.moduleSlug,
+    await logDeletion(authz, {
+      entity: "StockReceipt",
+      entityId: id,
+      entityLabel: `Склад · приход ${receipt.invoiceNumber ?? id.slice(0, 8)} (${receipt.status})`,
+      moduleSlug: receipt.moduleSlug ?? "inventory",
+      deletionType: "HARD",
+      snapshot: { receipt, items, corrections },
     });
 
     return apiResponse({ receiptId: id, deleted: true });

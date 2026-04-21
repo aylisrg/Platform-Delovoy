@@ -10,6 +10,8 @@ import {
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { hasRole } from "@/lib/permissions";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
+import { prisma } from "@/lib/db";
 import { getOrder, updateOrderStatus, cancelOrder, OrderError } from "@/modules/cafe/service";
 
 /**
@@ -70,6 +72,41 @@ export async function PATCH(
     if (error instanceof OrderError) {
       return apiError(error.code, error.message);
     }
+    return apiServerError();
+  }
+}
+
+/**
+ * DELETE /api/cafe/orders/:id — soft delete a cafe order (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
+
+    const { id } = await params;
+    const order = await getOrder(id);
+    if (!order) return apiNotFound("Заказ не найден");
+
+    await prisma.order.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    await logDeletion(authz, {
+      entity: "Order",
+      entityId: id,
+      entityLabel: `Кафе · заказ ${id.slice(0, 8)}`,
+      moduleSlug: "cafe",
+      snapshot: order,
+    });
+    return apiResponse({ id, deletedAt: new Date().toISOString() });
+  } catch {
     return apiServerError();
   }
 }
