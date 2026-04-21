@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ALLOWED_VARIABLES, validateTemplate } from "./template-engine";
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -219,4 +220,210 @@ export const revenueReportSchema = z.object({
 
 export const expiringReportSchema = z.object({
   days: z.coerce.number().int().positive().optional().default(30),
+});
+
+// === Email templates ===
+
+const TEMPLATE_KEY_RE = /^rental\.[a-z0-9_]+$/;
+const SYSTEM_TEMPLATE_KEYS = new Set([
+  "rental.payment_reminder_pre",
+  "rental.payment_reminder_due",
+  "rental.manual",
+]);
+
+const allowedVariableSchema = z.enum(ALLOWED_VARIABLES);
+
+function assertValidPlaceholders(
+  subject: string,
+  bodyHtml: string,
+  bodyText?: string | null
+) {
+  const check = validateTemplate(subject, bodyHtml, bodyText ?? "");
+  if (!check.ok) {
+    throw new Error(
+      `Неизвестные переменные в шаблоне: ${check.invalid.map((v) => `{{${v}}}`).join(", ")}`
+    );
+  }
+}
+
+export const createEmailTemplateSchema = z
+  .object({
+    key: z
+      .string()
+      .regex(TEMPLATE_KEY_RE, "Ключ должен соответствовать шаблону: rental.snake_case")
+      .max(100),
+    name: z.string().min(1).max(200),
+    subject: z.string().min(1).max(500),
+    bodyHtml: z.string().min(1).max(50000),
+    bodyText: z.string().max(50000).optional().nullable(),
+    variables: z.array(allowedVariableSchema).default([]),
+    isActive: z.boolean().default(true),
+  })
+  .superRefine((data, ctx) => {
+    if (SYSTEM_TEMPLATE_KEYS.has(data.key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Этот ключ зарезервирован для системного шаблона",
+        path: ["key"],
+      });
+    }
+    try {
+      assertValidPlaceholders(data.subject, data.bodyHtml, data.bodyText);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : "Invalid placeholders",
+      });
+    }
+  });
+
+export const updateEmailTemplateSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    subject: z.string().min(1).max(500).optional(),
+    bodyHtml: z.string().min(1).max(50000).optional(),
+    bodyText: z.string().max(50000).nullable().optional(),
+    variables: z.array(allowedVariableSchema).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const subject = data.subject ?? "";
+    const body = data.bodyHtml ?? "";
+    const text = data.bodyText ?? "";
+    if (subject || body || text) {
+      try {
+        assertValidPlaceholders(subject, body, text);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : "Invalid placeholders",
+        });
+      }
+    }
+  });
+
+export const previewTemplateSchema = z.object({
+  sampleVars: z.record(z.string(), z.string()).optional(),
+});
+
+export function isSystemTemplateKey(key: string): boolean {
+  return SYSTEM_TEMPLATE_KEYS.has(key);
+}
+
+// === Rental notification settings ===
+
+export const updateRentalSettingsSchema = z.object({
+  preReminderDays: z.number().int().min(1).max(30).optional(),
+  escalationDaysAfter: z.number().int().min(1).max(30).optional(),
+  autoSendEnabled: z.boolean().optional(),
+  fromEmail: z.string().email().optional(),
+  fromName: z.string().min(1).max(200).optional(),
+  bankDetails: z.string().max(5000).nullable().optional(),
+  managerName: z.string().max(200).nullable().optional(),
+  managerPhone: z.string().max(50).nullable().optional(),
+  escalationTelegramEnabled: z.boolean().optional(),
+  escalationTelegramChatId: z.string().max(100).nullable().optional(),
+});
+
+// === Manual email send ===
+
+export const sendEmailSchema = z
+  .object({
+    tenantId: z.string().optional(),
+    contractId: z.string().optional(),
+    to: z.array(z.string().email()).min(1, "Нужен хотя бы один адрес").max(10),
+    templateKey: z.string().optional(),
+    customSubject: z.string().min(1).max(500).optional(),
+    customBodyHtml: z.string().min(1).max(100000).optional(),
+    variables: z.record(z.string(), z.string()).optional(),
+  })
+  .refine((d) => d.tenantId || d.contractId, {
+    message: "Нужен tenantId или contractId",
+    path: ["tenantId"],
+  })
+  .refine(
+    (d) => d.templateKey || (d.customSubject && d.customBodyHtml),
+    {
+      message: "Нужен templateKey или customSubject+customBodyHtml",
+      path: ["templateKey"],
+    }
+  )
+  .superRefine((d, ctx) => {
+    if (!d.templateKey) {
+      try {
+        assertValidPlaceholders(d.customSubject ?? "", d.customBodyHtml ?? "");
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : "Invalid placeholders",
+        });
+      }
+    }
+  });
+
+export const bulkSendEmailSchema = z.object({
+  tenantIds: z.array(z.string()).min(1).max(100),
+  templateKey: z.string().optional(),
+  customSubject: z.string().min(1).max(500).optional(),
+  customBodyHtml: z.string().min(1).max(100000).optional(),
+  variables: z.record(z.string(), z.string()).optional(),
+});
+
+// === Payments ===
+
+export const updatePaymentSchema = z
+  .object({
+    paidAt: z.string().datetime().nullable().optional(),
+    amount: z.number().positive().optional(),
+    amountAdjustmentReason: z.string().min(3).max(500).optional(),
+  })
+  .refine(
+    (d) => d.amount === undefined || (d.amountAdjustmentReason && d.amountAdjustmentReason.length >= 3),
+    { message: "При изменении суммы укажите причину", path: ["amountAdjustmentReason"] }
+  );
+
+export const paymentsListQuerySchema = z.object({
+  year: z.coerce.number().int().min(2020).max(2100).optional(),
+  status: z.enum(["paid", "unpaid", "all"]).optional().default("all"),
+});
+
+export const upcomingPaymentsQuerySchema = z.object({
+  withinDays: z.coerce.number().int().min(1).max(60).optional().default(7),
+});
+
+// === Manager tasks ===
+
+export const updateTaskSchema = z
+  .object({
+    status: z.enum(["RESOLVED", "DEFERRED"]),
+    resolution: z
+      .enum(["PAYMENT_RECEIVED", "TENANT_DEFERRED", "CONTRACT_TERMINATING", "OTHER"])
+      .optional(),
+    resolutionNote: z.string().max(1000).optional(),
+    deferUntil: z.string().datetime().optional(),
+    markPaymentPaid: z.boolean().default(false),
+  })
+  .refine((d) => d.status !== "DEFERRED" || !!d.deferUntil, {
+    message: "При отсрочке укажите до какой даты",
+    path: ["deferUntil"],
+  });
+
+export const taskListQuerySchema = z.object({
+  status: z.enum(["OPEN", "RESOLVED", "DEFERRED"]).optional(),
+  assignedToId: z.string().optional(),
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(100).optional().default(50),
+});
+
+// === Email log ===
+
+export const emailLogQuerySchema = z.object({
+  tenantId: z.string().optional(),
+  contractId: z.string().optional(),
+  type: z.enum(["MANUAL", "PAYMENT_PRE_REMINDER", "PAYMENT_DUE_REMINDER", "ESCALATION_INTERNAL"]).optional(),
+  status: z.enum(["SENT", "FAILED"]).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(100).optional().default(50),
 });

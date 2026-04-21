@@ -249,10 +249,22 @@ export default function ReceiptsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      const json = await res.json() as {
+        success: boolean;
+        data?: { status?: string; autoConfirmed?: boolean; confirmError?: string };
+        error?: { message?: string };
+      };
 
       if (json.success) {
-        setBanner({ type: "success", text: "Приход записан успешно" });
+        const autoConfirmed = json.data?.autoConfirmed === true || json.data?.status === "CONFIRMED";
+        const confirmError = json.data?.confirmError;
+        setBanner(
+          autoConfirmed
+            ? { type: "success", text: "Приход записан и подтверждён — остатки обновлены" }
+            : confirmError
+              ? { type: "error", text: `Приход записан, но подтверждение не прошло: ${confirmError}. Остатки не обновлены.` }
+              : { type: "success", text: "Приход записан. Ожидает подтверждения администратором — остатки обновятся после этого." }
+        );
         setSupplierId("");
         setInvoiceNumber("");
         setReceivedAt(today());

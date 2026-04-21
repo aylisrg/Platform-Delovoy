@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiNotFound, apiServerError, apiValidationError, apiUnauthorized, apiForbidden } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
+import { prisma } from "@/lib/db";
 import { getResource, updateResource } from "@/modules/gazebos/service";
 import { updateResourceSchema } from "@/modules/gazebos/validation";
 
@@ -46,6 +48,41 @@ export async function PATCH(
 
     const updated = await updateResource(id, parsed.data);
     return apiResponse(updated);
+  } catch {
+    return apiServerError();
+  }
+}
+
+/**
+ * DELETE /api/gazebos/:id — soft delete a gazebo resource (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
+
+    const { id } = await params;
+    const resource = await getResource(id);
+    if (!resource) return apiNotFound("Беседка не найдена");
+
+    await prisma.resource.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+
+    await logDeletion(authz, {
+      entity: "Resource",
+      entityId: id,
+      entityLabel: `Беседка · ${resource.name}`,
+      moduleSlug: "gazebos",
+      snapshot: resource,
+    });
+    return apiResponse({ id, deletedAt: new Date().toISOString() });
   } catch {
     return apiServerError();
   }

@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { getSku, updateSku, archiveSku, InventoryError } from "@/modules/inventory/service";
 import { updateSkuSchema } from "@/modules/inventory/validation";
 
@@ -58,21 +59,31 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/inventory/sku/:id — archive SKU (SUPERADMIN)
+ * DELETE /api/inventory/sku/:id — archive (soft delete) SKU (SUPERADMIN only)
+ * Body: { password: string, reason?: string }
  */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN") return apiForbidden();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
+    const existing = await getSku(id);
+    if (!existing) return apiNotFound("Товар не найден");
+
     const result = await archiveSku(id);
 
-    await logAudit(session.user.id, "inventory.sku.archive", "InventorySku", id);
+    await logDeletion(authz, {
+      entity: "InventorySku",
+      entityId: id,
+      entityLabel: `Склад · ${existing.name}`,
+      moduleSlug: "inventory",
+      snapshot: existing,
+    });
 
     return apiResponse(result);
   } catch (error) {
