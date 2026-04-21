@@ -24,6 +24,8 @@ export type TransactionalEmailParams = {
   subject: string;
   html: string;
   text?: string;
+  from?: string;
+  fromName?: string;
 };
 
 /**
@@ -34,10 +36,22 @@ export async function sendTransactionalEmail(
   params: TransactionalEmailParams
 ): Promise<{ success: boolean; error?: string }> {
   const transporter = getTransporter();
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@delovoy-park.ru";
+  const defaultFrom =
+    process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@delovoy-park.ru";
+  const fromAddress = params.from || defaultFrom;
+  const from = params.fromName
+    ? `"${params.fromName.replace(/"/g, "'")}" <${fromAddress}>`
+    : fromAddress;
 
   if (!transporter) {
-    console.log("[Email] (no SMTP credentials) To:", params.to, "Subject:", params.subject);
+    console.log(
+      "[Email] (no SMTP credentials) From:",
+      from,
+      "To:",
+      params.to,
+      "Subject:",
+      params.subject
+    );
     console.log("[Email] HTML:", params.html);
     return { success: true };
   }

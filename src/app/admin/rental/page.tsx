@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AdminHeader } from "@/components/admin/header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { TenantList } from "@/components/admin/rental/tenant-list";
 import { OfficeList } from "@/components/admin/rental/office-list";
 import { ContractList } from "@/components/admin/rental/contract-list";
 import { DealKanban } from "@/components/admin/rental/deal-kanban";
+import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +46,23 @@ const contractStatusVariant: Record<ContractStatus, "warning" | "success" | "def
 };
 
 export default async function RentalManagerPage() {
+  const session = await auth();
+  const isSuperadmin = session?.user?.role === "SUPERADMIN";
   const now = new Date();
+  const overdueTasksCount = await prisma.managerTask.count({
+    where: { moduleSlug: "rental", status: "OPEN", type: "OVERDUE_PAYMENT" },
+  });
+  const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const upcomingCount = await prisma.rentalPayment.count({
+    where: {
+      paidAt: null,
+      dueDate: { lte: in7Days },
+      contract: { status: { in: ["ACTIVE", "EXPIRING"] } },
+    },
+  });
+  const settings = await prisma.rentalNotificationSettings.findUnique({
+    where: { id: "singleton" },
+  });
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -160,6 +178,57 @@ export default async function RentalManagerPage() {
     <>
       <AdminHeader title="Аренда — CRM" />
       <div className="p-6 lg:p-8">
+        <div className="mb-6 flex flex-wrap gap-2 text-sm">
+          <Link
+            href="/admin/rental/payments"
+            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+          >
+            Ожидают оплаты
+            {upcomingCount > 0 && (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white">
+                {upcomingCount}
+              </span>
+            )}
+          </Link>
+          <Link
+            href="/admin/rental/tasks"
+            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+          >
+            Задачи менеджера
+            {overdueTasksCount > 0 && (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                {overdueTasksCount}
+              </span>
+            )}
+          </Link>
+          <Link
+            href="/admin/rental/email-log"
+            className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+          >
+            Журнал писем
+          </Link>
+          {isSuperadmin && (
+            <>
+              <Link
+                href="/admin/rental/email-templates"
+                className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+              >
+                Шаблоны писем
+              </Link>
+              <Link
+                href="/admin/rental/notification-settings"
+                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+              >
+                Настройки рассылок
+                {settings && !settings.autoSendEnabled && (
+                  <span className="text-[11px] font-semibold text-amber-600">
+                    · выкл.
+                  </span>
+                )}
+              </Link>
+            </>
+          )}
+        </div>
         <RentalTabs>
           {{
             overview: (
