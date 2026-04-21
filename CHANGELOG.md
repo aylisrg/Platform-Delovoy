@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.6.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.5.0...v1.6.0) (2026-04-21)
+
+
+### Features
+
+* add SuperAdmin booking deletion for gazebos and ps-park ([#138](https://github.com/aylisrg/Platform-Delovoy/issues/138)) ([a3a0401](https://github.com/aylisrg/Platform-Delovoy/commit/a3a0401f20b074606368852c581995a24539be47))
+* **admin:** draggable cards on dashboard ([#142](https://github.com/aylisrg/Platform-Delovoy/issues/142)) ([e46de38](https://github.com/aylisrg/Platform-Delovoy/commit/e46de38756f954ffb361d89e7352727f68433d45))
+* **admin:** notification routing — per-module Telegram chat configuration ([#125](https://github.com/aylisrg/Platform-Delovoy/issues/125)) ([8b4613c](https://github.com/aylisrg/Platform-Delovoy/commit/8b4613cbf97b40a76879aca4d5cc2fa4622b748e))
+* **admin:** SUPERADMIN-only deletion with password confirmation + audit journal ([#145](https://github.com/aylisrg/Platform-Delovoy/issues/145)) ([1f5e01c](https://github.com/aylisrg/Platform-Delovoy/commit/1f5e01cc2c3d1b5bdbd1bf2fc0d27698df8c0895))
+* **infra:** staging environment + app-level backup strategy ([#146](https://github.com/aylisrg/Platform-Delovoy/issues/146)) ([d2df145](https://github.com/aylisrg/Platform-Delovoy/commit/d2df145c1691417decd4dfddf8032f720c32ecca))
+* **inventory:** edit receipts & view correction history ([#149](https://github.com/aylisrg/Platform-Delovoy/issues/149)) ([5bfc20d](https://github.com/aylisrg/Platform-Delovoy/commit/5bfc20da0cf960742081c2bb464f2677fe971f1a))
+* **inventory:** receipt detail page with edit, correction & history ([#153](https://github.com/aylisrg/Platform-Delovoy/issues/153)) ([e3eca61](https://github.com/aylisrg/Platform-Delovoy/commit/e3eca61b72e7974444c0dec1785e078dac3c2628))
+* move logout button to header and add version footer in admin ([#137](https://github.com/aylisrg/Platform-Delovoy/issues/137)) ([16dceec](https://github.com/aylisrg/Platform-Delovoy/commit/16dceec05a507a4b9257f1fc034d0284c989e6e3))
+* **rental:** auto-create deals in pipeline when inquiry submitted ([#127](https://github.com/aylisrg/Platform-Delovoy/issues/127)) ([30a313b](https://github.com/aylisrg/Platform-Delovoy/commit/30a313b34381aa27db8bbfdf61e7527a910c4aa8))
+* **rental:** email notifications & payment tracking system ([#143](https://github.com/aylisrg/Platform-Delovoy/issues/143)) ([922f5b3](https://github.com/aylisrg/Platform-Delovoy/commit/922f5b34e1404368600c577c6ef93c843fcc4c64))
+* **rental:** Kanban-воронка продаж аренды с drag-and-drop ([#124](https://github.com/aylisrg/Platform-Delovoy/issues/124)) ([c5d0041](https://github.com/aylisrg/Platform-Delovoy/commit/c5d0041775029136b449de0214d821b0010c1b72))
+* **ux:** call widget redesign with visible phone number for Барбекью и Плей Парк ([#151](https://github.com/aylisrg/Platform-Delovoy/issues/151)) ([55ca8cb](https://github.com/aylisrg/Platform-Delovoy/commit/55ca8cb6894c57b87ef7d75fc12d8b2057ca9de1))
+
+
+### Bug Fixes
+
+* **auth:** fix Telegram/Yandex/email auth + remove WhatsApp ([#152](https://github.com/aylisrg/Platform-Delovoy/issues/152)) ([88a121e](https://github.com/aylisrg/Platform-Delovoy/commit/88a121ebaab2d18c686aceac7120cdd11ed3837d))
+* **email:** switch SMTP to port 587 (STARTTLS) — 465 blocked by VPS ([#150](https://github.com/aylisrg/Platform-Delovoy/issues/150)) ([43407ac](https://github.com/aylisrg/Platform-Delovoy/commit/43407acc3d0a9cbb0d6e1f95aa16d4d8d2bba27b))
+* **inventory:** auto-confirm receipt on create for SUPERADMIN/ADMIN ([#144](https://github.com/aylisrg/Platform-Delovoy/issues/144)) ([2cb33dd](https://github.com/aylisrg/Platform-Delovoy/commit/2cb33dd26f4824d9a87972c7db8625d6796103ea))
+* **users:** add ADMIN to role enum validation schemas ([#141](https://github.com/aylisrg/Platform-Delovoy/issues/141)) ([5c4a24f](https://github.com/aylisrg/Platform-Delovoy/commit/5c4a24f8371a167996c3381cf1f1d3511b8fde5b))
+
 ## [1.5.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.4.0...v1.5.0) (2026-04-18)
 
 
