@@ -199,6 +199,10 @@ jobs:
             done
 
             if [ "$HEALTHY" = true ]; then
+              echo "=== Run data migrations ==="
+              docker compose exec -T app npx tsx scripts/set-public-phone.ts \
+                && echo "✅ Phone config applied" \
+                || echo "⚠️ set-public-phone.ts failed — check manually"
               exit 0
             fi
 
