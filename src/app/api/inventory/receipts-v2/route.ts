@@ -9,8 +9,13 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
-import { hasModuleAccess, getUserModules } from "@/lib/permissions";
-import { createStockReceipt, listReceipts, InventoryError } from "@/modules/inventory/service-v2";
+import { canConfirmReceipt, hasModuleAccess, getUserModules } from "@/lib/permissions";
+import {
+  createStockReceipt,
+  confirmReceipt,
+  listReceipts,
+  InventoryError,
+} from "@/modules/inventory/service-v2";
 import { createStockReceiptSchema, receiptFilterSchema } from "@/modules/inventory/validation";
 
 export async function GET(request: NextRequest) {
@@ -91,7 +96,48 @@ export async function POST(request: NextRequest) {
       moduleSlug: parsed.data.moduleSlug,
     });
 
-    return apiResponse(result, undefined, 201);
+    // Auto-confirm when the author is also allowed to confirm — SUPERADMIN always,
+    // ADMIN with access to the module. Otherwise (MANAGER, или ADMIN без модуля)
+    // приход остаётся в DRAFT и ждёт подтверждения.
+    //
+    // Без этого SUPERADMIN добавлял позиции, но stockQuantity не увеличивался,
+    // потому что остатки пересчитываются только в confirmReceipt.
+    const moduleSlugForPerms = parsed.data.moduleSlug ?? "cafe";
+    const canAutoConfirm = await canConfirmReceipt(
+      { id: session.user.id, role },
+      moduleSlugForPerms
+    );
+
+    if (canAutoConfirm) {
+      try {
+        const confirmed = await confirmReceipt(result.receiptId, session.user.id);
+        await logAudit(
+          session.user.id,
+          "inventory.receipt.confirm",
+          "StockReceipt",
+          result.receiptId,
+          { batchIds: confirmed.batchIds, autoConfirmed: true }
+        );
+        return apiResponse(
+          { ...result, status: confirmed.status, batchIds: confirmed.batchIds, autoConfirmed: true },
+          undefined,
+          201
+        );
+      } catch (err) {
+        // Подтверждение упало — отдаём DRAFT-ответ плюс поле ошибки,
+        // чтобы UI показал вменяемое сообщение, а не пустое "успех".
+        if (err instanceof InventoryError) {
+          return apiResponse(
+            { ...result, autoConfirmed: false, confirmError: err.message },
+            undefined,
+            201
+          );
+        }
+        throw err;
+      }
+    }
+
+    return apiResponse({ ...result, autoConfirmed: false }, undefined, 201);
   } catch (error) {
     if (error instanceof InventoryError) return apiError(error.code, error.message);
     return apiServerError();
