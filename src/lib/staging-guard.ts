@@ -1,0 +1,172 @@
+/**
+ * Staging environment helpers — edge-compatible (no Prisma / no Node built-ins
+ * other than global `atob`), safe to import from middleware/proxy.
+ *
+ * Two responsibilities:
+ *   1. `isStaging()` — feature flag for UI components (banner, title tweaks).
+ *   2. `checkStagingBasicAuth()` — gate middleware on staging-only Basic Auth.
+ *
+ * Credentials are read lazily from process.env at call time so that swapping
+ * `.env.staging` doesn't require a rebuild.
+ */
+
+/** True when the runtime is flagged as staging. */
+export function isStaging(): boolean {
+  // NODE_ENV is typed as "development"|"production"|"test" в стандартных
+  // Next.js типах — но в рантайме мы кладём туда "staging". Cast через string.
+  const nodeEnv = process.env.NODE_ENV as string | undefined;
+  const publicEnv = process.env.NEXT_PUBLIC_ENV;
+  const lockdown = process.env.STAGING_LOCKDOWN;
+  return (
+    nodeEnv === "staging" ||
+    publicEnv === "staging" ||
+    lockdown === "true" ||
+    lockdown === "1"
+  );
+}
+
+/** Result of the Basic Auth check. */
+export type BasicAuthResult =
+  | { ok: true }
+  | { ok: false; reason: "missing" | "invalid" };
+
+/**
+ * Verify an HTTP Basic Authorization header against the configured
+ * STAGING_BASIC_AUTH_USER/PASS env pair. Does nothing (returns ok) if
+ * credentials aren't configured — callers must branch on `isStaging()`
+ * separately to decide whether to require the header at all.
+ */
+export function checkStagingBasicAuth(
+  header: string | null | undefined
+): BasicAuthResult {
+  const user = process.env.STAGING_BASIC_AUTH_USER;
+  const pass = process.env.STAGING_BASIC_AUTH_PASS;
+  // If creds not configured, the guard is a no-op (rely on app-level lockdown only).
+  if (!user || !pass) return { ok: true };
+
+  if (!header || !header.toLowerCase().startsWith("basic ")) {
+    return { ok: false, reason: "missing" };
+  }
+  const encoded = header.slice(6).trim();
+  let decoded: string;
+  try {
+    // atob is available in Edge runtime
+    decoded = atob(encoded);
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+  const sep = decoded.indexOf(":");
+  if (sep === -1) return { ok: false, reason: "invalid" };
+  const gotUser = decoded.slice(0, sep);
+  const gotPass = decoded.slice(sep + 1);
+
+  // Constant-ish-time comparison: length first, then each char.
+  if (gotUser.length !== user.length || gotPass.length !== pass.length) {
+    return { ok: false, reason: "invalid" };
+  }
+  let diff = 0;
+  for (let i = 0; i < user.length; i++) {
+    diff |= user.charCodeAt(i) ^ gotUser.charCodeAt(i);
+  }
+  for (let i = 0; i < pass.length; i++) {
+    diff |= pass.charCodeAt(i) ^ gotPass.charCodeAt(i);
+  }
+  return diff === 0 ? { ok: true } : { ok: false, reason: "invalid" };
+}
+
+/**
+ * Build a 401 Response asking the browser for credentials.
+ */
+export function stagingBasicAuthChallenge(): Response {
+  return new Response("Staging — требуется авторизация", {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": 'Basic realm="Delovoy Staging", charset="UTF-8"',
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
+
+/**
+ * Which request paths are always allowed, even on a locked-down staging
+ * (used by Timeweb / uptime monitors).
+ */
+export function isStagingPublicPath(pathname: string): boolean {
+  return (
+    pathname === "/api/health" ||
+    pathname === "/api/health/" ||
+    pathname.startsWith("/_next/static/") ||
+    pathname.startsWith("/favicon")
+  );
+}
+
+/**
+ * High-level helper used by middleware/proxy: returns null when the request
+ * is allowed to proceed, or a 401 Response when Basic Auth is required but
+ * missing/invalid. Must be a no-op off-staging so production isn't affected.
+ */
+export function enforceStagingBasicAuth(
+  request: { headers: Headers; nextUrl: { pathname: string } }
+): Response | null {
+  if (!isStaging()) return null;
+  if (isStagingPublicPath(request.nextUrl.pathname)) return null;
+
+  const result = checkStagingBasicAuth(request.headers.get("authorization"));
+  if (result.ok) return null;
+  return stagingBasicAuthChallenge();
+}
+
+/** HTTP methods considered mutating — subject to SUPERADMIN-only gate on staging. */
+const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+/** Minimal session shape consumed by the role gate. Keeps edge-compat (no next-auth import). */
+type SessionLike = { user?: { role?: string | null } | null } | null | undefined;
+
+/**
+ * Build a 403 JSON response for staging mutating requests from non-SUPERADMIN users.
+ * Mirrors the shape of `apiError()` from `@/lib/api-response` without importing
+ * NextResponse (keeps the module Edge-safe for use in middleware/proxy).
+ */
+function stagingReadOnlyResponse(): Response {
+  const body = JSON.stringify({
+    success: false,
+    error: {
+      code: "STAGING_READ_ONLY",
+      message: "Staging доступен только SUPERADMIN для изменений",
+    },
+  });
+  return new Response(body, {
+    status: 403,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
+}
+
+/**
+ * ADR §9.1 — на staging все mutating endpoints (POST/PATCH/PUT/DELETE),
+ * кроме `/api/auth/*` и `/api/health*`, должны требовать
+ * `session.user.role === "SUPERADMIN"`. Иначе авторизованный USER/MANAGER
+ * мог бы создавать бронирования/заказы прямо на staging.
+ *
+ * Returns:
+ *   - `null` — проход разрешён (не staging, read-only запрос, whitelisted path,
+ *     либо у пользователя роль SUPERADMIN).
+ *   - `Response` 403 STAGING_READ_ONLY — иначе.
+ */
+export function enforceStagingRoleCheck(
+  request: { method: string; nextUrl: { pathname: string } },
+  session: SessionLike
+): Response | null {
+  if (!isStaging()) return null;
+
+  const method = (request.method ?? "GET").toUpperCase();
+  if (!MUTATING_METHODS.has(method)) return null;
+
+  const { pathname } = request.nextUrl;
+  // Auth and health endpoints must remain reachable for login / uptime checks.
+  if (pathname.startsWith("/api/auth/")) return null;
+  if (pathname.startsWith("/api/health")) return null;
+
+  if (session?.user?.role === "SUPERADMIN") return null;
+
+  return stagingReadOnlyResponse();
+}

@@ -1,42 +1,73 @@
 #!/usr/bin/env bash
-# Setup staging environment on VPS
-# Run once: ssh deploy@VPS 'bash -s' < scripts/setup-staging.sh
-
+# Bootstrap staging environment on VPS — запустить один раз.
+#
+# Использование (локально):
+#   ssh deploy@VPS 'bash -s' < scripts/setup-staging.sh
+#
+# После успеха см. docs/staging-setup.md для DNS / SSL / htpasswd шагов.
 set -euo pipefail
 
-echo "=== Setting up staging environment ==="
+STAGING_DIR="/opt/delovoy-park-staging"
+REPO_DIR="${REPO_DIR:-/opt/delovoy-park}"
 
-# Create staging directory
-sudo mkdir -p /opt/delovoy-park-staging
-sudo chown deploy:deploy /opt/delovoy-park-staging
+log() { echo "[$(date -u +%FT%TZ)] $*"; }
 
-# Copy staging compose file
-echo "Copy docker-compose.staging.yml to /opt/delovoy-park-staging/"
-echo "(Upload it manually or via git clone)"
+log "=== Platform Delovoy — staging bootstrap ==="
 
-# Create staging env file
-if [ ! -f /opt/delovoy-park-staging/.env.staging ]; then
-  cat > /opt/delovoy-park-staging/.env.staging <<'EOF'
-# Staging environment — auto-generated
-# Copy from production .env and adjust:
-POSTGRES_PASSWORD=staging_password_change_me
-NEXTAUTH_SECRET=staging-secret-change-me
-NEXTAUTH_URL=https://staging.delovoy-park.ru
-NEXT_PUBLIC_APP_URL=https://staging.delovoy-park.ru
-NODE_ENV=production
-EOF
-  echo "Created .env.staging — edit it with correct values!"
-else
-  echo ".env.staging already exists"
+# 1. Dir + ownership
+if [ ! -d "$STAGING_DIR" ]; then
+  sudo mkdir -p "$STAGING_DIR"
+  sudo chown "$USER:$USER" "$STAGING_DIR"
 fi
 
-# Setup Nginx
-echo "=== Nginx setup ==="
-if [ ! -f /etc/nginx/sites-available/staging.delovoy-park.ru ]; then
-  sudo tee /etc/nginx/sites-available/staging.delovoy-park.ru > /dev/null <<'NGINX'
+# 2. Copy compose files from repo
+if [ -f "${REPO_DIR}/docker-compose.staging.yml" ]; then
+  cp "${REPO_DIR}/docker-compose.staging.yml" "${STAGING_DIR}/"
+else
+  log "WARN: ${REPO_DIR}/docker-compose.staging.yml not found — предполагаем, что ты зальёшь вручную"
+fi
+
+# 3. .env.staging — шаблон, без секретов
+if [ ! -f "${STAGING_DIR}/.env.staging" ]; then
+  if [ -f "${REPO_DIR}/.env.staging.example" ]; then
+    cp "${REPO_DIR}/.env.staging.example" "${STAGING_DIR}/.env.staging"
+    chmod 600 "${STAGING_DIR}/.env.staging"
+    log "Создан ${STAGING_DIR}/.env.staging — ОБЯЗАТЕЛЬНО заполни секреты перед запуском"
+  else
+    log "WARN: .env.staging.example не найден — создай .env.staging вручную"
+  fi
+else
+  log ".env.staging уже существует"
+fi
+
+# 4. htpasswd для Nginx Basic Auth (первый слой защиты)
+HTPASSWD_FILE="/etc/nginx/.htpasswd-staging"
+if [ ! -f "$HTPASSWD_FILE" ]; then
+  log "Создаём htpasswd для staging Basic Auth…"
+  if command -v htpasswd >/dev/null 2>&1; then
+    log "Запусти вручную: sudo htpasswd -c $HTPASSWD_FILE staging"
+  else
+    log "htpasswd не установлен. Установи: sudo apt install apache2-utils"
+  fi
+fi
+
+# 5. Nginx site
+NGINX_SITE="/etc/nginx/sites-available/staging.delovoy-park.ru"
+if [ ! -f "$NGINX_SITE" ]; then
+  sudo tee "$NGINX_SITE" > /dev/null <<'NGINX'
 server {
     listen 80;
     server_name staging.delovoy-park.ru;
+
+    # Basic Auth (первый слой — защита от индексации/ботов)
+    auth_basic           "Delovoy Staging";
+    auth_basic_user_file /etc/nginx/.htpasswd-staging;
+
+    # /api/health доступен без Basic Auth (для uptime-мониторов)
+    location = /api/health {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:3001;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:3001;
@@ -49,31 +80,45 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
         proxy_read_timeout 60s;
+
+        # Защита от индексации — ещё один слой поверх auth_basic
+        add_header X-Robots-Tag "noindex, nofollow, nosnippet, noarchive" always;
     }
 
     location /_next/static/ {
         proxy_pass http://127.0.0.1:3001;
         expires 365d;
         add_header Cache-Control "public, immutable";
+        add_header X-Robots-Tag "noindex, nofollow" always;
     }
 }
 NGINX
-
-  sudo ln -sf /etc/nginx/sites-available/staging.delovoy-park.ru /etc/nginx/sites-enabled/
+  sudo ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/
   sudo nginx -t && sudo systemctl reload nginx
-  echo "Nginx configured for staging.delovoy-park.ru"
-
-  # SSL via Certbot
-  echo "=== SSL setup ==="
-  echo "Run: sudo certbot --nginx -d staging.delovoy-park.ru"
+  log "Nginx configured для staging.delovoy-park.ru"
 else
-  echo "Nginx config already exists"
+  log "Nginx config уже существует — не трогаю"
+fi
+
+# 6. Start stack (если .env.staging заполнен)
+if [ -f "${STAGING_DIR}/.env.staging" ]; then
+  cd "$STAGING_DIR"
+  if grep -q "change-me" .env.staging; then
+    log "⚠️  В .env.staging остались плейсхолдеры 'change-me' — СНАЧАЛА заполни, потом запускай стек"
+  else
+    log "Поднимаем staging-стек…"
+    docker compose -f docker-compose.staging.yml up -d postgres redis
+    sleep 10
+    docker compose -f docker-compose.staging.yml up -d app
+    log "Применяем миграции в staging БД…"
+    docker compose -f docker-compose.staging.yml exec -T app npx prisma migrate deploy || log "WARN: prisma migrate deploy упал — проверь логи"
+  fi
 fi
 
 echo ""
-echo "=== Next steps ==="
-echo "1. Add DNS A-record: staging.delovoy-park.ru → $(curl -s ifconfig.me)"
-echo "2. Edit /opt/delovoy-park-staging/.env.staging"
-echo "3. Copy docker-compose.staging.yml to /opt/delovoy-park-staging/"
-echo "4. Run: sudo certbot --nginx -d staging.delovoy-park.ru"
-echo "5. Push to main — staging auto-deploys!"
+log "=== Следующие шаги ==="
+log "1. DNS A-record: staging.delovoy-park.ru → $(curl -s ifconfig.me || echo '<VPS_IP>')"
+log "2. Заполни секреты в ${STAGING_DIR}/.env.staging (все 'change-me')"
+log "3. sudo htpasswd -c /etc/nginx/.htpasswd-staging staging"
+log "4. sudo certbot --nginx -d staging.delovoy-park.ru"
+log "5. Запусти GitHub Action 'Deploy to Staging' вручную для проверки деплоя"

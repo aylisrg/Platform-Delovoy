@@ -15,8 +15,17 @@ import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
 import { handleLinkDeepLink } from "./handlers/link";
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
+// On staging we prefer a dedicated bot + chat so that real clients don't receive
+// test events. Fall back to the default env if staging-specific values aren't set
+// (e.g. early staging bootstrap) — but the staging compose supplies them.
+const IS_STAGING =
+  process.env.NODE_ENV === "staging" || process.env.NEXT_PUBLIC_ENV === "staging";
+const BOT_TOKEN = IS_STAGING
+  ? process.env.TELEGRAM_STAGING_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
+  : process.env.TELEGRAM_BOT_TOKEN;
+const ADMIN_CHAT_ID = IS_STAGING
+  ? process.env.TELEGRAM_STAGING_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID
+  : process.env.TELEGRAM_ADMIN_CHAT_ID;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 type AlertLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
@@ -100,6 +109,15 @@ async function startBot() {
   if (!BOT_TOKEN) {
     console.error("[Bot] TELEGRAM_BOT_TOKEN is required");
     process.exit(1);
+  }
+
+  // Safety net: на staging требуем явно заданный TELEGRAM_STAGING_BOT_TOKEN,
+  // иначе стейдж может начать отвечать под именем прод-бота реальным клиентам.
+  if (IS_STAGING && !process.env.TELEGRAM_STAGING_BOT_TOKEN) {
+    console.warn(
+      "[Bot] NODE_ENV=staging но TELEGRAM_STAGING_BOT_TOKEN не задан — бот НЕ запускается, чтобы не отвечать прод-клиентам."
+    );
+    return;
   }
 
   const bot = new Bot(BOT_TOKEN);

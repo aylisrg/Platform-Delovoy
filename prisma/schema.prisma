@@ -37,6 +37,7 @@ model User {
   auditLogs              AuditLog[]
   feedbackItems          FeedbackItem[]
   telegramLinkTokens     TelegramLinkToken[]
+  backupLogs             BackupLog[]
 }
 
 model Account {
@@ -720,6 +721,63 @@ model DeletionLog {
   @@index([entity, entityId])
   @@index([moduleSlug, createdAt])
   @@index([createdAt])
+}
+
+// === BACKUPS (infra audit + restore tracking) ===
+
+enum BackupType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  PRE_MIGRATION
+  MANUAL
+  RESTORE
+}
+
+enum BackupStatus {
+  IN_PROGRESS
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum RestoreScope {
+  FULL
+  TABLE
+  RECORD
+}
+
+model BackupLog {
+  id             String       @id @default(cuid())
+  type           BackupType
+  status         BackupStatus @default(IN_PROGRESS)
+  sizeBytes      BigInt?
+  storagePath    String?
+  checksum       String?
+
+  // For RESTORE rows
+  sourceBackupId String?
+  scope          RestoreScope?
+  targetTable    String?
+  targetKey      Json?
+  affectedRows   Int?
+
+  // For PRE_MIGRATION rows
+  migrationTag   String?
+
+  performedById  String?
+  performedBy    User?        @relation(fields: [performedById], references: [id])
+
+  durationMs     Int?
+  error          String?       @db.Text
+  metadata       Json?
+
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+
+  @@index([type, createdAt])
+  @@index([status])
+  @@index([performedById])
 }
 
 // === INVENTORY ===

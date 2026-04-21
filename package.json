@@ -17,6 +17,7 @@
     "agents:eval": "npx tsx eval/runner.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:prod": "bash scripts/pre-migration-backup.sh \"${MIGRATION_TAG:-$npm_package_version}\" && prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed": "npx tsx scripts/seed.ts",
     "setup:metrika": "node --env-file=.env --import tsx/esm scripts/setup-metrika-goals.ts",
