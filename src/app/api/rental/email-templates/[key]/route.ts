@@ -12,6 +12,7 @@ import {
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   isSystemTemplateKey,
   updateEmailTemplateSchema,
@@ -43,6 +44,9 @@ export async function PATCH(
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (session.user.role !== "SUPERADMIN") return apiForbidden();
+
+    const rl = await rateLimit(request, "authenticated");
+    if (rl) return rl;
 
     const { key } = await params;
     const body = await request.json();

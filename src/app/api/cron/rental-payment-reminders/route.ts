@@ -4,10 +4,16 @@ import { runRentalPaymentReminders } from "@/modules/rental/scheduler";
 import { timingSafeEqual } from "node:crypto";
 
 function safeCompare(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
+  // Constant-time compare that also resists length-based timing probes:
+  // always compare buffers of the same length, then AND the result with
+  // the length-equality bit at the end.
+  const maxLen = Math.max(a.length, b.length, 32);
+  const aBuf = Buffer.alloc(maxLen);
+  const bBuf = Buffer.alloc(maxLen);
+  aBuf.write(a);
+  bBuf.write(b);
+  const equal = timingSafeEqual(aBuf, bBuf);
+  return equal && a.length === b.length;
 }
 
 export async function GET(request: NextRequest) {

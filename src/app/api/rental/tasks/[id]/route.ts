@@ -32,33 +32,36 @@ export async function PATCH(
       return apiResponse(task); // already resolved
     }
 
-    const ops: Promise<unknown>[] = [];
+    const markPaid =
+      parsed.data.status === "RESOLVED" &&
+      parsed.data.markPaymentPaid &&
+      !!task.paymentId;
 
-    if (parsed.data.status === "RESOLVED" && parsed.data.markPaymentPaid && task.paymentId) {
-      ops.push(
-        prisma.rentalPayment.update({
-          where: { id: task.paymentId },
-          data: { paidAt: new Date(), markedPaidById: userId },
-        })
-      );
-    }
-
-    const updated = await prisma.managerTask.update({
-      where: { id },
-      data: {
-        status: parsed.data.status,
-        resolvedAt: parsed.data.status === "RESOLVED" ? new Date() : null,
-        resolvedById: parsed.data.status === "RESOLVED" ? userId : null,
-        resolution: parsed.data.resolution ?? null,
-        resolutionNote: parsed.data.resolutionNote ?? null,
-        deferUntil:
-          parsed.data.status === "DEFERRED" && parsed.data.deferUntil
-            ? new Date(parsed.data.deferUntil)
-            : null,
-      },
-    });
-
-    await Promise.all(ops);
+    // Atomic: task resolution + payment mark-paid must succeed together (AC-5.5).
+    const [updated] = await prisma.$transaction([
+      prisma.managerTask.update({
+        where: { id },
+        data: {
+          status: parsed.data.status,
+          resolvedAt: parsed.data.status === "RESOLVED" ? new Date() : null,
+          resolvedById: parsed.data.status === "RESOLVED" ? userId : null,
+          resolution: parsed.data.resolution ?? null,
+          resolutionNote: parsed.data.resolutionNote ?? null,
+          deferUntil:
+            parsed.data.status === "DEFERRED" && parsed.data.deferUntil
+              ? new Date(parsed.data.deferUntil)
+              : null,
+        },
+      }),
+      ...(markPaid && task.paymentId
+        ? [
+            prisma.rentalPayment.update({
+              where: { id: task.paymentId },
+              data: { paidAt: new Date(), markedPaidById: userId },
+            }),
+          ]
+        : []),
+    ]);
 
     await logAudit(userId, "manager_task.resolved", "ManagerTask", updated.id, {
       status: updated.status,

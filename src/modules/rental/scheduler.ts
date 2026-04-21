@@ -78,13 +78,13 @@ export async function sendPreReminders(
 
   for (const payment of payments) {
     try {
-      const anySuccess = await sendAutoReminder({
+      const result = await sendAutoReminder({
         payment,
         templateKey: "rental.payment_reminder_pre",
         type: "PAYMENT_PRE_REMINDER",
         settings,
       });
-      if (anySuccess) {
+      if (result.outcome === "SENT") {
         await prisma.rentalPayment.update({
           where: { id: payment.id },
           data: { firstReminderSentAt: new Date() },
@@ -92,6 +92,17 @@ export async function sendPreReminders(
         stats.sent++;
       } else {
         stats.skipped++;
+        if (result.outcome === "TEMPLATE_INACTIVE") {
+          await logSystemEvent("WARNING", "template_inactive", {
+            paymentId: payment.id,
+            templateKey: "rental.payment_reminder_pre",
+          });
+        } else if (result.outcome === "NO_RECIPIENT") {
+          await logSystemEvent("WARNING", "tenant_no_email", {
+            paymentId: payment.id,
+            tenantId: payment.contract.tenantId,
+          });
+        }
       }
     } catch (err) {
       stats.failed++;
@@ -127,13 +138,13 @@ export async function sendDueReminders(now: Date = new Date()): Promise<Reminder
 
   for (const payment of payments) {
     try {
-      const anySuccess = await sendAutoReminder({
+      const result = await sendAutoReminder({
         payment,
         templateKey: "rental.payment_reminder_due",
         type: "PAYMENT_DUE_REMINDER",
         settings,
       });
-      if (anySuccess) {
+      if (result.outcome === "SENT") {
         await prisma.rentalPayment.update({
           where: { id: payment.id },
           data: { dueDateReminderSentAt: new Date() },
@@ -141,6 +152,12 @@ export async function sendDueReminders(now: Date = new Date()): Promise<Reminder
         stats.sent++;
       } else {
         stats.skipped++;
+        if (result.outcome === "TEMPLATE_INACTIVE") {
+          await logSystemEvent("WARNING", "template_inactive", {
+            paymentId: payment.id,
+            templateKey: "rental.payment_reminder_due",
+          });
+        }
       }
     } catch (err) {
       stats.failed++;

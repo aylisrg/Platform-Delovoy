@@ -11,6 +11,7 @@ import { logAudit } from "@/lib/logger";
 import { updateRentalSettingsSchema } from "@/modules/rental/validation";
 import { getOrCreateSettings } from "@/modules/rental/notifications";
 import { prisma } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function GET() {
   try {
@@ -30,6 +31,9 @@ export async function PATCH(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (session.user.role !== "SUPERADMIN") return apiForbidden();
+
+    const rl = await rateLimit(request, "authenticated");
+    if (rl) return rl;
 
     const body = await request.json();
     const parsed = updateRentalSettingsSchema.safeParse(body);

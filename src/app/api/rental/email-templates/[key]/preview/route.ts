@@ -10,6 +10,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { previewTemplateSchema } from "@/modules/rental/validation";
 import { renderWithMissing } from "@/modules/rental/template-engine";
+import { sanitizeEmailHtml } from "@/modules/rental/sanitize";
+import { rateLimit } from "@/lib/rate-limit";
 
 const DEMO_VARS: Record<string, string> = {
   tenantName: "ООО «Пример»",
@@ -39,6 +41,9 @@ export async function POST(
     const denied = await requireAdminSection(session, "rental");
     if (denied) return denied;
 
+    const rl = await rateLimit(request, "authenticated");
+    if (rl) return rl;
+
     const { key } = await params;
     const body = await request.json().catch(() => ({}));
     const parsed = previewTemplateSchema.safeParse(body);
@@ -51,7 +56,7 @@ export async function POST(
     const rendered = renderWithMissing(tpl, vars);
     return apiResponse({
       subject: rendered.subject,
-      html: rendered.html,
+      html: sanitizeEmailHtml(rendered.html),
       text: rendered.text,
       missingVars: rendered.missingVars,
     });

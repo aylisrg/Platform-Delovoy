@@ -864,7 +864,7 @@ export async function importFromJson(data: ImportData): Promise<ImportResult> {
       const endDate = new Date(c.endDate);
       const status = autoContractStatus(startDate, endDate);
 
-      await prisma.rentalContract.create({
+      const created = await prisma.rentalContract.create({
         data: {
           tenantId,
           officeId,
@@ -889,6 +889,8 @@ export async function importFromJson(data: ImportData): Promise<ImportResult> {
           data: { status: "OCCUPIED" },
         });
       }
+
+      await generatePaymentsForContract(created);
 
       result.contracts++;
     } catch (err) {

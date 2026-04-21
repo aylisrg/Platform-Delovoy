@@ -11,6 +11,7 @@ import type {
 } from "@prisma/client";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 import { buildVariables, renderWithMissing } from "./template-engine";
+import { sanitizeEmailHtml } from "./sanitize";
 
 export class RentalEmailError extends Error {
   code: string;
@@ -184,6 +185,10 @@ export async function sendManualEmail(input: ManualSendInput): Promise<ManualSen
         vars
       );
 
+  // Sanitize HTML before it leaves the server — strips <script>, event handlers, etc.
+  // Custom HTML from MANAGER is trusted but not fully: reviewer B-1.
+  const safeHtml = sanitizeEmailHtml(rendered.html);
+
   const result: ManualSendResult = { sent: [], failed: [] };
 
   for (const addr of chosen) {
@@ -192,7 +197,7 @@ export async function sendManualEmail(input: ManualSendInput): Promise<ManualSen
       from: settings.fromEmail,
       fromName: settings.fromName,
       subject: rendered.subject,
-      html: rendered.html,
+      html: safeHtml,
       text: rendered.text ?? undefined,
     });
     const log = await logEmail({
@@ -200,7 +205,7 @@ export async function sendManualEmail(input: ManualSendInput): Promise<ManualSen
       templateKey: template?.key,
       to: [addr],
       subject: rendered.subject,
-      bodyHtml: rendered.html,
+      bodyHtml: safeHtml,
       tenantId: tenant.id,
       contractId: contract?.id ?? null,
       sentById: input.sentById,
@@ -245,25 +250,32 @@ export type PaymentWithContract = RentalPayment & {
   contract: RentalContract & { tenant: Tenant; office: Office };
 };
 
+export type AutoReminderResult =
+  | { outcome: "SENT" }
+  | { outcome: "NO_RECIPIENT" }
+  | { outcome: "TEMPLATE_INACTIVE" }
+  | { outcome: "ALL_FAILED" };
+
 /**
  * Send an auto-reminder email for a payment using a system template.
- * Returns true if at least one recipient got the message.
+ * Returns a discriminated status so callers can log system events appropriately.
  */
 export async function sendAutoReminder(params: {
   payment: PaymentWithContract;
   templateKey: "rental.payment_reminder_pre" | "rental.payment_reminder_due";
   type: "PAYMENT_PRE_REMINDER" | "PAYMENT_DUE_REMINDER";
   settings: RentalNotificationSettings;
-}): Promise<boolean> {
+}): Promise<AutoReminderResult> {
   const { payment, templateKey, type, settings } = params;
   const recipients = resolveRecipients(payment.contract.tenant);
-  if (recipients.length === 0) return false;
+  if (recipients.length === 0) return { outcome: "NO_RECIPIENT" };
 
   const template = await prisma.emailTemplate.findUnique({ where: { key: templateKey } });
-  if (!template || !template.isActive) return false;
+  if (!template || !template.isActive) return { outcome: "TEMPLATE_INACTIVE" };
 
   const vars = buildVariables({ contract: payment.contract, payment, settings });
   const rendered = renderWithMissing(template, vars);
+  const safeHtml = sanitizeEmailHtml(rendered.html);
 
   let anySuccess = false;
   for (const addr of recipients) {
@@ -272,7 +284,7 @@ export async function sendAutoReminder(params: {
       from: settings.fromEmail,
       fromName: settings.fromName,
       subject: rendered.subject,
-      html: rendered.html,
+      html: safeHtml,
       text: rendered.text ?? undefined,
     });
     await logEmail({
@@ -280,7 +292,7 @@ export async function sendAutoReminder(params: {
       templateKey: template.key,
       to: [addr],
       subject: rendered.subject,
-      bodyHtml: rendered.html,
+      bodyHtml: safeHtml,
       tenantId: payment.contract.tenantId,
       contractId: payment.contractId,
       paymentId: payment.id,
@@ -291,5 +303,5 @@ export async function sendAutoReminder(params: {
     });
     if (send.success) anySuccess = true;
   }
-  return anySuccess;
+  return { outcome: anySuccess ? "SENT" : "ALL_FAILED" };
 }

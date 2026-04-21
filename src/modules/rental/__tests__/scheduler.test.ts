@@ -199,6 +199,7 @@ describe("sendPreReminders", () => {
   it("leaves flag unset if email fails", async () => {
     mockedPrisma.rentalPayment.findMany.mockResolvedValue([makePayment()]);
     mockedSendEmail.mockResolvedValue({ success: false, error: "smtp down" });
+    mockedPrisma.rentalPayment.update.mockResolvedValue({});
     const stats = await sendPreReminders(5, new Date("2026-04-26"));
     expect(stats.sent).toBe(0);
     expect(mockedPrisma.rentalPayment.update).not.toHaveBeenCalled();
