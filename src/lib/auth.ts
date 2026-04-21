@@ -42,6 +42,7 @@ function YandexProvider() {
     },
     token: "https://oauth.yandex.ru/token",
     userinfo: "https://login.yandex.ru/info?format=json",
+    checks: ["state"],
     profile(profile: YandexProfile) {
       return {
         id: profile.id,
