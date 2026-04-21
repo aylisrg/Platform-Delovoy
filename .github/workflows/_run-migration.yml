@@ -1,17 +1,62 @@
 name: Run DB Migration (one-shot)
 
 # One-shot workflow for applying the latest Prisma migration on production.
-# Safe to re-run — all statements are idempotent (IF NOT EXISTS / EXCEPTION guards).
+# ⚠️ Два gate-а безопасности:
+#   1. Job `backup` — pre-migration pg_dump + S3 upload. Fail → миграция заблокирована.
+#   2. Job `migrate` — `needs: backup`, т.е. физически не стартует без свежего дампа.
+#
 # Trigger: gh workflow run "Run DB Migration (one-shot)"
 
 on:
   workflow_dispatch:
+    inputs:
+      migration_tag:
+        description: "Tag для BackupLog (например v1.6.0 или hotfix-xyz)"
+        required: false
+        default: ""
 
 jobs:
+  backup:
+    name: Pre-migration backup (REQUIRED)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run pre-migration backup on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            export MIGRATION_TAG="${{ github.event.inputs.migration_tag || github.sha }}"
+            cd /opt/delovoy-park
+            echo "=== Pre-migration backup, tag=${MIGRATION_TAG} ==="
+            bash scripts/pre-migration-backup.sh "$MIGRATION_TAG"
+
+      - name: Notify pre-migration backup
+        if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          [ -z "$TG_TOKEN" ] && exit 0
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            TEXT="✅ Pre-migration backup OK (${{ github.sha }}) — миграция разрешена"
+          else
+            TEXT="🚨 Pre-migration backup FAILED — миграция ЗАБЛОКИРОВАНА (${{ github.sha }})"
+          fi
+          curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "text=${TEXT}" \
+            -d "parse_mode=HTML" || true
+
   migrate:
     name: Apply migration on production
     runs-on: ubuntu-latest
     environment: production
+    needs: backup   # <-- НЕ стартует без успешного бекапа
     steps:
       - uses: actions/checkout@v6
 
@@ -23,85 +68,12 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            echo "=== Applying migration: add-receipt-v2-workflow ==="
+            echo "=== Applying latest Prisma migration ==="
+            cd /opt/delovoy-park
 
-            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
-              psql -U delovoy delovoy_park <<'EOSQL'
-            -- 1. Role enum — add ADMIN
-            ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'ADMIN';
-
-            -- 2. ReferenceType enum — add CORRECTION
-            ALTER TYPE "ReferenceType" ADD VALUE IF NOT EXISTS 'CORRECTION';
-
-            -- 3. ReceiptStatus enum
-            DO $$ BEGIN
-              CREATE TYPE "ReceiptStatus" AS ENUM ('DRAFT', 'CONFIRMED', 'PROBLEM', 'CORRECTED');
-            EXCEPTION WHEN duplicate_object THEN NULL;
-            END $$;
-            EOSQL
-
-            # Enum values added with ALTER TYPE ADD VALUE cannot be used in the same
-            # transaction block, so run the DDL that depends on them separately.
-            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
-              psql -U delovoy delovoy_park <<'EOSQL'
-            -- 4. StockReceipt — V2 workflow columns
-            ALTER TABLE "StockReceipt"
-                ADD COLUMN IF NOT EXISTS "moduleSlug" TEXT,
-                ADD COLUMN IF NOT EXISTS "status" "ReceiptStatus" NOT NULL DEFAULT 'DRAFT',
-                ADD COLUMN IF NOT EXISTS "confirmedById" TEXT,
-                ADD COLUMN IF NOT EXISTS "confirmedAt" TIMESTAMP(3),
-                ADD COLUMN IF NOT EXISTS "problemNote" TEXT,
-                ADD COLUMN IF NOT EXISTS "problemReportedAt" TIMESTAMP(3),
-                ADD COLUMN IF NOT EXISTS "problemReportedById" TEXT,
-                ADD COLUMN IF NOT EXISTS "correctedById" TEXT,
-                ADD COLUMN IF NOT EXISTS "correctedAt" TIMESTAMP(3);
-
-            -- Backfill: existing receipts (v1 flow already applied stock) → CONFIRMED
-            UPDATE "StockReceipt"
-            SET "status" = 'CONFIRMED',
-                "confirmedById" = "performedById",
-                "confirmedAt" = "createdAt"
-            WHERE "status" = 'DRAFT'
-              AND "confirmedById" IS NULL;
-
-            CREATE INDEX IF NOT EXISTS "StockReceipt_status_idx" ON "StockReceipt"("status");
-            CREATE INDEX IF NOT EXISTS "StockReceipt_moduleSlug_idx" ON "StockReceipt"("moduleSlug");
-            CREATE INDEX IF NOT EXISTS "StockReceipt_performedById_idx" ON "StockReceipt"("performedById");
-
-            -- 5. StockReceiptCorrection table
-            CREATE TABLE IF NOT EXISTS "StockReceiptCorrection" (
-                "id" TEXT NOT NULL,
-                "receiptId" TEXT NOT NULL,
-                "correctedById" TEXT NOT NULL,
-                "reason" TEXT,
-                "itemsBefore" JSONB NOT NULL,
-                "itemsAfter" JSONB NOT NULL,
-                "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT "StockReceiptCorrection_pkey" PRIMARY KEY ("id")
-            );
-
-            CREATE INDEX IF NOT EXISTS "StockReceiptCorrection_receiptId_idx" ON "StockReceiptCorrection"("receiptId");
-            CREATE INDEX IF NOT EXISTS "StockReceiptCorrection_correctedById_idx" ON "StockReceiptCorrection"("correctedById");
-            CREATE INDEX IF NOT EXISTS "StockReceiptCorrection_createdAt_idx" ON "StockReceiptCorrection"("createdAt");
-
-            DO $$ BEGIN
-              ALTER TABLE "StockReceiptCorrection"
-                  ADD CONSTRAINT "StockReceiptCorrection_receiptId_fkey"
-                  FOREIGN KEY ("receiptId") REFERENCES "StockReceipt"("id")
-                  ON DELETE RESTRICT ON UPDATE CASCADE;
-            EXCEPTION WHEN duplicate_object THEN NULL;
-            END $$;
-            EOSQL
-
-            echo "=== Verifying schema ==="
-            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
-              psql -U delovoy delovoy_park -c "SELECT column_name FROM information_schema.columns WHERE table_name='StockReceipt' ORDER BY ordinal_position;"
-
-            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
-              psql -U delovoy delovoy_park -c "SELECT tablename FROM pg_tables WHERE tablename='StockReceiptCorrection';"
-
-            docker compose -f /opt/delovoy-park/docker-compose.yml exec -T postgres \
-              psql -U delovoy delovoy_park -c "SELECT enumlabel FROM pg_enum WHERE enumtypid = (SELECT oid FROM pg_type WHERE typname='Role') ORDER BY enumsortorder;"
+            # Pull the latest image with migrations baked in
+            docker compose pull app
+            docker compose run --rm --no-deps app npx prisma migrate deploy
 
             echo "=== Migration complete ==="
 
@@ -114,7 +86,7 @@ jobs:
           [ -z "$TG_TOKEN" ] && exit 0
           curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
-            -d "text=✅ DB migration applied: receipt-v2-workflow (${{ github.sha }})" \
+            -d "text=✅ DB migration applied (${{ github.sha }})" \
             -d "parse_mode=HTML" || true
 
       - name: Notify on failure
