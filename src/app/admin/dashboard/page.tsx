@@ -1,6 +1,7 @@
 import { AdminHeader } from "@/components/admin/header";
 import { ServerStatusCard } from "@/components/admin/server-status-card";
 import { StatusWidget } from "@/components/admin/status-widget";
+import { DashboardGrid } from "@/components/admin/dashboard-grid";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -52,38 +53,63 @@ export default async function DashboardPage() {
     <>
       <AdminHeader title="Дашборд" />
       <div className="p-4 lg:p-8">
-        <div className="grid grid-cols-1 gap-4 lg:gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <ServerStatusCard />
-          <StatusWidget
-            title="Активные модули"
-            value={stats.activeModules}
-            status="info"
-            description={`из ${stats.totalModules} доступных`}
-            href="/admin/modules"
-          />
-          <StatusWidget
-            title="Бронирования сегодня"
-            value={stats.bookingsToday}
-            subLinks={[
-              { label: "Барбекю Парк", href: "/admin/gazebos", count: stats.gazeboBookingsToday },
-              { label: "Плей Парк", href: "/admin/ps-park", count: stats.psParkBookingsToday },
-            ]}
-          />
-          <StatusWidget
-            title="Заказы сегодня"
-            value={stats.ordersToday}
-            description="кафе"
-            href="/admin/cafe"
-          />
-        </div>
+        <DashboardGrid
+          storageKey="admin-dashboard-stats-order"
+          className="grid grid-cols-1 gap-4 lg:gap-6 sm:grid-cols-2 lg:grid-cols-4"
+          cards={[
+            { id: "server", node: <ServerStatusCard /> },
+            {
+              id: "modules",
+              node: (
+                <StatusWidget
+                  title="Активные модули"
+                  value={stats.activeModules}
+                  status="info"
+                  description={`из ${stats.totalModules} доступных`}
+                  href="/admin/modules"
+                />
+              ),
+            },
+            {
+              id: "bookings",
+              node: (
+                <StatusWidget
+                  title="Бронирования сегодня"
+                  value={stats.bookingsToday}
+                  subLinks={[
+                    { label: "Барбекю Парк", href: "/admin/gazebos", count: stats.gazeboBookingsToday },
+                    { label: "Плей Парк", href: "/admin/ps-park", count: stats.psParkBookingsToday },
+                  ]}
+                />
+              ),
+            },
+            {
+              id: "orders",
+              node: (
+                <StatusWidget
+                  title="Заказы сегодня"
+                  value={stats.ordersToday}
+                  description="кафе"
+                  href="/admin/cafe"
+                />
+              ),
+            },
+          ]}
+        />
 
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-zinc-900">Быстрый доступ</h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <QuickLink href="/admin/architect" title="Архитектор" description="Карта системы, конфиг, аналитика" />
-            <QuickLink href="/admin/modules" title="Модули" description="Управление модулями платформы" />
-            <QuickLink href="/admin/monitoring" title="Мониторинг" description="Статус системы и логи" />
-            <QuickLink href="/admin/users" title="Пользователи" description="Управление пользователями и ролями" />
+          <div className="mt-4">
+            <DashboardGrid
+              storageKey="admin-dashboard-quicklinks-order"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+              cards={[
+                { id: "architect", node: <QuickLink href="/admin/architect" title="Архитектор" description="Карта системы, конфиг, аналитика" /> },
+                { id: "modules-link", node: <QuickLink href="/admin/modules" title="Модули" description="Управление модулями платформы" /> },
+                { id: "monitoring", node: <QuickLink href="/admin/monitoring" title="Мониторинг" description="Статус системы и логи" /> },
+                { id: "users", node: <QuickLink href="/admin/users" title="Пользователи" description="Управление пользователями и ролями" /> },
+              ]}
+            />
           </div>
         </div>
       </div>
