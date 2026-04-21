@@ -12,7 +12,9 @@
 
 /** True when the runtime is flagged as staging. */
 export function isStaging(): boolean {
-  const nodeEnv = process.env.NODE_ENV;
+  // NODE_ENV is typed as "development"|"production"|"test" в стандартных
+  // Next.js типах — но в рантайме мы кладём туда "staging". Cast через string.
+  const nodeEnv = process.env.NODE_ENV as string | undefined;
   const publicEnv = process.env.NEXT_PUBLIC_ENV;
   const lockdown = process.env.STAGING_LOCKDOWN;
   return (

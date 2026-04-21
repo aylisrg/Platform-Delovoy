@@ -83,6 +83,20 @@ export default async function ArchitectPage() {
             <h3 className="font-semibold text-zinc-900">Журнал удалений</h3>
             <p className="mt-1 text-sm text-zinc-500">Кто, что и когда удалил — с полным снапшотом</p>
           </a>
+          <a
+            href="/admin/architect/backups"
+            className="block rounded-xl border border-zinc-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <h3 className="font-semibold text-zinc-900">Бекапы</h3>
+            <p className="mt-1 text-sm text-zinc-500">История бекапов, S3-хранилище, restore</p>
+          </a>
+          <a
+            href="/admin/architect/deploy"
+            className="block rounded-xl border border-zinc-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <h3 className="font-semibold text-zinc-900">Деплой Staging</h3>
+            <p className="mt-1 text-sm text-zinc-500">Запуск staging-деплоя выбранной ветки/SHA</p>
+          </a>
         </div>
       </div>
     </>

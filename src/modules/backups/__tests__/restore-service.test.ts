@@ -120,6 +120,7 @@ describe("planRestore — dry run", () => {
           scope: "record",
           table: "Booking",
           primaryKey: { id: "b1" },
+          upsert: true,
         },
       },
       { performedById: "u1", verifyConfirmToken: truthyVerify }

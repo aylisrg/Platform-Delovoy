@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   isStaging,
   checkStagingBasicAuth,
@@ -6,18 +6,16 @@ import {
   isStagingPublicPath,
 } from "../staging-guard";
 
-const originalEnv = { ...process.env };
-
 beforeEach(() => {
-  delete process.env.NODE_ENV;
-  delete process.env.NEXT_PUBLIC_ENV;
-  delete process.env.STAGING_LOCKDOWN;
-  delete process.env.STAGING_BASIC_AUTH_USER;
-  delete process.env.STAGING_BASIC_AUTH_PASS;
+  vi.stubEnv("NODE_ENV", "");
+  vi.stubEnv("NEXT_PUBLIC_ENV", "");
+  vi.stubEnv("STAGING_LOCKDOWN", "");
+  vi.stubEnv("STAGING_BASIC_AUTH_USER", "");
+  vi.stubEnv("STAGING_BASIC_AUTH_PASS", "");
 });
 
 afterEach(() => {
-  process.env = { ...originalEnv };
+  vi.unstubAllEnvs();
 });
 
 describe("isStaging", () => {
@@ -26,22 +24,22 @@ describe("isStaging", () => {
   });
 
   it("returns true when NODE_ENV=staging", () => {
-    process.env.NODE_ENV = "staging";
+    vi.stubEnv("NODE_ENV", "staging");
     expect(isStaging()).toBe(true);
   });
 
   it("returns true when NEXT_PUBLIC_ENV=staging", () => {
-    process.env.NEXT_PUBLIC_ENV = "staging";
+    vi.stubEnv("NEXT_PUBLIC_ENV", "staging");
     expect(isStaging()).toBe(true);
   });
 
   it("returns true when STAGING_LOCKDOWN=true", () => {
-    process.env.STAGING_LOCKDOWN = "true";
+    vi.stubEnv("STAGING_LOCKDOWN", "true");
     expect(isStaging()).toBe(true);
   });
 
   it("returns false when NODE_ENV=production", () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     expect(isStaging()).toBe(false);
   });
 });
@@ -52,38 +50,38 @@ describe("checkStagingBasicAuth", () => {
   });
 
   it("returns missing when no header and creds configured", () => {
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const r = checkStagingBasicAuth(null);
     expect(r).toEqual({ ok: false, reason: "missing" });
   });
 
   it("returns invalid on malformed header", () => {
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const r = checkStagingBasicAuth("Bearer token");
     expect(r).toEqual({ ok: false, reason: "missing" });
   });
 
   it("returns invalid on wrong password", () => {
-    process.env.STAGING_BASIC_AUTH_USER = "staging";
-    process.env.STAGING_BASIC_AUTH_PASS = "secret";
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "staging");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "secret");
     const header = `Basic ${Buffer.from("staging:wrong").toString("base64")}`;
     const r = checkStagingBasicAuth(header);
     expect(r.ok).toBe(false);
   });
 
   it("returns ok on correct credentials", () => {
-    process.env.STAGING_BASIC_AUTH_USER = "staging";
-    process.env.STAGING_BASIC_AUTH_PASS = "secret";
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "staging");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "secret");
     const header = `Basic ${Buffer.from("staging:secret").toString("base64")}`;
     const r = checkStagingBasicAuth(header);
     expect(r.ok).toBe(true);
   });
 
   it("returns invalid on base64-garbled value", () => {
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const r = checkStagingBasicAuth("Basic !!!not-base64!!!");
     expect(r.ok).toBe(false);
   });
@@ -117,17 +115,17 @@ describe("enforceStagingBasicAuth", () => {
   });
 
   it("allows /api/health on staging without auth", () => {
-    process.env.NODE_ENV = "staging";
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const res = enforceStagingBasicAuth(makeRequest("/api/health"));
     expect(res).toBeNull();
   });
 
   it("challenges unauth request on staging", () => {
-    process.env.NODE_ENV = "staging";
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const res = enforceStagingBasicAuth(makeRequest("/admin/dashboard"));
     expect(res).not.toBeNull();
     expect(res!.status).toBe(401);
@@ -135,9 +133,9 @@ describe("enforceStagingBasicAuth", () => {
   });
 
   it("accepts valid auth on staging", () => {
-    process.env.NODE_ENV = "staging";
-    process.env.STAGING_BASIC_AUTH_USER = "u";
-    process.env.STAGING_BASIC_AUTH_PASS = "p";
+    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("STAGING_BASIC_AUTH_USER", "u");
+    vi.stubEnv("STAGING_BASIC_AUTH_PASS", "p");
     const header = `Basic ${Buffer.from("u:p").toString("base64")}`;
     const res = enforceStagingBasicAuth(makeRequest("/admin/dashboard", header));
     expect(res).toBeNull();
