@@ -102,6 +102,105 @@ describe("planRestore — validation paths", () => {
   });
 });
 
+describe("planRestore — PARTIAL backup (S3 upload failed)", () => {
+  const partialBackup = {
+    id: "bk_partial",
+    status: "PARTIAL",
+    sizeBytes: BigInt(512 * 1024),
+    storagePath: "/opt/backups/postgres/daily/delovoy_park_DAILY_20260421_020000.dump",
+  };
+
+  it("allows dry-run restore from PARTIAL backup but attaches warning", async () => {
+    mp.backupLog.findUnique.mockResolvedValue(partialBackup);
+    mp.backupLog.create.mockResolvedValue({
+      id: "log_partial_dry",
+      status: "SUCCESS",
+    });
+
+    const result = await planRestore(
+      {
+        backupId: "bk_partial",
+        scope: "record",
+        dryRun: true,
+        confirmToken: validToken,
+        target: {
+          scope: "record",
+          table: "Booking",
+          primaryKey: { id: "b1" },
+          upsert: true,
+        },
+      },
+      { performedById: "u1", verifyConfirmToken: truthyVerify }
+    );
+
+    expect(result.dryRun).toBe(true);
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toMatch(/PARTIAL/);
+    expect(result.warning).toMatch(/локально|VPS/);
+    expect(result.message).toMatch(/PARTIAL/);
+  });
+
+  it("allows real restore from PARTIAL backup and surfaces warning", async () => {
+    mp.backupLog.findUnique.mockResolvedValue(partialBackup);
+    mr.set.mockResolvedValue("OK");
+    mp.backupLog.create.mockResolvedValue({
+      id: "log_partial_real",
+      status: "IN_PROGRESS",
+    });
+
+    const result = await planRestore(
+      {
+        backupId: "bk_partial",
+        scope: "full",
+        dryRun: false,
+        confirmToken: validToken,
+      },
+      { performedById: "u1", verifyConfirmToken: truthyVerify }
+    );
+
+    expect(result.status).toBe("IN_PROGRESS");
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toMatch(/PARTIAL/);
+    expect(result.message).toMatch(/PARTIAL/);
+  });
+
+  it("rejects restore from FAILED backup (status not SUCCESS or PARTIAL)", async () => {
+    mp.backupLog.findUnique.mockResolvedValue({
+      ...partialBackup,
+      status: "FAILED",
+    });
+    await expect(
+      planRestore(
+        {
+          backupId: "bk_failed",
+          scope: "full",
+          dryRun: true,
+          confirmToken: validToken,
+        },
+        { performedById: "u1", verifyConfirmToken: truthyVerify }
+      )
+    ).rejects.toHaveProperty("code", "BACKUP_NOT_FOUND");
+  });
+
+  it("rejects restore from IN_PROGRESS backup", async () => {
+    mp.backupLog.findUnique.mockResolvedValue({
+      ...partialBackup,
+      status: "IN_PROGRESS",
+    });
+    await expect(
+      planRestore(
+        {
+          backupId: "bk_inprog",
+          scope: "full",
+          dryRun: true,
+          confirmToken: validToken,
+        },
+        { performedById: "u1", verifyConfirmToken: truthyVerify }
+      )
+    ).rejects.toHaveProperty("code", "BACKUP_NOT_FOUND");
+  });
+});
+
 describe("planRestore — dry run", () => {
   it("creates RESTORE log with dryRun metadata, no Redis lock", async () => {
     mp.backupLog.findUnique.mockResolvedValue(validBackup);

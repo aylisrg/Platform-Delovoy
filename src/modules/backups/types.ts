@@ -77,6 +77,8 @@ export type RestoreResult = {
   dryRun?: boolean;
   wouldAffectRows?: number;
   message?: string;
+  /** Non-blocking warning — например, при restore из PARTIAL бекапа (только локально на VPS). */
+  warning?: string;
 };
 
 /** Serialise a raw BackupLog row into API-safe shape (BigInt → number, Date → ISO). */

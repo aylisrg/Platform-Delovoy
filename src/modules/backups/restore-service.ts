@@ -86,12 +86,19 @@ export async function planRestore(
   if (!backup) {
     throw new RestoreError("BACKUP_NOT_FOUND", "Бекап не найден");
   }
-  if (backup.status !== "SUCCESS") {
+  // Accept both SUCCESS (в S3) и PARTIAL (только локально на VPS). FAILED / IN_PROGRESS — отказ.
+  if (backup.status !== "SUCCESS" && backup.status !== "PARTIAL") {
     throw new RestoreError(
       "BACKUP_NOT_FOUND",
       "Этот бекап не в статусе SUCCESS — восстановление невозможно"
     );
   }
+  // PARTIAL означает, что S3-upload упал — дамп есть только на VPS. Процесс
+  // восстановления на другой машине потребует ручного копирования файла.
+  const isPartial = backup.status === "PARTIAL";
+  const partialWarning = isPartial
+    ? "⚠️ Бекап в статусе PARTIAL — дамп доступен только локально на VPS (S3-upload упал). Восстановление на другом хосте требует ручного `scp` файла по пути `storagePath`."
+    : null;
 
   const tokenOk = await context.verifyConfirmToken(
     input.confirmToken,
@@ -140,8 +147,10 @@ export async function planRestore(
       status: "SUCCESS",
       dryRun: true,
       wouldAffectRows: input.scope === "record" ? 1 : undefined,
-      message:
-        "Dry-run проверка пройдена. Запустите с dryRun=false для реального восстановления.",
+      message: partialWarning
+        ? `Dry-run проверка пройдена. Запустите с dryRun=false для реального восстановления. ${partialWarning}`
+        : "Dry-run проверка пройдена. Запустите с dryRun=false для реального восстановления.",
+      warning: partialWarning ?? undefined,
     };
   }
 
@@ -184,8 +193,10 @@ export async function planRestore(
       backupLogId: log.id,
       status: "IN_PROGRESS",
       estimatedSeconds,
-      message:
-        "Задача создана. Выполнение запускается на VPS через scripts/restore-backup.sh.",
+      message: partialWarning
+        ? `Задача создана. Выполнение запускается на VPS через scripts/restore-backup.sh. ${partialWarning}`
+        : "Задача создана. Выполнение запускается на VPS через scripts/restore-backup.sh.",
+      warning: partialWarning ?? undefined,
     };
   } catch (err) {
     await release();

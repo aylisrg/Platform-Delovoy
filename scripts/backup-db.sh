@@ -115,8 +115,17 @@ SIZE_HUMAN="$(du -h "$BACKUP_FILE" | cut -f1)"
 log "Dump created: $BACKUP_FILE ($SIZE_HUMAN)"
 
 # --- S3 upload ---
+# Outcome:
+#   S3_UPLOADED=true  → status=SUCCESS, storage_path=s3://…
+#   S3_UPLOADED=false, S3 configured + upload attempted + failed → status=PARTIAL,
+#                      storage_path=local dump, TG warning (данные только на VPS)
+#   S3_UPLOADED=false, S3 creds missing → status=SUCCESS (S3 feature disabled
+#                      by config — не deployment failure), storage_path=local
 S3_UPLOADED=false
+S3_ATTEMPTED=false
+S3_ERROR=""
 if command -v aws >/dev/null 2>&1 && [ -n "${S3_ACCESS_KEY:-}" ] && [ -n "${S3_SECRET_KEY:-}" ]; then
+  S3_ATTEMPTED=true
   if AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" \
      AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" \
      aws s3 cp "$BACKUP_FILE" "$S3_URI" \
@@ -125,8 +134,9 @@ if command -v aws >/dev/null 2>&1 && [ -n "${S3_ACCESS_KEY:-}" ] && [ -n "${S3_S
     log "Uploaded to $S3_URI"
     S3_UPLOADED=true
   else
-    log "WARN: S3 upload failed — keeping local copy"
-    tg_alert "⚠️ WARNING:" "S3 upload failed for ${BACKUP_TYPE} бекапа — локальная копия есть"
+    S3_ERROR="aws s3 cp exited non-zero (endpoint=${S3_ENDPOINT}, bucket=${S3_BUCKET})"
+    log "WARN: S3 upload failed — keeping local copy; marking backup PARTIAL"
+    tg_alert "⚠️ WARNING:" "Backup created locally but S3 upload failed; status=PARTIAL (данные на VPS, в S3 отсутствуют)"
   fi
 else
   log "WARN: aws CLI or S3 creds missing — skipping S3 upload"
@@ -135,6 +145,15 @@ fi
 STORAGE_PATH="$BACKUP_FILE"
 if [ "$S3_UPLOADED" = "true" ]; then
   STORAGE_PATH="$S3_URI"
+fi
+
+# Determine final status: PARTIAL only if we actually tried S3 and failed.
+if [ "$S3_ATTEMPTED" = "true" ] && [ "$S3_UPLOADED" = "false" ]; then
+  FINAL_STATUS="PARTIAL"
+  FINAL_ERROR="$S3_ERROR"
+else
+  FINAL_STATUS="SUCCESS"
+  FINAL_ERROR=""
 fi
 
 # --- GFS rotation (only for DAILY runs) ---
@@ -165,10 +184,13 @@ if [ "$BACKUP_TYPE" = "DAILY" ]; then
 fi
 
 DURATION_MS=$(( (SECONDS - START_TIME) * 1000 ))
-insert_backup_log "SUCCESS" "$SIZE_BYTES" "$STORAGE_PATH" "" "$DURATION_MS"
+insert_backup_log "$FINAL_STATUS" "$SIZE_BYTES" "$STORAGE_PATH" "$FINAL_ERROR" "$DURATION_MS"
 
-log "Backup completed successfully (${DURATION_MS}ms, ${SIZE_HUMAN})"
-
-if [ "$NOTIFY_ON_SUCCESS" = "true" ]; then
-  tg_alert "✅" "Бекап ${BACKUP_TYPE} ok — ${SIZE_HUMAN} → ${STORAGE_PATH}"
+if [ "$FINAL_STATUS" = "PARTIAL" ]; then
+  log "Backup completed with status=PARTIAL (${DURATION_MS}ms, ${SIZE_HUMAN}) — local only, S3 missing"
+else
+  log "Backup completed successfully (${DURATION_MS}ms, ${SIZE_HUMAN})"
+  if [ "$NOTIFY_ON_SUCCESS" = "true" ]; then
+    tg_alert "✅" "Бекап ${BACKUP_TYPE} ok — ${SIZE_HUMAN} → ${STORAGE_PATH}"
+  fi
 fi

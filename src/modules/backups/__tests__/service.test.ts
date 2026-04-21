@@ -121,6 +121,46 @@ describe("markBackupStatus", () => {
     expect(call.data.status).toBe("FAILED");
     expect(call.data.error).toBe("pg_dump exit 2");
   });
+
+  it("updates to PARTIAL with local storage path and S3 error note", async () => {
+    mp.backupLog.update.mockResolvedValue({ ...sampleRow, status: "PARTIAL" });
+    await markBackupStatus({
+      id: "bk_1",
+      status: "PARTIAL",
+      sizeBytes: 10 * 1024 * 1024,
+      storagePath: "/opt/backups/postgres/daily/delovoy_park_DAILY_20260421.dump",
+      error: "aws s3 cp exited non-zero (endpoint=https://s3.timeweb.cloud)",
+      durationMs: 3100,
+    });
+    const call = mp.backupLog.update.mock.calls[0][0];
+    expect(call.data.status).toBe("PARTIAL");
+    expect(call.data.storagePath).toMatch(/^\/opt\/backups/);
+    expect(call.data.error).toMatch(/s3/i);
+    expect(call.data.sizeBytes).toBe(BigInt(10 * 1024 * 1024));
+  });
+});
+
+describe("listBackups — PARTIAL filter", () => {
+  it("filters by status=PARTIAL and serialises local storagePath", async () => {
+    const partialRow = {
+      ...sampleRow,
+      id: "bk_partial",
+      status: "PARTIAL" as const,
+      storagePath: "/opt/backups/postgres/daily/x.dump",
+      error: "aws s3 cp exited non-zero",
+    };
+    mp.backupLog.findMany.mockResolvedValue([partialRow]);
+    mp.backupLog.count.mockResolvedValue(1);
+
+    const { items, total } = await listBackups({ status: "PARTIAL" });
+    expect(total).toBe(1);
+    expect(items[0].status).toBe("PARTIAL");
+    expect(items[0].storagePath).toBe("/opt/backups/postgres/daily/x.dump");
+    expect(items[0].error).toMatch(/s3/i);
+
+    const findManyArgs = mp.backupLog.findMany.mock.calls[0][0];
+    expect(findManyArgs.where.status).toBe("PARTIAL");
+  });
 });
 
 describe("listBackups", () => {

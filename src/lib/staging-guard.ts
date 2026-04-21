@@ -115,3 +115,58 @@ export function enforceStagingBasicAuth(
   if (result.ok) return null;
   return stagingBasicAuthChallenge();
 }
+
+/** HTTP methods considered mutating — subject to SUPERADMIN-only gate on staging. */
+const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+/** Minimal session shape consumed by the role gate. Keeps edge-compat (no next-auth import). */
+type SessionLike = { user?: { role?: string | null } | null } | null | undefined;
+
+/**
+ * Build a 403 JSON response for staging mutating requests from non-SUPERADMIN users.
+ * Mirrors the shape of `apiError()` from `@/lib/api-response` without importing
+ * NextResponse (keeps the module Edge-safe for use in middleware/proxy).
+ */
+function stagingReadOnlyResponse(): Response {
+  const body = JSON.stringify({
+    success: false,
+    error: {
+      code: "STAGING_READ_ONLY",
+      message: "Staging доступен только SUPERADMIN для изменений",
+    },
+  });
+  return new Response(body, {
+    status: 403,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
+}
+
+/**
+ * ADR §9.1 — на staging все mutating endpoints (POST/PATCH/PUT/DELETE),
+ * кроме `/api/auth/*` и `/api/health*`, должны требовать
+ * `session.user.role === "SUPERADMIN"`. Иначе авторизованный USER/MANAGER
+ * мог бы создавать бронирования/заказы прямо на staging.
+ *
+ * Returns:
+ *   - `null` — проход разрешён (не staging, read-only запрос, whitelisted path,
+ *     либо у пользователя роль SUPERADMIN).
+ *   - `Response` 403 STAGING_READ_ONLY — иначе.
+ */
+export function enforceStagingRoleCheck(
+  request: { method: string; nextUrl: { pathname: string } },
+  session: SessionLike
+): Response | null {
+  if (!isStaging()) return null;
+
+  const method = (request.method ?? "GET").toUpperCase();
+  if (!MUTATING_METHODS.has(method)) return null;
+
+  const { pathname } = request.nextUrl;
+  // Auth and health endpoints must remain reachable for login / uptime checks.
+  if (pathname.startsWith("/api/auth/")) return null;
+  if (pathname.startsWith("/api/health")) return null;
+
+  if (session?.user?.role === "SUPERADMIN") return null;
+
+  return stagingReadOnlyResponse();
+}

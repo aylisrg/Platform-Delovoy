@@ -17,7 +17,10 @@
 ## 0. Подготовка
 
 1. Зайти в `https://delovoy-park.ru/admin/architect/backups`.
-2. Найти нужный `BackupLog` — по дате, типу (`DAILY`/`PRE_MIGRATION`), размеру.
+2. Найти нужный `BackupLog` — по дате, типу (`DAILY`/`PRE_MIGRATION`), размеру. Статусы:
+   - **SUCCESS** (зелёный) — дамп есть и на VPS, и в S3 — восстанавливается с любого хоста.
+   - **PARTIAL** (жёлтый) — дамп только на VPS (S3-upload упал). Работает, но с ограничением (см. §5a).
+   - **FAILED** (красный) / **IN_PROGRESS** (синий) — не восстановимы, выбирайте другой.
 3. Скопировать `id` бекапа.
 
 Перед любым `scope=full` **предупредить Telegram-чат админов минимум за 15 минут** — прод будет в read-only.
@@ -135,10 +138,46 @@ docker compose exec -T postgres psql -U delovoy -c "DROP DATABASE delovoy_park_o
 | Симптом | Причина | Решение |
 |---------|---------|---------|
 | `RESTORE_IN_PROGRESS` 409 | Другой restore активен (Redis lock) | Подождать 30 мин или `DEL restore:active` в Redis |
-| `BACKUP_NOT_FOUND` 404 | id не существует или статус != SUCCESS | Выбрать другой бекап |
+| `BACKUP_NOT_FOUND` 404 | id не существует, или статус `FAILED`/`IN_PROGRESS` | Выбрать другой бекап. `SUCCESS` и `PARTIAL` — восстановимы. |
 | `CONFIRM_TOKEN_INVALID` 422 | Токен протух (UI хранит его в сессии) | Обновить страницу, заново ввести пароль |
 | Dry-run показывает 0 rows | Бекап старше строки или key не совпадает | Проверить backup date; точнее задать primaryKey |
 | pg_restore упал на FK | Есть активные FK на таблицу | Не использовать `truncateBefore: true`, делать record-level |
+| В response есть поле `warning` про `PARTIAL` | Бекап создан, но S3-upload упал — дамп только на VPS | см. §5a ниже |
+
+### 5a. Работа с `PARTIAL` бекапами
+
+**Что такое PARTIAL?** `pg_dump` отработал успешно и дамп лежит локально в `/opt/backups/postgres/...`,
+но последующий `aws s3 cp` упал (сеть, квоты, креды). Такой `BackupLog` получает `status=PARTIAL`,
+поле `storagePath` указывает на локальный файл (начинается с `/`, не `s3://`), поле `error` содержит
+сообщение провала S3. В админке PARTIAL подсвечен **жёлтым** (не зелёный SUCCESS, не красный FAILED).
+
+**Что делать:**
+
+1. **Проверить S3 причину** — `aws s3 ls s3://delovoy-backups/ --endpoint-url https://s3.timeweb.cloud`
+   из контейнера app. Часто — истёкшие креды или квота.
+2. **Перезалить дамп в S3 вручную**, если хотите чтобы бекап стал SUCCESS:
+   ```bash
+   aws s3 cp /opt/backups/postgres/daily/<filename>.dump \
+     s3://delovoy-backups/daily/<filename>.dump \
+     --endpoint-url https://s3.timeweb.cloud
+   # Затем обновите BackupLog:
+   docker compose exec -T postgres psql -U delovoy -d delovoy_park -c "
+     UPDATE \"BackupLog\"
+     SET \"status\"='SUCCESS',
+         \"storagePath\"='s3://delovoy-backups/daily/<filename>.dump',
+         \"error\"=NULL
+     WHERE id='<BACKUP_ID>';"
+   ```
+3. **Если нужно восстановить _прямо сейчас_, не дожидаясь починки S3** — можно. Restore API
+   принимает `PARTIAL` наравне с `SUCCESS`, но в ответе будет `warning`:
+   > "⚠️ Бекап в статусе PARTIAL — дамп доступен только локально на VPS..."
+
+   **Критическое ограничение:** восстановление работает только если restore-процесс запускается
+   **на том же VPS**, где лежит локальный дамп. Если хотите восстанавливать на другой машине
+   (новый сервер, DR site) — сначала `scp` файл по пути из `storagePath` на целевой хост, или
+   сделайте шаг 2 (перезалить в S3) и используйте нормальный SUCCESS-бекап.
+4. **Избегайте долгой жизни PARTIAL** — локальная копия живёт 7 дней (retention в `backup-db.sh`
+   для `daily`), потом исчезает. Если в S3 за это время так и не попала — бекап де-факто потерян.
 
 ---
 
