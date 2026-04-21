@@ -3,6 +3,10 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
+import {
+  DeleteConfirmDialog,
+  deleteWithPassword,
+} from "@/components/admin/shared/delete-confirm-dialog";
 import type { BookingStatus } from "@prisma/client";
 
 type HistoryBooking = {
@@ -85,18 +89,18 @@ export function GazeboBookingHistoryTable() {
     }
   }
 
-  async function handleDelete() {
-    if (!deletingId) return;
-    try {
-      const res = await fetch(`/api/gazebos/bookings/${deletingId}`, { method: "DELETE" });
-      if (res.ok) {
-        setBookings(bookings.filter((b) => b.id !== deletingId));
-        setShowDeleteConfirm(false);
-        setDeletingId(null);
-      }
-    } catch {
-      alert("Ошибка при удалении брони");
-    }
+  async function handleDelete(password: string, reason: string | null) {
+    if (!deletingId) return "Нет выбранной записи";
+    const err = await deleteWithPassword(
+      `/api/gazebos/bookings/${deletingId}`,
+      password,
+      reason
+    );
+    if (err) return err;
+    setBookings(bookings.filter((b) => b.id !== deletingId));
+    setShowDeleteConfirm(false);
+    setDeletingId(null);
+    return null;
   }
 
   const totalPages = Math.ceil(total / perPage);
@@ -217,31 +221,17 @@ export function GazeboBookingHistoryTable() {
         </>
       )}
 
-      {/* Delete confirmation dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm">
-            <h2 className="text-lg font-semibold text-zinc-900 mb-2">Удалить бронь?</h2>
-            <p className="text-sm text-zinc-600 mb-6">
-              Это действие удалит запись о бронировании. Данные сохранятся в системе (soft delete).
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 rounded-lg px-4 py-2 text-sm font-medium border border-zinc-300 hover:bg-zinc-50 transition-colors"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 rounded-lg px-4 py-2 text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
-              >
-                Удалить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteConfirmDialog
+        open={showDeleteConfirm}
+        title="Удалить бронь?"
+        target={deletingId ? `бронь ${deletingId.slice(0, 8)}` : undefined}
+        description="Запись не исчезнет из системы — бронь помечается как удалённая, а в журнале удалений остаётся полный снапшот, кто и когда её удалил."
+        onCancel={() => {
+          setShowDeleteConfirm(false);
+          setDeletingId(null);
+        }}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }
