@@ -103,18 +103,13 @@ export async function PATCH(
 
       return apiResponse(result);
     } else {
-      // DRAFT or PROBLEM: MANAGER can edit own, ADMIN/SUPERADMIN can edit all in module
+      // DRAFT or PROBLEM: only ADMIN/SUPERADMIN can edit. MANAGER is read-only.
       if (role === "MANAGER") {
-        if (receipt.performedById !== session.user.id) return apiForbidden();
-        if (receipt.status !== "DRAFT") {
-          return apiError("INVALID_STATUS", "Менеджер может редактировать только свои приходы в статусе DRAFT");
-        }
-      } else {
-        // ADMIN: check module access
-        if (role === "ADMIN") {
-          const allowed = await hasModuleAccess(session.user.id, moduleSlug);
-          if (!allowed) return apiForbidden();
-        }
+        return apiForbidden();
+      }
+      if (role === "ADMIN") {
+        const allowed = await hasModuleAccess(session.user.id, moduleSlug);
+        if (!allowed) return apiForbidden();
       }
 
       const result = await editDraftReceipt(
