@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DeleteConfirmDialog, deleteWithPassword } from "@/components/admin/shared/delete-confirm-dialog";
+import { formatDateRu, formatDateTimeRu, toDateInputValue } from "@/lib/format-date";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -68,15 +69,6 @@ type EditItem = {
   costPerUnit: string;
 };
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function getStatusBadge(status: string) {
   const badges: Record<string, { bg: string; text: string; label: string }> = {
@@ -181,7 +173,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
       const body = {
         supplierId: supplierId || undefined,
         invoiceNumber: invoiceNumber.trim() || undefined,
-        receivedAt,
+        receivedAt: toDateInputValue(receivedAt),
         notes: notes.trim() || undefined,
         items: items
           .filter((it) => it.skuId)
@@ -352,7 +344,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
             </div>
             <div>
               <p className="text-sm font-medium text-zinc-500">Дата прихода</p>
-              <p className="text-sm text-zinc-900">{new Date(receipt.receivedAt).toLocaleDateString("ru-RU")}</p>
+              <p className="text-sm text-zinc-900">{formatDateRu(receipt.receivedAt)}</p>
             </div>
             <div>
               <p className="text-sm font-medium text-zinc-500">Ответственный</p>
@@ -430,7 +422,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                   <label className="block text-sm font-medium text-zinc-700 mb-1">Дата</label>
                   <input
                     type="date"
-                    value={receivedAt.slice(0, 10)}
+                    value={toDateInputValue(receivedAt)}
                     onChange={(e) => setReceivedAt(e.target.value)}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -525,7 +517,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                   <button onClick={() => setExpandedCorrection(expandedCorrection === corr.id ? null : corr.id)} className="w-full px-4 py-3 text-left hover:bg-zinc-50 flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-zinc-900">{corr.corrector?.name || "Неизвестный"}</p>
-                      <p className="text-xs text-zinc-500">{formatDate(corr.createdAt)}</p>
+                      <p className="text-xs text-zinc-500">{formatDateTimeRu(corr.createdAt)}</p>
                       {corr.reason && <p className="text-xs text-zinc-600 mt-1">{corr.reason}</p>}
                     </div>
                     <span className="text-zinc-400">{expandedCorrection === corr.id ? "▼" : "▶"}</span>
