@@ -52,11 +52,16 @@ describe("booking-time helpers", () => {
   });
 
   describe("billedHours", () => {
-    it("rounds up to nearest 30 min increment in hours", () => {
+    it("rounds up to nearest 15 min increment in hours", () => {
+      expect(billedHours("15:00", "15:15")).toBe(0.25);
+      expect(billedHours("15:00", "15:16")).toBe(0.5);
       expect(billedHours("15:00", "15:30")).toBe(0.5);
-      expect(billedHours("15:00", "15:45")).toBe(1);
+      expect(billedHours("15:00", "15:45")).toBe(0.75);
       expect(billedHours("15:00", "16:00")).toBe(1);
-      expect(billedHours("15:00", "16:10")).toBe(1.5);
+      expect(billedHours("15:00", "16:10")).toBe(1.25);
+      expect(billedHours("15:00", "16:35")).toBe(1.75); // 1h35m → 1h45m
+      expect(billedHours("15:00", "17:15")).toBe(2.25); // exact 2h15m
+      expect(billedHours("15:00", "17:16")).toBe(2.5);  // 2h16m → 2h30m
       expect(billedHours("15:00", "17:30")).toBe(2.5);
     });
 

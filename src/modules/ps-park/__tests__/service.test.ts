@@ -477,12 +477,13 @@ describe("getActiveSessions", () => {
 
     const result = await getActiveSessions();
 
+    // Session has been running for 30 min → live bill reflects elapsed time, not scheduled full hour.
     expect(result).toHaveLength(1);
     expect(result[0].pricePerHour).toBe(500);
-    expect(result[0].billedHours).toBe(1);
-    expect(result[0].hoursCost).toBe(500);
+    expect(result[0].billedHours).toBe(0.5);
+    expect(result[0].hoursCost).toBe(250);
     expect(result[0].itemsTotal).toBe(300);
-    expect(result[0].totalBill).toBe(800);
+    expect(result[0].totalBill).toBe(550);
     expect(result[0].items).toHaveLength(1);
     expect(result[0].items[0].subtotal).toBe(300);
   });
