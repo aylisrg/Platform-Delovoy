@@ -287,11 +287,18 @@ export async function updateBookingStatus(
   let completedItemsTotal = 0;
   let completedTotalBill = 0;
 
+  // Cap the session's end at "now" for early completion — client only pays
+  // for actually played time, not the full scheduled booking.
+  const actualEndTime =
+    status === "COMPLETED"
+      ? effectiveBillingEnd(booking.startTime, booking.endTime, new Date())
+      : booking.endTime;
+
   if (status === "COMPLETED") {
     completedPricePerHour = Number(resource?.pricePerHour ?? 0);
-    completedBilledHours = billedHours(booking.startTime, booking.endTime);
+    completedBilledHours = billedHours(booking.startTime, actualEndTime);
     const hoursCost = completedBilledHours * completedPricePerHour;
-    const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
+    const durationMin = Math.round((actualEndTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
     const billItems = items.map((i) => ({
       skuId: i.skuId,
       skuName: i.skuName,
@@ -306,7 +313,7 @@ export async function updateBookingStatus(
       clientName: booking.clientName ?? "—",
       date: booking.date.toISOString().split("T")[0],
       startTime: formatMoscowTime(booking.startTime),
-      endTime: formatMoscowTime(booking.endTime),
+      endTime: formatMoscowTime(actualEndTime),
       durationMin,
       billedHours: completedBilledHours,
       pricePerHour: completedPricePerHour,
@@ -417,6 +424,7 @@ export async function updateBookingStatus(
           ...(finalMetadata && { metadata: finalMetadata as unknown as import("@prisma/client").Prisma.InputJsonValue }),
           cashAmount: resolvedCash,
           cardAmount: resolvedCard,
+          ...(actualEndTime.getTime() !== booking.endTime.getTime() && { endTime: actualEndTime }),
         },
       });
 
@@ -1006,8 +1014,9 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
     const resource = resourceMap.get(b.resourceId);
     const metadata = b.metadata as Record<string, unknown> | null;
     const pricePerHour = Number(resource?.pricePerHour ?? 0);
-    const billed = billedHours(b.startTime, b.endTime);
-    const durationMin = Math.round((b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60));
+    const liveEnd = effectiveBillingEnd(b.startTime, b.endTime, now);
+    const billed = billedHours(b.startTime, liveEnd);
+    const durationMin = Math.round((liveEnd.getTime() - b.startTime.getTime()) / (1000 * 60));
     const hoursCost = billed * pricePerHour;
     const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
     const itemsTotal = Number(metadata?.itemsTotal ?? 0);
@@ -1092,8 +1101,14 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
   const metadata = booking.metadata as Record<string, unknown> | null;
   const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
   const pricePerHour = Number(resource?.pricePerHour ?? 0);
-  const billed = billedHours(booking.startTime, booking.endTime);
-  const durationMin = Math.round((booking.endTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
+  // For active bookings, preview the bill based on elapsed time (capped at now)
+  // so the session-bill modal reflects what will actually be charged on early completion.
+  const liveEnd =
+    booking.status === "COMPLETED"
+      ? booking.endTime
+      : effectiveBillingEnd(booking.startTime, booking.endTime, new Date());
+  const billed = billedHours(booking.startTime, liveEnd);
+  const durationMin = Math.round((liveEnd.getTime() - booking.startTime.getTime()) / (1000 * 60));
   const hoursCost = billed * pricePerHour;
 
   const items: BookingItemSnapshotWithSubtotal[] = rawItems.map((i) => ({
@@ -1111,7 +1126,7 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     clientName: booking.clientName ?? "—",
     date: booking.date.toISOString().split("T")[0],
     startTime: formatMoscowTime(booking.startTime),
-    endTime: formatMoscowTime(booking.endTime),
+    endTime: formatMoscowTime(liveEnd),
     durationMin,
     billedHours: billed,
     pricePerHour,
@@ -1148,13 +1163,27 @@ function getMoscowHour(d: Date): number {
 }
 
 /**
- * Rounds duration up to the nearest 30-minute increment for billing.
- * e.g. 1h 01min → 1.5h, 1h 31min → 2h, 30min → 0.5h
+ * Rounds duration up to the nearest 15-minute increment for billing.
+ * e.g. 1h 01min → 1.25h, 1h 35min → 1.75h, 2h 15min → 2.25h, 2h 16min → 2.5h
  */
 function billedHours(startTime: Date, endTime: Date): number {
   const durationMs = endTime.getTime() - startTime.getTime();
   const durationMin = durationMs / (1000 * 60);
-  return Math.ceil(durationMin / 30) * 0.5;
+  if (durationMin <= 0) return 0;
+  return Math.ceil(durationMin / 15) * 0.25;
+}
+
+/**
+ * Effective end time for billing an active session.
+ * - If the session hasn't started yet (now <= startTime): use the scheduled end.
+ * - If in progress (startTime < now < scheduledEnd): cap at now — charge only for
+ *   actually elapsed time so early completions don't overbill the client.
+ * - If past scheduled end: use scheduledEnd.
+ */
+function effectiveBillingEnd(startTime: Date, scheduledEnd: Date, now: Date): Date {
+  if (now.getTime() <= startTime.getTime()) return scheduledEnd;
+  if (now.getTime() >= scheduledEnd.getTime()) return scheduledEnd;
+  return now;
 }
 
 // === DAY REPORT & SHIFT HANDOVER ===

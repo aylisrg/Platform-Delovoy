@@ -98,7 +98,7 @@ export type ActiveSession = {
   status: "CONFIRMED";
   pricePerHour: number;
   durationMin: number;   // booked duration in minutes
-  billedHours: number;   // rounded up to nearest 30 min
+  billedHours: number;   // rounded up to nearest 15 min
   hoursCost: number;
   items: BookingItemSnapshotWithSubtotal[];
   itemsTotal: number;
@@ -160,7 +160,7 @@ export type BookingBill = {
   startTime: string;
   endTime: string;
   durationMin: number;     // actual duration in minutes
-  billedHours: number;     // rounded up to nearest 30 min
+  billedHours: number;     // rounded up to nearest 15 min
   pricePerHour: number;
   hoursCost: number;
   items: BookingItemSnapshotWithSubtotal[];

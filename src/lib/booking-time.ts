@@ -22,11 +22,11 @@ export function formatHHMM(totalMin: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** Round duration up to nearest 30 min, return in hours (0.5, 1, 1.5, ...). */
+/** Round duration up to nearest 15 min, return in hours (0.25, 0.5, 0.75, 1, ...). */
 export function billedHours(startHHMM: string, endHHMM: string): number {
   const min = durationMinutes(startHHMM, endHHMM);
   if (min <= 0) return 0;
-  return Math.ceil(min / 30) * 0.5;
+  return Math.ceil(min / 15) * 0.25;
 }
 
 export function durationMinutes(startHHMM: string, endHHMM: string): number {
