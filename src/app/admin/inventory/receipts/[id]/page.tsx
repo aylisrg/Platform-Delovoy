@@ -383,7 +383,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                   <tr key={it.id}>
                     <td className="px-4 py-3 text-zinc-900">{it.sku.name}</td>
                     <td className="px-4 py-3 text-right text-zinc-900 tabular-nums">{it.quantity} {it.sku.unit}</td>
-                    <td className="px-4 py-3 text-right text-zinc-600 tabular-nums">{it.costPerUnit?.toFixed(2) || "—"}</td>
+                    <td className="px-4 py-3 text-right text-zinc-600 tabular-nums">{it.costPerUnit != null ? Number(it.costPerUnit).toFixed(2) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
