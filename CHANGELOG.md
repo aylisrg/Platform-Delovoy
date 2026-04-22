@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.6.0...v1.7.0) (2026-04-22)
+
+
+### Features
+
+* **ps-park:** bill by actual played time + 15-min rounding ([#159](https://github.com/aylisrg/Platform-Delovoy/issues/159)) ([e0f3809](https://github.com/aylisrg/Platform-Delovoy/commit/e0f38096104b8d3f2dec0b813df58304f114653d))
+
+
+### Bug Fixes
+
+* **inventory:** receipt detail RBAC, error state & SUPERADMIN delete ([#155](https://github.com/aylisrg/Platform-Delovoy/issues/155)) ([44a5ede](https://github.com/aylisrg/Platform-Delovoy/commit/44a5edeb6d52c6f95d35a929f04b7b72882122f8))
+* **inventory:** receipt save, unified date format, stock from batches ([#158](https://github.com/aylisrg/Platform-Delovoy/issues/158)) ([9d08c62](https://github.com/aylisrg/Platform-Delovoy/commit/9d08c6254f00db22c352a96dec9ad23df5ffe6ae))
+
 ## [1.6.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.5.0...v1.6.0) (2026-04-21)
 
 
