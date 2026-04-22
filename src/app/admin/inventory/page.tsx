@@ -34,9 +34,22 @@ const stockLabels = {
 };
 
 export default async function InventoryPage() {
-  const skus = await prisma.inventorySku.findMany({
-    orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
-  });
+  // Source of truth for stock = SUM(StockBatch.remainingQty) per SKU.
+  // The denormalized InventorySku.stockQuantity has been observed to drift
+  // (manual DB ops, half-applied transactions); reading from batches removes
+  // the drift class entirely. Cost is one extra groupBy per page load.
+  const [skusRaw, batchSums] = await Promise.all([
+    prisma.inventorySku.findMany({
+      orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
+    }),
+    prisma.stockBatch.groupBy({
+      by: ["skuId"],
+      _sum: { remainingQty: true },
+      where: { isExhausted: false },
+    }),
+  ]);
+  const stockBySku = new Map(batchSums.map((b) => [b.skuId, b._sum.remainingQty ?? 0]));
+  const skus = skusRaw.map((s) => ({ ...s, stockQuantity: stockBySku.get(s.id) ?? 0 }));
 
   const activeSkus = skus.filter((s) => s.isActive);
   const lowStockCount = activeSkus.filter(

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { formatDateRu } from "@/lib/format-date";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -54,14 +55,6 @@ const NEW_SKU_VALUE = "__new__";
 
 function emptyItem(): ReceiptItem {
   return { skuId: "", quantity: "", totalCost: "", isNew: false, newName: "", newCategory: "Товары", newUnit: "шт", newPrice: "" };
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
 }
 
 function computeCostPerUnit(qty: string, totalCost: string): number | undefined {
@@ -641,7 +634,7 @@ export default function ReceiptsPage() {
                         onClick={() => router.push(`/admin/inventory/receipts/${r.id}`)}
                         className="hover:bg-blue-50 cursor-pointer transition-colors"
                       >
-                        <td className="px-4 py-3 text-zinc-700 whitespace-nowrap">{formatDate(r.receivedAt)}</td>
+                        <td className="px-4 py-3 text-zinc-700 whitespace-nowrap">{formatDateRu(r.receivedAt)}</td>
                         <td className="px-4 py-3 text-zinc-900">{r.supplier?.name ?? <span className="text-zinc-400">—</span>}</td>
                         <td className="px-4 py-3 text-zinc-600">{r.invoiceNumber ?? <span className="text-zinc-400">—</span>}</td>
                         <td className="px-4 py-3 text-right font-medium text-zinc-900 tabular-nums">{r.items.length}</td>
