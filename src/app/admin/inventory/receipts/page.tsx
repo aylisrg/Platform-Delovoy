@@ -636,32 +636,16 @@ export default function ReceiptsPage() {
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
                     {receipts.map((r) => (
-                      <tr key={r.id} className="hover:bg-zinc-50 cursor-pointer">
-                        <td className="px-4 py-3 text-zinc-700 whitespace-nowrap">
-                          <Link href={`/admin/inventory/receipts/${r.id}`} className="hover:text-blue-600">
-                            {formatDate(r.receivedAt)}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-zinc-900">
-                          <Link href={`/admin/inventory/receipts/${r.id}`} className="hover:text-blue-600">
-                            {r.supplier?.name ?? <span className="text-zinc-400">—</span>}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-zinc-600">
-                          <Link href={`/admin/inventory/receipts/${r.id}`} className="hover:text-blue-600">
-                            {r.invoiceNumber ?? <span className="text-zinc-400">—</span>}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium text-zinc-900 tabular-nums">
-                          <Link href={`/admin/inventory/receipts/${r.id}`} className="hover:text-blue-600">
-                            {r.items.length}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-zinc-500 max-w-xs truncate">
-                          <Link href={`/admin/inventory/receipts/${r.id}`} className="hover:text-blue-600">
-                            {r.notes ?? "—"}
-                          </Link>
-                        </td>
+                      <tr
+                        key={r.id}
+                        onClick={() => router.push(`/admin/inventory/receipts/${r.id}`)}
+                        className="hover:bg-blue-50 cursor-pointer transition-colors"
+                      >
+                        <td className="px-4 py-3 text-zinc-700 whitespace-nowrap">{formatDate(r.receivedAt)}</td>
+                        <td className="px-4 py-3 text-zinc-900">{r.supplier?.name ?? <span className="text-zinc-400">—</span>}</td>
+                        <td className="px-4 py-3 text-zinc-600">{r.invoiceNumber ?? <span className="text-zinc-400">—</span>}</td>
+                        <td className="px-4 py-3 text-right font-medium text-zinc-900 tabular-nums">{r.items.length}</td>
+                        <td className="px-4 py-3 text-zinc-500 max-w-xs truncate">{r.notes ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>

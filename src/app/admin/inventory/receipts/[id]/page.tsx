@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { DeleteConfirmDialog, deleteWithPassword } from "@/components/admin/shared/delete-confirm-dialog";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -88,6 +90,7 @@ function getStatusBadge(status: string) {
 }
 
 export default function ReceiptDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter();
   const { data: session } = useSession();
   const [receiptId, setReceiptId] = useState<string>("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -95,9 +98,11 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
   const [skus, setSkus] = useState<SkuOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [expandedCorrection, setExpandedCorrection] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -113,6 +118,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     if (!receiptId) return;
     setLoading(true);
+    setLoadError(null);
 
     Promise.all([
       fetch(`/api/inventory/receipts-v2/${receiptId}`).then((r) => r.json()),
@@ -134,12 +140,14 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
               costPerUnit: it.costPerUnit?.toString() || "",
             }))
           );
+        } else {
+          setLoadError(recRes?.error?.message || "Не удалось загрузить приход — возможно, нет доступа или приход удалён");
         }
         if (corrRes.success && corrRes.data) setCorrections(corrRes.data);
         if (skuRes.success && skuRes.data) setSkus(skuRes.data);
         if (suppRes.success && suppRes.data) setSuppliers(suppRes.data);
       })
-      .catch(() => setBanner({ type: "error", text: "Ошибка при загрузке данных" }))
+      .catch(() => setLoadError("Ошибка сети при загрузке прихода"))
       .finally(() => setLoading(false));
   }, [receiptId]);
 
@@ -157,14 +165,12 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
   }
 
   const role = session.user.role as string;
-  const canEdit =
-    receipt &&
-    role === "MANAGER" &&
-    receipt.performedById === session.user.id &&
-    (receipt.status === "DRAFT" || receipt.status === "PROBLEM");
-  const canCorrect = receipt && (role === "ADMIN" || role === "SUPERADMIN") && (receipt.status === "CONFIRMED" || receipt.status === "CORRECTED");
+  const isAdminLike = role === "ADMIN" || role === "SUPERADMIN";
+  const canEdit = !!receipt && isAdminLike && (receipt.status === "DRAFT" || receipt.status === "PROBLEM");
+  const canCorrect = !!receipt && isAdminLike && (receipt.status === "CONFIRMED" || receipt.status === "CORRECTED");
   const canModify = canEdit || canCorrect;
-  const showCorrections = role === "ADMIN" || role === "SUPERADMIN" || (role === "MANAGER" && receipt?.performedById === session.user.id);
+  const canDelete = !!receipt && role === "SUPERADMIN";
+  const showCorrections = isAdminLike || (role === "MANAGER" && receipt?.performedById === session.user.id);
 
   async function handleSave() {
     if (!receipt) return;
@@ -243,7 +249,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  if (loading || !receipt) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-zinc-50">
         <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white px-8">
@@ -258,6 +264,33 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
     );
   }
 
+  if (!receipt) {
+    return (
+      <div className="min-h-screen bg-zinc-50">
+        <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white px-8">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/inventory/receipts" className="text-blue-600 hover:text-blue-700">← Назад</Link>
+            <h1 className="text-xl font-semibold text-zinc-900">Приход</h1>
+          </div>
+        </header>
+        <div className="p-6 max-w-3xl mx-auto">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {loadError ?? "Приход не найден"}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  async function handleDelete(password: string, reason: string | null): Promise<string | null> {
+    if (!receipt) return "Приход не найден";
+    const err = await deleteWithPassword(`/api/inventory/receipts-v2/${receipt.id}`, password, reason);
+    if (err) return err;
+    setDeleteOpen(false);
+    router.push("/admin/inventory/receipts");
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50">
       <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white px-8">
@@ -267,6 +300,15 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
           </Link>
           <h1 className="text-xl font-semibold text-zinc-900">Приход {receipt.invoiceNumber && `№${receipt.invoiceNumber}`}</h1>
         </div>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => setDeleteOpen(true)}
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+          >
+            Удалить приход
+          </button>
+        )}
       </header>
 
       <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -351,7 +393,12 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
 
         {canModify && (
           <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-zinc-900">{canEdit ? "Редактировать приход" : "Исправление"}</h2>
+            <h2 className="mb-4 text-base font-semibold text-zinc-900">{canEdit ? "Редактировать приход" : "Исправление подтверждённого прихода"}</h2>
+            {canEdit && (
+              <p className="mb-4 text-xs text-zinc-500">
+                Приход в статусе {receipt.status}. Изменения сохранятся напрямую и попадут в журнал аудита.
+              </p>
+            )}
 
             <form className="space-y-5">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -459,6 +506,15 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
             </form>
           </div>
         )}
+
+        <DeleteConfirmDialog
+          open={deleteOpen}
+          title="Удалить приход"
+          target={`Приход ${receipt.invoiceNumber ? `№${receipt.invoiceNumber}` : receipt.id.slice(0, 8)} (${receipt.items.length} поз., статус ${receipt.status})`}
+          description="Будут удалены сам приход, его позиции и история исправлений. Полный снимок сохранится в журнале удалений."
+          onCancel={() => setDeleteOpen(false)}
+          onConfirm={handleDelete}
+        />
 
         {showCorrections && corrections.length > 0 && (
           <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
