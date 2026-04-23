@@ -32,6 +32,25 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number]["slug"];
 export const ADMIN_SECTION_SLUGS: AdminSection[] = ADMIN_SECTIONS.map((s) => s.slug);
 
 /**
+ * Modules where ADMIN role has unrestricted edit access by role alone —
+ * no AdminPermission or ModuleAssignment record required.
+ * Per product decision: admin fully owns Барбекю Парк, Плей Парк и Склад.
+ * SUPERADMIN always has access to everything (including these).
+ * Deletion in these modules is still SUPERADMIN-only.
+ */
+export const ADMIN_EDITABLE_MODULES = [
+  "gazebos",
+  "ps-park",
+  "inventory",
+] as const;
+
+export type AdminEditableModule = (typeof ADMIN_EDITABLE_MODULES)[number];
+
+export function isAdminEditableModule(slug: string): slug is AdminEditableModule {
+  return (ADMIN_EDITABLE_MODULES as readonly string[]).includes(slug);
+}
+
+/**
  * Check if user has the required role or higher.
  * Hierarchy: SUPERADMIN (3) > ADMIN (2) > MANAGER (1) > USER (0)
  */
@@ -149,6 +168,38 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
   });
 
   return permissions.map((p) => p.section);
+}
+
+/**
+ * Check if user can edit (create/update) resources in the given module.
+ *
+ * Policy:
+ * - SUPERADMIN: yes, for any module.
+ * - ADMIN: yes for ADMIN_EDITABLE_MODULES (gazebos, ps-park, inventory) by role.
+ *          For other modules — requires AdminPermission for the section.
+ * - MANAGER: requires AdminPermission for the section.
+ * - USER: no.
+ *
+ * Deletion is NOT covered here — see canDelete().
+ */
+export async function canEditModule(
+  user: SessionUser,
+  moduleSlug: string
+): Promise<boolean> {
+  if (user.role === "SUPERADMIN") return true;
+  if (user.role === "USER") return false;
+  if (user.role === "ADMIN" && isAdminEditableModule(moduleSlug)) return true;
+  return hasAdminSectionAccess(user.id, moduleSlug);
+}
+
+/**
+ * Check if user can DELETE. Only SUPERADMIN.
+ * Actual DELETE endpoints still go through authorizeSuperadminDeletion()
+ * for password re-auth + DeletionLog capture — this helper is for early
+ * gating / UI visibility.
+ */
+export function canDelete(user: SessionUser): boolean {
+  return user.role === "SUPERADMIN";
 }
 
 /**

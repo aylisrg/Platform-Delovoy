@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiNotFound, apiServerError, apiValidationError, apiUnauthorized, apiForbidden } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
-import { hasRole } from "@/lib/permissions";
+import { canEditModule } from "@/lib/permissions";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { prisma } from "@/lib/db";
@@ -34,8 +34,8 @@ export async function PATCH(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) return apiUnauthorized();
-    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
+    if (!session?.user?.id) return apiUnauthorized();
+    if (!(await canEditModule(session.user, "ps-park"))) return apiForbidden();
 
     const { id } = await params;
     const body = await request.json();
@@ -44,22 +44,27 @@ export async function PATCH(
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    // Only SUPERADMIN can change pricePerHour
-    if (parsed.data.pricePerHour !== undefined && session.user.role !== "SUPERADMIN") {
-      return apiForbidden("Изменение цены доступно только администратору");
-    }
-
     const existing = await getTable(id);
     if (!existing) return apiNotFound("Стол не найден");
 
     const updated = await updateTable(id, parsed.data);
 
-    if (parsed.data.pricePerHour !== undefined) {
-      await logAudit(session.user.id!, "resource.price.update", "Resource", id, {
-        before: existing.pricePerHour,
-        after: parsed.data.pricePerHour,
-      });
-    }
+    await logAudit(
+      session.user.id,
+      "ps-park.resource.update",
+      "Resource",
+      id,
+      {
+        moduleSlug: "ps-park",
+        changes: parsed.data,
+        before: {
+          name: existing.name,
+          capacity: existing.capacity,
+          pricePerHour: existing.pricePerHour,
+          isActive: existing.isActive,
+        },
+      }
+    );
 
     return apiResponse(updated);
   } catch {

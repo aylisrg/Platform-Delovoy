@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock next/server before importing the module under test
 vi.mock("next/server", () => ({
@@ -13,6 +13,13 @@ vi.mock("next/server", () => ({
   },
 }));
 
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    user: { findUnique: vi.fn() },
+    adminPermission: { findUnique: vi.fn() },
+  },
+}));
+
 import {
   apiResponse,
   apiError,
@@ -21,7 +28,13 @@ import {
   apiUnauthorized,
   apiValidationError,
   apiServerError,
+  requireAdminSection,
 } from "@/lib/api-response";
+import { prisma } from "@/lib/db";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("apiResponse", () => {
   it("returns success:true with data", async () => {
@@ -117,5 +130,106 @@ describe("apiServerError", () => {
     const res = apiServerError("Database error");
     const body = await res.json();
     expect(body.error.message).toBe("Database error");
+  });
+});
+
+describe("requireAdminSection", () => {
+  it("returns 401 when no session", async () => {
+    const res = await requireAdminSection(null, "gazebos");
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(401);
+  });
+
+  it("allows SUPERADMIN into any section", async () => {
+    const res = await requireAdminSection(
+      { user: { id: "sa", role: "SUPERADMIN" } },
+      "rental"
+    );
+    expect(res).toBeNull();
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows ADMIN into gazebos by role alone", async () => {
+    const res = await requireAdminSection(
+      { user: { id: "a1", role: "ADMIN" } },
+      "gazebos"
+    );
+    expect(res).toBeNull();
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows ADMIN into ps-park by role alone", async () => {
+    const res = await requireAdminSection(
+      { user: { id: "a1", role: "ADMIN" } },
+      "ps-park"
+    );
+    expect(res).toBeNull();
+  });
+
+  it("allows ADMIN into inventory by role alone", async () => {
+    const res = await requireAdminSection(
+      { user: { id: "a1", role: "ADMIN" } },
+      "inventory"
+    );
+    expect(res).toBeNull();
+  });
+
+  it("requires AdminPermission for ADMIN in other sections", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
+    const res = await requireAdminSection(
+      { user: { id: "a1", role: "ADMIN" } },
+      "rental"
+    );
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
+
+  it("grants ADMIN with AdminPermission in non-editable section", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
+      id: "p1", userId: "a1", section: "rental",
+    } as never);
+    const res = await requireAdminSection(
+      { user: { id: "a1", role: "ADMIN" } },
+      "rental"
+    );
+    expect(res).toBeNull();
+  });
+
+  it("forbids USER role outright", async () => {
+    const res = await requireAdminSection(
+      { user: { id: "u1", role: "USER" } },
+      "gazebos"
+    );
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
+
+  it("requires AdminPermission for MANAGER", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
+    const res = await requireAdminSection(
+      { user: { id: "m1", role: "MANAGER" } },
+      "gazebos"
+    );
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
+
+  it("grants MANAGER when AdminPermission present", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
+      id: "p1", userId: "m1", section: "gazebos",
+    } as never);
+    const res = await requireAdminSection(
+      { user: { id: "m1", role: "MANAGER" } },
+      "gazebos"
+    );
+    expect(res).toBeNull();
   });
 });
