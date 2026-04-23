@@ -22,12 +22,28 @@ function generateToken(): string {
 /**
  * Check if a magic link can be sent to this email (cooldown).
  * Returns false if within the 60-second cooldown window.
+ *
+ * Uses Redis as primary store. Falls back to the VerificationToken table
+ * when Redis is unavailable so flooding is still blocked during outages:
+ * a token issued <60s ago still has expires > now + (TTL - COOLDOWN).
  */
 export async function canSendMagicLink(email: string): Promise<boolean> {
-  if (!redisAvailable) return true; // Skip cooldown if Redis unavailable
-  const key = MAGIC_LINK_COOLDOWN_PREFIX + normalizeEmail(email);
-  const existing = await redis.get(key);
-  return !existing;
+  const normalized = normalizeEmail(email);
+
+  if (redisAvailable) {
+    const key = MAGIC_LINK_COOLDOWN_PREFIX + normalized;
+    const existing = await redis.get(key);
+    return !existing;
+  }
+
+  const cooldownCutoff = new Date(
+    Date.now() + (TOKEN_TTL_SECONDS - COOLDOWN_TTL_SECONDS) * 1000
+  );
+  const recentToken = await prisma.verificationToken.findFirst({
+    where: { identifier: normalized, expires: { gt: cooldownCutoff } },
+    select: { token: true },
+  });
+  return !recentToken;
 }
 
 /**
