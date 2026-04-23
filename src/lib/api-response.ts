@@ -78,16 +78,12 @@ export async function requireAdminSection(
   if (!session?.user) return apiUnauthorized();
 
   const { role } = session.user;
-  if (role === "SUPERADMIN") return null; // Full access
+  if (role === "SUPERADMIN" || role === "ADMIN") return null; // Full access
   if (role === "USER") return apiForbidden();
 
+  // MANAGER — requires explicit AdminPermission for the section.
   // Dynamic import to avoid circular deps
-  const { isAdminEditableModule, hasAdminSectionAccess } = await import("./permissions");
-
-  // ADMIN owns the editable core modules (gazebos, ps-park, inventory) by role.
-  if (role === "ADMIN" && isAdminEditableModule(section)) return null;
-
-  // ADMIN (other sections) and MANAGER — require explicit AdminPermission.
+  const { hasAdminSectionAccess } = await import("./permissions");
   const hasAccess = await hasAdminSectionAccess(session.user.id, section);
   if (!hasAccess) {
     return apiForbidden("Нет доступа к этому разделу");

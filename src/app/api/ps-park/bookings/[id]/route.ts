@@ -143,7 +143,8 @@ export async function DELETE(
 
     const url = new URL(request.url);
     const hard =
-      url.searchParams.get("hard") === "true" && session?.user?.role === "SUPERADMIN";
+      url.searchParams.get("hard") === "true" &&
+      (session?.user?.role === "SUPERADMIN" || session?.user?.role === "ADMIN");
 
     const performedById = authz.actor.id;
 

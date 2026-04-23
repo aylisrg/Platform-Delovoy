@@ -150,53 +150,16 @@ describe("requireAdminSection", () => {
     expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
   });
 
-  it("allows ADMIN into gazebos by role alone", async () => {
-    const res = await requireAdminSection(
-      { user: { id: "a1", role: "ADMIN" } },
-      "gazebos"
-    );
-    expect(res).toBeNull();
+  it("allows ADMIN into any section (including non-editable ones)", async () => {
+    // Per #167: ADMIN has full access to all admin sections.
+    for (const section of ["gazebos", "ps-park", "inventory", "rental", "cafe", "architect"]) {
+      const res = await requireAdminSection(
+        { user: { id: "a1", role: "ADMIN" } },
+        section
+      );
+      expect(res).toBeNull();
+    }
     expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
-  });
-
-  it("allows ADMIN into ps-park by role alone", async () => {
-    const res = await requireAdminSection(
-      { user: { id: "a1", role: "ADMIN" } },
-      "ps-park"
-    );
-    expect(res).toBeNull();
-  });
-
-  it("allows ADMIN into inventory by role alone", async () => {
-    const res = await requireAdminSection(
-      { user: { id: "a1", role: "ADMIN" } },
-      "inventory"
-    );
-    expect(res).toBeNull();
-  });
-
-  it("requires AdminPermission for ADMIN in other sections", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
-    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
-    const res = await requireAdminSection(
-      { user: { id: "a1", role: "ADMIN" } },
-      "rental"
-    );
-    expect(res).not.toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((res as any).status).toBe(403);
-  });
-
-  it("grants ADMIN with AdminPermission in non-editable section", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
-    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
-      id: "p1", userId: "a1", section: "rental",
-    } as never);
-    const res = await requireAdminSection(
-      { user: { id: "a1", role: "ADMIN" } },
-      "rental"
-    );
-    expect(res).toBeNull();
   });
 
   it("forbids USER role outright", async () => {
