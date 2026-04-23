@@ -16,7 +16,51 @@ import {
   editReceiptSchema,
   pendingReceiptsFilterSchema,
   receiptFilterSchema,
+  updateReceiptSchema,
+  deleteReceiptSchema,
 } from "../validation";
+
+describe("updateReceiptSchema", () => {
+  it("accepts partial update with quantity only", () => {
+    const r = updateReceiptSchema.safeParse({ quantity: 5 });
+    expect(r.success).toBe(true);
+  });
+  it("accepts partial update with receivedAt only", () => {
+    const r = updateReceiptSchema.safeParse({ receivedAt: "2026-04-20" });
+    expect(r.success).toBe(true);
+  });
+  it("rejects empty object (no fields)", () => {
+    const r = updateReceiptSchema.safeParse({});
+    expect(r.success).toBe(false);
+  });
+  it("rejects zero or negative quantity", () => {
+    expect(updateReceiptSchema.safeParse({ quantity: 0 }).success).toBe(false);
+    expect(updateReceiptSchema.safeParse({ quantity: -5 }).success).toBe(false);
+  });
+  it("rejects bad date format", () => {
+    const r = updateReceiptSchema.safeParse({ receivedAt: "20-04-2026" });
+    expect(r.success).toBe(false);
+  });
+  it("rejects future receivedAt", () => {
+    const future = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const r = updateReceiptSchema.safeParse({ receivedAt: future });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("deleteReceiptSchema", () => {
+  it("accepts empty object", () => {
+    expect(deleteReceiptSchema.safeParse({}).success).toBe(true);
+  });
+  it("accepts reason", () => {
+    expect(deleteReceiptSchema.safeParse({ reason: "ошибка ввода" }).success).toBe(true);
+  });
+  it("rejects reason longer than 500 chars", () => {
+    expect(deleteReceiptSchema.safeParse({ reason: "a".repeat(501) }).success).toBe(false);
+  });
+});
 
 describe("createSkuSchema", () => {
   it("accepts valid SKU", () => {

@@ -163,17 +163,25 @@ describe("receiveStock", () => {
     ).rejects.toMatchObject({ code: "SKU_NOT_FOUND" });
   });
 
-  it("creates RECEIPT transaction and increments stock", async () => {
+  it("creates RECEIPT transaction + StockBatch, then recalculates stock", async () => {
     const mockSku = { id: "sku1", isActive: true, stockQuantity: 5 };
     mockPrisma.inventorySku.findUnique.mockResolvedValue(mockSku);
 
     const txCreate = vi.fn().mockResolvedValue({ id: "txn1" });
-    const txUpdate = vi.fn().mockResolvedValue({ stockQuantity: 15 });
+    const batchCreate = vi.fn().mockResolvedValue({ id: "batch1" });
+    const movementCreate = vi.fn().mockResolvedValue({ id: "m1" });
+    const skuUpdate = vi.fn().mockResolvedValue({ stockQuantity: 15 });
+    const batchAggregate = vi.fn().mockResolvedValue({
+      _sum: { remainingQty: 15 },
+      _count: 1,
+    });
 
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       return fn({
         inventoryTransaction: { create: txCreate },
-        inventorySku: { update: txUpdate },
+        inventorySku: { update: skuUpdate },
+        stockBatch: { create: batchCreate, aggregate: batchAggregate },
+        stockMovement: { create: movementCreate },
       });
     });
 
@@ -184,11 +192,20 @@ describe("receiveStock", () => {
         data: expect.objectContaining({ type: "RECEIPT", quantity: 10 }),
       })
     );
-    expect(txUpdate).toHaveBeenCalledWith(
+    expect(batchCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { stockQuantity: { increment: 10 } },
+        data: expect.objectContaining({
+          skuId: "sku1",
+          receiptTxId: "txn1",
+          initialQty: 10,
+          remainingQty: 10,
+        }),
       })
     );
+    expect(skuUpdate).toHaveBeenCalledWith({
+      where: { id: "sku1" },
+      data: { stockQuantity: 15 },
+    });
     expect(result.newStockQuantity).toBe(15);
   });
 });
@@ -210,16 +227,28 @@ describe("adjustStock", () => {
     ).rejects.toMatchObject({ code: "NO_CHANGE" });
   });
 
-  it("creates ADJUSTMENT transaction with correct delta", async () => {
+  it("creates ADJUSTMENT transaction with correct delta and FIFO-deducts batches", async () => {
     mockPrisma.inventorySku.findUnique.mockResolvedValue({ id: "sku1", stockQuantity: 12 });
 
     const txCreate = vi.fn().mockResolvedValue({ id: "txn1" });
-    const txUpdate = vi.fn().mockResolvedValue({ stockQuantity: 10 });
+    const skuUpdate = vi.fn().mockResolvedValue({ stockQuantity: 10 });
+    const batchFindMany = vi.fn().mockResolvedValue([
+      { id: "b1", remainingQty: 5, isExhausted: false, expiresAt: null, receiptDate: new Date() },
+      { id: "b2", remainingQty: 7, isExhausted: false, expiresAt: null, receiptDate: new Date() },
+    ]);
+    const batchUpdate = vi.fn();
+    const batchAggregate = vi.fn().mockResolvedValue({ _sum: { remainingQty: 10 }, _count: 2 });
 
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       return fn({
         inventoryTransaction: { create: txCreate },
-        inventorySku: { update: txUpdate },
+        inventorySku: { update: skuUpdate },
+        stockBatch: {
+          findMany: batchFindMany,
+          update: batchUpdate,
+          create: vi.fn(),
+          aggregate: batchAggregate,
+        },
       });
     });
 
@@ -233,6 +262,11 @@ describe("adjustStock", () => {
         data: expect.objectContaining({ type: "ADJUSTMENT", quantity: 2 }),
       })
     );
+    // First batch should have 3 remaining after deducting 2
+    expect(batchUpdate).toHaveBeenCalledWith({
+      where: { id: "b1" },
+      data: { remainingQty: 3, isExhausted: false },
+    });
     expect(result.delta).toBe(-2);
     expect(result.newStockQuantity).toBe(10);
   });
@@ -333,7 +367,10 @@ describe("receiveStockByName", () => {
       return fn({
         inventoryTransaction: { create: txCreate },
         inventorySku: { update: txUpdate, create: vi.fn() },
-        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch1" }) },
+        stockBatch: {
+          create: vi.fn().mockResolvedValue({ id: "batch1" }),
+          aggregate: vi.fn().mockResolvedValue({ _sum: { remainingQty: 30 }, _count: 1 }),
+        },
         stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov1" }) },
       });
     });
@@ -365,7 +402,10 @@ describe("receiveStockByName", () => {
       return fn({
         inventorySku: { create: txSkuCreate, update: vi.fn() },
         inventoryTransaction: { create: txCreate },
-        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch2" }) },
+        stockBatch: {
+          create: vi.fn().mockResolvedValue({ id: "batch2" }),
+          aggregate: vi.fn().mockResolvedValue({ _sum: { remainingQty: 20 }, _count: 1 }),
+        },
         stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov2" }) },
       });
     });
@@ -394,7 +434,10 @@ describe("receiveStockByName", () => {
       return fn({
         inventoryTransaction: { create: txCreate },
         inventorySku: { update: txUpdate },
-        stockBatch: { create: vi.fn().mockResolvedValue({ id: "batch3" }) },
+        stockBatch: {
+          create: vi.fn().mockResolvedValue({ id: "batch3" }),
+          aggregate: vi.fn().mockResolvedValue({ _sum: { remainingQty: 10 }, _count: 1 }),
+        },
         stockMovement: { create: vi.fn().mockResolvedValue({ id: "mov3" }) },
       });
     });

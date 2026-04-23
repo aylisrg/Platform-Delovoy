@@ -45,6 +45,37 @@ export const voidTransactionSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+// PATCH /api/inventory/receipts/:id — edit a legacy receipt transaction.
+// At least one of the editable fields must be present.
+export const updateReceiptSchema = z
+  .object({
+    quantity: z
+      .number()
+      .int()
+      .positive("Количество должно быть положительным")
+      .max(100000, "Слишком большое количество")
+      .optional(),
+    receivedAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD")
+      .refine((val) => val <= new Date().toISOString().slice(0, 10), "Дата прихода не может быть в будущем")
+      .optional(),
+    note: z.string().max(500).optional(),
+  })
+  .refine(
+    (data) =>
+      data.quantity !== undefined ||
+      data.receivedAt !== undefined ||
+      data.note !== undefined,
+    { message: "Укажите хотя бы одно поле для изменения" }
+  );
+
+// DELETE /api/inventory/receipts/:id — superadmin-only hard delete.
+// Password is validated by authorizeSuperadminDeletion helper; reason is optional audit context.
+export const deleteReceiptSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
 export const transactionFilterSchema = z.object({
   skuId: z.string().optional(),
   type: z
