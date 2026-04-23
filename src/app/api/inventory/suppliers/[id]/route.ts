@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
+import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import {
   getSupplier,
   updateSupplier,
@@ -64,20 +65,30 @@ export async function PATCH(
   }
 }
 
+/**
+ * DELETE /api/inventory/suppliers/:id — soft-delete supplier (SUPERADMIN only).
+ * Body: { password: string, reason?: string }
+ */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) return apiUnauthorized();
-    const { role } = session.user;
-    if (role !== "SUPERADMIN" && role !== "ADMIN" && role !== "MANAGER") return apiForbidden();
+    const authz = await authorizeSuperadminDeletion(request, session);
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
+    const existing = await getSupplier(id);
     const result = await deleteSupplier(id);
 
-    await logAudit(session.user.id, "inventory.supplier.delete", "Supplier", id);
+    await logDeletion(authz, {
+      entity: "Supplier",
+      entityId: id,
+      entityLabel: `Склад · поставщик ${existing.name}`,
+      moduleSlug: "inventory",
+      snapshot: existing,
+    });
 
     return apiResponse(result);
   } catch (error) {

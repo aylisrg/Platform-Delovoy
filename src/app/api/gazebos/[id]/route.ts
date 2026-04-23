@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiNotFound, apiServerError, apiValidationError, apiUnauthorized, apiForbidden } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
-import { hasRole } from "@/lib/permissions";
+import { canEditModule } from "@/lib/permissions";
+import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { prisma } from "@/lib/db";
 import { getResource, updateResource } from "@/modules/gazebos/service";
@@ -33,8 +34,8 @@ export async function PATCH(
 ) {
   try {
     const session = await auth();
-    if (!session?.user) return apiUnauthorized();
-    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
+    if (!session?.user?.id) return apiUnauthorized();
+    if (!(await canEditModule(session.user, "gazebos"))) return apiForbidden();
 
     const { id } = await params;
     const body = await request.json();
@@ -47,6 +48,24 @@ export async function PATCH(
     if (!existing) return apiNotFound("Беседка не найдена");
 
     const updated = await updateResource(id, parsed.data);
+
+    await logAudit(
+      session.user.id,
+      "gazebos.resource.update",
+      "Resource",
+      id,
+      {
+        moduleSlug: "gazebos",
+        changes: parsed.data,
+        before: {
+          name: existing.name,
+          capacity: existing.capacity,
+          pricePerHour: existing.pricePerHour,
+          isActive: existing.isActive,
+        },
+      }
+    );
+
     return apiResponse(updated);
   } catch {
     return apiServerError();

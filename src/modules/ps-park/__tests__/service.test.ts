@@ -457,7 +457,12 @@ describe("getActiveSessions", () => {
   });
 
   it("calculates bill summary correctly", async () => {
-    const now = new Date();
+    // Freeze time to avoid flakiness: the service calls `new Date()` internally,
+    // so any wall-clock drift past the 30-minute boundary would bump billedHours
+    // from 0.5 to the next 15-minute slot.
+    vi.useFakeTimers();
+    const now = new Date("2026-01-15T12:00:00.000Z");
+    vi.setSystemTime(now);
     const start = new Date(now.getTime() - 30 * 60 * 1000); // 30 min ago
     const end = new Date(now.getTime() + 30 * 60 * 1000); // 30 min from now
 
@@ -493,6 +498,8 @@ describe("getActiveSessions", () => {
     expect(result[0].totalBill).toBe(550);
     expect(result[0].items).toHaveLength(1);
     expect(result[0].items[0].subtotal).toBe(300);
+
+    vi.useRealTimers();
   });
 });
 

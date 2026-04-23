@@ -15,7 +15,7 @@ import { getSku, updateSku, archiveSku, InventoryError } from "@/modules/invento
 import { updateSkuSchema } from "@/modules/inventory/validation";
 
 /**
- * PATCH /api/inventory/sku/:id — update SKU (SUPERADMIN)
+ * PATCH /api/inventory/sku/:id — update SKU (SUPERADMIN or ADMIN)
  */
 export async function PATCH(
   request: NextRequest,
@@ -24,7 +24,8 @@ export async function PATCH(
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN") return apiForbidden();
 
     const { id } = await params;
     const body = await request.json();

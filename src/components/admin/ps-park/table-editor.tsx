@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 
 type PSTable = {
   id: string;
@@ -14,8 +13,6 @@ type PSTable = {
 
 export function TableEditor({ table }: { table: PSTable }) {
   const router = useRouter();
-  const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.role === "SUPERADMIN";
 
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(
@@ -31,7 +28,7 @@ export function TableEditor({ table }: { table: PSTable }) {
     setError(null);
     try {
       const body: Record<string, unknown> = { isActive };
-      if (isSuperAdmin && price !== "") {
+      if (price !== "") {
         body.pricePerHour = parseFloat(price);
       }
       const res = await fetch(`/api/ps-park/${table.id}`, {
@@ -78,25 +75,19 @@ export function TableEditor({ table }: { table: PSTable }) {
             )}
 
             <form onSubmit={handleSave} className="space-y-4">
-              {isSuperAdmin ? (
-                <div>
-                  <label className="block text-sm font-medium text-zinc-700 mb-1">
-                    Цена в час (₽)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="100"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              ) : (
-                <p className="text-xs text-zinc-400">
-                  Изменение цены доступно только администратору.
-                </p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">
+                  Цена в час (₽)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
 
               <div className="flex items-center gap-3">
                 <input

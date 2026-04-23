@@ -32,6 +32,10 @@ import {
   extractAdminSection,
   ADMIN_SECTIONS,
   ADMIN_SECTION_SLUGS,
+  ADMIN_EDITABLE_MODULES,
+  isAdminEditableModule,
+  canEditModule,
+  canDelete,
   getModuleAdmins,
   canConfirmReceipt,
   canCorrectReceipt,
@@ -360,6 +364,116 @@ describe("getModuleAdmins", () => {
 
     const result = await getModuleAdmins("ps-park");
     expect(result).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// ADMIN_EDITABLE_MODULES / isAdminEditableModule
+// ============================================================
+describe("ADMIN_EDITABLE_MODULES", () => {
+  it("includes gazebos, ps-park, inventory", () => {
+    expect(ADMIN_EDITABLE_MODULES).toEqual(["gazebos", "ps-park", "inventory"]);
+  });
+
+  it("isAdminEditableModule recognises listed slugs", () => {
+    expect(isAdminEditableModule("gazebos")).toBe(true);
+    expect(isAdminEditableModule("ps-park")).toBe(true);
+    expect(isAdminEditableModule("inventory")).toBe(true);
+  });
+
+  it("isAdminEditableModule rejects other slugs", () => {
+    expect(isAdminEditableModule("cafe")).toBe(false);
+    expect(isAdminEditableModule("rental")).toBe(false);
+    expect(isAdminEditableModule("")).toBe(false);
+  });
+});
+
+// ============================================================
+// canEditModule
+// ============================================================
+describe("canEditModule", () => {
+  it("SUPERADMIN can edit any module without hitting DB", async () => {
+    expect(await canEditModule({ id: "sa", role: "SUPERADMIN" }, "cafe")).toBe(true);
+    expect(await canEditModule({ id: "sa", role: "SUPERADMIN" }, "rental")).toBe(true);
+    expect(await canEditModule({ id: "sa", role: "SUPERADMIN" }, "anything")).toBe(true);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("USER cannot edit any module", async () => {
+    expect(await canEditModule({ id: "u1", role: "USER" }, "gazebos")).toBe(false);
+    expect(await canEditModule({ id: "u1", role: "USER" }, "ps-park")).toBe(false);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN can edit gazebos by role alone (no assignment check)", async () => {
+    const result = await canEditModule({ id: "a1", role: "ADMIN" }, "gazebos");
+    expect(result).toBe(true);
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN can edit ps-park by role alone", async () => {
+    const result = await canEditModule({ id: "a1", role: "ADMIN" }, "ps-park");
+    expect(result).toBe(true);
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN can edit inventory by role alone", async () => {
+    const result = await canEditModule({ id: "a1", role: "ADMIN" }, "inventory");
+    expect(result).toBe(true);
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN needs AdminPermission for non-editable modules (e.g. cafe)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
+      id: "p1", userId: "a1", section: "cafe",
+    } as never);
+    const result = await canEditModule({ id: "a1", role: "ADMIN" }, "cafe");
+    expect(result).toBe(true);
+  });
+
+  it("ADMIN denied for non-editable module without AdminPermission", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
+    const result = await canEditModule({ id: "a1", role: "ADMIN" }, "rental");
+    expect(result).toBe(false);
+  });
+
+  it("MANAGER needs AdminPermission even for the 3 editable modules", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
+      id: "p1", userId: "m1", section: "gazebos",
+    } as never);
+    const result = await canEditModule({ id: "m1", role: "MANAGER" }, "gazebos");
+    expect(result).toBe(true);
+  });
+
+  it("MANAGER denied without AdminPermission for editable modules", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
+    const result = await canEditModule({ id: "m1", role: "MANAGER" }, "ps-park");
+    expect(result).toBe(false);
+  });
+});
+
+// ============================================================
+// canDelete
+// ============================================================
+describe("canDelete", () => {
+  it("SUPERADMIN can delete", () => {
+    expect(canDelete({ id: "sa", role: "SUPERADMIN" })).toBe(true);
+  });
+
+  it("ADMIN cannot delete", () => {
+    expect(canDelete({ id: "a1", role: "ADMIN" })).toBe(false);
+  });
+
+  it("MANAGER cannot delete", () => {
+    expect(canDelete({ id: "m1", role: "MANAGER" })).toBe(false);
+  });
+
+  it("USER cannot delete", () => {
+    expect(canDelete({ id: "u1", role: "USER" })).toBe(false);
   });
 });
 

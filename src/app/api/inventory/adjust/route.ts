@@ -13,13 +13,14 @@ import { adjustStock, InventoryError } from "@/modules/inventory/service";
 import { adjustSchema } from "@/modules/inventory/validation";
 
 /**
- * POST /api/inventory/adjust — adjust stock quantity (SUPERADMIN)
+ * POST /api/inventory/adjust — adjust stock quantity (SUPERADMIN or ADMIN)
  */
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN") return apiForbidden();
+    const { role } = session.user;
+    if (role !== "SUPERADMIN" && role !== "ADMIN") return apiForbidden();
 
     const body = await request.json();
     const parsed = adjustSchema.safeParse(body);
