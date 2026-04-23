@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { canConfirmReceipt, canCorrectReceipt, hasModuleAccess } from "@/lib/permissions";
+import { canConfirmReceipt, canCorrectReceipt, canEditModule, hasModuleAccess } from "@/lib/permissions";
 import {
   getReceipt,
   editDraftReceipt,
@@ -44,7 +44,7 @@ export async function GET(
 
     // ADMIN can only see receipts in their modules
     if (role === "ADMIN") {
-      const allowed = await hasModuleAccess(session.user.id, receipt.moduleSlug ?? "inventory");
+      const allowed = await canEditModule({ id: session.user.id, role }, receipt.moduleSlug ?? "inventory");
       if (!allowed) return apiForbidden();
     }
 
@@ -110,7 +110,7 @@ export async function PATCH(
         return apiForbidden();
       }
       if (role === "ADMIN") {
-        const allowed = await hasModuleAccess(session.user.id, moduleSlug);
+        const allowed = await canEditModule({ id: session.user.id, role }, moduleSlug);
         if (!allowed) return apiForbidden();
       }
 
