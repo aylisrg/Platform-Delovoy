@@ -70,6 +70,16 @@ export type VoidTransactionInput = {
   note?: string;
 };
 
+export type UpdateReceiptInput = {
+  quantity?: number;
+  receivedAt?: Date;
+  note?: string;
+};
+
+export type DeleteReceiptInput = {
+  reason?: string;
+};
+
 export type TransactionFilter = {
   skuId?: string;
   type?: InventoryTransactionType;
