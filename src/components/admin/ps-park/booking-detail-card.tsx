@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { TimelineBooking } from "@/modules/ps-park/types";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 type Props = {
   booking: TimelineBooking;
@@ -36,11 +37,9 @@ export function BookingDetailCard({
 
   const isPending = booking.status === "PENDING";
 
-  const formatTime = (d: Date) =>
-    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const formatTime = (d: Date) => formatTimeUnified(d);
 
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  const formatDate = (d: Date) => formatDateUnified(d);
 
   async function updateStatus(status: string) {
     setActionLoading(true);

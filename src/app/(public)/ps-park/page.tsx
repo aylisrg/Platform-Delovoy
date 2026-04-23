@@ -9,6 +9,7 @@ import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
+import { toISODate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -163,7 +164,7 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
 }
 
 export default async function PSParkPage() {
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
+  const today = toISODate(new Date());
   const [tables, rawAvailability, phoneInfo] = await Promise.all([
     listTables(true),
     getAvailability(today),

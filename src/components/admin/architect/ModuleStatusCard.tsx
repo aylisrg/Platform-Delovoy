@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { ModuleMapEntry, HealthStatus } from "@/modules/monitoring/architect-types";
+import { formatTime } from "@/lib/format";
 
 const statusVariant: Record<HealthStatus, "success" | "warning" | "danger" | "default"> = {
   healthy: "success",
@@ -63,7 +64,7 @@ export function ModuleStatusCard({ entry }: Props) {
 
         <div className="flex items-center justify-between mt-2">
           <span className="text-xs text-zinc-400">
-            {new Date(lastChecked).toLocaleTimeString("ru-RU")}
+            {formatTime(lastChecked)}
           </span>
           <div className="flex items-center gap-2">
             {!isActive && (

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
 import { ContactsCard } from "@/components/public/profile/contacts-card";
 import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
+import { formatDate, formatTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -154,11 +155,11 @@ export default async function DashboardPage() {
                         {resourceNameMap.get(b.resourceId) ?? "—"}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        {new Date(b.date).toLocaleDateString("ru-RU")}
+                        {formatDate(b.date)}
                         {" · "}
-                        {new Date(b.startTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        {formatTime(b.startTime)}
                         {" — "}
-                        {new Date(b.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        {formatTime(b.endTime)}
                       </p>
                     </div>
                   ))}
@@ -185,18 +186,12 @@ export default async function DashboardPage() {
                             {resourceNameMap.get(b.resourceId) ?? "—"}
                           </td>
                           <td className="py-3 text-zinc-600">
-                            {new Date(b.date).toLocaleDateString("ru-RU")}
+                            {formatDate(b.date)}
                           </td>
                           <td className="py-3 text-zinc-600">
-                            {new Date(b.startTime).toLocaleTimeString("ru-RU", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatTime(b.startTime)}
                             {" — "}
-                            {new Date(b.endTime).toLocaleTimeString("ru-RU", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatTime(b.endTime)}
                           </td>
                           <td className="py-3">
                             <Badge variant={bookingStatusVariant[b.status]}>
@@ -236,9 +231,9 @@ export default async function DashboardPage() {
                         </Badge>
                       </div>
                       <p className="text-xs text-zinc-500">
-                        {new Date(o.createdAt).toLocaleDateString("ru-RU")}
+                        {formatDate(o.createdAt)}
                         {" · "}
-                        {new Date(o.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        {formatTime(o.createdAt)}
                         {" · "}
                         {o.items.length} позиц.
                         {o.deliveryTo ? ` · офис ${o.deliveryTo}` : ""}
@@ -262,11 +257,8 @@ export default async function DashboardPage() {
                       {orders.map((o) => (
                         <tr key={o.id} className="border-b border-zinc-50">
                           <td className="py-3 text-zinc-600">
-                            {new Date(o.createdAt).toLocaleDateString("ru-RU")}{" "}
-                            {new Date(o.createdAt).toLocaleTimeString("ru-RU", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatDate(o.createdAt)}{" "}
+                            {formatTime(o.createdAt)}
                           </td>
                           <td className="py-3 text-zinc-600">
                             {o.items.length} шт.
@@ -327,9 +319,9 @@ export default async function DashboardPage() {
                         : fb.description}
                     </p>
                     <p className="text-xs text-zinc-400">
-                      {new Date(fb.createdAt).toLocaleDateString("ru-RU")}
+                      {formatDate(fb.createdAt)}
                       {" · "}
-                      {new Date(fb.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                      {formatTime(fb.createdAt)}
                     </p>
                     {fb.comments.length > 0 && (
                       <div className="mt-2 rounded-lg bg-zinc-50 p-3">

@@ -1,12 +1,14 @@
 "use client";
 
+import { formatDate, toISODate } from "@/lib/format";
+
 type Props = {
   currentDate: string;
   onChange: (date: string) => void;
 };
 
 export function DarkDateNavigator({ currentDate, onChange }: Props) {
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
+  const today = toISODate(new Date());
   const isToday = currentDate === today;
 
   function shiftDate(days: number) {
@@ -16,12 +18,7 @@ export function DarkDateNavigator({ currentDate, onChange }: Props) {
   }
 
   function formatDisplayDate(dateStr: string) {
-    const d = new Date(dateStr + "T00:00:00");
-    return d.toLocaleDateString("ru-RU", {
-      weekday: "short",
-      day: "numeric",
-      month: "long",
-    });
+    return formatDate(dateStr + "T00:00:00");
   }
 
   return (

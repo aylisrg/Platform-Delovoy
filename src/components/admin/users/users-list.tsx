@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CreateUserForm } from "./create-user-form";
 import { PermissionsModal } from "./permissions-modal";
+import { formatDate } from "@/lib/format";
 
 type Role = "SUPERADMIN" | "ADMIN" | "MANAGER" | "USER";
 
@@ -358,7 +359,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
 
                     {/* Created at */}
                     <td className="px-6 py-3 text-zinc-400">
-                      {new Date(user.createdAt).toLocaleDateString("ru-RU")}
+                      {formatDate(user.createdAt)}
                     </td>
 
                     {/* Actions */}

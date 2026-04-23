@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { verifyBotRequest } from "@/lib/bot-auth";
 import { prisma } from "@/lib/db";
+import { formatTime } from "@/lib/format";
 
 /**
  * GET /api/bot/my-bookings?telegramId=xxx
@@ -51,14 +52,8 @@ export async function GET(request: NextRequest) {
       moduleSlug: b.moduleSlug,
       resourceName: resourceMap.get(b.resourceId) || "Ресурс",
       date: b.date.toISOString(),
-      startTime: b.startTime.toLocaleTimeString("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      endTime: b.endTime.toLocaleTimeString("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      startTime: formatTime(b.startTime),
+      endTime: formatTime(b.endTime),
       status: b.status,
     }));
 

@@ -12,6 +12,7 @@ import { OfficeList } from "@/components/admin/rental/office-list";
 import { ContractList } from "@/components/admin/rental/contract-list";
 import { DealKanban } from "@/components/admin/rental/deal-kanban";
 import { auth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -256,7 +257,7 @@ export default async function RentalManagerPage() {
                     title="Новых/мес"
                     value={newThisMonth}
                     status="info"
-                    description={now.toLocaleDateString("ru-RU", { month: "long" })}
+                    description={formatDate(now)}
                   />
                   <StatusWidget
                     title="Заявки"
@@ -382,12 +383,7 @@ export default async function RentalManagerPage() {
                                 className={`border-b border-zinc-50 ${!inq.isRead ? "bg-blue-50/50" : ""}`}
                               >
                                 <td className="py-3 pr-3 text-zinc-500 whitespace-nowrap text-xs">
-                                  {new Date(inq.createdAt).toLocaleDateString("ru-RU", {
-                                    day: "numeric",
-                                    month: "short",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
+                                  {formatDateTime(inq.createdAt)}
                                 </td>
                                 <td className="py-3 pr-3 font-medium text-zinc-900">
                                   {!inq.isRead && (
@@ -431,7 +427,7 @@ export default async function RentalManagerPage() {
                 <Card>
                   <CardHeader>
                     <h2 className="font-semibold text-zinc-900">
-                      Финансы — {now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
+                      Финансы — {formatDate(now)}
                     </h2>
                   </CardHeader>
                   <CardContent>

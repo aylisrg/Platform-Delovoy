@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import type { BookingBill } from "@/modules/ps-park/types";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 const statusLabel: Record<string, string> = {
   PENDING: "Ожидает",
@@ -25,11 +26,11 @@ const statusVariant: Record<string, "warning" | "success" | "default" | "info"> 
 };
 
 function formatTime(dt: string) {
-  return new Date(dt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUnified(dt);
 }
 
 function formatDate(dt: string) {
-  return new Date(dt).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateUnified(dt);
 }
 
 export type HistoryBooking = {

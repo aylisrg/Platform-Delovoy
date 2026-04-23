@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatDateTime } from "@/lib/format";
 
 export function ReceiveStockButton() {
   const [open, setOpen] = useState(false);
@@ -10,14 +11,7 @@ export function ReceiveStockButton() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const now = new Date();
-  const dateLabel = now.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const dateLabel = formatDateTime(new Date());
 
   function resetForm() {
     setName("");

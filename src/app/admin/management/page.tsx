@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AdminHeader } from "@/components/admin/header";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 type ExpenseSummary = {
   period: { from: string; to: string };
@@ -73,8 +74,7 @@ function getQuarterRange() {
 }
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return formatDateUnified(iso);
 }
 
 function formatMoney(amount: string | number) {

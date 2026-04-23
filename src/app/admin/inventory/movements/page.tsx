@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
+import { formatDateTime } from "@/lib/format";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -54,13 +55,7 @@ type MovementRow = {
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 const MOVEMENT_TYPES = [

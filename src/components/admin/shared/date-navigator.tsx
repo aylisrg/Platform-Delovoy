@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDate } from "@/lib/format";
+
 type DateNavigatorProps = {
   currentDate: string; // "YYYY-MM-DD"
   onChange: (date: string) => void;
@@ -16,12 +18,7 @@ export function DateNavigator({ currentDate, onChange }: DateNavigatorProps) {
   }
 
   function formatDisplayDate(dateStr: string) {
-    const d = new Date(dateStr + "T00:00:00");
-    return d.toLocaleDateString("ru-RU", {
-      weekday: "short",
-      day: "numeric",
-      month: "long",
-    });
+    return formatDate(dateStr + "T00:00:00");
   }
 
   return (

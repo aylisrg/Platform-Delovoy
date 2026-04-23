@@ -1,7 +1,10 @@
 /**
  * Pure helpers for PS Park admin booking UI (mobile + desktop share logic).
  *
- * All times are "HH:MM" strings in Moscow timezone (store closes at 23:00).
+ * Scope: slot/chip math on "HH:MM" strings in a single Moscow-local day
+ * (store closes at 23:00). This file is NOT for formatting `Date → string`
+ * in UI — use `@/lib/format` (formatDate, formatTime, formatDateTime) for that.
+ * See ADR 2026-04-23 (Data Consistency & Formatting).
  */
 
 export const OPEN_HHMM = "08:00";

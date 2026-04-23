@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ContractActions } from "./contract-actions";
 import { ContractEditModal } from "./contract-edit-modal";
 import type { ContractStatus } from "@prisma/client";
+import { formatDate } from "@/lib/format";
 
 type Contract = {
   id: string;
@@ -42,7 +43,7 @@ const statusVariant: Record<ContractStatus, "warning" | "success" | "default" | 
 };
 
 function fmtDate(d: string | Date): string {
-  return new Date(d).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(d);
 }
 
 function fmtMoney(n: number): string {
