@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     if (!session?.user) return apiUnauthorized();
     if (
       session.user.role !== "SUPERADMIN" &&
+      session.user.role !== "ADMIN" &&
       session.user.role !== "MANAGER"
     ) {
       return apiForbidden();

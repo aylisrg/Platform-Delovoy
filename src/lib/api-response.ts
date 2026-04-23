@@ -78,7 +78,7 @@ export async function requireAdminSection(
   if (!session?.user) return apiUnauthorized();
 
   const { role } = session.user;
-  if (role === "SUPERADMIN") return null; // Full access
+  if (role === "SUPERADMIN" || role === "ADMIN") return null; // Full access
 
   if (role !== "MANAGER") return apiForbidden();
 
