@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => ({
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
       count: vi.fn(),
     },
     user: {
@@ -57,9 +58,15 @@ import {
   getBookingBill,
   checkInBooking,
   markNoShow,
+  listBookings,
+  getBooking,
+  getAnalytics,
+  listBookingsPaginated,
+  softDeleteBooking,
+  hardDeleteBooking,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
-import { validateAndSnapshotItems, saleBookingItems } from "@/modules/inventory/service";
+import { validateAndSnapshotItems, saleBookingItems, returnBookingItems } from "@/modules/inventory/service";
 
 const FUTURE_DATE = "2030-08-20";
 const PAST_DATE = "2020-03-01";
@@ -792,5 +799,250 @@ describe("getAvailability", () => {
     expect(slots[0].endTime).toBe("09:00");
     expect(slots[slots.length - 1].startTime).toBe("22:00");
     expect(slots[slots.length - 1].endTime).toBe("23:00");
+  });
+});
+
+// ===== Soft-delete: deletedAt: null filter in read functions =====
+
+describe("soft-delete filter (deletedAt: null) in read functions", () => {
+  it("listBookings adds deletedAt: null to where clause", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+
+    await listBookings();
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null, moduleSlug: "ps-park" }),
+      })
+    );
+    expect(prisma.booking.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    await getBooking("some-id");
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getTimeline filters soft-deleted bookings", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    await getTimeline(FUTURE_DATE);
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getAvailability does not block slot by soft-deleted booking", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    // prisma would not return deletedAt: null-filtered rows in real life — we
+    // assert the where clause carries the filter.
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+    // With no (non-deleted) bookings, every slot is free.
+    expect(result[0].slots.every((s) => s.isAvailable)).toBe(true);
+  });
+
+  it("getActiveSessions filters soft-deleted", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+    await getActiveSessions();
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getAnalytics filters soft-deleted bookings and their transactions", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany)
+      // 1st call: non-deleted bookings
+      .mockResolvedValueOnce([mockBooking({ status: "COMPLETED" })] as never)
+      // 2nd call: inside the "deletedBookingIds" lookup
+      .mockResolvedValueOnce([{ id: "deleted-1" }] as never);
+    vi.mocked(prisma.financialTransaction.findMany).mockResolvedValue([
+      { id: "tx-1", bookingId: "alive", totalAmount: 500, createdAt: new Date() },
+      { id: "tx-2", bookingId: "deleted-1", totalAmount: 1000, createdAt: new Date() },
+    ] as never);
+
+    const result = await getAnalytics("week");
+
+    // Only the transaction for the alive booking contributes to revenue.
+    expect(result.totalRevenue).toBe(500);
+    // First call: bookings findMany with deletedAt: null.
+    expect(prisma.booking.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("listBookingsPaginated filters soft-deleted", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+    await listBookingsPaginated({});
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("createBooking conflict-check ignores soft-deleted rows", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+});
+
+// ===== softDeleteBooking / hardDeleteBooking =====
+
+describe("softDeleteBooking", () => {
+  it("sets deletedAt on a PENDING booking (no inventory return)", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", deletedAt: null }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(
+      mockBooking({ deletedAt: new Date() }) as never
+    );
+
+    await softDeleteBooking("booking-1", "admin-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "booking-1" },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      })
+    );
+    expect(returnBookingItems).not.toHaveBeenCalled();
+  });
+
+  it("returns inventory when soft-deleting a CONFIRMED booking with items", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        deletedAt: null,
+        metadata: {
+          items: [{ skuId: "sku-1", skuName: "Cola", quantity: 1, priceAtBooking: 150 }],
+        },
+      }) as never
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const tx = { booking: { update: vi.fn().mockResolvedValue({ id: "booking-1" }) } };
+      return fn(tx);
+    });
+
+    await softDeleteBooking("booking-1", "admin-1");
+
+    expect(returnBookingItems).toHaveBeenCalled();
+  });
+
+  it("throws BOOKING_ALREADY_DELETED if already soft-deleted", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CANCELLED", deletedAt: new Date() }) as never
+    );
+    await expect(softDeleteBooking("booking-1", "admin-1")).rejects.toMatchObject({
+      code: "BOOKING_ALREADY_DELETED",
+    });
+  });
+
+  it("throws BOOKING_NOT_FOUND when not found", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    await expect(softDeleteBooking("missing", "admin-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+  });
+});
+
+describe("hardDeleteBooking", () => {
+  it("physically removes the booking via tx.booking.delete", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", deletedAt: null, metadata: {} }) as never
+    );
+    const txDelete = vi.fn().mockResolvedValue({ id: "booking-1" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const tx = { booking: { delete: txDelete } };
+      return fn(tx);
+    });
+
+    await hardDeleteBooking("booking-1", "super-1");
+
+    expect(txDelete).toHaveBeenCalledWith({ where: { id: "booking-1" } });
+  });
+
+  it("returns inventory before delete for CONFIRMED booking with items", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        deletedAt: null,
+        metadata: {
+          items: [{ skuId: "sku-1", skuName: "Cola", quantity: 1, priceAtBooking: 150 }],
+        },
+      }) as never
+    );
+    const txDelete = vi.fn().mockResolvedValue({ id: "booking-1" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const tx = { booking: { delete: txDelete } };
+      return fn(tx);
+    });
+
+    await hardDeleteBooking("booking-1", "super-1");
+
+    expect(returnBookingItems).toHaveBeenCalled();
+    expect(txDelete).toHaveBeenCalled();
+  });
+
+  it("skips item-return when booking was already soft-deleted", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        deletedAt: new Date(),
+        metadata: {
+          items: [{ skuId: "sku-1", skuName: "Cola", quantity: 1, priceAtBooking: 150 }],
+        },
+      }) as never
+    );
+    const txDelete = vi.fn().mockResolvedValue({ id: "booking-1" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      const tx = { booking: { delete: txDelete } };
+      return fn(tx);
+    });
+
+    await hardDeleteBooking("booking-1", "super-1");
+
+    expect(returnBookingItems).not.toHaveBeenCalled();
+    expect(txDelete).toHaveBeenCalled();
   });
 });

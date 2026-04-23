@@ -10,7 +10,7 @@ import {
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { getBooking, updateBookingStatus, cancelBooking, PSBookingError } from "@/modules/ps-park/service";
+import { getBooking, updateBookingStatus, cancelBooking, PSBookingError, softDeleteBooking, hardDeleteBooking } from "@/modules/ps-park/service";
 import { hasRole } from "@/lib/permissions";
 import { checkoutDiscountSchema } from "@/modules/booking/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
@@ -119,7 +119,13 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/ps-park/bookings/:id — soft delete booking (SUPERADMIN only)
+ * DELETE /api/ps-park/bookings/:id
+ *  - SUPERADMIN can hard-delete with `?hard=true` (physically removes the row).
+ *  - Otherwise (default): soft-delete — sets `deletedAt = now()`. Requires SUPERADMIN
+ *    with password re-auth per authorizeSuperadminDeletion contract.
+ *  - If the booking was CONFIRMED and contained items, inventory is returned to stock
+ *    in the same transaction.
+ *
  * Body: { password: string, reason?: string }
  */
 export async function DELETE(
@@ -135,12 +141,30 @@ export async function DELETE(
     const booking = await getBooking(id);
     if (!booking) return apiNotFound("Бронирование не найдено");
 
-    const { prisma } = await import("@/lib/db");
-    await prisma.booking.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
+    const url = new URL(request.url);
+    const hard =
+      url.searchParams.get("hard") === "true" && session?.user?.role === "SUPERADMIN";
 
+    const performedById = authz.actor.id;
+
+    if (hard) {
+      await hardDeleteBooking(id, performedById);
+      await logDeletion(authz, {
+        entity: "Booking",
+        entityId: id,
+        entityLabel: `PS Park · бронь ${id.slice(0, 8)} (${booking.clientName ?? "без имени"})`,
+        moduleSlug: "ps-park",
+        snapshot: booking,
+        deletionType: "HARD",
+      });
+      await logAudit(performedById, "booking.hard_delete", "Booking", id, {
+        moduleSlug: "ps-park",
+        reason: authz.reason,
+      });
+      return apiResponse({ id, hardDeleted: true });
+    }
+
+    await softDeleteBooking(id, performedById);
     await logDeletion(authz, {
       entity: "Booking",
       entityId: id,
@@ -148,8 +172,15 @@ export async function DELETE(
       moduleSlug: "ps-park",
       snapshot: booking,
     });
+    await logAudit(performedById, "booking.soft_delete", "Booking", id, {
+      moduleSlug: "ps-park",
+      reason: authz.reason,
+    });
     return apiResponse({ id, deletedAt: new Date().toISOString() });
-  } catch {
+  } catch (error) {
+    if (error instanceof PSBookingError) {
+      return apiError(error.code, error.message, 400);
+    }
     return apiServerError();
   }
 }

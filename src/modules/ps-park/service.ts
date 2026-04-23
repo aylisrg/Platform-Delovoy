@@ -101,6 +101,7 @@ export async function updateTable(id: string, input: UpdateTableInput) {
 export async function listBookings(filter?: PSBookingFilter) {
   const where = {
     moduleSlug: MODULE_SLUG,
+    deletedAt: null,
     ...(filter?.status && { status: filter.status }),
     ...(filter?.resourceId && { resourceId: filter.resourceId }),
     ...(filter?.userId && { userId: filter.userId }),
@@ -128,7 +129,7 @@ export async function listBookings(filter?: PSBookingFilter) {
 
 export async function getBooking(id: string) {
   return prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 }
 
@@ -160,6 +161,7 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
   const conflict = await prisma.booking.findFirst({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       resourceId,
       status: { in: ["PENDING", "CONFIRMED"] },
       date: bookingDate,
@@ -649,6 +651,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
   const conflict = await prisma.booking.findFirst({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       resourceId,
       status: { in: ["PENDING", "CONFIRMED"] },
       date: bookingDate,
@@ -915,6 +918,7 @@ export async function getAvailability(date: string, resourceId?: string): Promis
   const existingBookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       date: bookingDate,
       status: { in: ["PENDING", "CONFIRMED"] },
       ...(resourceId && { resourceId }),
@@ -954,6 +958,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
   const bookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       date: bookingDate,
       status: { in: ["PENDING", "CONFIRMED"] },
     },
@@ -1000,6 +1005,7 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
   const bookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       status: "CONFIRMED",
       date: today,
       startTime: { lte: now },
@@ -1074,6 +1080,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
   const conflict = await prisma.booking.findFirst({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       resourceId: booking.resourceId,
       id: { not: bookingId },
       status: { in: ["PENDING", "CONFIRMED"] },
@@ -1349,20 +1356,37 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
   const resourceMap = new Map(resources.map((r) => [r.id, r]));
 
   const bookings = await prisma.booking.findMany({
-    where: { moduleSlug: MODULE_SLUG, date: { gte: dateFrom } },
+    where: { moduleSlug: MODULE_SLUG, deletedAt: null, date: { gte: dateFrom } },
   });
 
   const completed = bookings.filter((b) => b.status === "COMPLETED");
   const cancelled = bookings.filter((b) => b.status === "CANCELLED");
 
-  // Revenue from financial transactions (more accurate for PS Park)
-  const transactions = await prisma.financialTransaction.findMany({
+  // Revenue from financial transactions (more accurate for PS Park).
+  // Exclude transactions linked to soft-deleted bookings so analytics match
+  // the list/timeline views after hard-deletion by SUPERADMIN.
+  const allTransactions = await prisma.financialTransaction.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
       type: "SESSION_PAYMENT",
       createdAt: { gte: dateFrom },
     },
   });
+  const txBookingIds = allTransactions
+    .map((t) => t.bookingId)
+    .filter((id): id is string => Boolean(id));
+  const deletedBookingIds = txBookingIds.length
+    ? (
+        await prisma.booking.findMany({
+          where: { id: { in: txBookingIds }, deletedAt: { not: null } },
+          select: { id: true },
+        })
+      ).map((b) => b.id)
+    : [];
+  const deletedSet = new Set(deletedBookingIds);
+  const transactions = allTransactions.filter(
+    (t) => !t.bookingId || !deletedSet.has(t.bookingId)
+  );
   const totalRevenue = transactions.reduce((sum, t) => sum + Number(t.totalAmount), 0);
   const averageCheck = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
 
@@ -1433,7 +1457,7 @@ export async function listBookingsPaginated(params: {
   const perPage = params.perPage ?? 20;
   const skip = (page - 1) * perPage;
 
-  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG };
+  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG, deletedAt: null };
   if (params.status) where.status = params.status;
   if (params.resourceId) where.resourceId = params.resourceId;
   if (params.dateFrom || params.dateTo) {
@@ -1464,6 +1488,68 @@ export async function listBookingsPaginated(params: {
   }));
 
   return { bookings, total, page, perPage };
+}
+
+// === DELETION ===
+
+/**
+ * Soft-delete a booking: set deletedAt=now(). Read-queries filter by deletedAt=null
+ * so the row disappears from lists, timeline, availability and analytics. If the
+ * booking was CONFIRMED with items, stock is returned in the same transaction.
+ */
+export async function softDeleteBooking(id: string, performedById: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  if (booking.deletedAt) {
+    throw new PSBookingError("BOOKING_ALREADY_DELETED", "Бронь уже удалена");
+  }
+
+  const metadata = booking.metadata as BookingMetadata | null;
+  const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  const shouldReturn = booking.status === "CONFIRMED" && items.length > 0;
+
+  if (shouldReturn) {
+    return prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+      await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      return b;
+    });
+  }
+
+  return prisma.booking.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+}
+
+/**
+ * Hard-delete a booking: physically remove the row. SUPERADMIN only (RBAC enforced
+ * in the route handler). Returns items to stock first if the booking held any.
+ * Related FinancialTransaction/InventoryTransaction rows keep their bookingId
+ * reference (nullable FK — schema permits this) so the ledger stays intact.
+ */
+export async function hardDeleteBooking(id: string, performedById: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const metadata = booking.metadata as BookingMetadata | null;
+  const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  const shouldReturn = booking.status === "CONFIRMED" && items.length > 0 && !booking.deletedAt;
+
+  return prisma.$transaction(async (tx) => {
+    if (shouldReturn) {
+      await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+    }
+    await tx.booking.delete({ where: { id } });
+    return { id };
+  });
 }
 
 export class PSBookingError extends Error {
