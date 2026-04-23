@@ -84,7 +84,10 @@ export const authConfig: NextAuthConfig = {
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/waitlist") ||
-        pathname.startsWith("/api/bot/");
+        pathname.startsWith("/api/bot/") ||
+        // Guest checkout: booking endpoints accept unauthenticated POSTs when
+        // the body carries guestName + guestPhone. The handler enforces the rule.
+        pathname === "/api/gazebos/book";
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
       // Webapp (Mini App) routes use their own JWT — not NextAuth sessions
