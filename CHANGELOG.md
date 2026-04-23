@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.7.0...v1.8.0) (2026-04-23)
+
+
+### Features
+
+* **format:** unified date/time formatting (24h, dd-mm-yyyy) + ESLint rule ([#162](https://github.com/aylisrg/Platform-Delovoy/issues/162)) ([020e5b7](https://github.com/aylisrg/Platform-Delovoy/commit/020e5b76afb5cc5a0f69cea98231fa39feeee283))
+
+
+### Bug Fixes
+
+* **inventory:** recalculate stock after receipt hard-delete ([#165](https://github.com/aylisrg/Platform-Delovoy/issues/165)) ([45e256b](https://github.com/aylisrg/Platform-Delovoy/commit/45e256ba425a8a7e0ab1c94934e9e8ed6da9daa7))
+* **inventory:** sync stock on receipt edit via recalculateStock + batch receiptTxId link ([#161](https://github.com/aylisrg/Platform-Delovoy/issues/161)) ([f06db91](https://github.com/aylisrg/Platform-Delovoy/commit/f06db91c269ea92975a9d87a01260369a7bda3a4))
+* **ps-park:** filter soft-deleted bookings in all reads + role-gated hard delete ([#160](https://github.com/aylisrg/Platform-Delovoy/issues/160)) ([acc885a](https://github.com/aylisrg/Platform-Delovoy/commit/acc885a104500c4f4036589ef248376b724bd0c8))
+
 ## [1.7.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.6.0...v1.7.0) (2026-04-22)
 
 
