@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatDate } from "@/lib/format";
 
 type AnalyticsData = {
   totalBookings: number;
@@ -163,7 +164,7 @@ export function AnalyticsDashboard({ moduleSlug, resourceLabel }: AnalyticsDashb
                 <tbody>
                   {data.byDay.map((d) => (
                     <tr key={d.date} className="border-b border-zinc-50">
-                      <td className="py-2 text-zinc-900">{new Date(d.date).toLocaleDateString("ru-RU")}</td>
+                      <td className="py-2 text-zinc-900">{formatDate(d.date)}</td>
                       <td className="py-2 text-zinc-600 text-right">{d.bookings}</td>
                       <td className="py-2 text-zinc-600 text-right">{d.revenue.toLocaleString("ru-RU")} ₽</td>
                     </tr>

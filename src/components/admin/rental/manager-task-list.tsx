@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 type Task = {
   id: string;
@@ -139,12 +140,7 @@ function TaskCard({ task }: { task: Task }) {
           <div className="flex items-center gap-2">
             <Badge variant={STATUS_VARIANT[task.status]}>{STATUS_LABEL[task.status]}</Badge>
             <span className="text-xs text-zinc-500">
-              {new Date(task.createdAt).toLocaleDateString("ru-RU", {
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatDateTime(task.createdAt)}
             </span>
           </div>
           <h3 className="font-medium text-zinc-900 mt-1">{task.title}</h3>
@@ -169,7 +165,7 @@ function TaskCard({ task }: { task: Task }) {
               {task.payment && (
                 <p>
                   Сумма: <b>{Number(task.payment.amount).toLocaleString("ru-RU")} ₽</b>, срок{" "}
-                  {new Date(task.payment.dueDate).toLocaleDateString("ru-RU")}
+                  {formatDate(task.payment.dueDate)}
                 </p>
               )}
             </div>

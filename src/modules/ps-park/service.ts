@@ -2,6 +2,10 @@ import { prisma } from "@/lib/db";
 import type { BookingStatus } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
+  formatTime as formatTimeUnified,
+  getMoscowHour as getMoscowHourUnified,
+} from "@/lib/format";
+import {
   createCalendarEvent,
   deleteCalendarEvent,
 } from "@/lib/google-calendar";
@@ -1144,22 +1148,17 @@ function parseDatetime(date: string, time: string): Date {
   return new Date(`${date}T${time}:00+03:00`);
 }
 
-/** Format a UTC Date object as HH:MM in Moscow timezone. */
+/**
+ * Format a UTC Date object as HH:mm in Moscow timezone.
+ * Thin wrapper over the unified formatter in `@/lib/format` (ADR 2026-04-23).
+ */
 function formatMoscowTime(d: Date): string {
-  return d.toLocaleTimeString("ru-RU", {
-    timeZone: "Europe/Moscow",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatTimeUnified(d);
 }
 
 /** Get the hour (0-23) of a Date in Moscow timezone. */
 function getMoscowHour(d: Date): number {
-  return parseInt(
-    d.toLocaleString("en-US", { timeZone: "Europe/Moscow", hour: "numeric", hour12: false }),
-    10
-  );
+  return getMoscowHourUnified(d);
 }
 
 /**

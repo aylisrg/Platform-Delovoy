@@ -7,6 +7,7 @@ import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
 import { pickRandom, TOAST_BOOKING_SUCCESS, TOAST_BOOKING_CANCEL } from "@/lib/easter-eggs";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 type TimeSlot = {
   startTime: string;
@@ -517,6 +518,5 @@ function StepIndicator({ current }: { current: BookingStep }) {
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "long" });
+  return formatDateUnified(dateStr + "T00:00:00");
 }

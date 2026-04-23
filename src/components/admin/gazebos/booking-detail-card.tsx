@@ -8,6 +8,7 @@ import {
   DISCOUNT_REASON_LABELS,
   type DiscountReason,
 } from "@/modules/booking/discount";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 type Props = {
   booking: TimelineBooking;
@@ -45,11 +46,9 @@ export function GazeboBookingDetailCard({
   const isPending = booking.status === "PENDING";
   const canComplete = booking.status === "CONFIRMED";
 
-  const formatTime = (d: Date) =>
-    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const formatTime = (d: Date) => formatTimeUnified(d);
 
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  const formatDate = (d: Date) => formatDateUnified(d);
 
   const totalCost = pricePerHour ? Math.round(hours * pricePerHour) : null;
   const totalFromMeta = Number(meta?.totalPrice ?? totalCost ?? 0);

@@ -8,6 +8,7 @@ import {
   deleteWithPassword,
 } from "@/components/admin/shared/delete-confirm-dialog";
 import type { BookingStatus } from "@prisma/client";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 type HistoryBooking = {
   id: string;
@@ -106,11 +107,11 @@ export function GazeboBookingHistoryTable() {
   const totalPages = Math.ceil(total / perPage);
 
   function formatTime(dt: string) {
-    return new Date(dt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    return formatTimeUnified(dt);
   }
 
   function formatDate(dt: string) {
-    return new Date(dt).toLocaleDateString("ru-RU");
+    return formatDateUnified(dt);
   }
 
   return (

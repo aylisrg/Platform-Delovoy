@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AdminHeader } from "@/components/admin/header";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 type RecurringExpense = {
   id: string;
@@ -40,7 +41,7 @@ const FREQUENCY_LABELS: Record<string, string> = {
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return formatDateUnified(iso);
 }
 
 function formatMoney(amount: string | number) {

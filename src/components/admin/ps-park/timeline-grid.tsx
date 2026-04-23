@@ -5,6 +5,7 @@ import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { QuickBookingPopover } from "./quick-booking-popover";
 import { BookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
+import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
 
 type TimelineGridProps = {
   initialData: TimelineData;
@@ -24,10 +25,7 @@ const CLOSE_HOUR = 23;
 const MOSCOW_TZ = "Europe/Moscow";
 
 function getMoscowHour(d: Date): number {
-  return parseInt(
-    d.toLocaleString("en-US", { timeZone: MOSCOW_TZ, hour: "numeric", hour12: false }),
-    10
-  );
+  return getMoscowHourUnified(d);
 }
 
 function getMoscowMinute(d: Date): number {
@@ -35,7 +33,7 @@ function getMoscowMinute(d: Date): number {
 }
 
 function getMoscowDateStr(d: Date): string {
-  return d.toLocaleDateString("en-CA", { timeZone: MOSCOW_TZ }); // YYYY-MM-DD
+  return toISODate(d);
 }
 
 function parseMoscowDatetime(date: string, hour: number): Date {

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { MergeDialog } from "./merge-dialog";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 type ModuleUsage = {
   moduleSlug: string;
@@ -73,7 +74,7 @@ function formatRubles(amount: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ru-RU");
+  return formatDateUnified(iso);
 }
 
 function formatRelativeDate(iso: string): string {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -41,11 +42,7 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDateUnified(iso);
 }
 
 export default function WriteOffsPage() {

@@ -5,6 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
 import type { DealPriority, DealSource } from "@/modules/rental/types";
+import { formatDate } from "@/lib/format";
 
 export type DealCardData = {
   id: string;
@@ -164,12 +165,7 @@ export function DealCard({ deal, now, onEdit, overlay }: Props) {
           }`}
         >
           <span className="font-medium">
-            {deal.nextActionDate
-              ? new Date(deal.nextActionDate).toLocaleDateString("ru-RU", {
-                  day: "numeric",
-                  month: "short",
-                })
-              : ""}
+            {formatDate(deal.nextActionDate)}
           </span>{" "}
           {deal.nextAction}
         </div>

@@ -6,6 +6,7 @@ import { forbidden } from "next/navigation";
 import { hasAdminSectionAccess } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { MarkPaidButton } from "@/components/admin/rental/mark-paid-button";
+import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +81,7 @@ export default async function RentalPaymentsPage() {
                       >
                         <td className="py-2 pr-3 whitespace-nowrap">
                           <div className="font-medium text-zinc-900">
-                            {p.dueDate.toLocaleDateString("ru-RU")}
+                            {formatDate(p.dueDate)}
                           </div>
                           <div className="text-xs text-zinc-500">
                             {overdue

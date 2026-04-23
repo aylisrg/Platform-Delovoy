@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { signOut } from "next-auth/react";
 import type { DayReport, ShiftHandoverData } from "@/modules/ps-park/types";
+import { formatTime as formatTimeUnified } from "@/lib/format";
 
 type ShiftData = {
   shift: ShiftHandoverData | null;
@@ -10,10 +11,7 @@ type ShiftData = {
 };
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeUnified(iso);
 }
 
 function formatMoney(amount: number) {

@@ -6,6 +6,7 @@ import { TenantEditModal } from "./tenant-edit-modal";
 import { SendEmailModal } from "./send-email-modal";
 import { PhoneActions } from "@/components/admin/telephony/phone-actions";
 import type { TenantType, ContractStatus, OfficeType } from "@prisma/client";
+import { formatDate } from "@/lib/format";
 
 type TenantContract = {
   id: string;
@@ -78,7 +79,7 @@ function formatPhone(phone: string): string {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(iso);
 }
 
 function fmtMoney(n: number): string {

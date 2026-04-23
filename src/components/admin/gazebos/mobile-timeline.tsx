@@ -10,15 +10,10 @@ import {
   isSlotFree,
 } from "@/lib/booking-time";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
-
-const MOSCOW_TZ = "Europe/Moscow";
+import { formatTime } from "@/lib/format";
 
 function toHHMM(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    timeZone: MOSCOW_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTime(iso);
 }
 
 type SlotState = {

@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "./booking-actions";
 import type { BookingStatus } from "@prisma/client";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 const statusLabel: Record<string, string> = {
   PENDING: "Ожидает",
@@ -37,11 +38,11 @@ type Props = {
 };
 
 function formatTime(dt: Date) {
-  return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUnified(dt);
 }
 
 function formatDate(dt: Date) {
-  return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  return formatDateUnified(dt);
 }
 
 function getClient(b: GazeboMobileBookingRow): { name: string; phone: string | null } {

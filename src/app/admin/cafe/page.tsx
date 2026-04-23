@@ -5,6 +5,7 @@ import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
 import type { OrderStatus } from "@prisma/client";
 import { OrderActions } from "@/components/admin/cafe/order-actions";
+import { formatTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -137,10 +138,7 @@ export default async function CafeManagerPage() {
                   {orders.map((order) => (
                     <tr key={order.id} className="border-b border-zinc-50">
                       <td className="py-3 text-zinc-900">
-                        {new Date(order.createdAt).toLocaleTimeString("ru-RU", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatTime(order.createdAt)}
                       </td>
                       <td className="py-3 text-zinc-600">
                         {order.user.name ?? order.user.email ?? "—"}

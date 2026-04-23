@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { MergeDialog } from "./merge-dialog";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 type ModuleUsage = {
   moduleSlug: string;
@@ -124,14 +125,11 @@ function formatRubles(amount: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ru-RU");
+  return formatDateUnified(iso);
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeUnified(iso);
 }
 
 function formatMonth(month: string): string {

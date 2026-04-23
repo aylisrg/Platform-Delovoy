@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AdminHeader } from "@/components/admin/header";
 import Link from "next/link";
+import { formatDateTime } from "@/lib/format";
 
 type FeedbackItem = {
   id: string;
@@ -208,12 +209,7 @@ export default function FeedbackAdminPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
-                      {new Date(item.createdAt).toLocaleDateString("ru-RU", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTime(item.createdAt)}
                     </td>
                   </tr>
                 ))}

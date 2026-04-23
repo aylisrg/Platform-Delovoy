@@ -13,6 +13,7 @@ import { BookingListMobile } from "@/components/admin/ps-park/booking-list-mobil
 import { ShiftPanel } from "@/components/admin/ps-park/shift-panel";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import { TestAlertsButton } from "@/components/admin/ps-park/test-alerts-button";
 import { BookingHistoryTable, type HistoryBooking } from "@/components/admin/ps-park/booking-history-table";
@@ -38,11 +39,11 @@ const statusVariant: Record<BookingStatus, "warning" | "success" | "default" | "
 };
 
 function formatTime(dt: Date) {
-  return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUnified(dt);
 }
 
 function formatDate(dt: Date) {
-  return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateUnified(dt);
 }
 
 function getClientDisplay(b: {

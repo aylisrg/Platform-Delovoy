@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { forbidden } from "next/navigation";
 import { hasAdminSectionAccess } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
+import { formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -63,12 +64,7 @@ export default async function RentalEmailLogPage() {
                   {logs.map((l) => (
                     <tr key={l.id} className="border-b border-zinc-50">
                       <td className="py-2 pr-3 text-xs text-zinc-500 whitespace-nowrap">
-                        {l.sentAt.toLocaleDateString("ru-RU", {
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatDateTime(l.sentAt)}
                       </td>
                       <td className="py-2 pr-3">
                         <span className="font-mono text-xs">{TYPE_LABEL[l.type] ?? l.type}</span>

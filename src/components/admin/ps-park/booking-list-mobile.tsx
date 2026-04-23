@@ -5,6 +5,7 @@ import { BookingActions } from "./booking-actions";
 import { AddItemsButton } from "./add-items-button";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import type { BookingStatus } from "@prisma/client";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 const statusLabel: Record<BookingStatus, string> = {
   PENDING: "Ожидает",
@@ -44,11 +45,11 @@ type BookingListMobileProps = {
 };
 
 function formatTime(dt: Date) {
-  return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUnified(dt);
 }
 
 function formatDate(dt: Date) {
-  return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  return formatDateUnified(dt);
 }
 
 function getClient(b: MobileBookingRow): { name: string; phone: string | null } {

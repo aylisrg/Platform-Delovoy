@@ -5,6 +5,7 @@ import type { ActiveSession } from "@/modules/ps-park/types";
 import { AddItemsButton } from "./add-items-button";
 import { ExtendSessionButton } from "./extend-session-button";
 import { CompleteSessionButton } from "./complete-session-button";
+import { formatTime as formatTimeUnified } from "@/lib/format";
 
 type ActiveSessionCardProps = {
   session: ActiveSession;
@@ -35,10 +36,7 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
   const isEnding = remainingMinutes <= 10;
 
   function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatTimeUnified(iso);
   }
 
   return (

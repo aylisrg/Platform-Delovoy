@@ -3,15 +3,12 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { ReceiptHistoryRow } from "@/modules/inventory/types";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 function formatDate(isoString: string) {
-  return new Date(isoString).toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDateUnified(isoString);
 }
 
 function InventoryReceiveForm({ onSuccess }: { onSuccess: () => void }) {

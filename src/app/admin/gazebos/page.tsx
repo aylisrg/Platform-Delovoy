@@ -8,6 +8,7 @@ import { GazeboMobileTimeline } from "@/components/admin/gazebos/mobile-timeline
 import { GazeboBookingListMobile } from "@/components/admin/gazebos/booking-list-mobile";
 import { BookingActions as GazeboBookingActions } from "@/components/admin/gazebos/booking-actions";
 import type { BookingStatus } from "@prisma/client";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +27,15 @@ const statusVariant: Record<string, "warning" | "success" | "default" | "info"> 
 };
 
 function formatTime(dt: Date) {
-  return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUnified(dt);
 }
 
 function formatDate(dt: Date) {
-  return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateUnified(dt);
 }
 
 export default async function GazebosSchedulePage() {
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
+  const today = toISODate(new Date());
   const todayDate = new Date(today);
 
   const [timeline, todayCount, pendingCount, pendingBookings] = await Promise.all([

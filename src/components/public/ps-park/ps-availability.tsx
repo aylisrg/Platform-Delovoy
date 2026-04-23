@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
+import { toISODate } from "@/lib/format";
 
 type TimeSlot = {
   startTime: string;
@@ -29,7 +30,7 @@ export function PSAvailability() {
   const { data: session, status: sessionStatus } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [date, setDate] = useState(() => {
-    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
+    return toISODate(new Date());
   });
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
   const [loading, setLoading] = useState(false);
@@ -140,7 +141,7 @@ export function PSAvailability() {
                 type="date"
                 value={date}
                 onChange={(e) => { setDate(e.target.value); setBookingSuccess(false); }}
-                min={new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" })}
+                min={toISODate(new Date())}
                 className="mt-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
