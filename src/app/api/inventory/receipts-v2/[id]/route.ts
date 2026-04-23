@@ -20,6 +20,7 @@ import {
   InventoryError,
 } from "@/modules/inventory/service-v2";
 import { editReceiptSchema } from "@/modules/inventory/validation";
+import { recalculateStock } from "@/modules/inventory/stock";
 
 export async function GET(
   _request: NextRequest,
@@ -166,9 +167,27 @@ export async function DELETE(
       prisma.stockReceiptCorrection.findMany({ where: { receiptId: id } }),
     ]);
 
-    await prisma.stockReceiptItem.deleteMany({ where: { receiptId: id } });
-    await prisma.stockReceiptCorrection.deleteMany({ where: { receiptId: id } });
-    await prisma.stockReceipt.delete({ where: { id } });
+    const affectedSkuIds = [...new Set(items.map((it) => it.skuId))];
+
+    await prisma.$transaction(async (tx) => {
+      // Delete batches linked to this receipt's InventoryTransaction
+      const receiptTx = await tx.inventoryTransaction.findFirst({
+        where: { referenceId: id, type: "RECEIPT" },
+        select: { id: true },
+      });
+      if (receiptTx) {
+        await tx.stockBatch.deleteMany({ where: { receiptTxId: receiptTx.id } });
+        await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
+      }
+
+      await tx.stockReceiptItem.deleteMany({ where: { receiptId: id } });
+      await tx.stockReceiptCorrection.deleteMany({ where: { receiptId: id } });
+      await tx.stockReceipt.delete({ where: { id } });
+
+      for (const skuId of affectedSkuIds) {
+        await recalculateStock(tx, skuId);
+      }
+    });
 
     await logDeletion(authz, {
       entity: "StockReceipt",
