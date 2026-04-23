@@ -22,10 +22,14 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
+  # Gate jobs (lint/test/typecheck/security) run on PRs only.
+  # Branch protection requires them before merge — re-running on the merge commit
+  # is redundant and costs ~5-8 min per release. Main push runs only `build`.
   lint:
     name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-node
@@ -35,6 +39,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-node
@@ -44,6 +49,7 @@ jobs:
     name: TypeScript Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-node
@@ -53,6 +59,7 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-node
@@ -65,6 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint, test, typecheck]
+    # Run when upstream gates pass (PR) OR when they were skipped (main push).
+    # `!failure() && !cancelled()` treats "skipped" as satisfied.
+    if: ${{ !failure() && !cancelled() }}
     permissions:
       contents: read
       packages: write

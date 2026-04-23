@@ -1,20 +1,33 @@
 name: Deploy to Production
 
 on:
-  # Auto-deploy: triggers when CI passes on main.
-  # The `production` environment has a 15-minute wait timer configured in
+  # Auto-deploy: triggers when CI passes on main. Runs immediately — no wait timer.
+  # If you need a cooldown in the future, configure it per-environment in
   # GitHub Settings → Environments → production → Wait timer.
-  # After the timer expires the deploy runs automatically — no human click needed.
   workflow_run:
     workflows: ["CI \u2014 Lint, Test, Build"]
     types: [completed]
     branches: [main]
 
-  # Keep manual trigger for hotfixes / emergency re-deploys.
+  # Manual trigger for hotfixes, emergency re-deploys, or targeted rollouts.
+  # Fast path retags an existing sha-<SHA> image from GHCR — no rebuild.
+  # Skip flags trade safety for speed; use them only when you know what you're doing.
   workflow_dispatch:
     inputs:
+      sha:
+        description: "Commit SHA to deploy (empty = current main HEAD)"
+        required: false
+        default: ""
       skip_snapshot:
-        description: "Skip Timeweb snapshot before deploy"
+        description: "Skip Timeweb VPS snapshot (~30s)"
+        type: boolean
+        default: false
+      skip_db_backup:
+        description: "Skip pg_dump before deploy (~30-60s) — hotfix only"
+        type: boolean
+        default: false
+      skip_smoke_tests:
+        description: "Skip post-deploy smoke tests (~10s) — hotfix only"
         type: boolean
         default: false
 
@@ -39,8 +52,22 @@ jobs:
       packages: write
     outputs:
       version: ${{ steps.version.outputs.version }}
+      resolved_sha: ${{ steps.resolve.outputs.sha }}
     steps:
+      - name: Resolve target SHA
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.sha }}" ]; then
+            echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
 
       - name: Extract version from package.json
         id: version
@@ -56,20 +83,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # Fast path (auto-deploy): promote sha image built by CI — no rebuild.
+      # Fast path: retag sha image already built by CI — no rebuild.
+      # Works for auto-deploy AND hotfix-dispatch (if the SHA was built by CI).
       - name: Retag sha image as production
-        if: github.event_name != 'workflow_dispatch'
+        id: retag
+        continue-on-error: true
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TARGET_SHA="${{ steps.resolve.outputs.sha }}"
+          SHORT_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA} \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${TARGET_SHA}
 
-      # Slow path (manual hotfix dispatch): full rebuild since sha image may not exist.
-      - name: Build and push (manual hotfix)
-        if: github.event_name == 'workflow_dispatch'
+      # Slow path (fallback): full rebuild when sha image is missing from GHCR.
+      - name: Build and push (fallback)
+        if: steps.retag.outcome == 'failure'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -79,6 +109,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.resolve.outputs.sha }}
 
   deploy:
     name: Deploy to Timeweb VPS
@@ -165,10 +196,13 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          SKIP_DB_BACKUP: ${{ inputs.skip_db_backup }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: SKIP_DB_BACKUP
           script: |
             set -e
             cd /opt/delovoy-park
@@ -176,8 +210,12 @@ jobs:
             echo "=== Pull new image ==="
             docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
 
-            echo "=== Backup current state ==="
-            docker compose exec -T postgres pg_dump -U delovoy delovoy_park | gzip > /opt/backups/db-$(date +%Y%m%d-%H%M%S).sql.gz
+            if [ "$SKIP_DB_BACKUP" = "true" ]; then
+              echo "=== Backup skipped (skip_db_backup=true) ==="
+            else
+              echo "=== Backup current state ==="
+              docker compose exec -T postgres pg_dump -U delovoy delovoy_park | gzip > /opt/backups/db-$(date +%Y%m%d-%H%M%S).sql.gz
+            fi
 
             echo "=== Save current image for rollback ==="
             CURRENT_IMAGE=$(docker inspect --format='{{.Config.Image}}' delovoy-park-app-1 2>/dev/null || echo "")
@@ -226,6 +264,7 @@ jobs:
             exit 1
 
       - name: Verify deployment + smoke tests
+        if: ${{ !inputs.skip_smoke_tests }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
