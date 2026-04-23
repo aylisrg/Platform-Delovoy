@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { InventoryTransactionType, Prisma } from "@prisma/client";
+import { recalculateStock } from "./stock";
+import { InventoryError } from "./errors";
 import type {
   CreateSkuInput,
   UpdateSkuInput,
@@ -121,6 +123,8 @@ export async function receiveStock(input: ReceiveInput, performedById: string) {
     throw new InventoryError("SKU_NOT_FOUND", "Товар не найден или неактивен");
 
   const result = await prisma.$transaction(async (tx) => {
+    const effectiveReceivedAt = input.receivedAt ?? new Date();
+
     const transaction = await tx.inventoryTransaction.create({
       data: {
         skuId: input.skuId,
@@ -128,16 +132,42 @@ export async function receiveStock(input: ReceiveInput, performedById: string) {
         quantity: input.quantity,
         performedById,
         note: input.note,
+        receivedAt: effectiveReceivedAt,
       },
     });
 
-    const updated = await tx.inventorySku.update({
-      where: { id: input.skuId },
-      data: { stockQuantity: { increment: input.quantity } },
-      select: { stockQuantity: true },
+    // Create StockBatch linked to this RECEIPT tx (required for invariant and edit cascade).
+    const batch = await tx.stockBatch.create({
+      data: {
+        skuId: input.skuId,
+        receiptTxId: transaction.id,
+        initialQty: input.quantity,
+        remainingQty: input.quantity,
+        receiptDate: effectiveReceivedAt,
+      },
     });
 
-    return { transactionId: transaction.id, skuId: input.skuId, newStockQuantity: updated.stockQuantity };
+    const { newStockQuantity } = await recalculateStock(tx, input.skuId);
+
+    await tx.stockMovement.create({
+      data: {
+        skuId: input.skuId,
+        batchId: batch.id,
+        type: "RECEIPT",
+        delta: input.quantity,
+        balanceAfter: newStockQuantity,
+        referenceType: "RECEIPT",
+        referenceId: transaction.id,
+        performedById,
+        note: input.note ?? `Приход +${input.quantity}`,
+      },
+    });
+
+    return {
+      transactionId: transaction.id,
+      skuId: input.skuId,
+      newStockQuantity,
+    };
   });
 
   return result;
@@ -167,29 +197,25 @@ export async function receiveStockByName(
     const isNewSku = !existing;
 
     if (existing) {
-      // SKU exists — record RECEIPT and increment stock
+      // SKU exists — record RECEIPT, create linked batch, recalc stock
       skuId = existing.id;
-      await tx.inventoryTransaction.create({
+      const transaction = await tx.inventoryTransaction.create({
         data: { skuId, type: "RECEIPT", quantity, performedById, note, receivedAt: effectiveReceivedAt },
       });
-      const updated = await tx.inventorySku.update({
-        where: { id: skuId },
-        data: { stockQuantity: { increment: quantity } },
-        select: { stockQuantity: true },
-      });
-      newStockQuantity = updated.stockQuantity;
 
-      // Create StockBatch for FIFO tracking (V2)
       const batch = await tx.stockBatch.create({
         data: {
           skuId,
+          receiptTxId: transaction.id,
           initialQty: quantity,
           remainingQty: quantity,
           receiptDate: effectiveReceivedAt,
         },
       });
 
-      // Also record in StockMovement (V2 ledger)
+      const recalc = await recalculateStock(tx, skuId);
+      newStockQuantity = recalc.newStockQuantity;
+
       await tx.stockMovement.create({
         data: {
           skuId,
@@ -198,39 +224,41 @@ export async function receiveStockByName(
           delta: quantity,
           balanceAfter: newStockQuantity,
           referenceType: "RECEIPT",
+          referenceId: transaction.id,
           performedById,
           note: note ?? `Приход: ${name} +${quantity}`,
         },
       });
     } else {
-      // New item — create SKU + INITIAL transaction
+      // New item — create SKU + INITIAL transaction + linked batch
       const sku = await tx.inventorySku.create({
         data: {
           name,
           category: "Товары",
           unit: "шт",
           price: 0,
-          stockQuantity: quantity,
+          stockQuantity: 0, // real value comes from recalculateStock below
           lowStockThreshold: 5,
         },
       });
       skuId = sku.id;
-      await tx.inventoryTransaction.create({
+      const transaction = await tx.inventoryTransaction.create({
         data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход", receivedAt: effectiveReceivedAt },
       });
-      newStockQuantity = quantity;
 
-      // Create StockBatch for FIFO tracking (V2)
       const batch = await tx.stockBatch.create({
         data: {
           skuId,
+          receiptTxId: transaction.id,
           initialQty: quantity,
           remainingQty: quantity,
           receiptDate: effectiveReceivedAt,
         },
       });
 
-      // Also record in StockMovement (V2 ledger)
+      const recalc = await recalculateStock(tx, skuId);
+      newStockQuantity = recalc.newStockQuantity;
+
       await tx.stockMovement.create({
         data: {
           skuId,
@@ -239,6 +267,7 @@ export async function receiveStockByName(
           delta: quantity,
           balanceAfter: newStockQuantity,
           referenceType: "RECEIPT",
+          referenceId: transaction.id,
           performedById,
           note: note ?? `Начальный остаток: ${name} +${quantity}`,
         },
@@ -312,17 +341,47 @@ export async function adjustStock(input: AdjustInput, performedById: string) {
       },
     });
 
-    const updated = await tx.inventorySku.update({
-      where: { id: input.skuId },
-      data: { stockQuantity: input.targetQuantity },
-      select: { stockQuantity: true },
-    });
+    // Keep batches consistent with the new target stock.
+    if (delta > 0) {
+      // Add a synthetic adjustment batch — acts like a receipt with no receiptTxId link.
+      await tx.stockBatch.create({
+        data: {
+          skuId: input.skuId,
+          initialQty: delta,
+          remainingQty: delta,
+          receiptDate: new Date(),
+        },
+      });
+    } else {
+      // delta < 0: deduct FIFO across existing batches until |delta| is consumed.
+      let remaining = -delta;
+      const batches = await tx.stockBatch.findMany({
+        where: { skuId: input.skuId, isExhausted: false, remainingQty: { gt: 0 } },
+        orderBy: [{ expiresAt: "asc" }, { receiptDate: "asc" }],
+      });
+      for (const batch of batches) {
+        if (remaining <= 0) break;
+        const take = Math.min(batch.remainingQty, remaining);
+        const newR = batch.remainingQty - take;
+        await tx.stockBatch.update({
+          where: { id: batch.id },
+          data: { remainingQty: newR, isExhausted: newR === 0 },
+        });
+        remaining -= take;
+      }
+      // If batches couldn't cover the full decrement (historical data with bare stockQuantity),
+      // the invariant converges to whatever batches hold — stock cannot go below 0.
+      // This is acceptable: adjustStock is a corrective inventory operation.
+      void remaining;
+    }
+
+    const { newStockQuantity } = await recalculateStock(tx, input.skuId);
 
     return {
       transactionId: transaction.id,
       skuId: input.skuId,
       previousStock: sku.stockQuantity,
-      newStockQuantity: updated.stockQuantity,
+      newStockQuantity,
       delta,
     };
   });
@@ -406,17 +465,80 @@ export async function voidTransaction(
       },
     });
 
-    const updated = await tx.inventorySku.update({
-      where: { id: transaction.skuId },
-      data: { stockQuantity: { increment: stockEffect } },
-      select: { stockQuantity: true },
-    });
+    // Compensate batches so the invariant sum(batch.remainingQty) === sku.stockQuantity holds.
+    if (transaction.type === "RECEIPT" || transaction.type === "INITIAL") {
+      // Voiding a receipt removes stock: zero out the associated batch (if unconsumed).
+      const batch = await tx.stockBatch.findFirst({
+        where: { receiptTxId: id },
+      });
+      if (batch) {
+        const consumed = batch.initialQty - batch.remainingQty;
+        if (consumed > 0) {
+          throw new InventoryError(
+            "RECEIPT_PARTIALLY_SOLD",
+            `Нельзя аннулировать приход: уже списано ${consumed}`
+          );
+        }
+        await tx.stockBatch.update({
+          where: { id: batch.id },
+          data: { remainingQty: 0, isExhausted: true },
+        });
+      } else {
+        // No linked batch (legacy): deduct FIFO across any existing batches.
+        let remaining = transaction.quantity;
+        const batches = await tx.stockBatch.findMany({
+          where: { skuId: transaction.skuId, isExhausted: false, remainingQty: { gt: 0 } },
+          orderBy: [{ expiresAt: "asc" }, { receiptDate: "asc" }],
+        });
+        for (const b of batches) {
+          if (remaining <= 0) break;
+          const take = Math.min(b.remainingQty, remaining);
+          const newR = b.remainingQty - take;
+          await tx.stockBatch.update({
+            where: { id: b.id },
+            data: { remainingQty: newR, isExhausted: newR === 0 },
+          });
+          remaining -= take;
+        }
+      }
+    } else if (transaction.type === "SALE" || transaction.type === "ADJUSTMENT") {
+      // Voiding a sale/adjustment restores stock: add a synthetic compensating batch.
+      if (stockEffect > 0) {
+        await tx.stockBatch.create({
+          data: {
+            skuId: transaction.skuId,
+            initialQty: stockEffect,
+            remainingQty: stockEffect,
+            receiptDate: new Date(),
+          },
+        });
+      }
+    } else if (transaction.type === "RETURN") {
+      // Voiding a return removes the restored stock: FIFO deduct.
+      let remaining = transaction.quantity;
+      const batches = await tx.stockBatch.findMany({
+        where: { skuId: transaction.skuId, isExhausted: false, remainingQty: { gt: 0 } },
+        orderBy: [{ expiresAt: "asc" }, { receiptDate: "asc" }],
+      });
+      for (const b of batches) {
+        if (remaining <= 0) break;
+        const take = Math.min(b.remainingQty, remaining);
+        const newR = b.remainingQty - take;
+        await tx.stockBatch.update({
+          where: { id: b.id },
+          data: { remainingQty: newR, isExhausted: newR === 0 },
+        });
+        remaining -= take;
+      }
+    }
+
+    const { newStockQuantity } = await recalculateStock(tx, transaction.skuId);
 
     return {
       transactionId: voided.id,
       isVoided: true,
       skuId: transaction.skuId,
-      newStockQuantity: updated.stockQuantity,
+      newStockQuantity,
     };
   });
 
@@ -533,10 +655,24 @@ export async function saleBookingItems(
       },
     });
 
-    await tx.inventorySku.update({
-      where: { id: item.skuId },
-      data: { stockQuantity: { decrement: item.quantity } },
+    // FIFO deduct from batches.
+    let remaining = item.quantity;
+    const batches = await tx.stockBatch.findMany({
+      where: { skuId: item.skuId, isExhausted: false, remainingQty: { gt: 0 } },
+      orderBy: [{ expiresAt: "asc" }, { receiptDate: "asc" }],
     });
+    for (const batch of batches) {
+      if (remaining <= 0) break;
+      const take = Math.min(batch.remainingQty, remaining);
+      const newR = batch.remainingQty - take;
+      await tx.stockBatch.update({
+        where: { id: batch.id },
+        data: { remainingQty: newR, isExhausted: newR === 0 },
+      });
+      remaining -= take;
+    }
+
+    await recalculateStock(tx, item.skuId);
   }
 }
 
@@ -564,10 +700,17 @@ export async function returnBookingItems(
       },
     });
 
-    await tx.inventorySku.update({
-      where: { id: item.skuId },
-      data: { stockQuantity: { increment: item.quantity } },
+    // Return: add a compensating batch with returned quantity.
+    await tx.stockBatch.create({
+      data: {
+        skuId: item.skuId,
+        initialQty: item.quantity,
+        remainingQty: item.quantity,
+        receiptDate: new Date(),
+      },
     });
+
+    await recalculateStock(tx, item.skuId);
   }
 }
 
@@ -700,12 +843,5 @@ export async function getHealth() {
 }
 
 // === ERROR CLASS ===
-
-export class InventoryError extends Error {
-  code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-    this.name = "InventoryError";
-  }
-}
+// Re-exported for backward compatibility with callers that import from "./service".
+export { InventoryError } from "./errors";

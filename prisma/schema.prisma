@@ -820,6 +820,9 @@ model InventoryTransaction {
   receivedAt    DateTime?
   createdAt     DateTime                 @default(now())
 
+  // Batches created by this RECEIPT/INITIAL transaction. Used for cascade update on edit/delete.
+  receiptBatches StockBatch[] @relation("BatchReceiptTx")
+
   @@index([skuId, createdAt])
   @@index([bookingId])
   @@index([type, isVoided])
@@ -956,6 +959,10 @@ model StockBatch {
   skuId         String
   sku           InventorySku @relation(fields: [skuId], references: [id])
   receiptItemId String?
+  // Link to the legacy InventoryTransaction (RECEIPT/INITIAL) that spawned this batch.
+  // Used for cascade update when owner edits a legacy receipt. V2 receipts still use receiptItemId.
+  receiptTxId   String?
+  receiptTx     InventoryTransaction? @relation("BatchReceiptTx", fields: [receiptTxId], references: [id], onDelete: SetNull)
   initialQty    Int
   remainingQty  Int
   costPerUnit   Decimal?
@@ -968,6 +975,7 @@ model StockBatch {
 
   @@index([skuId, isExhausted, expiresAt, receiptDate])
   @@index([expiresAt])
+  @@index([receiptTxId])
 }
 
 model StockMovement {
