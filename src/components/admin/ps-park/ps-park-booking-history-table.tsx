@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -39,6 +40,7 @@ type Booking = {
 };
 
 export function PSParkBookingHistoryTable() {
+  const router = useRouter();
   const { data: session } = useSession();
   const isSuperAdmin = session?.user?.role === "SUPERADMIN";
 
@@ -95,9 +97,12 @@ export function PSParkBookingHistoryTable() {
       reason
     );
     if (err) return err;
-    setBookings(bookings.filter((b) => b.id !== deletingId));
+    // Reconcile with server: refresh RSC tree + reload local table so the
+    // booking is gone from list/timeline/analytics on this page too.
     setShowDeleteConfirm(false);
     setDeletingId(null);
+    router.refresh();
+    await loadBookings();
     return null;
   }
 
