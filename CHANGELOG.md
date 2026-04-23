@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/aylisrg/Platform-Delovoy/compare/v1.8.0...v1.8.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **rbac:** grant ADMIN role access to all admin sections and hard-delete ([#167](https://github.com/aylisrg/Platform-Delovoy/issues/167)) ([ae670c0](https://github.com/aylisrg/Platform-Delovoy/commit/ae670c0986172721b47a3e535ed7431eb8119059))
+
 ## [1.8.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.7.0...v1.8.0) (2026-04-23)
 
 
