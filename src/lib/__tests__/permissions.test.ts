@@ -497,20 +497,17 @@ describe("canConfirmReceipt", () => {
     expect(result).toBe(false);
   });
 
-  it("returns true for ADMIN with module access", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
-    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "assign-1" } as never);
-
+  it("returns true for any ADMIN — inventory is ADMIN_EDITABLE_MODULE, no ModuleAssignment needed", async () => {
+    // No mock setup needed: canEditModule(admin, "inventory") short-circuits via
+    // isAdminEditableModule("inventory") before touching the DB.
     const result = await canConfirmReceipt({ id: "a1", role: "ADMIN" }, "cafe");
     expect(result).toBe(true);
+    expect(prisma.moduleAssignment.findFirst).not.toHaveBeenCalled();
   });
 
-  it("returns false for ADMIN without module access", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
-    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue(null);
-
-    const result = await canConfirmReceipt({ id: "a1", role: "ADMIN" }, "bbq");
-    expect(result).toBe(false);
+  it("returns true for ADMIN regardless of which business moduleSlug is passed", async () => {
+    const result = await canConfirmReceipt({ id: "a2", role: "ADMIN" }, "bbq");
+    expect(result).toBe(true);
   });
 });
 
@@ -528,12 +525,10 @@ describe("canCorrectReceipt", () => {
     expect(result).toBe(false);
   });
 
-  it("delegates to canConfirmReceipt — ADMIN with access returns true", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
-    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "a" } as never);
-
+  it("delegates to canConfirmReceipt — any ADMIN returns true (inventory is ADMIN_EDITABLE_MODULE)", async () => {
     const result = await canCorrectReceipt({ id: "a1", role: "ADMIN" }, "cafe");
     expect(result).toBe(true);
+    expect(prisma.moduleAssignment.findFirst).not.toHaveBeenCalled();
   });
 });
 

@@ -226,16 +226,22 @@ export async function getModuleAdmins(moduleSlug: string): Promise<{
 }
 
 /**
- * Check if user can confirm a receipt in the given module.
- * Only ADMIN (with module access) and SUPERADMIN.
+ * Check if user can confirm a receipt.
+ * SUPERADMIN always. ADMIN always — inventory is in ADMIN_EDITABLE_MODULES,
+ * so no ModuleAssignment record is required. MANAGER/USER cannot confirm.
+ *
+ * The moduleSlug parameter is kept for API compatibility but is no longer
+ * used for the access decision: receipt confirmation is scoped to the
+ * inventory section, not to the individual business module.
  */
 export async function canConfirmReceipt(
   user: SessionUser,
-  moduleSlug: string
+  _moduleSlug: string
 ): Promise<boolean> {
   if (user.role === "SUPERADMIN") return true;
   if (user.role !== "ADMIN") return false;
-  return hasModuleAccess(user.id, moduleSlug);
+  // inventory is an ADMIN_EDITABLE_MODULE — any ADMIN can confirm receipts
+  return canEditModule(user, "inventory");
 }
 
 /**
