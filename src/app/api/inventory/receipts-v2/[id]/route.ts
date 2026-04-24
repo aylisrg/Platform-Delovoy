@@ -12,10 +12,11 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { canCorrectReceipt, hasModuleAccess } from "@/lib/permissions";
+import { canConfirmReceipt, canCorrectReceipt, canEditModule, hasModuleAccess } from "@/lib/permissions";
 import {
   getReceipt,
   editDraftReceipt,
+  confirmReceipt,
   correctReceipt,
   InventoryError,
 } from "@/modules/inventory/service-v2";
@@ -43,7 +44,7 @@ export async function GET(
 
     // ADMIN can only see receipts in their modules
     if (role === "ADMIN") {
-      const allowed = await hasModuleAccess(session.user.id, receipt.moduleSlug ?? "cafe");
+      const allowed = await canEditModule({ id: session.user.id, role }, receipt.moduleSlug ?? "inventory");
       if (!allowed) return apiForbidden();
     }
 
@@ -76,7 +77,7 @@ export async function PATCH(
     const receipt = await getReceipt(id).catch(() => null);
     if (!receipt) return apiNotFound("Приход не найден");
 
-    const moduleSlug = receipt.moduleSlug ?? "cafe";
+    const moduleSlug = receipt.moduleSlug ?? "inventory";
 
     // Route to correct or edit based on receipt status
     if (receipt.status === "CONFIRMED" || receipt.status === "CORRECTED") {
@@ -109,7 +110,7 @@ export async function PATCH(
         return apiForbidden();
       }
       if (role === "ADMIN") {
-        const allowed = await hasModuleAccess(session.user.id, moduleSlug);
+        const allowed = await canEditModule({ id: session.user.id, role }, moduleSlug);
         if (!allowed) return apiForbidden();
       }
 
@@ -129,7 +130,26 @@ export async function PATCH(
         updatedFields: Object.keys(parsed.data).filter((k) => parsed.data[k as keyof typeof parsed.data] !== undefined),
       });
 
-      return apiResponse(result);
+      // Auto-confirm for ADMIN/SUPERADMIN after editing a DRAFT receipt so stock
+      // updates immediately — consistent with the POST (create) handler behaviour.
+      const canAutoConfirm = await canConfirmReceipt({ id: session.user.id, role }, moduleSlug);
+      if (canAutoConfirm) {
+        try {
+          const confirmed = await confirmReceipt(id, session.user.id);
+          await logAudit(session.user.id, "inventory.receipt.confirm", "StockReceipt", id, {
+            batchIds: confirmed.batchIds,
+            autoConfirmed: true,
+          });
+          return apiResponse({ ...result, status: confirmed.status, autoConfirmed: true });
+        } catch (err) {
+          if (err instanceof InventoryError) {
+            return apiResponse({ ...result, autoConfirmed: false, confirmError: err.message });
+          }
+          throw err;
+        }
+      }
+
+      return apiResponse({ ...result, autoConfirmed: false });
     }
   } catch (error) {
     if (error instanceof InventoryError) {
