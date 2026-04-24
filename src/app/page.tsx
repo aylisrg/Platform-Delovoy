@@ -37,14 +37,16 @@ const jsonLd = {
   telephone: process.env.DELOVOY_PHONE || "+7-000-000-00-00",
   address: {
     "@type": "PostalAddress",
-    addressLocality: "Селятино",
+    streetAddress: "Промышленная ул., 1",
+    addressLocality: "пгт Селятино",
     addressRegion: "Московская область",
+    postalCode: "143345",
     addressCountry: "RU",
   },
   geo: {
     "@type": "GeoCoordinates",
-    latitude: 55.5167,
-    longitude: 36.9667,
+    latitude: 55.519479,
+    longitude: 36.978566,
   },
   openingHoursSpecification: [
     {
