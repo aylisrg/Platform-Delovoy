@@ -101,8 +101,8 @@ export const metadata: Metadata = {
     // GEO tags for local SEO (Selyatino, Moscow Oblast)
     "geo.region": "RU-MOS",
     "geo.placename": "Селятино, Московская область",
-    "geo.position": "55.5167;36.9667",
-    ICBM: "55.5167, 36.9667",
+    "geo.position": "55.519479;36.978566",
+    ICBM: "55.519479, 36.978566",
     // Yandex Metrika additional hints
     "yandex-tableau-widget": `logo=https://delovoy-park.ru/favicon.ico, color=#09090b`,
   },
