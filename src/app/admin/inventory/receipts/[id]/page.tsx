@@ -471,6 +471,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                         <th className="px-3 py-2 text-right font-medium text-zinc-500">Кол-во</th>
                         <th className="px-3 py-2 text-right font-medium text-zinc-500">Сумма закупки (₽)</th>
                         <th className="px-3 py-2 text-right font-medium text-zinc-500">Цена/шт</th>
+                        <th className="px-3 py-2 text-right font-medium text-zinc-500">Сумма партии</th>
                         <th className="px-3 py-2 text-center font-medium text-zinc-500">Действие</th>
                       </tr>
                     </thead>

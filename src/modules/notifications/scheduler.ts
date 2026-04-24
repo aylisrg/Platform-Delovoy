@@ -34,6 +34,10 @@ async function processBookingReminders(): Promise<void> {
     });
 
     for (const booking of bookings) {
+      // Guest bookings have no userId — there's no registered channel to remind.
+      // The manager already reached out by phone at confirmation time.
+      if (!booking.userId) continue;
+
       // Check if reminder already sent
       const alreadySent = await prisma.notificationLog.findFirst({
         where: {

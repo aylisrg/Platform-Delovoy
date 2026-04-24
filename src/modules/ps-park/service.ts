@@ -261,10 +261,13 @@ export async function updateBookingStatus(
   let googleEventId = booking.googleEventId;
 
   if (status === "CONFIRMED" && resource?.googleCalendarId) {
-    const user = await prisma.user.findUnique({
-      where: { id: booking.userId },
-      select: { name: true, phone: true },
-    });
+    // Guest bookings have no userId — skip user lookup and fall back to clientName/clientPhone.
+    const user = booking.userId
+      ? await prisma.user.findUnique({
+          where: { id: booking.userId },
+          select: { name: true, phone: true },
+        })
+      : null;
     const calResult = await createCalendarEvent(resource.googleCalendarId, {
       summary: `${resource.name} — ${booking.clientName || user?.name || "Клиент"}`,
       description: `Телефон: ${booking.clientPhone || user?.phone || "не указан"}`,
@@ -284,7 +287,14 @@ export async function updateBookingStatus(
   // Extract booking items snapshot from metadata
   const metadata = booking.metadata as Record<string, unknown> | null;
   const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  // Guest bookings have no userId — manager must always be the actor here.
   const performedById = managerId ?? booking.userId;
+  if (!performedById) {
+    throw new PSBookingError(
+      "NO_ACTOR",
+      "Для изменения статуса guest-брони требуется менеджер"
+    );
+  }
 
   // Build bill snapshot when completing a session
   let billSnapshot: Record<string, unknown> | undefined;
@@ -393,7 +403,7 @@ export async function updateBookingStatus(
         finalAmount: discountCalc.finalAmount.toFixed(2),
         reason: discountInput.discountReason,
         ...(discountInput.discountNote && { note: discountInput.discountNote }),
-        appliedBy: managerId ?? booking.userId,
+        appliedBy: performedById,
         appliedAt: new Date().toISOString(),
       };
 
@@ -443,7 +453,7 @@ export async function updateBookingStatus(
           totalAmount: completedTotalBill,
           cashAmount: resolvedCash,
           cardAmount: resolvedCard,
-          performedById: managerId ?? booking.userId,
+          performedById: performedById,
           performedByName: managerName,
           description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
           metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
@@ -454,12 +464,12 @@ export async function updateBookingStatus(
       if (discountData) {
         await tx.auditLog.create({
           data: {
-            userId: managerId ?? booking.userId,
+            userId: performedById,
             action: "booking.discount_applied",
             entity: "Booking",
             entityId: id,
             metadata: {
-              managerId: managerId ?? booking.userId,
+              managerId: performedById,
               managerName,
               bookingId: id,
               moduleSlug: MODULE_SLUG,
@@ -507,7 +517,7 @@ export async function updateBookingStatus(
     type: notificationType,
     moduleSlug: MODULE_SLUG,
     entityId: id,
-    userId: booking.userId,
+    userId: booking.userId ?? undefined,
     actor: "admin",
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });

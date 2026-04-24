@@ -43,6 +43,8 @@ export function BookingFlow() {
   const [guestCount, setGuestCount] = useState("");
   const [comment, setComment] = useState("");
   const [selectedItems, setSelectedItems] = useState<BookingItem[]>([]);
+  const [guestName, setGuestName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
@@ -142,6 +144,7 @@ export function BookingFlow() {
           ...(guestCount && { guestCount: parseInt(guestCount, 10) }),
           ...(comment && { comment }),
           items: itemsToPayload(selectedItems),
+          ...(!isAuthenticated && { guestName: guestName.trim(), guestPhone: guestPhone.trim() }),
         }),
       });
       const data = await res.json();
@@ -167,6 +170,8 @@ export function BookingFlow() {
     setComment("");
     setSelectedItems([]);
     setAvailability([]);
+    setGuestName("");
+    setGuestPhone("");
   }
 
   const selectedResource = getSelectedResource();
@@ -336,13 +341,7 @@ export function BookingFlow() {
                     )}
                   </div>
                   <button
-                    onClick={() => {
-                      if (!isAuthenticated) {
-                        setShowAuthModal(true);
-                        return;
-                      }
-                      setStep("form");
-                    }}
+                    onClick={() => setStep("form")}
                     className="text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
                     style={{
                       backgroundColor: ACCENT,
@@ -422,6 +421,66 @@ export function BookingFlow() {
                 />
               </div>
 
+              {/* Guest contacts — only when not authenticated */}
+              {!isAuthenticated && (
+                <div className="rounded-2xl bg-[#f5f5f7] border border-black/[0.04] p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[#1d1d1f] text-sm font-medium font-[family-name:var(--font-inter)]">
+                        Бронирование без регистрации
+                      </p>
+                      <p className="text-[#86868b] text-xs mt-0.5 font-[family-name:var(--font-inter)]">
+                        Администратор свяжется с вами по телефону для подтверждения
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAuthModal(true)}
+                      className="text-[#0071e3] text-xs font-medium hover:underline font-[family-name:var(--font-inter)] shrink-0 mt-0.5"
+                    >
+                      Войти вместо этого
+                    </button>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="guest-name"
+                        className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                      >
+                        Ваше имя
+                      </label>
+                      <input
+                        id="guest-name"
+                        type="text"
+                        value={guestName}
+                        onChange={(e) => setGuestName(e.target.value)}
+                        placeholder="Иван"
+                        required
+                        autoComplete="name"
+                        className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="guest-phone"
+                        className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                      >
+                        Телефон
+                      </label>
+                      <input
+                        id="guest-phone"
+                        type="tel"
+                        value={guestPhone}
+                        onChange={(e) => setGuestPhone(e.target.value)}
+                        placeholder="+7 (___) ___-__-__"
+                        required
+                        autoComplete="tel"
+                        className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex gap-3">
@@ -433,7 +492,10 @@ export function BookingFlow() {
                 </button>
                 <button
                   onClick={submitBooking}
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    (!isAuthenticated && (!guestName.trim() || !guestPhone.trim()))
+                  }
                   className="bg-[#0071e3] text-white font-medium text-sm py-3 px-6 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
                 >
                   {submitting ? "Отправка..." : "Забронировать"}
@@ -458,8 +520,29 @@ export function BookingFlow() {
               </h3>
               <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] max-w-md mx-auto">
                 Ваше бронирование ожидает подтверждения администратора.
-                Вы получите уведомление, когда бронь будет подтверждена.
+                {isAuthenticated
+                  ? " Вы получите уведомление, когда бронь будет подтверждена."
+                  : " Мы позвоним вам для подтверждения."}
               </p>
+
+              {!isAuthenticated && (
+                <div className="mx-auto max-w-md rounded-2xl border border-[#0071e3]/20 bg-[#0071e3]/[0.04] p-4 text-left">
+                  <p className="text-[#1d1d1f] text-sm font-medium font-[family-name:var(--font-inter)]">
+                    Получайте уведомления автоматически
+                  </p>
+                  <p className="text-[#86868b] text-xs mt-1 mb-3 font-[family-name:var(--font-inter)]">
+                    Войдите через Telegram или Яндекс — статус брони придёт сам, не придётся ждать звонка.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthModal(true)}
+                    className="bg-[#0071e3] text-white text-sm font-medium px-4 py-2 rounded-full hover:bg-[#0077ED] transition-all font-[family-name:var(--font-inter)]"
+                  >
+                    Подключить уведомления
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={resetFlow}
                 className="bg-[#1d1d1f]/[0.06] hover:bg-[#1d1d1f]/[0.1] text-[#1d1d1f] text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium mt-2"

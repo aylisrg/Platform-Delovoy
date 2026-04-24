@@ -179,6 +179,62 @@ describe("createBooking", () => {
       })
     );
   });
+
+  // ===== Guest checkout =====
+
+  it("creates guest booking when userId is null and contacts provided", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(
+      mockBooking({ userId: null, clientName: "Иван", clientPhone: "+79001234567" }) as never
+    );
+
+    const result = await createBooking(null, {
+      ...validBookingInput,
+      guestName: "Иван",
+      guestPhone: "+79001234567",
+    });
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: null,
+          clientName: "Иван",
+          clientPhone: "+79001234567",
+        }),
+      })
+    );
+    expect(result).toBeDefined();
+  });
+
+  it("throws GUEST_CONTACTS_REQUIRED when userId is null and contacts missing", async () => {
+    await expect(createBooking(null, validBookingInput)).rejects.toMatchObject({
+      code: "GUEST_CONTACTS_REQUIRED",
+    });
+  });
+
+  it("does not write clientName/Phone when userId is set (authenticated path)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    // Even if guest fields leak in from the client, authed path ignores them.
+    await createBooking("user-1", {
+      ...validBookingInput,
+      guestName: "Иван",
+      guestPhone: "+79001234567",
+    });
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "user-1",
+          clientName: null,
+          clientPhone: null,
+        }),
+      })
+    );
+  });
 });
 
 // ===== updateBookingStatus =====

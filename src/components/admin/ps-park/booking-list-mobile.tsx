@@ -33,7 +33,8 @@ export type MobileBookingRow = {
   status: BookingStatus;
   clientName: string | null;
   clientPhone: string | null;
-  user: { name: string | null; email: string | null; phone: string | null };
+  // Guest bookings have no linked User row.
+  user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
 };
 
@@ -54,8 +55,8 @@ function formatDate(dt: Date) {
 
 function getClient(b: MobileBookingRow): { name: string; phone: string | null } {
   return {
-    name: b.clientName ?? b.user.name ?? b.user.email ?? "—",
-    phone: b.clientPhone ?? b.user.phone,
+    name: b.clientName ?? b.user?.name ?? b.user?.email ?? "—",
+    phone: b.clientPhone ?? b.user?.phone ?? null,
   };
 }
 
