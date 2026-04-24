@@ -201,6 +201,7 @@ export async function DELETE(
       const allBatchIds = new Set<string>();
 
       // --- Source 1: V1 ---
+      // V1 legacy receipts: batches linked via InventoryTransaction → receiptTxId
       const receiptTx = await tx.inventoryTransaction.findFirst({
         where: { referenceId: id, type: "RECEIPT" },
         select: { id: true },
@@ -214,26 +215,16 @@ export async function DELETE(
         await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
       }
 
-      // --- Source 2: V2 item batches ---
-      items.forEach((it) => { if (it.batchId) allBatchIds.add(it.batchId); });
-
-      // --- Source 3: correction batches (positive-delta corrections) ---
-      const correctionIds = corrections.map((c) => c.id);
-      if (correctionIds.length > 0) {
-        const corrMovements = await tx.stockMovement.findMany({
-          where: { referenceType: "CORRECTION", referenceId: { in: correctionIds }, batchId: { not: null } },
-          select: { batchId: true },
-        });
-        corrMovements.forEach((m) => { if (m.batchId) allBatchIds.add(m.batchId); });
-      }
-
-      // Null out StockMovement.batchId FK before deleting batches (NO ACTION default).
-      if (allBatchIds.size > 0) {
+      // V2 receipts: batches linked via StockReceiptItem.batchId
+      const batchIds = items.map((it) => it.batchId).filter((bid): bid is string => bid != null);
+      if (batchIds.length > 0) {
+        // StockMovement.batchId → StockBatch is a real FK (NO ACTION).
+        // Null it out before deleting batches to avoid constraint violation.
         await tx.stockMovement.updateMany({
-          where: { batchId: { in: [...allBatchIds] } },
+          where: { batchId: { in: batchIds } },
           data: { batchId: null },
         });
-        await tx.stockBatch.deleteMany({ where: { id: { in: [...allBatchIds] } } });
+        await tx.stockBatch.deleteMany({ where: { id: { in: batchIds } } });
       }
 
       await tx.stockReceiptItem.deleteMany({ where: { receiptId: id } });
