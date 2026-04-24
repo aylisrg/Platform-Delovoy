@@ -190,34 +190,22 @@ export async function DELETE(
     const affectedSkuIds = [...new Set(items.map((it) => it.skuId))];
 
     await prisma.$transaction(async (tx) => {
-      // Collect all batch IDs that need to be removed.
-      // Three sources:
-      //   1. V1 legacy: batches linked via InventoryTransaction.receiptTxId
-      //   2. V2 confirm: batches linked via StockReceiptItem.batchId
-      //   3. V2 corrections: batches created for positive-delta corrections
-      //      (correctReceipt recreates items without batchId, so they aren't
-      //       captured by source 2 for CORRECTED receipts)
+      // StockReceipt is a V2-only model — V1 legacy did not have StockReceipt
+      // rows, only standalone InventoryTransaction records. So for a V2
+      // receipt deletion we only need to clean up V2 artefacts.
+      //
+      // Two sources of StockBatch records tied to this receipt:
+      //   1. Confirm-time batches — linked via StockReceiptItem.batchId
+      //   2. Correction-time batches — created by correctReceipt() for
+      //      positive deltas; correctReceipt recreates StockReceiptItem rows
+      //      without batchId, so corrected receipts miss them via source 1.
+      //      We find them via StockMovement(referenceType=CORRECTION,
+      //      referenceId IN corrections).
 
       const allBatchIds = new Set<string>();
 
-      // --- Source 1: V1 ---
-      const receiptTx = await tx.inventoryTransaction.findFirst({
-        where: { referenceId: id, type: "RECEIPT" },
-        select: { id: true },
-      });
-      if (receiptTx) {
-        const v1Batches = await tx.stockBatch.findMany({
-          where: { receiptTxId: receiptTx.id },
-          select: { id: true },
-        });
-        v1Batches.forEach((b) => allBatchIds.add(b.id));
-        await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
-      }
-
-      // --- Source 2: V2 item batches ---
       items.forEach((it) => { if (it.batchId) allBatchIds.add(it.batchId); });
 
-      // --- Source 3: correction batches (positive-delta corrections) ---
       const correctionIds = corrections.map((c) => c.id);
       if (correctionIds.length > 0) {
         const corrMovements = await tx.stockMovement.findMany({
