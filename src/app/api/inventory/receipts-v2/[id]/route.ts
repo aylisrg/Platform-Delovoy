@@ -190,7 +190,7 @@ export async function DELETE(
     const affectedSkuIds = [...new Set(items.map((it) => it.skuId))];
 
     await prisma.$transaction(async (tx) => {
-      // Delete batches linked to this receipt's InventoryTransaction
+      // V1 legacy receipts: batches linked via InventoryTransaction → receiptTxId
       const receiptTx = await tx.inventoryTransaction.findFirst({
         where: { referenceId: id, type: "RECEIPT" },
         select: { id: true },
@@ -198,6 +198,18 @@ export async function DELETE(
       if (receiptTx) {
         await tx.stockBatch.deleteMany({ where: { receiptTxId: receiptTx.id } });
         await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
+      }
+
+      // V2 receipts: batches linked via StockReceiptItem.batchId
+      const batchIds = items.map((it) => it.batchId).filter((bid): bid is string => bid != null);
+      if (batchIds.length > 0) {
+        // StockMovement.batchId → StockBatch is a real FK (NO ACTION).
+        // Null it out before deleting batches to avoid constraint violation.
+        await tx.stockMovement.updateMany({
+          where: { batchId: { in: batchIds } },
+          data: { batchId: null },
+        });
+        await tx.stockBatch.deleteMany({ where: { id: { in: batchIds } } });
       }
 
       await tx.stockReceiptItem.deleteMany({ where: { receiptId: id } });
