@@ -24,6 +24,11 @@ export const createBookingSchema = z.object({
   guestCount: z.number().int().positive().optional(),
   comment: z.string().max(500).optional(),
   items: z.array(bookingItemSchema).max(20).optional(),
+  // Guest checkout fields — populated when the caller is not authenticated.
+  // The route handler enforces "session OR (guestName + guestPhone)";
+  // at the schema level we only validate shape so authed callers don't need to send them.
+  guestName: z.string().min(1, "Имя обязательно").max(200).optional(),
+  guestPhone: z.string().min(1, "Телефон обязателен").max(30).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }

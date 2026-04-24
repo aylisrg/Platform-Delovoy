@@ -49,10 +49,10 @@ function formatDate(dt: Date) {
 function getClientDisplay(b: {
   clientName: string | null;
   clientPhone: string | null;
-  user: { name: string | null; email: string | null; phone: string | null };
+  user: { name: string | null; email: string | null; phone: string | null } | null;
 }) {
-  const name = b.clientName ?? b.user.name ?? b.user.email ?? "—";
-  const phone = b.clientPhone ?? b.user.phone;
+  const name = b.clientName ?? b.user?.name ?? b.user?.email ?? "—";
+  const phone = b.clientPhone ?? b.user?.phone;
   return { name, phone };
 }
 
@@ -245,9 +245,9 @@ export default async function PSParkManagerPage() {
                   status: b.status,
                   clientName: b.clientName,
                   clientPhone: b.clientPhone,
-                  userName: b.user.name,
-                  userEmail: b.user.email,
-                  userPhone: b.user.phone,
+                  userName: b.user?.name ?? null,
+                  userEmail: b.user?.email ?? null,
+                  userPhone: b.user?.phone ?? null,
                   resourceId: b.resourceId,
                   hasBill: b.status === "COMPLETED",
                 }))}
@@ -271,7 +271,8 @@ type BookingRow = {
   clientName: string | null;
   clientPhone: string | null;
   metadata: unknown;
-  user: { name: string | null; email: string | null; phone: string | null };
+  // Guest bookings have no linked User row.
+  user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
 };
 

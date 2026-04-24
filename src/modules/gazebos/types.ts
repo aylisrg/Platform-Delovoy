@@ -37,6 +37,11 @@ export type CreateBookingInput = {
   guestCount?: number;
   comment?: string;
   items?: BookingItemInput[];
+  // Guest checkout — filled in when the caller is not authenticated.
+  // createBooking() accepts userId=null in that case and stores these as
+  // clientName/clientPhone on the Booking row.
+  guestName?: string;
+  guestPhone?: string;
 };
 
 export type BookingFilter = {

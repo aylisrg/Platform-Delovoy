@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 type AuthView = "main" | "email";
+type EmailMode = "password" | "magic-link";
 type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
 
 // Telegram Login Widget component
@@ -67,6 +68,7 @@ function TelegramLoginButton() {
 function SignInInner() {
   const searchParams = useSearchParams();
   const [view, setView] = useState<AuthView>("main");
+  const [emailMode, setEmailMode] = useState<EmailMode>("password");
   const [emailSubView, setEmailSubView] = useState<EmailSubView>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -82,6 +84,12 @@ function SignInInner() {
     } else {
       window.location.href = "/";
     }
+  }, []);
+
+  // Ping server-side provider status on mount — triggers admin alert if
+  // Telegram (primary login channel) is misconfigured. Fire-and-forget.
+  useEffect(() => {
+    fetch("/api/auth/providers-status").catch(() => {});
   }, []);
 
   // Handle magic link redirect: ?magic=userId
@@ -118,12 +126,11 @@ function SignInInner() {
     }
   }, [searchParams]);
 
-  const handleEmailSubmit = useCallback(async (e: React.FormEvent) => {
+  const handlePasswordLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    // Step 1: try credentials login (for existing users with password)
     const result = await signIn("credentials", {
       email,
       password,
@@ -135,21 +142,22 @@ function SignInInner() {
       return;
     }
 
-    // Step 2: credentials failed — try magic link flow
+    setError("Неверный email или пароль");
+    setLoading(false);
+  }, [email, password, redirectAfterLogin]);
+
+  const handleMagicLinkRequest = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
     try {
       const res = await fetch("/api/auth/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password: password || undefined }),
+        body: JSON.stringify({ email }),
       });
       const data = await res.json();
-
-      if (!data.success && data.error?.code === "USE_PASSWORD") {
-        // User has a password but typed it wrong
-        setError("Неверный email или пароль");
-        setLoading(false);
-        return;
-      }
 
       if (!data.success) {
         setError(data.error?.message || "Не удалось отправить письмо");
@@ -157,14 +165,13 @@ function SignInInner() {
         return;
       }
 
-      // Magic link sent successfully
       setEmailSubView("magic-link-sent");
     } catch {
       setError("Ошибка сети");
     } finally {
       setLoading(false);
     }
-  }, [email, password, redirectAfterLogin]);
+  }, [email]);
 
   const handleOAuthLogin = useCallback(async (provider: string) => {
     setError("");
@@ -242,50 +249,96 @@ function SignInInner() {
 
               {/* Form sub-view */}
               {emailSubView === "form" && (
-                <form onSubmit={handleEmailSubmit} className="space-y-4">
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
-                      Email
-                    </label>
-                    <input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="you@example.com"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
-                      Пароль{" "}
-                      <span className="text-zinc-500 font-normal">(если есть)</span>
-                    </label>
-                    <input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="Оставьте пустым — войдём по ссылке"
-                    />
+                <div className="space-y-4">
+                  {/* Mode toggle — explicit choice between password and magic-link */}
+                  <div role="tablist" className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-800 p-1">
+                    <button
+                      role="tab"
+                      aria-selected={emailMode === "password"}
+                      type="button"
+                      onClick={() => { setEmailMode("password"); setError(""); }}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                        emailMode === "password"
+                          ? "bg-zinc-700 text-white"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      С паролем
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={emailMode === "magic-link"}
+                      type="button"
+                      onClick={() => { setEmailMode("magic-link"); setError(""); setPassword(""); }}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                        emailMode === "magic-link"
+                          ? "bg-zinc-700 text-white"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      Ссылка на почту
+                    </button>
                   </div>
 
-                  {error && <p className="text-sm text-red-400">{error}</p>}
-
-                  <button
-                    type="submit"
-                    disabled={loading || !email}
-                    className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  <form
+                    onSubmit={emailMode === "password" ? handlePasswordLogin : handleMagicLinkRequest}
+                    className="space-y-4"
                   >
-                    {loading ? "Отправка..." : "Войти"}
-                  </button>
+                    <div>
+                      <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
+                        Email
+                      </label>
+                      <input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                        className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="you@example.com"
+                      />
+                    </div>
 
-                  <p className="text-center text-xs text-zinc-500">
-                    Если аккаунта нет — отправим письмо со ссылкой для входа
-                  </p>
-                </form>
+                    {emailMode === "password" && (
+                      <div>
+                        <label htmlFor="password" className="block text-sm font-medium text-zinc-300">
+                          Пароль
+                        </label>
+                        <input
+                          id="password"
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required
+                          autoComplete="current-password"
+                          className="mt-1 block w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    )}
+
+                    {error && <p className="text-sm text-red-400">{error}</p>}
+
+                    <button
+                      type="submit"
+                      disabled={loading || !email || (emailMode === "password" && !password)}
+                      className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading
+                        ? "Отправка..."
+                        : emailMode === "password"
+                          ? "Войти"
+                          : "Отправить ссылку"}
+                    </button>
+
+                    {emailMode === "magic-link" && (
+                      <p className="text-center text-xs text-zinc-500">
+                        Пришлём одноразовую ссылку для входа. Если аккаунта нет — создадим при переходе.
+                      </p>
+                    )}
+                  </form>
+                </div>
               )}
 
               {/* Magic link sent sub-view */}

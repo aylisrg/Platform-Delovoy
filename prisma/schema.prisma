@@ -125,8 +125,8 @@ model Booking {
   id             String        @id @default(cuid())
   moduleSlug     String
   resourceId     String
-  userId         String
-  user           User          @relation(fields: [userId], references: [id])
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
   date           DateTime
   startTime      DateTime
   endTime        DateTime
