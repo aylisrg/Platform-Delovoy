@@ -190,41 +190,38 @@ export async function DELETE(
     const affectedSkuIds = [...new Set(items.map((it) => it.skuId))];
 
     await prisma.$transaction(async (tx) => {
-      // Collect all batch IDs that need to be removed.
-      // Three sources:
-      //   1. V1 legacy: batches linked via InventoryTransaction.receiptTxId
-      //   2. V2 confirm: batches linked via StockReceiptItem.batchId
-      //   3. V2 corrections: batches created for positive-delta corrections
-      //      (correctReceipt recreates items without batchId, so they aren't
-      //       captured by source 2 for CORRECTED receipts)
+      // StockReceipt is a V2-only model — V1 legacy did not have StockReceipt
+      // rows, only standalone InventoryTransaction records. So for a V2
+      // receipt deletion we only need to clean up V2 artefacts.
+      //
+      // Two sources of StockBatch records tied to this receipt:
+      //   1. Confirm-time batches — linked via StockReceiptItem.batchId
+      //   2. Correction-time batches — created by correctReceipt() for
+      //      positive deltas; correctReceipt recreates StockReceiptItem rows
+      //      without batchId, so corrected receipts miss them via source 1.
+      //      We find them via StockMovement(referenceType=CORRECTION,
+      //      referenceId IN corrections).
 
       const allBatchIds = new Set<string>();
 
-      // --- Source 1: V1 ---
-      // V1 legacy receipts: batches linked via InventoryTransaction → receiptTxId
-      const receiptTx = await tx.inventoryTransaction.findFirst({
-        where: { referenceId: id, type: "RECEIPT" },
-        select: { id: true },
-      });
-      if (receiptTx) {
-        const v1Batches = await tx.stockBatch.findMany({
-          where: { receiptTxId: receiptTx.id },
-          select: { id: true },
+      items.forEach((it) => { if (it.batchId) allBatchIds.add(it.batchId); });
+
+      const correctionIds = corrections.map((c) => c.id);
+      if (correctionIds.length > 0) {
+        const corrMovements = await tx.stockMovement.findMany({
+          where: { referenceType: "CORRECTION", referenceId: { in: correctionIds }, batchId: { not: null } },
+          select: { batchId: true },
         });
-        v1Batches.forEach((b) => allBatchIds.add(b.id));
-        await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
+        corrMovements.forEach((m) => { if (m.batchId) allBatchIds.add(m.batchId); });
       }
 
-      // V2 receipts: batches linked via StockReceiptItem.batchId
-      const batchIds = items.map((it) => it.batchId).filter((bid): bid is string => bid != null);
-      if (batchIds.length > 0) {
-        // StockMovement.batchId → StockBatch is a real FK (NO ACTION).
-        // Null it out before deleting batches to avoid constraint violation.
+      // Null out StockMovement.batchId FK before deleting batches (NO ACTION default).
+      if (allBatchIds.size > 0) {
         await tx.stockMovement.updateMany({
-          where: { batchId: { in: batchIds } },
+          where: { batchId: { in: [...allBatchIds] } },
           data: { batchId: null },
         });
-        await tx.stockBatch.deleteMany({ where: { id: { in: batchIds } } });
+        await tx.stockBatch.deleteMany({ where: { id: { in: [...allBatchIds] } } });
       }
 
       await tx.stockReceiptItem.deleteMany({ where: { receiptId: id } });
