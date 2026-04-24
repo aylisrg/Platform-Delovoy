@@ -200,6 +200,85 @@ async function main() {
   }
   console.log(`  ✓ Management module + ${initialRecurring.length} initial recurring expenses`);
 
+  // === TASKS MODULE + CATEGORIES ===
+  await prisma.module.upsert({
+    where: { slug: "tasks" },
+    update: {
+      name: "Задачи",
+      description: "Таск-трекер команды и жалобы от арендаторов",
+    },
+    create: {
+      slug: "tasks",
+      name: "Задачи",
+      description: "Таск-трекер команды и жалобы от арендаторов",
+    },
+  });
+
+  const taskCategories: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    keywords: string[];
+    sortOrder: number;
+  }> = [
+    {
+      slug: "plumbing",
+      name: "Сантехника",
+      description: "Протечки, неисправности кранов, туалетов, сифонов",
+      keywords: ["протеч", "кран", "вод", "труб", "унита", "смеси", "сифон", "засор"],
+      sortOrder: 10,
+    },
+    {
+      slug: "electric",
+      name: "Электрика",
+      description: "Нет света, розетки, автоматы, проводка",
+      keywords: ["свет", "розетк", "электр", "провод", "автомат", "щиток", "лампа"],
+      sortOrder: 20,
+    },
+    {
+      slug: "internet",
+      name: "Интернет / сеть",
+      description: "Пропал интернет, Wi-Fi, доступ к сервисам",
+      keywords: ["интернет", "wi-fi", "wifi", "сеть", "интер", "вайфай", "роутер", "провайдер"],
+      sortOrder: 30,
+    },
+    {
+      slug: "hvac",
+      name: "Климат",
+      description: "Отопление, кондиционер, вентиляция, температура",
+      keywords: ["кондиц", "жарко", "холодно", "отоплен", "вентил", "климат", "теплов"],
+      sortOrder: 40,
+    },
+    {
+      slug: "cleaning",
+      name: "Уборка",
+      description: "Вопросы уборки, мусор, клининг",
+      keywords: ["убор", "мусор", "клинин", "грязно", "чист"],
+      sortOrder: 50,
+    },
+    {
+      slug: "other",
+      name: "Другое",
+      description: "Всё, что не попало в другие категории",
+      keywords: [],
+      sortOrder: 100,
+    },
+  ];
+
+  for (const cat of taskCategories) {
+    await prisma.taskCategory.upsert({
+      where: { slug: cat.slug },
+      update: {
+        name: cat.name,
+        description: cat.description,
+        keywords: cat.keywords,
+        sortOrder: cat.sortOrder,
+      },
+      create: cat,
+    });
+  }
+  console.log(`  ✓ Task categories: ${taskCategories.map((c) => c.slug).join(", ")}`);
+
   console.log("\n✅ Seed completed successfully!");
 }
 
