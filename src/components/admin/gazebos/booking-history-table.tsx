@@ -20,6 +20,7 @@ type HistoryBooking = {
   clientPhone: string | null;
   resourceName: string | null;
   metadata: Record<string, unknown> | null;
+  isGuest: boolean;
 };
 
 const statusLabel: Record<string, string> = {
@@ -80,6 +81,7 @@ export function GazeboBookingHistoryTable() {
           clientPhone: b.clientPhone ?? (b.user as Record<string, unknown>)?.phone ?? null,
           resourceName: (b.resource as Record<string, unknown>)?.name ?? null,
           metadata: b.metadata as Record<string, unknown> | null,
+          isGuest: !b.userId,
         })));
         setTotal(json.meta?.total ?? 0);
       }
@@ -172,7 +174,14 @@ export function GazeboBookingHistoryTable() {
                     {formatTime(b.startTime)} — {formatTime(b.endTime)}
                   </td>
                   <td className="py-3 text-zinc-600">{b.resourceName ?? "—"}</td>
-                  <td className="py-3 text-zinc-600">{b.clientName ?? "—"}</td>
+                  <td className="py-3 text-zinc-600">
+                    <span className="inline-flex items-center gap-2">
+                      {b.clientName ?? "—"}
+                      {b.isGuest && (
+                        <Badge variant="warning">Гость</Badge>
+                      )}
+                    </span>
+                  </td>
                   <td className="py-3 text-zinc-600">{b.clientPhone ?? "—"}</td>
                   <td className="py-3">
                     <Badge variant={statusVariant[b.status] ?? "default"}>

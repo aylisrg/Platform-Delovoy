@@ -126,8 +126,8 @@ export default async function GazebosSchedulePage() {
                 </thead>
                 <tbody>
                   {pendingBookings.map((b) => {
-                    const name = b.clientName ?? b.user.name ?? b.user.email ?? "—";
-                    const phone = b.clientPhone ?? b.user.phone;
+                    const name = b.clientName ?? b.user?.name ?? b.user?.email ?? "—";
+                    const phone = b.clientPhone ?? b.user?.phone;
                     const gazeboName = resourceMap.get(b.resourceId) ?? "—";
                     return (
                       <tr key={b.id} className="border-b border-zinc-50">

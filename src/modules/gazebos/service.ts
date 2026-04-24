@@ -123,8 +123,19 @@ export async function getBooking(id: string) {
   });
 }
 
-export async function createBooking(userId: string, input: CreateBookingInput) {
-  const { resourceId, date, startTime, endTime, guestCount, comment, items } = input;
+export async function createBooking(userId: string | null, input: CreateBookingInput) {
+  const { resourceId, date, startTime, endTime, guestCount, comment, items, guestName, guestPhone } = input;
+
+  // Guest checkout: when there's no authenticated user, guestName + guestPhone are required
+  // so the manager has something to contact the booker with.
+  if (!userId) {
+    if (!guestName || !guestPhone) {
+      throw new BookingError(
+        "GUEST_CONTACTS_REQUIRED",
+        "Для бронирования без регистрации укажите имя и телефон"
+      );
+    }
+  }
 
   // Verify resource exists and is active
   const resource = await prisma.resource.findFirst({
@@ -190,6 +201,10 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
       moduleSlug: MODULE_SLUG,
       resourceId,
       userId,
+      // For guest bookings, store contact info on the row itself so managers
+      // can reach out. For authed users this stays NULL.
+      clientName: userId ? null : guestName,
+      clientPhone: userId ? null : guestPhone,
       date: bookingDate,
       startTime: start,
       endTime: end,
@@ -212,7 +227,7 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
     type: "booking.created",
     moduleSlug: MODULE_SLUG,
     entityId: booking.id,
-    userId,
+    userId: userId ?? undefined,
     actor: "client",
     data: { resourceName: resource.name, date, startTime, endTime },
   });
@@ -379,10 +394,13 @@ export async function updateBookingStatus(
   let googleEventId = booking.googleEventId;
 
   if (status === "CONFIRMED" && resource?.googleCalendarId) {
-    const user = await prisma.user.findUnique({
-      where: { id: booking.userId },
-      select: { name: true, phone: true },
-    });
+    // Guest bookings have no userId — fall back to the clientName/clientPhone stored on the Booking row.
+    const user = booking.userId
+      ? await prisma.user.findUnique({
+          where: { id: booking.userId },
+          select: { name: true, phone: true },
+        })
+      : null;
     const calResult = await createCalendarEvent(resource.googleCalendarId, {
       summary: `${resource.name} — ${booking.clientName || user?.name || "Клиент"}`,
       description: `Телефон: ${booking.clientPhone || user?.phone || "не указан"}`,
@@ -402,7 +420,15 @@ export async function updateBookingStatus(
   // Extract booking items snapshot from metadata
   const metadata = booking.metadata as Record<string, unknown> | null;
   const items = (metadata?.items ?? []) as BookingItemSnapshot[];
+  // Guest bookings have no userId — a manager must always be the actor here.
+  // Authed user paths still let the owner be the performer.
   const performedById = managerId ?? booking.userId;
+  if (!performedById) {
+    throw new BookingError(
+      "NO_ACTOR",
+      "Для изменения статуса guest-брони требуется менеджер"
+    );
+  }
 
   let updated;
 
@@ -461,7 +487,7 @@ export async function updateBookingStatus(
         finalAmount: finalAmount.toFixed(2),
         reason: discountInput.discountReason,
         ...(discountInput.discountNote && { note: discountInput.discountNote }),
-        appliedBy: managerId ?? booking.userId,
+        appliedBy: performedById,
         appliedAt: new Date().toISOString(),
       };
     }
@@ -487,18 +513,18 @@ export async function updateBookingStatus(
 
       if (discountData) {
         const managerUser = await tx.user.findUnique({
-          where: { id: managerId ?? booking.userId },
+          where: { id: performedById },
           select: { name: true, email: true },
         });
 
         await tx.auditLog.create({
           data: {
-            userId: managerId ?? booking.userId,
+            userId: performedById,
             action: "booking.discount_applied",
             entity: "Booking",
             entityId: id,
             metadata: {
-              managerId: managerId ?? booking.userId,
+              managerId: performedById,
               managerName: managerUser?.name ?? managerUser?.email ?? "Менеджер",
               bookingId: id,
               moduleSlug: MODULE_SLUG,
@@ -545,7 +571,8 @@ export async function updateBookingStatus(
     type: notificationType,
     moduleSlug: MODULE_SLUG,
     entityId: id,
-    userId: booking.userId,
+    // Guest bookings have no user to notify — the channel is a manager-initiated callback.
+    userId: booking.userId ?? undefined,
     actor: "admin",
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });

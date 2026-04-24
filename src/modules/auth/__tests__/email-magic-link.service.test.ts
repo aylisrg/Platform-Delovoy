@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Hoisted mocks (vi.mock factories are hoisted, so vars must be too) ---
 
-const { mockVerificationToken, mockUser, mockRedis } = vi.hoisted(() => {
+const { mockVerificationToken, mockUser, mockRedis, redisState } = vi.hoisted(() => {
   const mockVerificationToken = {
     deleteMany: vi.fn(),
     create: vi.fn(),
@@ -18,7 +18,8 @@ const { mockVerificationToken, mockUser, mockRedis } = vi.hoisted(() => {
     set: vi.fn(),
     del: vi.fn(),
   };
-  return { mockVerificationToken, mockUser, mockRedis };
+  const redisState = { available: true };
+  return { mockVerificationToken, mockUser, mockRedis, redisState };
 });
 
 vi.mock("@/lib/db", () => ({
@@ -30,7 +31,9 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/redis", () => ({
   redis: mockRedis,
-  redisAvailable: true,
+  get redisAvailable() {
+    return redisState.available;
+  },
 }));
 
 vi.mock("@/modules/notifications/channels/email", () => ({
@@ -66,6 +69,7 @@ import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  redisState.available = true;
 });
 
 // --- canSendMagicLink ---
@@ -89,6 +93,41 @@ describe("canSendMagicLink", () => {
     expect(mockRedis.get).toHaveBeenCalledWith(
       expect.stringContaining("user@example.com")
     );
+  });
+
+  it("falls back to DB token lookup when Redis unavailable — blocks within cooldown", async () => {
+    redisState.available = false;
+    mockVerificationToken.findFirst.mockResolvedValue({ token: "recent" });
+    const result = await canSendMagicLink("user@example.com");
+    expect(result).toBe(false);
+    expect(mockRedis.get).not.toHaveBeenCalled();
+    expect(mockVerificationToken.findFirst).toHaveBeenCalledWith({
+      where: {
+        identifier: "user@example.com",
+        expires: { gt: expect.any(Date) },
+      },
+      select: { token: true },
+    });
+  });
+
+  it("falls back to DB token lookup when Redis unavailable — allows when no recent token", async () => {
+    redisState.available = false;
+    mockVerificationToken.findFirst.mockResolvedValue(null);
+    const result = await canSendMagicLink("user@example.com");
+    expect(result).toBe(true);
+  });
+
+  it("DB fallback uses correct cooldown cutoff (~14 min in future)", async () => {
+    redisState.available = false;
+    mockVerificationToken.findFirst.mockResolvedValue(null);
+    const before = Date.now();
+    await canSendMagicLink("user@example.com");
+    const call = mockVerificationToken.findFirst.mock.calls[0][0];
+    const cutoff: Date = call.where.expires.gt;
+    const diffMs = cutoff.getTime() - before;
+    // 14 minutes = token TTL (15m) - cooldown (1m)
+    expect(diffMs).toBeGreaterThanOrEqual(13 * 60 * 1000);
+    expect(diffMs).toBeLessThanOrEqual(15 * 60 * 1000);
   });
 });
 
