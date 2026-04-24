@@ -14,6 +14,7 @@ import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
 import { handleLinkDeepLink } from "./handlers/link";
+import { registerTeamSettingsHandlers } from "./handlers/team-settings";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -201,6 +202,7 @@ async function startBot() {
         `/ps — Плей Парк\n` +
         `/cafe — Меню кафе\n` +
         `/mybookings — Мои бронирования\n` +
+        `/settings — Настройки (для команды парка)\n` +
         `/help — Эта справка\n\n` +
         `По вопросам: позвоните администратору парка или напишите на сайте.`,
       { parse_mode: "HTML" }
@@ -242,6 +244,7 @@ async function startBot() {
   registerPSParkHandlers(bot);
   registerCafeHandlers(bot);
   registerMyBookingsHandler(bot);
+  registerTeamSettingsHandlers(bot);
 
   // Error handler
   bot.catch((err) => {
