@@ -203,6 +203,12 @@ export async function DELETE(
       // V2 receipts: batches linked via StockReceiptItem.batchId
       const batchIds = items.map((it) => it.batchId).filter((bid): bid is string => bid != null);
       if (batchIds.length > 0) {
+        // StockMovement.batchId → StockBatch is a real FK (NO ACTION).
+        // Null it out before deleting batches to avoid constraint violation.
+        await tx.stockMovement.updateMany({
+          where: { batchId: { in: batchIds } },
+          data: { batchId: null },
+        });
         await tx.stockBatch.deleteMany({ where: { id: { in: batchIds } } });
       }
 

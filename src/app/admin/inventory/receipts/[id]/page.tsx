@@ -66,7 +66,7 @@ type SupplierOption = {
 type EditItem = {
   skuId: string;
   quantity: string;
-  costPerUnit: string;
+  totalCost: string;
 };
 
 
@@ -129,7 +129,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
             recRes.data.items.map((it: Receipt["items"][number]) => ({
               skuId: it.skuId,
               quantity: it.quantity.toString(),
-              costPerUnit: it.costPerUnit?.toString() || "",
+              totalCost: it.costPerUnit != null ? (it.quantity * Number(it.costPerUnit)).toFixed(2) : "",
             }))
           );
         } else {
@@ -177,11 +177,15 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
         notes: notes.trim() || undefined,
         items: items
           .filter((it) => it.skuId)
-          .map((it) => ({
-            skuId: it.skuId,
-            quantity: parseFloat(it.quantity),
-            costPerUnit: it.costPerUnit ? parseFloat(it.costPerUnit) : undefined,
-          })),
+          .map((it) => {
+            const qty = parseFloat(it.quantity);
+            const total = parseFloat(it.totalCost);
+            return {
+              skuId: it.skuId,
+              quantity: qty,
+              costPerUnit: it.totalCost && !isNaN(qty) && qty > 0 && !isNaN(total) ? total / qty : undefined,
+            };
+          }),
         correctionReason: canCorrect && correctionReason.trim() ? correctionReason.trim() : undefined,
       };
 
@@ -205,7 +209,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
             recRes.data.items.map((it: Receipt["items"][number]) => ({
               skuId: it.skuId,
               quantity: it.quantity.toString(),
-              costPerUnit: it.costPerUnit?.toString() || "",
+              totalCost: it.costPerUnit != null ? (it.quantity * Number(it.costPerUnit)).toFixed(2) : "",
             }))
           );
           setSupplierId(recRes.data.supplierId || "");
@@ -234,7 +238,7 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { skuId: "", quantity: "", costPerUnit: "" }]);
+    setItems((prev) => [...prev, { skuId: "", quantity: "", totalCost: "" }]);
   }
 
   function removeItem(index: number) {
@@ -465,16 +469,16 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                       <tr className="border-b border-zinc-200">
                         <th className="px-3 py-2 text-left font-medium text-zinc-500">Товар</th>
                         <th className="px-3 py-2 text-right font-medium text-zinc-500">Кол-во</th>
+                        <th className="px-3 py-2 text-right font-medium text-zinc-500">Сумма закупки (₽)</th>
                         <th className="px-3 py-2 text-right font-medium text-zinc-500">Цена/шт</th>
-                        <th className="px-3 py-2 text-right font-medium text-zinc-500">Сумма партии</th>
                         <th className="px-3 py-2 text-center font-medium text-zinc-500">Действие</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
                       {items.map((item, i) => {
                         const qty = parseFloat(item.quantity);
-                        const cpu = parseFloat(item.costPerUnit);
-                        const lineTotal = !isNaN(qty) && qty > 0 && !isNaN(cpu) && cpu > 0 ? qty * cpu : null;
+                        const total = parseFloat(item.totalCost);
+                        const cpuDerived = !isNaN(qty) && qty > 0 && !isNaN(total) && total > 0 ? total / qty : null;
                         return (
                           <tr key={i}>
                             <td className="px-3 py-2">
@@ -493,10 +497,10 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                               <input type="number" step="0.01" min="0" value={item.quantity} onChange={(e) => updateItem(i, "quantity", e.target.value)} className="w-full rounded border border-zinc-300 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                             </td>
                             <td className="px-3 py-2">
-                              <input type="number" step="0.01" min="0" value={item.costPerUnit} onChange={(e) => updateItem(i, "costPerUnit", e.target.value)} className="w-full rounded border border-zinc-300 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                              <input type="number" step="0.01" min="0" value={item.totalCost} onChange={(e) => updateItem(i, "totalCost", e.target.value)} className="w-full rounded border border-zinc-300 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                             </td>
-                            <td className="px-3 py-2 text-right font-medium text-zinc-900 tabular-nums whitespace-nowrap">
-                              {lineTotal != null ? lineTotal.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-zinc-400">—</span>}
+                            <td className="px-3 py-2 text-right text-zinc-600 tabular-nums whitespace-nowrap">
+                              {cpuDerived != null ? cpuDerived.toFixed(2) : <span className="text-zinc-400">—</span>}
                             </td>
                             <td className="px-3 py-2 text-center">
                               <button type="button" onClick={() => removeItem(i)} className="text-xs text-red-600 hover:text-red-700 font-medium">Удалить</button>
@@ -507,20 +511,19 @@ export default function ReceiptDetailPage({ params }: { params: Promise<{ id: st
                     </tbody>
                     {(() => {
                       const grandTotal = items.reduce((sum, item) => {
-                        const qty = parseFloat(item.quantity);
-                        const cpu = parseFloat(item.costPerUnit);
-                        return !isNaN(qty) && qty > 0 && !isNaN(cpu) && cpu > 0 ? sum + qty * cpu : sum;
+                        const total = parseFloat(item.totalCost);
+                        return !isNaN(total) && total > 0 ? sum + total : sum;
                       }, 0);
                       const hasAnyPrice = items.some((item) => {
-                        const qty = parseFloat(item.quantity);
-                        const cpu = parseFloat(item.costPerUnit);
-                        return !isNaN(qty) && qty > 0 && !isNaN(cpu) && cpu > 0;
+                        const total = parseFloat(item.totalCost);
+                        return !isNaN(total) && total > 0;
                       });
                       return hasAnyPrice ? (
                         <tfoot>
                           <tr className="border-t-2 border-zinc-200 bg-zinc-50">
-                            <td className="px-3 py-2 text-sm font-semibold text-zinc-700" colSpan={3}>Итого</td>
+                            <td className="px-3 py-2 text-sm font-semibold text-zinc-700" colSpan={2}>Итого</td>
                             <td className="px-3 py-2 text-right text-sm font-bold text-zinc-900 tabular-nums whitespace-nowrap">{grandTotal.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</td>
+                            <td />
                             <td />
                           </tr>
                         </tfoot>
