@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db";
 import { enqueueNotification } from "./queue";
+import {
+  processDueReminders,
+  sendDigestsToAllAssignees,
+  pollInbox,
+} from "@/modules/tasks/scheduler-hooks";
 
 /**
  * Process all scheduled notifications.
@@ -9,7 +14,30 @@ export async function processScheduledNotifications(): Promise<void> {
   await Promise.allSettled([
     processBookingReminders(),
     processContractExpiryAlerts(),
+    processDueReminders(),
+    pollInbox(),
+    processDailyDigestIfDue(),
   ]);
+}
+
+let lastDigestDayKey: string | null = null;
+
+/**
+ * Gate for the once-per-day digest. The scheduler itself may tick multiple
+ * times per hour — we only fire the digest when the local clock (MSK) first
+ * reaches 09:xx on a given date.
+ */
+async function processDailyDigestIfDue(): Promise<void> {
+  const now = new Date();
+  // Moscow is UTC+3, no DST.
+  const mskHours = (now.getUTCHours() + 3) % 24;
+  if (mskHours !== 9) return;
+  const dayKey = new Date(now.getTime() + 3 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  if (lastDigestDayKey === dayKey) return;
+  lastDigestDayKey = dayKey;
+  await sendDigestsToAllAssignees();
 }
 
 /**

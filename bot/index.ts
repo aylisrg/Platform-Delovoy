@@ -14,6 +14,7 @@ import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
 import { handleLinkDeepLink } from "./handlers/link";
+import { registerIssueHandlers } from "./handlers/issue";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -242,6 +243,7 @@ async function startBot() {
   registerPSParkHandlers(bot);
   registerCafeHandlers(bot);
   registerMyBookingsHandler(bot);
+  registerIssueHandlers(bot);
 
   // Error handler
   bot.catch((err) => {
