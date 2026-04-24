@@ -50,7 +50,7 @@ export async function PATCH(
         where: { defaultAssigneeUserId: session.user.id },
         select: { id: true },
       });
-      const myCatIds = myCats.map((c) => c.id);
+      const myCatIds = myCats.map((c: { id: string }) => c.id);
       const canEdit =
         existing.assigneeUserId === session.user.id ||
         existing.reporterUserId === session.user.id ||

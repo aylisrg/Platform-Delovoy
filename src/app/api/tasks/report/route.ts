@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   apiResponse,
   apiError,
@@ -66,10 +66,25 @@ export async function POST(request: NextRequest) {
       if (result.exact) {
         resolvedOfficeId = result.exact.id;
       } else if (result.candidates.length > 0) {
-        return apiError(
-          "OFFICE_AMBIGUOUS",
-          "Не удалось однозначно определить офис — уточните",
-          409
+        // 409 + structured payload: the client shows these as clickable buttons
+        // so the user picks one and re-submits with officeId set.
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "OFFICE_AMBIGUOUS",
+              message: "Не удалось однозначно определить офис — уточните",
+            },
+            data: {
+              candidates: result.candidates.map((o) => ({
+                id: o.id,
+                number: o.number,
+                building: o.building,
+                floor: o.floor,
+              })),
+            },
+          },
+          { status: 409 }
         );
       }
       // No match at all → proceed without office, flag in metadata

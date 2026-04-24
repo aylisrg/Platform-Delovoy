@@ -27,7 +27,7 @@ export default async function TaskPage({
       where: { defaultAssigneeUserId: session.user.id },
       select: { id: true },
     });
-    const myCatIds = myCats.map((c) => c.id);
+    const myCatIds = myCats.map((c: { id: string }) => c.id);
     const canSee =
       task.assigneeUserId === session.user.id ||
       task.reporterUserId === session.user.id ||
@@ -71,7 +71,7 @@ export default async function TaskPage({
           externalOffice: task.externalOffice,
           externalTenant: task.externalTenant,
           externalContact: task.externalContact as Record<string, unknown> | null,
-          comments: task.comments.map((c) => ({
+          comments: task.comments.map((c: (typeof task.comments)[number]) => ({
             id: c.id,
             body: c.body,
             source: c.source,
@@ -79,7 +79,7 @@ export default async function TaskPage({
             author: c.author,
             authorExternal: c.authorExternal as Record<string, unknown> | null,
           })),
-          events: task.events.map((e) => ({
+          events: task.events.map((e: (typeof task.events)[number]) => ({
             id: e.id,
             kind: e.kind,
             metadata: e.metadata as Record<string, unknown> | null,

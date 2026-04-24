@@ -35,12 +35,14 @@ export type InboundAction =
       description: string;
       categoryId: string | null;
       externalContact: { email: string; name: string };
+      emailMessageId: string | null;
     }
   | { type: "skip"; reason: string };
 
 export type InboundDeps = {
   findTaskByPublicId: (publicId: string) => Promise<{ id: string } | null>;
   findCommentByMessageId: (messageId: string) => Promise<boolean>;
+  findTaskByEmailThreadId: (messageId: string) => Promise<{ id: string } | null>;
   findUserByEmail: (email: string) => Promise<{ id: string } | null>;
   categorizeByKeywords: (text: string) => Promise<string | null>;
 };
@@ -88,7 +90,14 @@ export async function processIncomingMessage(
     // Referenced ticket not found — treat as new
   }
 
-  // New issue
+  // New issue — but guard against duplicates. If we already created a Task
+  // from this exact Message-ID (rare: only when \Seen-flag set failed between
+  // ticks), short-circuit.
+  if (messageId) {
+    const existingTask = await deps.findTaskByEmailThreadId(messageId);
+    if (existingTask) return { type: "skip", reason: "messageId already ingested" };
+  }
+
   const existingUser = await deps.findUserByEmail(fromEmail);
   const categoryId = await deps.categorizeByKeywords(`${subject}\n${body}`);
 
@@ -104,6 +113,7 @@ export async function processIncomingMessage(
     description: body,
     categoryId,
     externalContact: { email: fromEmail, name: fromName },
+    emailMessageId: messageId || null,
   };
 }
 

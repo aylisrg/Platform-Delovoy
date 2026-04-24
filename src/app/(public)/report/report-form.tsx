@@ -92,12 +92,7 @@ export function ReportForm({
         res.status === 409 &&
         data?.error?.code === "OFFICE_AMBIGUOUS"
       ) {
-        // Re-fetch suggestions to show them to the user for selection
-        const sres = await fetch(
-          `/api/tasks/offices/search?q=${encodeURIComponent(form.officeInput)}`
-        );
-        const sdata = await sres.json();
-        setAmbiguous(sdata?.data?.candidates ?? []);
+        setAmbiguous(data?.data?.candidates ?? []);
         setError("Найдено несколько офисов — выберите нужный");
         return;
       }

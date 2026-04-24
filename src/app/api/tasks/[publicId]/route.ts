@@ -11,13 +11,24 @@ import {
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { UpdateTaskSchema } from "@/modules/tasks/validation";
-import { getTaskByPublicId, cancelTask } from "@/modules/tasks/service";
-import { logAudit } from "@/lib/logger";
+import {
+  getTaskByPublicId,
+  cancelTask,
+  updateTaskFields,
+} from "@/modules/tasks/service";
 
+type TaskGuardShape = {
+  assigneeUserId: string | null;
+  reporterUserId: string | null;
+  categoryId: string | null;
+  type: string;
+};
+
+/** Can this session READ the task? Managers see own + reporter + ISSUE-by-category. */
 function canReadTask(
   role: string,
   userId: string,
-  task: { assigneeUserId: string | null; reporterUserId: string | null; categoryId: string | null; type: string },
+  task: TaskGuardShape,
   managerCategoryIds: string[]
 ): boolean {
   if (role === "SUPERADMIN" || role === "ADMIN") return true;
@@ -25,7 +36,30 @@ function canReadTask(
     return (
       task.assigneeUserId === userId ||
       task.reporterUserId === userId ||
-      (task.type === "ISSUE" && !!task.categoryId && managerCategoryIds.includes(task.categoryId))
+      (task.type === "ISSUE" &&
+        !!task.categoryId &&
+        managerCategoryIds.includes(task.categoryId))
+    );
+  }
+  return false;
+}
+
+/**
+ * Can this session WRITE editable fields (title/description/priority/…)?
+ * Narrower than read: MANAGER must be assignee or reporter. Seeing an ISSUE in
+ * your category via `defaultAssignee` does not grant you edit rights on
+ * someone else's task (the status + comment endpoints remain available so
+ * the MANAGER can still triage).
+ */
+function canWriteTask(
+  role: string,
+  userId: string,
+  task: TaskGuardShape
+): boolean {
+  if (role === "SUPERADMIN" || role === "ADMIN") return true;
+  if (role === "MANAGER") {
+    return (
+      task.assigneeUserId === userId || task.reporterUserId === userId
     );
   }
   return false;
@@ -36,7 +70,7 @@ async function managerCategories(userId: string): Promise<string[]> {
     where: { defaultAssigneeUserId: userId },
     select: { id: true },
   });
-  return cats.map((c) => c.id);
+  return cats.map((c: { id: string }) => c.id);
 }
 
 export async function GET(
@@ -97,31 +131,24 @@ export async function PATCH(
     });
     if (!existing) return apiNotFound("Задача не найдена");
 
-    const catIds =
-      session.user.role === "MANAGER"
-        ? await managerCategories(session.user.id)
-        : [];
-    if (!canReadTask(session.user.role, session.user.id, existing, catIds)) {
+    if (!canWriteTask(session.user.role, session.user.id, existing)) {
       return apiForbidden();
     }
 
-    const updated = await prisma.task.update({
-      where: { id: existing.id },
-      data: {
+    const updated = await updateTaskFields(
+      existing.id,
+      {
         title: parsed.data.title,
-        description: parsed.data.description ?? undefined,
+        description: parsed.data.description,
         priority: parsed.data.priority,
-        categoryId: parsed.data.categoryId ?? undefined,
+        categoryId: parsed.data.categoryId,
         labels: parsed.data.labels,
-        dueDate: parsed.data.dueDate ?? undefined,
-        remindAt: parsed.data.remindAt ?? undefined,
-        moduleContext: parsed.data.moduleContext ?? undefined,
+        dueDate: parsed.data.dueDate,
+        remindAt: parsed.data.remindAt,
+        moduleContext: parsed.data.moduleContext,
       },
-    });
-
-    await logAudit(session.user.id, "task.update", "Task", updated.id, {
-      publicId,
-    });
+      { id: session.user.id }
+    );
 
     return apiResponse(updated);
   } catch (err) {
@@ -152,11 +179,7 @@ export async function DELETE(
     });
     if (!task) return apiNotFound("Задача не найдена");
 
-    const catIds =
-      session.user.role === "MANAGER"
-        ? await managerCategories(session.user.id)
-        : [];
-    if (!canReadTask(session.user.role, session.user.id, task, catIds)) {
+    if (!canWriteTask(session.user.role, session.user.id, task)) {
       return apiForbidden();
     }
 

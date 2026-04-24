@@ -49,7 +49,7 @@ export async function POST(
         where: { defaultAssigneeUserId: session.user.id },
         select: { id: true },
       });
-      const myCatIds = myCats.map((c) => c.id);
+      const myCatIds = myCats.map((c: { id: string }) => c.id);
       const canSee =
         existing.assigneeUserId === session.user.id ||
         existing.reporterUserId === session.user.id ||

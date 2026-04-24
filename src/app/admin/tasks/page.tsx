@@ -5,7 +5,6 @@ import { prisma } from "@/lib/db";
 import { TaskBoard } from "@/components/admin/tasks/task-board";
 import { CreateTaskButton } from "@/components/admin/tasks/create-task-button";
 import { TaskFilters } from "@/components/admin/tasks/task-filters";
-import type { TaskStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +44,7 @@ export default async function TasksPage({
       where: { defaultAssigneeUserId: session.user.id },
       select: { id: true },
     });
-    const categoryIds = myCats.map((c) => c.id);
+    const categoryIds = myCats.map((c: { id: string }) => c.id);
     const visibility: Array<Record<string, unknown>> = [
       { assigneeUserId: session.user.id },
       { reporterUserId: session.user.id },
@@ -126,7 +125,7 @@ export default async function TasksPage({
       <TaskFilters categories={categories} assignees={assignees} />
 
       <TaskBoard
-        tasks={tasks.map((t) => ({
+        tasks={tasks.map((t: (typeof tasks)[number]) => ({
           id: t.id,
           publicId: t.publicId,
           title: t.title,

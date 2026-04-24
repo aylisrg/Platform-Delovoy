@@ -120,10 +120,13 @@ export const SubscribeSchema = z.object({
   channels: z.array(z.enum(["TELEGRAM", "EMAIL"])).min(1).default(["TELEGRAM", "EMAIL"]),
 });
 
-export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
-export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
-export type CreateCommentInput = z.infer<typeof CreateCommentSchema>;
+// Use `z.input` for caller-facing types so Zod's .default()/.optional() fields
+// don't show up as required in TS (the parser fills them in at runtime).
+// Post-parse consumers still get full types via service-level local narrowing.
+export type CreateTaskInput = z.input<typeof CreateTaskSchema>;
+export type UpdateTaskInput = z.input<typeof UpdateTaskSchema>;
+export type CreateCommentInput = z.input<typeof CreateCommentSchema>;
 export type ListTasksInput = z.infer<typeof ListTasksSchema>;
-export type CreateCategoryInput = z.infer<typeof CreateCategorySchema>;
-export type UpdateCategoryInput = z.infer<typeof UpdateCategorySchema>;
+export type CreateCategoryInput = z.input<typeof CreateCategorySchema>;
+export type UpdateCategoryInput = z.input<typeof UpdateCategorySchema>;
 export type PublicReportInput = z.infer<typeof PublicReportSchema>;

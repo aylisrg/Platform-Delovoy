@@ -24,7 +24,11 @@ async function buildScope(session: {
       where: { defaultAssigneeUserId: id },
       select: { id: true },
     });
-    return { role: "MANAGER", userId: id, categoryIds: cats.map((c) => c.id) };
+    return {
+      role: "MANAGER",
+      userId: id,
+      categoryIds: cats.map((c: { id: string }) => c.id),
+    };
   }
   return { role: "USER" };
 }

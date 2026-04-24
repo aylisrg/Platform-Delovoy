@@ -5,6 +5,7 @@ function makeDeps(overrides: Partial<InboundDeps> = {}): InboundDeps {
   return {
     findTaskByPublicId: vi.fn().mockResolvedValue(null),
     findCommentByMessageId: vi.fn().mockResolvedValue(false),
+    findTaskByEmailThreadId: vi.fn().mockResolvedValue(null),
     findUserByEmail: vi.fn().mockResolvedValue(null),
     categorizeByKeywords: vi.fn().mockResolvedValue(null),
     ...overrides,
@@ -83,6 +84,24 @@ describe("processIncomingMessage — reply to existing ticket", () => {
       deps
     );
     expect(res.type).toBe("new_issue");
+  });
+});
+
+describe("processIncomingMessage — messageId-level dedup for new_issue", () => {
+  it("skips when a Task with the same emailThreadId already exists", async () => {
+    const deps = makeDeps({
+      findTaskByEmailThreadId: vi.fn().mockResolvedValue({ id: "already-created" }),
+    });
+    const res = await processIncomingMessage(
+      {
+        from: { address: "a@b.com" },
+        subject: "fresh issue",
+        text: "body",
+        messageId: "<dup-mid@mail>",
+      },
+      deps
+    );
+    expect(res.type).toBe("skip");
   });
 });
 

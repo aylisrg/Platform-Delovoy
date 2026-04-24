@@ -129,7 +129,10 @@ export async function pollInbox(): Promise<void> {
       connect(): Promise<void>;
       logout(): Promise<void>;
       mailboxOpen(name: string): Promise<void>;
-      fetch(range: string, opts: Record<string, unknown>): AsyncIterable<{
+      fetch(
+        range: string | Record<string, unknown>,
+        opts: Record<string, unknown>
+      ): AsyncIterable<{
         seq: number;
         uid: number;
         source: Buffer;
@@ -142,6 +145,9 @@ export async function pollInbox(): Promise<void> {
       secure: true,
       auth: { user, pass },
       logger: false,
+      // Защита от зависшего IMAP: если сервер не отвечает 30s — бросаем, чтобы
+      // остальные scheduler-таймеры (reminders/digest/booking) не застряли.
+      socketTimeout: 30_000,
     });
 
     await client.connect();
@@ -165,6 +171,11 @@ export async function pollInbox(): Promise<void> {
         });
         return !!existing;
       },
+      findTaskByEmailThreadId: (messageId: string) =>
+        prisma.task.findFirst({
+          where: { emailThreadId: messageId },
+          select: { id: true },
+        }),
       findUserByEmail: (email: string) =>
         prisma.user.findUnique({
           where: { email: email.toLowerCase() },
@@ -173,7 +184,15 @@ export async function pollInbox(): Promise<void> {
       categorizeByKeywords,
     };
 
-    for await (const msg of client.fetch("1:*", { source: true, flags: true })) {
+    // Process only UNSEEN messages — otherwise on every scheduler tick we'd
+    // re-download the entire mailbox (historic emails included). Combined
+    // with messageFlagsAdd("\\Seen") after each message, this makes the
+    // poller idempotent at the IMAP level too (in addition to emailMessageId
+    // and emailThreadId dedup at the DB level below).
+    for await (const msg of client.fetch(
+      { seen: false },
+      { source: true, flags: true }
+    )) {
       const parseFn = simpleParser as (input: Buffer) => Promise<Record<string, unknown>>;
       const parsed = await parseFn(msg.source);
       const raw = parsed as {
@@ -218,6 +237,7 @@ export async function pollInbox(): Promise<void> {
             labels: [],
             reporterUserId: action.reporterUserId,
             externalContact: action.externalContact,
+            emailThreadId: action.emailMessageId,
           },
           { id: action.reporterUserId, source: action.reporterUserId ? "user" : "system" }
         );

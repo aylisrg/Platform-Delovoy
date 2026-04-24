@@ -42,7 +42,7 @@ export default async function CategoriesPage() {
         летит глобальному «дежурному».
       </p>
       <CategoriesPanel
-        categories={categories.map((c) => ({
+        categories={categories.map((c: (typeof categories)[number]) => ({
           id: c.id,
           slug: c.slug,
           name: c.name,

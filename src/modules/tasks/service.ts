@@ -17,6 +17,19 @@ import type {
 
 const PUBLIC_ID_MAX_RETRIES = 5;
 
+/**
+ * Validation produces `Date | string | null | undefined` on date fields because
+ * it uses z.coerce.date(). Prisma strictly wants Date or null. Narrow here.
+ * The raw input type is `unknown` since coerce accepts anything — we treat
+ * only strings and Dates as valid input.
+ */
+function toDateOrNull(v: unknown): Date | null {
+  if (v === undefined || v === null) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === "string" || typeof v === "number") return new Date(v);
+  return null;
+}
+
 const TASK_WITH_RELATIONS = {
   category: { select: { id: true, slug: true, name: true } },
   reporter: { select: { id: true, name: true, email: true } },
@@ -67,9 +80,9 @@ export async function createTask(
           assigneeUserId: wantedAssignee,
           externalTenantId: input.externalTenantId ?? null,
           externalOfficeId: input.externalOfficeId ?? null,
-          externalContact: input.externalContact ?? undefined,
-          dueDate: input.dueDate ?? null,
-          remindAt: input.remindAt ?? null,
+          externalContact: (input.externalContact as Prisma.InputJsonValue | undefined) ?? undefined,
+          dueDate: toDateOrNull(input.dueDate),
+          remindAt: toDateOrNull(input.remindAt),
           emailThreadId: input.emailThreadId ?? null,
           metadata: (input.metadata as Prisma.InputJsonValue | undefined) ?? undefined,
         },
@@ -409,4 +422,92 @@ export async function addComment(
  */
 export async function cancelTask(taskId: string, actor: { id: string }) {
   return updateStatus(taskId, "CANCELLED", actor);
+}
+
+/**
+ * Patch the editable metadata of a task (title/description/priority/due etc).
+ * Writes appropriate TaskEvent rows for non-trivial changes so the timeline
+ * reflects *why* a task looks the way it does, not just the current snapshot.
+ */
+export async function updateTaskFields(
+  taskId: string,
+  patch: {
+    title?: string;
+    description?: string | null;
+    priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+    categoryId?: string | null;
+    labels?: string[];
+    dueDate?: Date | null;
+    remindAt?: Date | null;
+    moduleContext?: string | null;
+  },
+  actor: { id: string }
+) {
+  const before = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      publicId: true,
+      priority: true,
+      dueDate: true,
+    },
+  });
+  if (!before) return null;
+
+  const updated = await prisma.task.update({
+    where: { id: taskId },
+    data: {
+      title: patch.title,
+      description: patch.description ?? undefined,
+      priority: patch.priority,
+      categoryId: patch.categoryId ?? undefined,
+      labels: patch.labels,
+      dueDate: patch.dueDate ?? undefined,
+      remindAt: patch.remindAt ?? undefined,
+      moduleContext: patch.moduleContext ?? undefined,
+      // Resetting reminderSentAt when remindAt moves forward lets the same
+      // task re-remind after its deadline is pushed.
+      ...(patch.remindAt && patch.remindAt > new Date()
+        ? { reminderSentAt: null }
+        : {}),
+    },
+    include: TASK_WITH_RELATIONS,
+  });
+
+  const events: Array<{
+    kind: "PRIORITY_CHANGED" | "DUE_DATE_CHANGED";
+    metadata: Record<string, unknown>;
+  }> = [];
+  if (patch.priority && patch.priority !== before.priority) {
+    events.push({
+      kind: "PRIORITY_CHANGED",
+      metadata: { from: before.priority, to: patch.priority },
+    });
+  }
+  const beforeDueIso = before.dueDate ? before.dueDate.toISOString() : null;
+  const afterDueIso = patch.dueDate ? patch.dueDate.toISOString() : null;
+  if (patch.dueDate !== undefined && beforeDueIso !== afterDueIso) {
+    events.push({
+      kind: "DUE_DATE_CHANGED",
+      metadata: { from: beforeDueIso, to: afterDueIso },
+    });
+  }
+
+  for (const ev of events) {
+    await prisma.taskEvent.create({
+      data: {
+        taskId,
+        kind: ev.kind,
+        actorUserId: actor.id,
+        metadata: ev.metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  await logAudit(actor.id, "task.update", "Task", taskId, {
+    publicId: before.publicId,
+    changed: Object.keys(patch),
+  });
+
+  return updated;
 }
