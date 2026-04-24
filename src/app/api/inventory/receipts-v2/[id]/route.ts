@@ -10,7 +10,7 @@ import {
 } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { logAudit } from "@/lib/logger";
+import { logAudit, logEvent } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { canConfirmReceipt, canCorrectReceipt, canEditModule, hasModuleAccess } from "@/lib/permissions";
 import {
@@ -190,13 +190,28 @@ export async function DELETE(
     const affectedSkuIds = [...new Set(items.map((it) => it.skuId))];
 
     await prisma.$transaction(async (tx) => {
+      // Collect all batch IDs that need to be removed.
+      // Three sources:
+      //   1. V1 legacy: batches linked via InventoryTransaction.receiptTxId
+      //   2. V2 confirm: batches linked via StockReceiptItem.batchId
+      //   3. V2 corrections: batches created for positive-delta corrections
+      //      (correctReceipt recreates items without batchId, so they aren't
+      //       captured by source 2 for CORRECTED receipts)
+
+      const allBatchIds = new Set<string>();
+
+      // --- Source 1: V1 ---
       // V1 legacy receipts: batches linked via InventoryTransaction → receiptTxId
       const receiptTx = await tx.inventoryTransaction.findFirst({
         where: { referenceId: id, type: "RECEIPT" },
         select: { id: true },
       });
       if (receiptTx) {
-        await tx.stockBatch.deleteMany({ where: { receiptTxId: receiptTx.id } });
+        const v1Batches = await tx.stockBatch.findMany({
+          where: { receiptTxId: receiptTx.id },
+          select: { id: true },
+        });
+        v1Batches.forEach((b) => allBatchIds.add(b.id));
         await tx.inventoryTransaction.delete({ where: { id: receiptTx.id } });
       }
 
@@ -235,6 +250,11 @@ export async function DELETE(
     if (error instanceof InventoryError && error.code === "RECEIPT_NOT_FOUND") {
       return apiNotFound(error.message);
     }
+    console.error("[DELETE receipt] Unexpected error:", error);
+    void logEvent("ERROR", "inventory.receipt.delete", "Ошибка при удалении прихода", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return apiServerError();
   }
 }
