@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/aylisrg/Platform-Delovoy/compare/v1.9.0...v1.9.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* warehouse receipts now auto-confirm for ADMIN, stock updates immediately ([#172](https://github.com/aylisrg/Platform-Delovoy/issues/172)) ([dfe818b](https://github.com/aylisrg/Platform-Delovoy/commit/dfe818b0a332256b922b2ca55b1a0aaa8515b72a))
+
 ## [1.9.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.8.1...v1.9.0) (2026-04-23)
 
 

@@ -96,13 +96,15 @@ export async function POST(request: NextRequest) {
       moduleSlug: parsed.data.moduleSlug,
     });
 
-    // Auto-confirm when the author is also allowed to confirm — SUPERADMIN always,
-    // ADMIN with access to the module. Otherwise (MANAGER, или ADMIN без модуля)
-    // приход остаётся в DRAFT и ждёт подтверждения.
+    // Auto-confirm when the author is allowed to confirm:
+    //   SUPERADMIN — always.
+    //   ADMIN — always (inventory is ADMIN_EDITABLE_MODULE; canConfirmReceipt
+    //           no longer requires a ModuleAssignment to the business module).
+    //   MANAGER — stays DRAFT and waits for ADMIN confirmation.
     //
-    // Без этого SUPERADMIN добавлял позиции, но stockQuantity не увеличивался,
-    // потому что остатки пересчитываются только в confirmReceipt.
-    const moduleSlugForPerms = parsed.data.moduleSlug ?? "cafe";
+    // Note: moduleSlugForPerms is passed for API compatibility only.
+    // canConfirmReceipt ignores it and checks the inventory section instead.
+    const moduleSlugForPerms = parsed.data.moduleSlug ?? "inventory";
     const canAutoConfirm = await canConfirmReceipt(
       { id: session.user.id, role },
       moduleSlugForPerms
