@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.0.0...v2.1.0) (2026-04-25)
+
+
+### Features
+
+* **bot:** /settings command — release notifications toggle for the team ([d15570d](https://github.com/aylisrg/Platform-Delovoy/commit/d15570dff4a1924919a792c25dc70ad12ba77d0d))
+
+
+### Bug Fixes
+
+* **inventory:** unbreak /admin/inventory + add RSC boundary guard ([9277748](https://github.com/aylisrg/Platform-Delovoy/commit/9277748f568542454993e740379fc902c4cabded))
+* **landing:** restore Yandex map + sync coords to actual park location ([8947a53](https://github.com/aylisrg/Platform-Delovoy/commit/8947a53ebaf01cdeb10a4d6d06241bbfd83e091e))
+
+
+### Performance Improvements
+
+* &lt;img&gt; → next/image для аватаров и фото ресурсов ([187851f](https://github.com/aylisrg/Platform-Delovoy/commit/187851f36f5371fe3b7d6efba40cc80e7b7e15db))
+
 ## [2.0.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.9.1...v2.0.0) (2026-04-25)
 
 
