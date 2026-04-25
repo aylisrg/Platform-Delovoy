@@ -221,7 +221,7 @@ export default function AnalyticsPage() {
             <BigStat
               label="Расход за период"
               value={formatCurrency(totalSpent, balanceCurrency)}
-              hint={`${overview.summary.activeCampaigns} активных кампаний`}
+              hint={`${overview.summary.activeCampaigns} активных кампаний · ${overview.summary.costIncludesVat ? "с НДС" : "без НДС"}`}
               tone="primary"
             />
             <BigStat
@@ -241,12 +241,16 @@ export default function AnalyticsPage() {
               tone={balanceWarn ? "warn" : balance === null ? "muted" : "default"}
             />
             <BigStat
-              label="Стоимость конверсии"
+              label="Стоимость рекламной конверсии"
               value={formatCurrency(
-                overview.summary.avgCostPerConversion,
+                overview.summary.costPerAdConversion,
                 balanceCurrency
               )}
-              hint={`${overview.summary.totalConversions} конверсий за период`}
+              hint={
+                overview.summary.adSourceConversions > 0
+                  ? `${overview.summary.adSourceConversions} конверсий из Директа`
+                  : "Нет конверсий из рекламы за период"
+              }
               tone="default"
             />
           </div>
@@ -262,9 +266,9 @@ export default function AnalyticsPage() {
           {/* === ROW 2: Traffic & engagement === */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Stat
-              label="Визиты"
+              label="Визиты на сайт"
               value={formatInt(overview.traffic.visits)}
-              sub={`${formatInt(overview.traffic.users)} пользователей`}
+              sub={`${formatInt(overview.traffic.users)} пользователей · все источники`}
             />
             <Stat
               label="Просмотры"
@@ -287,7 +291,7 @@ export default function AnalyticsPage() {
                     )
                   : "—"
               }
-              sub={`${overview.summary.totalConversions} достижений целей`}
+              sub={`${overview.summary.totalConversions} достижений целей · все источники`}
             />
           </div>
 
@@ -298,9 +302,9 @@ export default function AnalyticsPage() {
               value={formatInt(overview.advertising.impressions)}
             />
             <Stat
-              label="Клики"
+              label="Клики из Директа"
               value={formatInt(overview.advertising.clicks)}
-              sub={`CTR ${formatPct(overview.advertising.ctr)}`}
+              sub={`CTR ${formatPct(overview.advertising.ctr)} · ${formatInt(overview.adSourceVisits)} визитов`}
             />
             <Stat
               label="Средний CPC"
@@ -319,12 +323,16 @@ export default function AnalyticsPage() {
 
           {/* === Funnel === */}
           {conversions && (
-            <Section title="Воронка: визиты → конверсии">
+            <Section
+              title="Воронка рекламы: показы → клики → визиты → конверсии"
+              subtitle="Только трафик из Яндекс.Директа (lastSourceEngine = ya_direct)"
+            >
               <Funnel
-                visits={conversions.funnel.totalVisits}
-                clicks={overview.advertising.clicks}
-                conversions={conversions.funnel.totalGoalReaches}
-                conversionRate={conversions.funnel.overallConversionRate}
+                impressions={overview.advertising.impressions}
+                clicks={conversions.funnel.adClicks}
+                visits={conversions.funnel.adVisits}
+                conversions={conversions.funnel.adConversions}
+                adConversionRate={conversions.funnel.adConversionRate}
               />
             </Section>
           )}
@@ -350,7 +358,7 @@ export default function AnalyticsPage() {
           {overview.conversions.length > 0 && (
             <Section
               title="Конверсии по целям"
-              subtitle="Расход распределён пропорционально доле каждой цели"
+              subtitle="«Из рекламы» — только трафик с lastSourceEngine = ya_direct"
             >
               <GoalsTable
                 goals={overview.conversions}
@@ -369,14 +377,28 @@ export default function AnalyticsPage() {
           {/* === Footer notes === */}
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-500 space-y-1">
             <p>
-              <strong className="text-zinc-700">Методология:</strong> расход — из
-              отчёта CAMPAIGN_PERFORMANCE_REPORT (с НДС). Стоимость конверсии =
-              расход / общее число достижений целей. Доля цели — пропорция
-              достижений, attributed_cost = расход × доля.
+              <strong className="text-zinc-700">Методология.</strong> Расход —
+              из CAMPAIGN_PERFORMANCE_REPORT Яндекс.Директа{" "}
+              {overview.summary.costIncludesVat ? "с НДС" : "без НДС"}. Если в
+              кабинете Директа расход показывается без НДС, цифра здесь будет
+              выше на 20%.
             </p>
             <p>
-              Кэш данных — 15 минут (5 минут для баланса). Принудительно обновить:
-              кнопка «Обновить».
+              <strong className="text-zinc-700">Конверсии «из рекламы»</strong>{" "}
+              — это достижения целей у визитов, у которых
+              `ym:s:lastSourceEngine == &quot;ya_direct&quot;`. Они должны
+              совпадать с колонкой «Конверсии» в кабинете Директа.{" "}
+              <strong className="text-zinc-700">Всего конверсий</strong> — сумма
+              достижений целей со ВСЕХ источников (как видно в Метрике).
+            </p>
+            <p>
+              Цели типа `step` (композитные) исключены из подсчёта, чтобы не
+              было двойного учёта. Все остальные цели (action, url, phone, file,
+              messenger и т.д.) включены — как в кабинете Метрики.
+            </p>
+            <p>
+              Даты в часовом поясе Europe/Moscow (как в кабинете). Кэш — 15
+              минут (5 минут для баланса).
             </p>
           </div>
         </>
@@ -508,22 +530,27 @@ function BalanceBar({
 }
 
 function Funnel({
-  visits,
+  impressions,
   clicks,
+  visits,
   conversions,
-  conversionRate,
+  adConversionRate,
 }: {
-  visits: number;
+  impressions: number;
   clicks: number;
+  visits: number;
   conversions: number;
-  conversionRate: number;
+  adConversionRate: number;
 }) {
-  const max = Math.max(visits, clicks, conversions, 1);
+  const max = Math.max(impressions, clicks, visits, conversions, 1);
   const rows = [
-    { label: "Визиты на сайт", value: visits, color: "bg-zinc-400" },
-    { label: "Клики из рекламы", value: clicks, color: "bg-blue-500" },
-    { label: "Конверсии", value: conversions, color: "bg-emerald-500" },
+    { label: "Показы рекламы", value: impressions, color: "bg-zinc-300" },
+    { label: "Клики (Директ)", value: clicks, color: "bg-zinc-400" },
+    { label: "Визиты с рекламы", value: visits, color: "bg-blue-500" },
+    { label: "Конверсии с рекламы", value: conversions, color: "bg-emerald-500" },
   ];
+  const clickToVisit = clicks > 0 ? (visits / clicks) * 100 : 0;
+
   return (
     <div className="space-y-3">
       {rows.map((r) => (
@@ -544,15 +571,23 @@ function Funnel({
           </div>
         </div>
       ))}
-      <div className="text-xs text-zinc-500 pt-1">
-        Сквозная конверсия (визит → цель):{" "}
-        <span
-          className={`font-semibold ${
-            conversionRate < 1 ? "text-amber-600" : "text-emerald-600"
-          }`}
-        >
-          {formatPct(conversionRate)}
-        </span>
+      <div className="grid grid-cols-2 gap-4 text-xs text-zinc-500 pt-1">
+        <div>
+          Доезд клик → визит:{" "}
+          <span className="font-semibold text-zinc-700">
+            {formatPct(clickToVisit)}
+          </span>
+        </div>
+        <div>
+          Конверсия рекламы (визит → цель):{" "}
+          <span
+            className={`font-semibold ${
+              adConversionRate < 1 ? "text-amber-600" : "text-emerald-600"
+            }`}
+          >
+            {formatPct(adConversionRate)}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -715,12 +750,20 @@ function GoalsTable({
         <thead>
           <tr className="border-b border-zinc-200 text-zinc-500 text-left">
             <th className="pb-2 px-3 font-medium">Цель</th>
-            <th className="pb-2 px-3 text-right font-medium">Достижений</th>
+            <th className="pb-2 px-3 text-right font-medium" title="Все источники, как в Метрике">
+              Всего
+            </th>
+            <th className="pb-2 px-3 text-right font-medium" title="Только трафик из Яндекс.Директа">
+              Из рекламы
+            </th>
             <th className="pb-2 px-3 text-right font-medium">CR сайта</th>
-            <th className="pb-2 px-3 text-right font-medium">Доля от целей</th>
-            <th className="pb-2 px-3 text-right font-medium">
+            <th
+              className="pb-2 px-3 text-right font-medium"
+              title="Расход × (рекламные конверсии цели / всех рекламных конверсий)"
+            >
               Распределённый расход
             </th>
+            <th className="pb-2 px-3 text-right font-medium">CPA рекламы</th>
           </tr>
         </thead>
         <tbody>
@@ -730,19 +773,27 @@ function GoalsTable({
               className="border-b border-zinc-100 hover:bg-zinc-50/50"
             >
               <td className="py-3 px-3 text-zinc-900 font-medium">
-                {g.goalName}
+                <div className="flex items-center gap-2">
+                  <span>{g.goalName}</span>
+                  <span className="text-xs text-zinc-400 font-normal">
+                    {g.goalType}
+                  </span>
+                </div>
               </td>
-              <td className="py-3 px-3 text-right tabular-nums">
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
                 {formatInt(g.reaches)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-900 font-medium">
+                {formatInt(g.reachesFromAds)}
               </td>
               <td className="py-3 px-3 text-right tabular-nums text-zinc-600">
                 {formatPct(g.conversionRate)}
               </td>
-              <td className="py-3 px-3 text-right tabular-nums text-zinc-600">
-                {formatPct(g.shareOfConversions)}
-              </td>
               <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
                 {formatCurrency(g.attributedCost, currency)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
+                {formatCurrency(g.costPerAdConversion, currency)}
               </td>
             </tr>
           ))}
