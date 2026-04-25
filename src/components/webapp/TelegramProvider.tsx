@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -53,71 +54,125 @@ function getWebApp(): typeof window.Telegram.WebApp | undefined {
   return window?.Telegram?.WebApp;
 }
 
+// Telegram theme is owned by Telegram itself (light/dark + accent colors). We
+// expose it via useSyncExternalStore so React reads the SDK as a true external
+// store — no setState-in-effect cascade when Telegram fires "themeChanged".
+const SERVER_THEME_PARAMS: Record<string, string> = Object.freeze({});
+let cachedColorScheme: "light" | "dark" = "light";
+let cachedThemeParams: Record<string, string> = SERVER_THEME_PARAMS;
+
+function paramsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+function refreshThemeCache(): boolean {
+  const webapp = getWebApp();
+  if (!webapp) return false;
+  const nextScheme = webapp.colorScheme || "light";
+  const nextParams = (webapp.themeParams as Record<string, string>) || SERVER_THEME_PARAMS;
+  let changed = false;
+  if (nextScheme !== cachedColorScheme) {
+    cachedColorScheme = nextScheme;
+    changed = true;
+  }
+  if (!paramsEqual(nextParams, cachedThemeParams)) {
+    cachedThemeParams = { ...nextParams };
+    changed = true;
+  }
+  return changed;
+}
+
+function subscribeTelegramTheme(callback: () => void): () => void {
+  const webapp = getWebApp();
+  if (!webapp?.onEvent) return () => {};
+  const listener = () => {
+    if (refreshThemeCache()) callback();
+  };
+  webapp.onEvent("themeChanged", listener);
+  if (refreshThemeCache()) callback();
+  return () => {
+    webapp.offEvent?.("themeChanged", listener);
+  };
+}
+
+const getColorSchemeSnapshot = (): "light" | "dark" => cachedColorScheme;
+const getThemeParamsSnapshot = (): Record<string, string> => cachedThemeParams;
+const getColorSchemeServerSnapshot = (): "light" | "dark" => "light";
+const getThemeParamsServerSnapshot = (): Record<string, string> => SERVER_THEME_PARAMS;
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<WebAppUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [needsLinking, setNeedsLinking] = useState(false);
-  const [colorScheme, setColorScheme] = useState<"light" | "dark">("light");
-  const [themeParams, setThemeParams] = useState<Record<string, string>>({});
+  const colorScheme = useSyncExternalStore(
+    subscribeTelegramTheme,
+    getColorSchemeSnapshot,
+    getColorSchemeServerSnapshot,
+  );
+  const themeParams = useSyncExternalStore(
+    subscribeTelegramTheme,
+    getThemeParamsSnapshot,
+    getThemeParamsServerSnapshot,
+  );
 
+  // Mirror current themeParams into CSS custom properties on <html>.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (themeParams.bg_color) root.style.setProperty("--tg-bg", themeParams.bg_color);
+    if (themeParams.text_color) root.style.setProperty("--tg-text", themeParams.text_color);
+    if (themeParams.hint_color) root.style.setProperty("--tg-hint", themeParams.hint_color);
+    if (themeParams.link_color) root.style.setProperty("--tg-link", themeParams.link_color);
+    if (themeParams.button_color) root.style.setProperty("--tg-button", themeParams.button_color);
+    if (themeParams.button_text_color)
+      root.style.setProperty("--tg-button-text", themeParams.button_text_color);
+    if (themeParams.secondary_bg_color)
+      root.style.setProperty("--tg-secondary-bg", themeParams.secondary_bg_color);
+  }, [themeParams]);
+
+  // Bootstrap: tell Telegram we're ready, then authenticate against our backend.
   useEffect(() => {
     const webapp = getWebApp();
     if (!webapp) return;
 
-    // Tell Telegram the app is ready to be shown
     webapp.ready();
     webapp.expand();
 
-    // Apply theme
-    setColorScheme(webapp.colorScheme || "light");
-    setThemeParams((webapp.themeParams as Record<string, string>) || {});
-
-    // Apply Telegram theme colors to CSS
-    const tp = webapp.themeParams;
-    if (tp) {
-      const root = document.documentElement;
-      if (tp.bg_color) root.style.setProperty("--tg-bg", tp.bg_color);
-      if (tp.text_color) root.style.setProperty("--tg-text", tp.text_color);
-      if (tp.hint_color) root.style.setProperty("--tg-hint", tp.hint_color);
-      if (tp.link_color) root.style.setProperty("--tg-link", tp.link_color);
-      if (tp.button_color) root.style.setProperty("--tg-button", tp.button_color);
-      if (tp.button_text_color) root.style.setProperty("--tg-button-text", tp.button_text_color);
-      if (tp.secondary_bg_color) root.style.setProperty("--tg-secondary-bg", tp.secondary_bg_color);
-    }
-
-    // Authenticate with our backend
     const initData = webapp.initData;
-    if (initData) {
-      fetch("/api/webapp/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success) {
-            setToken(data.data.token);
-            setUser(data.data.user);
-            if (data.data.needsLinking) {
-              setNeedsLinking(true);
-            }
-          }
-          setReady(true);
-        })
-        .catch(() => {
-          setReady(true);
-        });
-    } else {
+    if (!initData) {
       // Dev mode — no initData available
       setReady(true);
+      return;
     }
 
-    // Listen for theme changes
-    webapp.onEvent("themeChanged", () => {
-      setColorScheme(webapp.colorScheme || "light");
-      setThemeParams((webapp.themeParams as Record<string, string>) || {});
-    });
+    let cancelled = false;
+    fetch("/api/webapp/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success) {
+          setToken(data.data.token);
+          setUser(data.data.user);
+          if (data.data.needsLinking) setNeedsLinking(true);
+        }
+        setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const haptic = {
