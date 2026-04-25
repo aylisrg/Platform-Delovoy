@@ -82,7 +82,7 @@ function SignInInner() {
     if (role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER") {
       window.location.href = "/admin/dashboard";
     } else {
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     }
   }, []);
 
@@ -92,15 +92,18 @@ function SignInInner() {
     fetch("/api/auth/providers-status").catch(() => {});
   }, []);
 
-  // Handle magic link redirect: ?magic=userId
+  // Handle magic link redirect: ?magic=<one-time signin nonce>
+  // (Previously this carried userId — that was the security hole. Now
+  // it carries a Redis-backed nonce that the magic-link Credentials
+  // provider consumes atomically.)
   useEffect(() => {
-    const magicUserId = searchParams.get("magic");
-    if (!magicUserId) return;
+    const magicNonce = searchParams.get("magic");
+    if (!magicNonce) return;
 
     setView("email");
     setEmailSubView("auto-signing-in");
 
-    signIn("magic-link", { userId: magicUserId, redirect: false }).then(
+    signIn("magic-link", { nonce: magicNonce, redirect: false }).then(
       async (result) => {
         if (result?.ok) {
           await redirectAfterLogin();

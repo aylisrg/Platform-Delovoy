@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { prisma } from "./db";
 import { authConfig } from "./auth.config";
 import { ADMIN_SECTION_SLUGS } from "./permissions";
+import { authorizeMagicLinkNonce } from "@/modules/auth/magic-link-authorize";
 
 /** Full shape of the Yandex Passport API response (login.yandex.ru/info) */
 export type YandexProfile = {
@@ -310,22 +311,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
-    // Magic Link Email (token verified via GET /api/auth/verify-email, then signed in here)
+    // Magic Link Email — sign in via one-time nonce stored in Redis by
+    // /api/auth/verify-email. The nonce is the only proof that the user
+    // actually clicked the email link; bare userId is no longer accepted.
     Credentials({
       id: "magic-link",
       name: "Magic Link",
       credentials: {
-        userId: { type: "text" },
+        nonce: { type: "text" },
       },
-      async authorize(credentials) {
-        if (!credentials?.userId) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { id: credentials.userId as string },
-        });
-
-        return user;
-      },
+      authorize: authorizeMagicLinkNonce,
     }),
 
     // Google OAuth

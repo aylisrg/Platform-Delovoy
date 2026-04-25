@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { Navbar } from "@landing/components/navbar";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
@@ -114,13 +114,10 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <header className="bg-white border-b border-zinc-200">
+      <Navbar />
+
+      <header className="bg-white border-b border-zinc-200 pt-14">
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <nav className="mb-4">
-            <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Главная
-            </Link>
-          </nav>
           <h1 className="text-3xl font-bold text-zinc-900">Личный кабинет</h1>
           <p className="mt-2 text-zinc-600">
             {session.user.name ?? session.user.email ?? "Пользователь"}
