@@ -907,13 +907,17 @@ describe("searchOffices", () => {
     });
   });
 
-  it("excludes MAINTENANCE — only AVAILABLE/OCCUPIED/RESERVED returned", async () => {
+  it("excludes MAINTENANCE and RESERVED — only AVAILABLE/OCCUPIED returned", async () => {
     vi.mocked(prisma.office.findMany).mockResolvedValue([]);
     await searchOffices("3");
     const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
     expect(args?.where?.status).toEqual({
-      in: ["AVAILABLE", "OCCUPIED", "RESERVED"],
+      in: ["AVAILABLE", "OCCUPIED"],
     });
+    // RESERVED must NOT appear — it's an internal state per PRD.
+    expect(
+      (args?.where?.status as { in: string[] }).in
+    ).not.toContain("RESERVED");
   });
 
   it("limits to 10 results, ordered by building/floor/number", async () => {

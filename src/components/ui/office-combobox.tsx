@@ -7,7 +7,9 @@ export type OfficeOption = {
   number: string;
   building: number;
   floor: number;
-  status: "AVAILABLE" | "OCCUPIED" | "RESERVED";
+  // RESERVED and MAINTENANCE are filtered out server-side — see
+  // searchOffices in src/modules/rental/service.ts.
+  status: "AVAILABLE" | "OCCUPIED";
 };
 
 interface OfficeComboboxProps {
@@ -24,7 +26,6 @@ const DEBOUNCE_MS = 200;
 const STATUS_LABEL: Record<OfficeOption["status"], string> = {
   AVAILABLE: "Свободен",
   OCCUPIED: "Занят",
-  RESERVED: "Резерв",
 };
 
 function formatOption(o: OfficeOption): string {
