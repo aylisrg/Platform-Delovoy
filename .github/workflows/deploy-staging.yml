@@ -1,14 +1,18 @@
 name: Deploy to Staging
 
+# Staging — только manual trigger. Auto-deploy на каждый CI-зелёный коммит в main
+# отключён осознанно: для текущего workflow (один разработчик + автоматизированные
+# агенты + 1500+ тестов + smoke-чеки в deploy.yml) staging как обязательный буфер
+# не оправдывает себя. Шум "staging упал" вытеснял настоящие алерты.
+#
+# Когда staging НУЖЕН — запускаем явно:
+#   - Перед breaking-миграцией (test on staging DB первым)
+#   - Перед risky-фичей (нагрузочный smoke)
+#   - При откате через выбор конкретного SHA
+#
+# Запуск: Actions UI → "Deploy to Staging" → Run workflow → опционально SHA / wipe DB.
+# Также триггерится из админки /admin/architect/deploy через GITHUB_DISPATCH_TOKEN.
 on:
-  # Auto-deploy after successful CI on main.
-  workflow_run:
-    workflows: ["CI — Lint, Test, Build"]
-    types: [completed]
-    branches: [main]
-
-  # Manual trigger — указать SHA для восстановления конкретной версии.
-  # Также вызывается из админки `/admin/architect/deploy` через GITHUB_DISPATCH_TOKEN.
   workflow_dispatch:
     inputs:
       sha:
@@ -30,9 +34,6 @@ env:
 
 jobs:
   tag-staging:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     name: Tag Staging Image
     runs-on: ubuntu-latest
     permissions:
@@ -46,8 +47,6 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
             echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
