@@ -154,6 +154,11 @@ PO → Architect → Developer → Reviewer → QA
 5. **Перед force-push-ем — `--force-with-lease`.** Спасает от затирания чужих коммитов, если ветку взяли на ручное допиливание.
 6. **PR-описание** объявляет: какой модуль, какие файлы по `git diff --stat`, breaking changes (если есть). Это помогает другим агентам и code-reviewer-у мгновенно увидеть scope.
 
+## Окружения
+
+- **Production** (`delovoy-park.ru`) — авто-деплой через `deploy.yml` на каждый зелёный CI на `main`. Это единственный канал, где код доходит до пользователей.
+- **Staging** (`staging.delovoy-park.ru`) — **только manual trigger** (`workflow_dispatch`). Auto-deploy после CI отключён осознанно: для текущего workflow (тесты + smoke-чеки в `deploy.yml` + Telegram-алерты) staging как обязательный буфер не оправдывал ресурсы и шумел в уведомлениях. Запускается явно перед breaking-миграцией, risky-фичей или для теста rollback на конкретный SHA. Запуск: Actions UI → "Deploy to Staging" → Run workflow.
+
 ## Запланированный техдолг
 
 - **Prisma 6 → 7** — отдельный `chore(prisma):` PR. Breaking changes: ESM-only, обязательный driver adapter (`@prisma/adapter-pg`), `migrate dev` больше не делает `generate`+seed автоматически, env vars не загружаются по умолчанию. Требует рефактора `src/lib/db.ts` и `docker-entrypoint.sh`. На 6.19.3 нет security-проблем, можно ждать пока v7 устаканится.
