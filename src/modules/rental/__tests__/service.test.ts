@@ -82,6 +82,7 @@ import {
   updateDeal,
   deleteDeal,
   reorderDeals,
+  searchOffices,
   RentalError,
 } from "@/modules/rental/service";
 import { prisma } from "@/lib/db";
@@ -884,5 +885,70 @@ describe("reorderDeals", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.arrayContaining([expect.anything(), expect.anything()])
     );
+  });
+});
+
+describe("searchOffices", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns empty array for empty/whitespace query without hitting db", async () => {
+    const result = await searchOffices("   ");
+    expect(result).toEqual([]);
+    expect(prisma.office.findMany).not.toHaveBeenCalled();
+  });
+
+  it("does case-insensitive substring search on number", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
+    await searchOffices("30");
+    const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
+    expect(args?.where?.number).toEqual({
+      contains: "30",
+      mode: "insensitive",
+    });
+  });
+
+  it("excludes MAINTENANCE — only AVAILABLE/OCCUPIED/RESERVED returned", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
+    await searchOffices("3");
+    const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
+    expect(args?.where?.status).toEqual({
+      in: ["AVAILABLE", "OCCUPIED", "RESERVED"],
+    });
+  });
+
+  it("limits to 10 results, ordered by building/floor/number", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
+    await searchOffices("3");
+    const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
+    expect(args?.take).toBe(10);
+    expect(args?.orderBy).toEqual([
+      { building: "asc" },
+      { floor: "asc" },
+      { number: "asc" },
+    ]);
+  });
+
+  it("returns only public-safe fields (no pricing)", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
+    await searchOffices("3");
+    const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
+    expect(args?.select).toEqual({
+      id: true,
+      number: true,
+      building: true,
+      floor: true,
+      status: true,
+    });
+    expect(args?.select).not.toHaveProperty("pricePerMonth");
+  });
+
+  it("trims the query before search", async () => {
+    vi.mocked(prisma.office.findMany).mockResolvedValue([]);
+    await searchOffices("  301  ");
+    const args = vi.mocked(prisma.office.findMany).mock.calls[0][0];
+    expect(args?.where?.number).toEqual({
+      contains: "301",
+      mode: "insensitive",
+    });
   });
 });

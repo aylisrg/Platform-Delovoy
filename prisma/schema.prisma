@@ -348,9 +348,10 @@ model Office {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  contracts RentalContract[]
-  inquiries RentalInquiry[]
-  deals     RentalDeal[]
+  contracts     RentalContract[]
+  inquiries     RentalInquiry[]
+  deals         RentalDeal[]
+  feedbackItems FeedbackItem[]
 
   @@unique([building, floor, number])
   @@index([building])
@@ -1186,6 +1187,8 @@ model FeedbackItem {
   id             String         @id @default(cuid())
   userId         String
   user           User           @relation(fields: [userId], references: [id])
+  officeId       String?
+  office         Office?        @relation(fields: [officeId], references: [id])
   type           FeedbackType
   description    String         @db.Text
   screenshotPath String?
@@ -1198,6 +1201,7 @@ model FeedbackItem {
   comments FeedbackComment[]
 
   @@index([userId])
+  @@index([officeId])
   @@index([status, isUrgent, createdAt])
   @@index([createdAt])
 }

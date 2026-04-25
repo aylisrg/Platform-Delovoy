@@ -1,4 +1,4 @@
-import type { FeedbackItem, FeedbackComment, FeedbackType, FeedbackStatus, User } from "@prisma/client";
+import type { FeedbackItem, FeedbackComment, FeedbackType, FeedbackStatus, Office, User } from "@prisma/client";
 
 // === Input Types ===
 
@@ -8,6 +8,7 @@ export type CreateFeedbackInput = {
   pageUrl: string;
   isUrgent: boolean;
   screenshotPath?: string;
+  officeId?: string;
 };
 
 export type FeedbackFilterInput = {
@@ -34,6 +35,7 @@ export type FeedbackItemWithUser = FeedbackItem & {
 
 export type FeedbackItemDetail = FeedbackItem & {
   user: Pick<User, "id" | "name" | "email">;
+  office: Pick<Office, "id" | "number" | "floor" | "building"> | null;
   comments: FeedbackCommentWithAuthor[];
 };
 

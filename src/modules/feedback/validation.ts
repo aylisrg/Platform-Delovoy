@@ -16,6 +16,14 @@ export const createFeedbackSchema = z.object({
     (val) => val === "true" || val === true,
     z.boolean().default(false)
   ),
+  officeId: z.preprocess(
+    (val) =>
+      typeof val === "string" && val.trim() === "" ? undefined : val,
+    z
+      .string()
+      .cuid({ message: "Некорректный идентификатор офиса" })
+      .optional()
+  ),
 });
 
 export const feedbackFilterSchema = z.object({

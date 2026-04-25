@@ -13,6 +13,9 @@ vi.mock("@/lib/db", () => ({
     feedbackComment: {
       create: vi.fn(),
     },
+    office: {
+      findUnique: vi.fn(),
+    },
     user: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
@@ -51,6 +54,7 @@ import {
   getFeedbackStats,
   RateLimitError,
   NotFoundError,
+  OfficeNotFoundError,
 } from "@/modules/feedback/service";
 import { prisma } from "@/lib/db";
 import { redis } from "@/lib/redis";
@@ -146,6 +150,64 @@ describe("createFeedback", () => {
         isUrgent: true,
       })
     ).rejects.toThrow(RateLimitError);
+  });
+
+  // === officeId linkage ===
+
+  it("creates feedback with officeId when office exists", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue({
+      id: "office-1",
+    } as never);
+    const created = mockFeedback({ officeId: "office-1" });
+    vi.mocked(prisma.feedbackItem.create).mockResolvedValue(created as never);
+
+    const result = await createFeedback("user-1", {
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+      officeId: "office-1",
+    });
+
+    expect(result).toEqual({ id: "fb-1" });
+    expect(prisma.office.findUnique).toHaveBeenCalledWith({
+      where: { id: "office-1" },
+      select: { id: true },
+    });
+    const createArgs = vi.mocked(prisma.feedbackItem.create).mock.calls[0][0];
+    expect(createArgs?.data).toMatchObject({ officeId: "office-1" });
+  });
+
+  it("throws OfficeNotFoundError when officeId points at a missing office", async () => {
+    vi.mocked(prisma.office.findUnique).mockResolvedValue(null);
+
+    await expect(
+      createFeedback("user-1", {
+        type: "BUG",
+        description: "Описание длиной 10+ символов",
+        pageUrl: "/cafe",
+        isUrgent: false,
+        officeId: "office-ghost",
+      })
+    ).rejects.toThrow(OfficeNotFoundError);
+
+    expect(prisma.feedbackItem.create).not.toHaveBeenCalled();
+  });
+
+  it("creates feedback with officeId=null when input.officeId is undefined", async () => {
+    const created = mockFeedback({ officeId: null });
+    vi.mocked(prisma.feedbackItem.create).mockResolvedValue(created as never);
+
+    await createFeedback("user-1", {
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+    });
+
+    expect(prisma.office.findUnique).not.toHaveBeenCalled();
+    const createArgs = vi.mocked(prisma.feedbackItem.create).mock.calls[0][0];
+    expect(createArgs?.data).toMatchObject({ officeId: null });
   });
 });
 

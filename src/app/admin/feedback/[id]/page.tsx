@@ -16,6 +16,12 @@ type FeedbackDetail = {
   createdAt: string;
   updatedAt: string;
   user: { id: string; name: string | null; email: string | null };
+  office: {
+    id: string;
+    number: string;
+    floor: number;
+    building: number;
+  } | null;
   comments: Array<{
     id: string;
     text: string;
@@ -179,6 +185,11 @@ export default function FeedbackDetailPage() {
             <strong className="text-zinc-700">{item.user.name || "Без имени"}</strong>
             {item.user.email && <span className="ml-2">{item.user.email}</span>}
             <span className="ml-3 text-zinc-400">Страница: {item.pageUrl}</span>
+            {item.office && (
+              <div className="mt-1 text-zinc-600">
+                Офис: Корп. {item.office.building}, эт. {item.office.floor}, оф. {item.office.number}
+              </div>
+            )}
           </div>
 
           {/* Description */}

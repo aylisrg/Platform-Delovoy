@@ -427,3 +427,13 @@ export const emailLogQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().positive().max(100).optional().default(50),
 });
+
+// === Office search (autocomplete, available to any authenticated user) ===
+
+export const searchOfficeSchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .min(1, "Запрос не может быть пустым")
+    .max(50, "Запрос слишком длинный"),
+});

@@ -1153,6 +1153,36 @@ export async function deleteDeal(id: string) {
   return prisma.rentalDeal.delete({ where: { id } });
 }
 
+// === Office autocomplete (publicly searchable for any authenticated user) ===
+
+/**
+ * Lightweight office lookup for the feedback combobox and other UI
+ * autocompletes. Returns at most 10 offices whose `number` matches the
+ * query (case-insensitive substring). Excludes MAINTENANCE — those
+ * shouldn't be picked as the source of a tenant feedback. Returns no
+ * pricing or financial data — safe to expose to any authenticated user.
+ */
+export async function searchOffices(q: string) {
+  const trimmed = q.trim();
+  if (!trimmed) return [];
+
+  return prisma.office.findMany({
+    where: {
+      number: { contains: trimmed, mode: "insensitive" },
+      status: { in: ["AVAILABLE", "OCCUPIED", "RESERVED"] },
+    },
+    select: {
+      id: true,
+      number: true,
+      building: true,
+      floor: true,
+      status: true,
+    },
+    orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
+    take: 10,
+  });
+}
+
 export async function reorderDeals(updates: ReorderDealInput[]) {
   const txOps = updates.map((u) =>
     prisma.rentalDeal.update({

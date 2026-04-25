@@ -7,7 +7,12 @@ import {
   apiServerError,
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
-import { createFeedback, listFeedback, RateLimitError } from "@/modules/feedback/service";
+import {
+  createFeedback,
+  listFeedback,
+  RateLimitError,
+  OfficeNotFoundError,
+} from "@/modules/feedback/service";
 import { createFeedbackSchema, feedbackFilterSchema } from "@/modules/feedback/validation";
 import { saveScreenshot, getScreenshotPath } from "@/modules/feedback/file-storage";
 import { sendUrgentFeedbackAlert } from "@/modules/feedback/telegram";
@@ -54,6 +59,7 @@ export async function POST(request: NextRequest) {
     let description: string | undefined;
     let pageUrl: string | undefined;
     let isUrgent: string | boolean | undefined;
+    let officeId: string | undefined;
     let screenshotFile: File | null = null;
 
     if (contentType.includes("multipart/form-data")) {
@@ -62,6 +68,7 @@ export async function POST(request: NextRequest) {
       description = formData.get("description") as string;
       pageUrl = formData.get("pageUrl") as string;
       isUrgent = formData.get("isUrgent") as string;
+      officeId = (formData.get("officeId") as string | null) ?? undefined;
       const file = formData.get("screenshot");
       if (file instanceof File && file.size > 0) {
         screenshotFile = file;
@@ -72,10 +79,17 @@ export async function POST(request: NextRequest) {
       description = body.description;
       pageUrl = body.pageUrl;
       isUrgent = body.isUrgent;
+      officeId = body.officeId;
     }
 
     // Validate fields
-    const parsed = createFeedbackSchema.safeParse({ type, description, pageUrl, isUrgent });
+    const parsed = createFeedbackSchema.safeParse({
+      type,
+      description,
+      pageUrl,
+      isUrgent,
+      officeId,
+    });
     if (!parsed.success) {
       return apiValidationError(parsed.error.issues[0]?.message || "Некорректные данные");
     }
@@ -150,6 +164,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof RateLimitError) {
       return apiError(error.code, error.message, 429);
+    }
+    if (error instanceof OfficeNotFoundError) {
+      return apiValidationError(error.message);
     }
     console.error("[Feedback API] POST error:", error);
     return apiServerError();
