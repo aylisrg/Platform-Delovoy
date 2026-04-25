@@ -143,6 +143,9 @@ export default function RootLayout({
         </Script>
         <noscript>
           <div>
+            {/* Yandex Metrika tracking pixel — must be plain <img> inside <noscript>;
+                next/image generates JS-driven markup and would not render here. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={`https://mc.yandex.ru/watch/${YM_ID}`}
               style={{ position: "absolute", left: "-9999px" }}

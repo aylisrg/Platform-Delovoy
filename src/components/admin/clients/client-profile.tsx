@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { MergeDialog } from "./merge-dialog";
@@ -193,10 +194,13 @@ export function ClientProfile({ clientId }: { clientId: string }) {
       {/* Client header */}
       <div className="flex items-start gap-4 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
         {client.image ? (
-          <img
+          <Image
             src={client.image}
             alt=""
+            width={64}
+            height={64}
             className="h-16 w-16 rounded-full object-cover"
+            unoptimized
           />
         ) : (
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600">
