@@ -33,9 +33,41 @@
 - [x] Stage 0 (CTO): context-log + аудит кода
 - [x] Stage 1 (PO): PRD
 - [x] Stage 2 (Architect): ADR (миграция + combobox API)
-- [ ] Stage 3 (Dev): миграция + API + form + dashboard + admin + tests
-- [ ] Stage 4 (Reviewer): вердикт
+- [x] Stage 3 (Dev): миграция + API + form + dashboard + admin + tests
+- [x] Stage 4 (Reviewer): NEEDS_CHANGES → исправлено CTO (см. секцию "Stage 4 follow-up")
 - [ ] Stage 5 (QA): функциональная проверка
+
+## Stage 4 follow-up — CTO fixes after Reviewer
+
+Reviewer (`docs/qa-reports/2026-04-25-feedback-office-linkage-review.md`) выдал
+**NEEDS_CHANGES**. Корень: между PRD и ADR было расхождение по фильтру статусов
+офисов в combobox — PRD PO Decision 4 говорит "скрываем `MAINTENANCE` И `RESERVED`",
+ADR §2 включил `RESERVED` в список разрешённых. Senior Dev следовал ADR. PRD главнее.
+
+**Исправлено в follow-up коммите:**
+
+1. `src/modules/rental/service.ts` — `searchOffices` фильтрует только `AVAILABLE`
+   и `OCCUPIED`. RESERVED исключён.
+2. `src/modules/rental/__tests__/service.test.ts` — тест переписан под новый
+   фильтр (`{ in: ["AVAILABLE", "OCCUPIED"] }` + явный `not.toContain("RESERVED")`).
+3. `src/components/ui/office-combobox.tsx` — `OfficeOption.status` сужен до
+   `"AVAILABLE" | "OCCUPIED"`, ключ `RESERVED` удалён из `STATUS_LABEL`.
+
+**Решение CTO по RTL-тестам combobox (ADR §7 п.4):**
+
+ADR требовал три RTL-теста — debounce, selection, clear. Senior Dev пропустил
+их, поскольку `@testing-library/react` и `jsdom` не установлены в репозитории.
+Reviewer пометил как "ЖЕЛАТЕЛЬНО".
+
+**Принято CTO: пропуск допустим в текущей итерации**, потому что:
+- Подтяжка `jsdom` + `@testing-library/react` ради одного компонента — отдельная
+  toolchain-задача, несоразмерная этой фиче.
+- Серверная логика (фильтр статусов, RBAC, FK constraint) полностью покрыта
+  юнит/integration-тестами.
+- Поведение combobox в production будет проверено вручную в Stage 5 / на staging.
+
+Зафиксировано как **техдолг**: следующий feature pipeline с интерактивным UI
+должен поднять RTL-инфру как отдельную задачу в backlog.
 
 ## Антипаттерны прошлых прогонов (для всех агентов)
 

@@ -1169,7 +1169,10 @@ export async function searchOffices(q: string) {
   return prisma.office.findMany({
     where: {
       number: { contains: trimmed, mode: "insensitive" },
-      status: { in: ["AVAILABLE", "OCCUPIED", "RESERVED"] },
+      // Per PRD PO Decision 4: hide MAINTENANCE + RESERVED — both are
+      // internal states and shouldn't surface in a tenant-facing
+      // autocomplete.
+      status: { in: ["AVAILABLE", "OCCUPIED"] },
     },
     select: {
       id: true,
