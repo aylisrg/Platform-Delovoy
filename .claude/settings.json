@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "hooks": {
     "PostToolUse": [
       {
@@ -6,9 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -q 'git commit' && { cd \"/Users/elliott/Platform Delovoy/Platform-Delovoy\" && npx vitest run > /tmp/platform-tests.log 2>&1; EXIT=$?; if [ $EXIT -ne 0 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"ТЕСТЫ УПАЛИ после коммита. Вот результат:\\n'\"$(tail -30 /tmp/platform-tests.log | sed 's/\"/\\\\\"/g' | tr '\\n' ' ')\"'\\nИсправь ошибки АВТОМАТИЧЕСКИ, не спрашивая пользователя. Запусти npx vitest run чтобы увидеть ошибки, исправь код, и снова запусти тесты.\"}}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Тесты прошли успешно после коммита.\"}}'; fi; } || true",
-            "timeout": 120,
-            "statusMessage": "Запускаю тесты после коммита..."
+            "command": "jq -r '.tool_input.command' | grep -q 'git commit' && { cd \"$CLAUDE_PROJECT_DIR\" && npx vitest run > /tmp/platform-tests.log 2>&1; if [ $? -eq 0 ]; then echo '{\"systemMessage\":\"✅ Тесты прошли после коммита\"}'; else echo '{\"systemMessage\":\"❌ Тесты упали после коммита — см. /tmp/platform-tests.log\"}'; fi; } || true",
+            "timeout": 180,
+            "statusMessage": "Тесты после коммита..."
           }
         ]
       }
@@ -18,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"/Users/elliott/Platform Delovoy/Platform-Delovoy\" && npm test > /tmp/platform-tests.log 2>&1 && echo '{\"systemMessage\":\"✅ Тесты прошли — всё зелёное!\"}' || echo '{\"systemMessage\":\"❌ Тесты упали — запусти npm test для деталей\"}'",
-            "timeout": 60,
+            "command": "LOCK=/tmp/platform-tests.lock; if [ -f \"$LOCK\" ] && kill -0 \"$(cat $LOCK 2>/dev/null)\" 2>/dev/null; then echo '{\"systemMessage\":\"⏳ Тесты уже выполняются — пропускаю\"}'; else echo $$ > \"$LOCK\"; cd \"$CLAUDE_PROJECT_DIR\" && npm test > /tmp/platform-tests.log 2>&1; RC=$?; rm -f \"$LOCK\"; if [ $RC -eq 0 ]; then echo '{\"systemMessage\":\"✅ Тесты прошли\"}'; else echo '{\"systemMessage\":\"❌ Тесты упали — npm test для деталей\"}'; fi; fi",
+            "timeout": 180,
             "statusMessage": "Проверяю тесты..."
           }
         ]
