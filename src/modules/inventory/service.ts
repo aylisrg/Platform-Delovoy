@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import type { InventoryTransactionType, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { InventoryTransactionType } from "@prisma/client";
 import { recalculateStock } from "./stock";
 import { InventoryError } from "./errors";
 import type {
@@ -18,6 +19,28 @@ import type {
 
 function normalizeName(name: string): string {
   return name.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * True if the error is a Prisma P2002 unique constraint violation
+ * triggered by the partial functional index on InventorySku.name.
+ */
+function isUniqueNameViolation(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (e.code !== "P2002") return false;
+  const meta = (e.meta ?? {}) as Record<string, unknown>;
+  // For functional/partial indexes, Prisma may surface the index name in `target`
+  // instead of an array of column names. Match either column "name" or our index slug.
+  const target = meta.target;
+  if (Array.isArray(target)) {
+    return target.includes("name");
+  }
+  if (typeof target === "string") {
+    return target.includes("name");
+  }
+  // Fallback: any P2002 inside SKU mutations is treated as a name conflict —
+  // safer to surface a typed error than to leak a raw Prisma error to the client.
+  return true;
 }
 
 export async function listPublicSkus() {
@@ -61,7 +84,10 @@ export async function createSku(
   const normalizedName = normalizeName(skuData.name);
 
   const duplicate = await prisma.inventorySku.findFirst({
-    where: { name: { equals: normalizedName, mode: "insensitive" } },
+    where: {
+      name: { equals: normalizedName, mode: "insensitive" },
+      isActive: true,
+    },
   });
   if (duplicate) {
     throw new InventoryError(
@@ -72,16 +98,36 @@ export async function createSku(
   }
 
   const sku = await prisma.$transaction(async (tx) => {
-    const created = await tx.inventorySku.create({
-      data: {
-        name: normalizedName,
-        category: skuData.category,
-        unit: skuData.unit ?? "шт",
-        price: skuData.price,
-        lowStockThreshold: skuData.lowStockThreshold ?? 5,
-        stockQuantity: initialStock ?? 0,
-      },
-    });
+    let created;
+    try {
+      created = await tx.inventorySku.create({
+        data: {
+          name: normalizedName,
+          category: skuData.category,
+          unit: skuData.unit ?? "шт",
+          price: skuData.price,
+          lowStockThreshold: skuData.lowStockThreshold ?? 5,
+          stockQuantity: initialStock ?? 0,
+        },
+      });
+    } catch (e) {
+      // Race condition: another concurrent create won the unique-index check.
+      // Surface the same SKU_DUPLICATE error as the pre-flight check above.
+      if (isUniqueNameViolation(e)) {
+        const dup = await tx.inventorySku.findFirst({
+          where: {
+            name: { equals: normalizedName, mode: "insensitive" },
+            isActive: true,
+          },
+        });
+        throw new InventoryError(
+          "SKU_DUPLICATE",
+          `Товар "${dup?.name ?? normalizedName}" уже существует`,
+          { existingSkuId: dup?.id, existingSkuName: dup?.name }
+        );
+      }
+      throw e;
+    }
 
     if (initialStock && initialStock > 0) {
       await tx.inventoryTransaction.create({
@@ -105,19 +151,57 @@ export async function updateSku(id: string, input: UpdateSkuInput) {
   const existing = await getSku(id);
   if (!existing) throw new InventoryError("SKU_NOT_FOUND", "Товар не найден");
 
-  return prisma.inventorySku.update({
-    where: { id },
-    data: {
-      ...(input.name !== undefined && { name: input.name }),
-      ...(input.category !== undefined && { category: input.category }),
-      ...(input.unit !== undefined && { unit: input.unit }),
-      ...(input.price !== undefined && { price: input.price }),
-      ...(input.lowStockThreshold !== undefined && {
-        lowStockThreshold: input.lowStockThreshold,
-      }),
-      ...(input.isActive !== undefined && { isActive: input.isActive }),
-    },
-  });
+  let normalizedName = existing.name;
+  if (input.name !== undefined) {
+    normalizedName = normalizeName(input.name);
+    const duplicate = await prisma.inventorySku.findFirst({
+      where: {
+        name: { equals: normalizedName, mode: "insensitive" },
+        isActive: true,
+        NOT: { id }, // exclude the SKU being updated
+      },
+    });
+    if (duplicate) {
+      throw new InventoryError(
+        "SKU_DUPLICATE",
+        `Товар "${duplicate.name}" уже существует`,
+        { existingSkuId: duplicate.id, existingSkuName: duplicate.name }
+      );
+    }
+  }
+
+  try {
+    return await prisma.inventorySku.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined && { name: normalizedName }),
+        ...(input.category !== undefined && { category: input.category }),
+        ...(input.unit !== undefined && { unit: input.unit }),
+        ...(input.price !== undefined && { price: input.price }),
+        ...(input.lowStockThreshold !== undefined && {
+          lowStockThreshold: input.lowStockThreshold,
+        }),
+        ...(input.isActive !== undefined && { isActive: input.isActive }),
+      },
+    });
+  } catch (e) {
+    // Race condition with the partial unique index — re-surface as SKU_DUPLICATE.
+    if (isUniqueNameViolation(e)) {
+      const dup = await prisma.inventorySku.findFirst({
+        where: {
+          name: { equals: normalizedName, mode: "insensitive" },
+          isActive: true,
+          NOT: { id },
+        },
+      });
+      throw new InventoryError(
+        "SKU_DUPLICATE",
+        `Товар "${dup?.name ?? normalizedName}" уже существует`,
+        { existingSkuId: dup?.id, existingSkuName: dup?.name }
+      );
+    }
+    throw e;
+  }
 }
 
 export async function archiveSku(id: string) {
@@ -205,7 +289,10 @@ export async function receiveStockByName(
   const normalizedName = normalizeName(name);
 
   const existing = await prisma.inventorySku.findFirst({
-    where: { name: { equals: normalizedName, mode: "insensitive" } },
+    where: {
+      name: { equals: normalizedName, mode: "insensitive" },
+      isActive: true,
+    },
   });
 
   return prisma.$transaction(async (tx) => {
@@ -248,16 +335,35 @@ export async function receiveStockByName(
       });
     } else {
       // New item — create SKU + INITIAL transaction + linked batch
-      const sku = await tx.inventorySku.create({
-        data: {
-          name: normalizedName,
-          category: "Товары",
-          unit: "шт",
-          price: 0,
-          stockQuantity: 0, // real value comes from recalculateStock below
-          lowStockThreshold: 5,
-        },
-      });
+      let sku;
+      try {
+        sku = await tx.inventorySku.create({
+          data: {
+            name: normalizedName,
+            category: "Товары",
+            unit: "шт",
+            price: 0,
+            stockQuantity: 0, // real value comes from recalculateStock below
+            lowStockThreshold: 5,
+          },
+        });
+      } catch (e) {
+        // Race: another concurrent receive created the same SKU between findFirst and create.
+        if (isUniqueNameViolation(e)) {
+          const dup = await tx.inventorySku.findFirst({
+            where: {
+              name: { equals: normalizedName, mode: "insensitive" },
+              isActive: true,
+            },
+          });
+          throw new InventoryError(
+            "SKU_DUPLICATE",
+            `Товар "${dup?.name ?? normalizedName}" уже существует`,
+            { existingSkuId: dup?.id, existingSkuName: dup?.name }
+          );
+        }
+        throw e;
+      }
       skuId = sku.id;
       const transaction = await tx.inventoryTransaction.create({
         data: { skuId, type: "INITIAL", quantity, performedById, note: note ?? "Первый приход", receivedAt: effectiveReceivedAt },
@@ -874,6 +980,16 @@ export async function mergeSku(sourceId: string, targetId: string, performedById
   const [source, target] = await Promise.all([getSku(sourceId), getSku(targetId)]);
   if (!source) throw new InventoryError("SKU_NOT_FOUND", "Исходный товар не найден");
   if (!target) throw new InventoryError("SKU_NOT_FOUND", "Целевой товар не найден");
+
+  // Idempotency: refuse to re-merge an already archived (or already merged) source.
+  // Without this check, a repeated mergeSku would corrupt batch ownership for any
+  // legitimate orphan batches re-attached after the first merge.
+  if (!source.isActive) {
+    throw new InventoryError(
+      "SKU_ALREADY_ARCHIVED",
+      "Товар уже объединён или архивирован"
+    );
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.stockBatch.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });

@@ -812,6 +812,13 @@ model InventorySku {
   auditCounts  InventoryAuditCount[]
   menuItems    MenuItem[]
 
+  // Uniqueness of `name` is enforced at the DB level via a partial functional index
+  // (case-insensitive, only when isActive = true). Prisma cannot express functional/
+  // partial indexes, so the constraint lives in raw SQL:
+  //   CREATE UNIQUE INDEX inventory_sku_active_name_lower_unique
+  //     ON "InventorySku" (LOWER("name")) WHERE "isActive" = true
+  // Plus a non-unique LOWER("name") index to back case-insensitive lookups.
+  // See: prisma/migrations/20260425120000_inventory_sku_unique_name/migration.sql
   @@index([category])
   @@index([isActive])
 }
