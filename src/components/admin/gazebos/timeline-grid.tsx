@@ -22,7 +22,6 @@ type PopoverState = {
 
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 23;
-const MOSCOW_TZ = "Europe/Moscow";
 
 function getMoscowHour(d: Date): number {
   return getMoscowHourUnified(d);

@@ -113,7 +113,7 @@ async function main() {
     try {
       await addIPFilter(ip);
       console.log(`     ✅  IP ${ip} добавлен в исключения`);
-    } catch (err) {
+    } catch {
       // Метрика иногда возвращает ошибку на attr=uniq_id, пробуем ip
       try {
         await metrikaRequest("/filters", "POST", {

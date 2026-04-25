@@ -146,7 +146,7 @@ export default function SettingsPage() {
             onChange={() => updatePref({ preferredChannel: "AUTO" })}
             saving={saving}
           />
-          {connectedChannels.map((c, i) => (
+          {connectedChannels.map((c) => (
             <div key={c.channel}>
               <div className="border-t" style={{ borderColor: "rgba(0,0,0,0.08)" }} />
               <ChannelOption

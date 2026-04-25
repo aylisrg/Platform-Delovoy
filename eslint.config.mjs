@@ -14,6 +14,16 @@ const eslintConfig = defineConfig([
     rules: {
       // Downgrade to warning — existing code uses setState in effects for data loading
       "react-hooks/set-state-in-effect": "warn",
+      // Honor underscore-prefix convention for intentionally unused args/vars.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
     },
   },
   // ADR 2026-04-23: unified date/time formatting.

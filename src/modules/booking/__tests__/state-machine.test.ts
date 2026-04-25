@@ -3,7 +3,6 @@ import { assertValidTransition, getAllowedTransitions, BookingTransitionError } 
 import type { TransitionContext } from "../state-machine";
 
 const futureStart = new Date("2030-08-20T12:00:00");
-const pastStart = new Date("2020-01-01T10:00:00");
 
 function makeCtx(overrides: Partial<TransitionContext>): TransitionContext {
   return {

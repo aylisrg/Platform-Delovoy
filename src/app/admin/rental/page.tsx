@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
-import type { ContractStatus, InquiryStatus } from "@prisma/client";
+import type { InquiryStatus } from "@prisma/client";
 import { InquiryActions } from "@/components/admin/rental/inquiry-actions";
 import { RentalTabs } from "@/components/admin/rental/rental-tabs";
 import { TenantList } from "@/components/admin/rental/tenant-list";
@@ -28,22 +28,6 @@ const inquiryStatusVariant: Record<InquiryStatus, "warning" | "success" | "defau
   IN_PROGRESS: "info",
   CONVERTED: "success",
   CLOSED: "default",
-};
-
-const contractStatusLabel: Record<ContractStatus, string> = {
-  DRAFT: "Черновик",
-  ACTIVE: "Активен",
-  EXPIRING: "Истекает",
-  EXPIRED: "Истёк",
-  TERMINATED: "Расторгнут",
-};
-
-const contractStatusVariant: Record<ContractStatus, "warning" | "success" | "default" | "info" | "danger"> = {
-  DRAFT: "info",
-  ACTIVE: "success",
-  EXPIRING: "warning",
-  EXPIRED: "default",
-  TERMINATED: "danger",
 };
 
 export default async function RentalManagerPage() {

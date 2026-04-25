@@ -16,7 +16,6 @@ vi.mock("@/lib/db", () => ({
 
 import { prisma } from "@/lib/db";
 import { recalculateStock, updateReceipt, deleteReceipt } from "../stock";
-import { InventoryError } from "../errors";
 
 const mockPrisma = prisma as unknown as {
   inventoryTransaction: {

@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
-import { redis, redisAvailable } from "@/lib/redis";
+import { redis } from "@/lib/redis";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 import type {
   ProfileData,
@@ -8,33 +8,22 @@ import type {
   AttachEmailRequestInput,
   AttachEmailConfirmInput,
   AttachPhoneRequestInput,
-  AttachPhoneConfirmInput,
   AttachEmailRequestResult,
   AttachEmailConfirmResult,
-  AttachPhoneRequestResult,
   AttachPhoneConfirmResult,
   DetachableChannel,
 } from "./types";
 
-// Redis key prefixes — separate from auth flows
+// Redis key prefix — separate from auth flows
 const PROFILE_EMAIL_VERIFY_PREFIX = "profile:email-verify:";
-const PROFILE_PHONE_OTP_PREFIX = "profile:phone-otp:";
-const PROFILE_PHONE_COOLDOWN_PREFIX = "profile:phone-cooldown:";
 
 const EMAIL_TOKEN_TTL = 600; // 10 minutes
-const PHONE_OTP_TTL = 300;   // 5 minutes
-const PHONE_COOLDOWN_TTL = 60; // 1 minute between sends
-const MAX_PHONE_ATTEMPTS = 5;
 
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits.startsWith("8") && digits.length === 11
     ? "7" + digits.slice(1)
     : digits;
-}
-
-function generateOTP(): string {
-  return crypto.randomInt(100000, 999999).toString();
 }
 
 function generateToken(): string {

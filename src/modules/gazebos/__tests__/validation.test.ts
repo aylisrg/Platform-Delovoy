@@ -109,7 +109,6 @@ describe("createBookingSchema", () => {
   });
 
   it("rejects missing resourceId", () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { resourceId: _resourceId, ...rest } = validInput;
     const result = createBookingSchema.safeParse(rest);
     expect(result.success).toBe(false);
