@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.0.0](https://github.com/aylisrg/Platform-Delovoy/compare/v1.9.1...v2.0.0) (2026-04-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tasks:** new required Prisma migration `20260424120000_add_tasks_module` adds 5 tables + 6 enums. Any environment must run `npx prisma migrate deploy` and `npm run db:seed` (populates default categories + tasks Module row) before the new admin section becomes usable. Outbound notifications reuse the existing SMTP channel — no config change required. Inbound IMAP is gated behind INBOUND_EMAIL_ENABLED=false by default; enable once a dedicated mailbox (e.g. reports@delovoy-park.ru) is provisioned.
+
+### Features
+
+* split email auth into password & magic-link modes with provider status check ([#174](https://github.com/aylisrg/Platform-Delovoy/issues/174)) ([d0438bf](https://github.com/aylisrg/Platform-Delovoy/commit/d0438bfc9720b9e5bb3be50b91dd8946ee2c1cd6))
+* **tasks:** v2.0 — task tracker + tenant issue intake ([#178](https://github.com/aylisrg/Platform-Delovoy/issues/178)) ([73b0226](https://github.com/aylisrg/Platform-Delovoy/commit/73b02260fdb7ed7c707c5041a4e05f607e8dc087))
+
+
+### Bug Fixes
+
+* **analytics:** correct cost attribution + add balance, professional analyst view ([#182](https://github.com/aylisrg/Platform-Delovoy/issues/182)) ([12d8cbc](https://github.com/aylisrg/Platform-Delovoy/commit/12d8cbcf8ab402e696102891516a9280c89ec991))
+* **inventory:** batch total in receipt editor + auto-confirm on edit ([#175](https://github.com/aylisrg/Platform-Delovoy/issues/175)) ([1f14ebe](https://github.com/aylisrg/Platform-Delovoy/commit/1f14ebe696285d1b15ff05fb0788fb3b2cef4f7d))
+* **inventory:** comprehensive receipt delete — all batch sources + error logging ([#179](https://github.com/aylisrg/Platform-Delovoy/issues/179)) ([20680ae](https://github.com/aylisrg/Platform-Delovoy/commit/20680ae350eaabdc9c3b900a872880d26d0aa0be))
+* **inventory:** fix DELETE 500 + receipt edit price input ([#177](https://github.com/aylisrg/Platform-Delovoy/issues/177)) ([e6bf5a8](https://github.com/aylisrg/Platform-Delovoy/commit/e6bf5a8a15ed45aecaa090d786c5706342471709))
+* **inventory:** remove bogus V1 lookup from receipt DELETE (Prisma validation error) ([#180](https://github.com/aylisrg/Platform-Delovoy/issues/180)) ([bbbf853](https://github.com/aylisrg/Platform-Delovoy/commit/bbbf853d248589781a259489f55ebde05602cf70))
+
 ## [1.9.1](https://github.com/aylisrg/Platform-Delovoy/compare/v1.9.0...v1.9.1) (2026-04-23)
 
 

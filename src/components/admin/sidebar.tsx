@@ -55,7 +55,6 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Уведомления", href: "/admin/notifications", icon: "🔔", section: "notifications" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
-  { label: "Задачи", href: "/admin/tasks", icon: "✅", section: "tasks" },
 ];
 
 const STORAGE_KEY = "admin-sidebar-layout";

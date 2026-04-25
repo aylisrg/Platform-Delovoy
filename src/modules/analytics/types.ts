@@ -1,6 +1,6 @@
 export type DateRange = {
-  dateFrom: string; // YYYY-MM-DD
-  dateTo: string;   // YYYY-MM-DD
+  dateFrom: string; // YYYY-MM-DD (Moscow TZ)
+  dateTo: string;   // YYYY-MM-DD (Moscow TZ)
 };
 
 // --- Metrika ---
@@ -16,9 +16,22 @@ export type TrafficSummary = {
 export type GoalConversion = {
   goalId: number;
   goalName: string;
+  goalType: string;
+  /** Достижения цели за период со ВСЕХ источников (как в кабинете Метрики). */
   reaches: number;
+  /** Достижения той же цели только от трафика из Яндекс.Директа. */
+  reachesFromAds: number;
+  /** Конверсия (%) от визитов всех источников. */
   conversionRate: number;
-  costPerConversion: number | null;
+  /** Доля цели в общем количестве достижений (всех целей). */
+  shareOfConversions: number;
+  /**
+   * Распределённый рекламный расход на цель пропорционально её доле в
+   * рекламных конверсиях. NULL если у нас нет рекламных конверсий вообще.
+   */
+  attributedCost: number | null;
+  /** Стоимость рекламной конверсии для этой цели (cost/reachesFromAds). */
+  costPerAdConversion: number | null;
 };
 
 export type TrafficSource = {
@@ -38,6 +51,7 @@ export type CampaignStats = {
   ctr: number;
   cost: number;
   avgCpc: number;
+  costShare: number;
 };
 
 export type AdvertisingSummary = {
@@ -48,24 +62,41 @@ export type AdvertisingSummary = {
   avgCpc: number;
 };
 
-// --- Aggregates ---
-
-export type ConversionCost = {
-  goalName: string;
-  reaches: number;
-  totalCost: number;
-  costPerReach: number | null;
+export type AccountBalance = {
+  amount: number | null;
+  currency: string;
+  source: "agency_api" | "manual_env" | "unavailable";
+  message: string | null;
 };
+
+// --- Aggregates ---
 
 export type OverviewData = {
   period: DateRange;
   traffic: TrafficSummary;
+  /** Визиты только из Яндекс.Директа (для сверки клики ↔ визиты). */
+  adSourceVisits: number;
+  trafficSources: TrafficSource[];
   advertising: AdvertisingSummary;
+  balance: AccountBalance;
   conversions: GoalConversion[];
+  campaigns: CampaignStats[];
   summary: {
+    /** Сумма достижений всех целей со всех источников (Метрика-вид). */
     totalConversions: number;
+    /** Достижения целей только из трафика Директа (Direct-вид). */
+    adSourceConversions: number;
     totalCost: number;
-    avgCostPerConversion: number | null;
+    /**
+     * Стоимость одной рекламной конверсии: cost / adSourceConversions.
+     * NULL если рекламных конверсий нет.
+     */
+    costPerAdConversion: number | null;
+    activeCampaigns: number;
+    bestCampaignByCtr: { name: string; ctr: number } | null;
+    worstCampaignByCtr: { name: string; ctr: number } | null;
+    /** Включён ли НДС в "cost" (по умолчанию YES в нашем отчёте). */
+    costIncludesVat: boolean;
   };
   cachedAt: string;
 };
@@ -81,10 +112,18 @@ export type ConversionsData = {
   period: DateRange;
   goals: GoalConversion[];
   funnel: {
+    /** Клики из Директа (= showings * CTR). */
+    adClicks: number;
+    /** Визиты на сайт из Директа (часть кликов, что доехала). */
+    adVisits: number;
+    /** Достижения целей из Директа. */
+    adConversions: number;
+    /** Сквозная конверсия = adConversions / adVisits * 100 (%). */
+    adConversionRate: number;
+    /** Все визиты (для контекста — обычно > adVisits). */
     totalVisits: number;
+    /** Все достижения целей (для контекста — обычно > adConversions). */
     totalGoalReaches: number;
-    overallConversionRate: number;
   };
-  costPerConversion: ConversionCost[];
   cachedAt: string;
 };

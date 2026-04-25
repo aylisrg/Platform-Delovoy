@@ -1,8 +1,33 @@
-import type { TrafficSummary, GoalConversion, TrafficSource } from "./types";
+import type { TrafficSummary, TrafficSource } from "./types";
+
+export type RawGoalConversion = {
+  goalId: number;
+  goalName: string;
+  goalType: string;
+  reaches: number;
+  conversionRate: number;
+};
+
+export type AdSourceMetrics = {
+  visits: number;
+  goalReaches: Map<number, number>;
+};
 
 const METRIKA_STAT_URL = "https://api-metrika.yandex.net/stat/v1/data";
 const METRIKA_MGMT_URL = "https://api-metrika.yandex.net/management/v1";
 const REQUEST_TIMEOUT = 10_000;
+
+// `step` цели — композитные (агрегируют под-цели), их включение приводит к
+// двойному учёту достижений. Все остальные типы (action, url, phone, file,
+// number, payment_system, messenger, social, search, email) — независимы
+// и должны попадать в сводку, как и в кабинете Метрики.
+const COMPOSITE_GOAL_TYPES = new Set(["step"]);
+
+// Фильтр для метрик Метрики, выделяющий только трафик из Яндекс.Директа
+// (`lastSourceEngine` указывает на конкретный движок: `ya_direct`).
+// Для общей рекламы (Google Ads и т.п.) используется `lastTrafficSource=='ad'`,
+// но для сверки с кабинетом Директа нужен именно `ya_direct`.
+const AD_SOURCE_FILTER = "ym:s:lastSourceEngine=='ya_direct'";
 
 type MetrikaStatResponse = {
   data: Array<{ metrics: number[]; dimensions?: Array<{ name: string }> }>;
@@ -61,7 +86,7 @@ export class MetrikaClient {
     };
   }
 
-  async getGoalConversions(dateFrom: string, dateTo: string): Promise<GoalConversion[]> {
+  async getGoalConversions(dateFrom: string, dateTo: string): Promise<RawGoalConversion[]> {
     const goals = await this.getGoals();
     if (goals.length === 0) return [];
 
@@ -81,10 +106,40 @@ export class MetrikaClient {
     return goals.map((goal, i) => ({
       goalId: goal.id,
       goalName: goal.name,
+      goalType: goal.type,
       reaches: Math.round(totals[i * 2] ?? 0),
       conversionRate: Math.round((totals[i * 2 + 1] ?? 0) * 100) / 100,
-      costPerConversion: null,
     }));
+  }
+
+  /**
+   * Визиты и достижения целей ИЗ ЯНДЕКС.ДИРЕКТА (lastSourceEngine == ya_direct).
+   * Используется чтобы корректно посчитать стоимость рекламной конверсии
+   * и не смешивать органику с платным трафиком.
+   */
+  async getAdSourceMetrics(dateFrom: string, dateTo: string): Promise<AdSourceMetrics> {
+    const goals = await this.getGoals();
+    const goalMetrics = goals.map((g) => `ym:s:goal${g.id}reaches`);
+
+    const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
+      ids: this.counterId,
+      metrics: ["ym:s:visits", ...goalMetrics].join(","),
+      filters: AD_SOURCE_FILTER,
+      date1: dateFrom,
+      date2: dateTo,
+    });
+
+    const totals = data.totals ?? [];
+    const goalReaches = new Map<number, number>();
+    goals.forEach((goal, i) => {
+      // +1 потому что totals[0] — это visits
+      goalReaches.set(goal.id, Math.round(totals[i + 1] ?? 0));
+    });
+
+    return {
+      visits: Math.round(totals[0] ?? 0),
+      goalReaches,
+    };
   }
 
   async getTrafficSources(dateFrom: string, dateTo: string): Promise<TrafficSource[]> {
@@ -109,12 +164,12 @@ export class MetrikaClient {
     }));
   }
 
-  async getGoals(): Promise<Array<{ id: number; name: string }>> {
+  async getGoals(): Promise<Array<{ id: number; name: string; type: string }>> {
     const data = await this.request<{ goals: MetrikaGoal[] }>(
       `${METRIKA_MGMT_URL}/counter/${this.counterId}/goals`
     );
     return (data.goals ?? [])
-      .filter((g) => g.type === "action")
-      .map((g) => ({ id: g.id, name: g.name }));
+      .filter((g) => !COMPOSITE_GOAL_TYPES.has(g.type))
+      .map((g) => ({ id: g.id, name: g.name, type: g.type }));
   }
 }
