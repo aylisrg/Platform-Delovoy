@@ -102,6 +102,33 @@ PO → Architect → Developer → Reviewer → QA
 
 Подключены: `postgres` (read-only), `filesystem` (scoped на репо), `playwright` (E2E).
 
+## Параллельная работа агентов и мерж-протокол
+
+Когда несколько агентов пишут разные фичи одновременно, их PR-ы могут цеплять друг друга — текстовыми конфликтами (правят один файл) или семантическими (один меняет API, второй вызывает старую сигнатуру). Защита трёхслойная.
+
+**Слой 1 — Branch protection.** В `Settings → Branches → Branch protection rule for main` включаем:
+- ✅ Require a pull request before merging
+- ✅ Require status checks to pass before merging → ✅ **Require branches to be up to date before merging**
+
+Последний чекбокс — критический: GitHub не даст замержить PR, пока его ветка не идентична верхушке `main`. Это бесплатный аналог Merge Queue (Merge Queue доступен только на Team/Enterprise; если в твоём плане его нет — этой галочки достаточно). Линеаризует мержи: если кто-то один смержился, остальные обязаны ребейзнуться. Этим занимается слой 2.
+
+**Слой 2 — Auto-rebase workflow** (`.github/workflows/auto-rebase.yml`).
+При каждом мерже в `main` workflow ребейзит все открытые `claude/*` и `feature/*` PR-ы и force-push-ит их обратно. Конфликты вылезают в CI отстающей ветки сразу, а не на этапе "хочу смержить". Если ребейз не идёт без конфликтов — бот оставляет комментарий с инструкцией.
+
+**Слой 3 — Агентская гигиена** (правила ниже):
+
+1. **Один агент = один scope.** Не открывай PR, который трогает чужой модуль. Если задача затрагивает несколько модулей — поднимай в `agents/COORDINATION.md` или дроби на отдельные PR с явными зависимостями.
+2. **Не трогай shared-инфраструктуру в feature-PR.** `package.json`, `prisma/schema.prisma`, `.github/workflows/`, `next.config.ts`, `eslint.config.mjs` — всё это меняется отдельным `chore:` PR, не вместе с фичей.
+3. **Миграции — additive only.** Новая колонка/таблица — ОК. Переименования / `DROP` / `ALTER NOT NULL` — отдельным `chore(db):` PR с координацией и бэкапом.
+4. **Зависимости фиксируем pin'ом.** Не bumpай major-версию пакета внутри фича-PR. Это всегда отдельная история.
+5. **Перед force-push-ем — `--force-with-lease`.** Спасает от затирания чужих коммитов, если ветку взяли на ручное допиливание.
+6. **PR-описание** объявляет: какой модуль, какие файлы по `git diff --stat`, breaking changes (если есть). Это помогает другим агентам и code-reviewer-у мгновенно увидеть scope.
+
+## Запланированный техдолг
+
+- **Prisma 6 → 7** — отдельный `chore(prisma):` PR. Breaking changes: ESM-only, обязательный driver adapter (`@prisma/adapter-pg`), `migrate dev` больше не делает `generate`+seed автоматически, env vars не загружаются по умолчанию. Требует рефактора `src/lib/db.ts` и `docker-entrypoint.sh`. На 6.19.3 нет security-проблем, можно ждать пока v7 устаканится.
+- **`react-hooks/set-state-in-effect`** — в `eslint.config.mjs` это `warn` для data-loading паттернов. 6 оставшихся предупреждений (`sidebar`, `slot-picker`, `session-bill-modal`, `inventory/movements`, `theme-provider` FOUC) требуют per-case UX-анализа: где-то "derived state from prop" anti-pattern с `key=`, где-то FOUC-guard, где-то data-fetching эффект. Делать гуртом нельзя.
+
 ## Roadmap
 
 Фазы 0–4 завершены. Текущая — Phase 5.0 (запуск 17 апреля 2026). См. `CLAUDE.md` → Дорожная карта.

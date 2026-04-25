@@ -1,0 +1,98 @@
+name: Auto-rebase open PRs on main move
+
+# Когда несколько Claude-агентов работают параллельно, их `claude/*` ветки могут
+# отстать от main и накопить как текстовые, так и семантические конфликты.
+# Этот workflow ловит конфликты РАНО: при каждом мерже в main пытается ребейзнуть
+# все открытые `claude/*` и `feature/*` PR-ы. Если ребейз чистый — просто
+# force-push, и CI той ветки прогонится на актуальной базе. Если конфликт —
+# оставляет комментарий с просьбой к автору ребейзнуть руками.
+#
+# Это второй слой защиты после GitHub Merge Queue (Settings → Branches →
+# Branch protection → Require merge queue).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-rebase-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase eligible open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Берём все открытые PR с base=main и head в нашем репо
+          PRS=$(gh pr list \
+            --state open \
+            --base main \
+            --json number,headRefName,headRepositoryOwner \
+            --jq '.[] | select(.headRepositoryOwner.login == "${{ github.repository_owner }}") | "\(.number)\t\(.headRefName)"')
+
+          if [ -z "$PRS" ]; then
+            echo "No open PRs to rebase."
+            exit 0
+          fi
+
+          git fetch origin main
+
+          while IFS=$'\t' read -r PR_NUMBER BRANCH; do
+            # Авто-ребейз только для агентских / feature-веток. Остальное (например,
+            # release-please, dependabot, revert-PR) пропускаем — они часто хотят
+            # сохранить свою историю.
+            case "$BRANCH" in
+              claude/*|feature/*) ;;
+              *)
+                echo "Skipping PR #$PR_NUMBER ($BRANCH) — not a claude/* or feature/* branch"
+                continue
+                ;;
+            esac
+
+            echo "::group::PR #$PR_NUMBER ($BRANCH)"
+
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+
+            # Проверяем, не сидит ли ветка уже на свежем main
+            BEHIND=$(git rev-list --count "$BRANCH..origin/main")
+            if [ "$BEHIND" = "0" ]; then
+              echo "Already up to date with main, skipping."
+              echo "::endgroup::"
+              continue
+            fi
+            echo "Behind main by $BEHIND commit(s) — attempting rebase."
+
+            if git rebase origin/main; then
+              echo "Rebase clean — force-pushing."
+              git push --force-with-lease origin "$BRANCH"
+            else
+              echo "Rebase conflict — aborting and notifying author."
+              git rebase --abort
+              gh pr comment "$PR_NUMBER" --body \
+                ":warning: **Auto-rebase blocked: конфликт с \`main\`.**\n\nЭтот PR отстал от \`main\` на $BEHIND коммит(а), и автоматический ребейз не получился без конфликтов. Пожалуйста, ребейзните вручную:\n\n\`\`\`bash\ngit fetch origin main\ngit checkout $BRANCH\ngit rebase origin/main\n# resolve conflicts\ngit push --force-with-lease\n\`\`\`\n\n_Сообщение от \`auto-rebase\` workflow — задача в том, чтобы конфликты ловились до момента мержа, а не во время._"
+            fi
+
+            echo "::endgroup::"
+          done <<< "$PRS"
