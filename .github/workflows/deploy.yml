@@ -106,6 +106,9 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            GIT_SHA=${{ steps.resolve.outputs.sha }}
+            BUILD_TIME=${{ github.event.workflow_run.head_commit.timestamp || github.event.head_commit.timestamp }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
