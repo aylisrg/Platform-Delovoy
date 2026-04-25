@@ -16,6 +16,10 @@ import type {
 
 // === SKU MANAGEMENT ===
 
+function normalizeName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
 export async function listPublicSkus() {
   return prisma.inventorySku.findMany({
     where: { isActive: true },
@@ -54,11 +58,23 @@ export async function createSku(
   performedById: string
 ) {
   const { initialStock, ...skuData } = input;
+  const normalizedName = normalizeName(skuData.name);
+
+  const duplicate = await prisma.inventorySku.findFirst({
+    where: { name: { equals: normalizedName, mode: "insensitive" } },
+  });
+  if (duplicate) {
+    throw new InventoryError(
+      "SKU_DUPLICATE",
+      `Товар "${duplicate.name}" уже существует`,
+      { existingSkuId: duplicate.id, existingSkuName: duplicate.name }
+    );
+  }
 
   const sku = await prisma.$transaction(async (tx) => {
     const created = await tx.inventorySku.create({
       data: {
-        name: skuData.name,
+        name: normalizedName,
         category: skuData.category,
         unit: skuData.unit ?? "шт",
         price: skuData.price,
@@ -186,9 +202,10 @@ export async function receiveStockByName(
   receivedAt?: Date
 ) {
   const effectiveReceivedAt = receivedAt ?? new Date();
+  const normalizedName = normalizeName(name);
 
   const existing = await prisma.inventorySku.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
+    where: { name: { equals: normalizedName, mode: "insensitive" } },
   });
 
   return prisma.$transaction(async (tx) => {
@@ -233,7 +250,7 @@ export async function receiveStockByName(
       // New item — create SKU + INITIAL transaction + linked batch
       const sku = await tx.inventorySku.create({
         data: {
-          name,
+          name: normalizedName,
           category: "Товары",
           unit: "шт",
           price: 0,
@@ -840,6 +857,67 @@ export async function getHealth() {
   ).length;
 
   return { status: "ok" as const, totalSkus, activeSkus, lowStockCount };
+}
+
+// === SKU MERGE ===
+
+/**
+ * Merge duplicate SKUs: moves all stock, movements, receipts, write-offs and
+ * audit counts from sourceId → targetId, then archives the source.
+ * SUPERADMIN-only operation.
+ */
+export async function mergeSku(sourceId: string, targetId: string, performedById: string) {
+  if (sourceId === targetId) {
+    throw new InventoryError("MERGE_SAME", "Нельзя объединить товар с самим собой");
+  }
+
+  const [source, target] = await Promise.all([getSku(sourceId), getSku(targetId)]);
+  if (!source) throw new InventoryError("SKU_NOT_FOUND", "Исходный товар не найден");
+  if (!target) throw new InventoryError("SKU_NOT_FOUND", "Целевой товар не найден");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockBatch.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+    await tx.stockReceiptItem.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+    await tx.stockMovement.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+    await tx.inventoryTransaction.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+    await tx.writeOff.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+    await tx.menuItem.updateMany({ where: { inventorySkuId: sourceId }, data: { inventorySkuId: targetId } });
+
+    // InventoryAuditCount has @@unique([auditId, skuId]) — handle conflicts by summing counts
+    const sourceCounts = await tx.inventoryAuditCount.findMany({ where: { skuId: sourceId } });
+    for (const ac of sourceCounts) {
+      const conflict = await tx.inventoryAuditCount.findUnique({
+        where: { auditId_skuId: { auditId: ac.auditId, skuId: targetId } },
+      });
+      if (conflict) {
+        const mergedActual = conflict.actualQty + ac.actualQty;
+        const mergedExpected = conflict.expectedQty + ac.expectedQty;
+        await tx.inventoryAuditCount.update({
+          where: { auditId_skuId: { auditId: ac.auditId, skuId: targetId } },
+          data: { actualQty: mergedActual, expectedQty: mergedExpected, delta: mergedActual - mergedExpected },
+        });
+        await tx.inventoryAuditCount.delete({ where: { id: ac.id } });
+      } else {
+        await tx.inventoryAuditCount.update({ where: { id: ac.id }, data: { skuId: targetId } });
+      }
+    }
+
+    await recalculateStock(tx, targetId);
+
+    await tx.inventorySku.update({
+      where: { id: sourceId },
+      data: { isActive: false, name: `[Объединён → ${target.name}] ${source.name}` },
+    });
+  });
+
+  const updatedTarget = await getSku(targetId);
+  return {
+    mergedSourceId: sourceId,
+    targetId,
+    targetName: target.name,
+    newStockQuantity: Number(updatedTarget?.stockQuantity ?? 0),
+    performedById,
+  };
 }
 
 // === ERROR CLASS ===

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   apiResponse,
   apiError,
@@ -67,6 +67,12 @@ export async function POST(request: NextRequest) {
     return apiResponse(sku, undefined, 201);
   } catch (error) {
     if (error instanceof InventoryError) {
+      if (error.code === "SKU_DUPLICATE") {
+        return NextResponse.json(
+          { success: false, error: { code: "SKU_DUPLICATE", message: error.message, ...error.meta } },
+          { status: 409 }
+        );
+      }
       return apiError(error.code, error.message);
     }
     console.error("[API] POST /api/inventory/sku error:", error instanceof Error ? error.message : String(error));

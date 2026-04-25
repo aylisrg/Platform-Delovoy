@@ -248,3 +248,7 @@ export const expiringFilterSchema = z.object({
 export const linkMenuItemSchema = z.object({
   inventorySkuId: z.string().nullable(),
 });
+
+export const mergeSkuSchema = z.object({
+  targetSkuId: z.string().min(1, "ID целевого товара обязателен"),
+});

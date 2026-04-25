@@ -214,8 +214,22 @@ export default function ReceiptsPage() {
             price: parseFloat(it.newPrice),
           }),
         });
-        const skuJson = await skuRes.json() as { success: boolean; data?: { id: string; name: string; category: string; unit: string }; error?: { message?: string } };
+        const skuJson = await skuRes.json() as {
+          success: boolean;
+          data?: { id: string; name: string; category: string; unit: string };
+          error?: { code?: string; message?: string; existingSkuId?: string; existingSkuName?: string };
+        };
         if (!skuJson.success || !skuJson.data) {
+          // If the SKU already exists, silently use it rather than blocking the receipt
+          if (skuJson.error?.code === "SKU_DUPLICATE" && skuJson.error.existingSkuId) {
+            const existingId = skuJson.error.existingSkuId;
+            const existingName = skuJson.error.existingSkuName ?? it.newName;
+            resolvedItems[i] = { ...it, skuId: existingId, isNew: false };
+            if (!skus.some((s) => s.id === existingId)) {
+              setSkus((prev) => [...prev, { id: existingId, name: existingName, category: it.newCategory || "Товары", unit: it.newUnit || "шт" }]);
+            }
+            continue;
+          }
           setBanner({ type: "error", text: skuJson.error?.message ?? `Не удалось создать товар "${it.newName}"` });
           setLoading(false);
           return;
