@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -58,6 +58,7 @@ const ALL_NAVIGATION: NavItem[] = [
 ];
 
 const STORAGE_KEY = "admin-sidebar-layout";
+const LAYOUT_CHANGE_EVENT = "admin-sidebar-layout:change";
 const BADGE_POLL_INTERVAL = 30_000;
 
 function defaultLayout(): SidebarLayout {
@@ -67,7 +68,16 @@ function defaultLayout(): SidebarLayout {
   };
 }
 
-function loadLayout(): SidebarLayout {
+// Sidebar layout is owned by the user via drag-drop, persisted in localStorage.
+// We expose it as an external store so cross-tab edits sync automatically and
+// the React component never has to setState-in-effect to read or persist.
+const SERVER_LAYOUT: SidebarLayout = Object.freeze({
+  order: ALL_NAVIGATION.map((n) => n.section),
+  groups: [],
+}) as SidebarLayout;
+let cachedLayout: SidebarLayout | null = null;
+
+function readLayoutFromStorage(): SidebarLayout {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
@@ -75,9 +85,42 @@ function loadLayout(): SidebarLayout {
   return defaultLayout();
 }
 
-function saveLayout(layout: SidebarLayout) {
+function refreshLayoutCache(): boolean {
+  const next = readLayoutFromStorage();
+  if (cachedLayout && JSON.stringify(next) === JSON.stringify(cachedLayout)) {
+    return false;
+  }
+  cachedLayout = next;
+  return true;
+}
+
+function subscribeLayout(callback: () => void): () => void {
+  const handler = (e: Event) => {
+    if (e instanceof StorageEvent && e.key !== null && e.key !== STORAGE_KEY) return;
+    if (refreshLayoutCache()) callback();
+  };
+  window.addEventListener("storage", handler);
+  window.addEventListener(LAYOUT_CHANGE_EVENT, handler);
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(LAYOUT_CHANGE_EVENT, handler);
+  };
+}
+
+function getLayoutSnapshot(): SidebarLayout {
+  if (cachedLayout === null) cachedLayout = readLayoutFromStorage();
+  return cachedLayout;
+}
+
+function getLayoutServerSnapshot(): SidebarLayout {
+  return SERVER_LAYOUT;
+}
+
+function persistLayout(next: SidebarLayout) {
+  cachedLayout = next;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(LAYOUT_CHANGE_EVENT));
   } catch {}
 }
 
@@ -242,8 +285,14 @@ function SortableGroup({
   const [draft, setDraft] = useState(group.label);
   const [collapsed, setCollapsed] = useState(false);
 
+  // Sync draft back to the upstream label when the user is NOT actively editing
+  // (so external label updates flow in, but in-flight edits aren't clobbered).
+  // Standard "controlled-when-editing" pattern; setState here is intentional.
   useEffect(() => {
-    if (!editing) setDraft(group.label);
+    if (!editing) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+      setDraft(group.label);
+    }
   }, [group.label, editing]);
 
   const style = {
@@ -376,19 +425,23 @@ export function Sidebar() {
   const pathname = usePathname();
   const [allowedSections, setAllowedSections] = useState<string[] | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
-  const [layout, setLayout] = useState<SidebarLayout>(defaultLayout);
+  const layout = useSyncExternalStore(
+    subscribeLayout,
+    getLayoutSnapshot,
+    getLayoutServerSnapshot,
+  );
+  const setLayout = useCallback(
+    (updater: SidebarLayout | ((prev: SidebarLayout) => SidebarLayout)) => {
+      const next =
+        typeof updater === "function"
+          ? (updater as (prev: SidebarLayout) => SidebarLayout)(getLayoutSnapshot())
+          : updater;
+      persistLayout(next);
+    },
+    [],
+  );
   const [editMode, setEditMode] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-
-  // Load layout from localStorage
-  useEffect(() => {
-    setLayout(loadLayout());
-  }, []);
-
-  // Persist layout changes
-  useEffect(() => {
-    saveLayout(layout);
-  }, [layout]);
 
   // Fetch permissions
   useEffect(() => {
@@ -483,7 +536,7 @@ export function Sidebar() {
         });
       }
     },
-    [layout.groups, navBySection]
+    [layout.groups, navBySection, setLayout]
   );
 
   const handleDragEnd = useCallback(
@@ -532,7 +585,7 @@ export function Sidebar() {
         return prev;
       });
     },
-    [navBySection]
+    [navBySection, setLayout]
   );
 
   const addGroup = useCallback(() => {
@@ -542,14 +595,14 @@ export function Sidebar() {
       order: [...prev.order, id],
       groups: [...prev.groups, { id, label: "Новая группа", itemIds: [] }],
     }));
-  }, []);
+  }, [setLayout]);
 
   const renameGroup = useCallback((groupId: string, label: string) => {
     setLayout((prev) => ({
       ...prev,
       groups: prev.groups.map((g) => (g.id === groupId ? { ...g, label } : g)),
     }));
-  }, []);
+  }, [setLayout]);
 
   const deleteGroup = useCallback((groupId: string) => {
     setLayout((prev) => {
@@ -560,7 +613,7 @@ export function Sidebar() {
         groups: prev.groups.filter((g) => g.id !== groupId),
       };
     });
-  }, []);
+  }, [setLayout]);
 
   const moveToGroup = useCallback((section: string, groupId: string) => {
     setLayout((prev) => {
@@ -576,7 +629,7 @@ export function Sidebar() {
       });
       return { order: newOrder, groups: newGroups };
     });
-  }, []);
+  }, [setLayout]);
 
   const removeFromGroup = useCallback((section: string) => {
     setLayout((prev) => {
@@ -587,12 +640,10 @@ export function Sidebar() {
       if (prev.order.includes(section)) return { ...prev, groups: newGroups };
       return { order: [...prev.order, section], groups: newGroups };
     });
-  }, []);
+  }, [setLayout]);
 
   const resetLayout = useCallback(() => {
-    const fresh = defaultLayout();
-    setLayout(fresh);
-    saveLayout(fresh);
+    persistLayout(defaultLayout());
   }, []);
 
   // Active drag item for overlay

@@ -136,6 +136,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   }, [themeParams]);
 
   // Bootstrap: tell Telegram we're ready, then authenticate against our backend.
+  // Dev path / auth fetch are classic data-loading effects — the rule was
+  // intentionally downgraded for exactly this pattern.
   useEffect(() => {
     const webapp = getWebApp();
     if (!webapp) return;
@@ -146,6 +148,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     const initData = webapp.initData;
     if (!initData) {
       // Dev mode — no initData available
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
       setReady(true);
       return;
     }

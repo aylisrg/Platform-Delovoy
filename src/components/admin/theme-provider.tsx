@@ -76,8 +76,12 @@ export function AdminThemeProvider({ children }: { children: ReactNode }) {
   );
   // FOUC guard: render hidden during the first client paint so SSR's
   // deterministic "light" doesn't flash before hydration syncs the real value.
+  // The setMounted-in-effect is the canonical React pattern for one-time
+  // "we're hydrated now" signal; a proper inline-script guard on <html> would
+  // require either Tailwind dark-mode class strategy or a CSS scope rewrite.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional FOUC guard, see comment above
     setMounted(true);
   }, []);
 
