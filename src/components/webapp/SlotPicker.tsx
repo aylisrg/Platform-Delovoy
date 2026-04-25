@@ -59,8 +59,11 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
   const [startSlot, setStartSlot] = useState<string | null>(null);
   const [endSlot, setEndSlot] = useState<string | null>(null);
 
-  // Fetch slots when date changes
+  // Fetch slots when date changes — also resets the in-flight selection so
+  // a user moving to a new day starts fresh. Both the loading flag and the
+  // selection reset are part of the same "new date, new state" transition.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on date change
     setLoading(true);
     setStartSlot(null);
     setEndSlot(null);
@@ -70,13 +73,14 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
       .finally(() => setLoading(false));
   }, [selectedDate, fetchSlots]);
 
-  // Compute end time from start
+  // Default end time = startSlot + minHours, but only when the user hasn't
+  // explicitly picked an end time (handleEndSlotTap also writes setEndSlot).
   useEffect(() => {
     if (!startSlot) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing dependent state when start cleared
       setEndSlot(null);
       return;
     }
-
     const [h, m] = startSlot.split(":").map(Number);
     const endH = h + minHours;
     const end = `${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}`;

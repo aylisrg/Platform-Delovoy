@@ -122,7 +122,11 @@ export default function MovementsPage() {
     [filterSkuId, filterType, filterDateFrom, filterDateTo, perPage]
   );
 
+  // Data-loading effect: refetches movements list when page or filters change.
+  // The setLoading/setItems calls inside `load()` are exactly the data-loading
+  // pattern the eslint rule was intentionally downgraded for in eslint.config.mjs.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading
     load(page);
   }, [load, page]);
 

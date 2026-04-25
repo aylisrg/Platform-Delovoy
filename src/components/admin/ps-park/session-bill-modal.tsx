@@ -65,15 +65,21 @@ export function SessionBillModal({
   const remainder = Math.round((effectiveTotal - cash - card) * 100) / 100;
   const isBalanced = Math.abs(remainder) < 0.01;
 
-  // Reset when bill or discount changes
+  // When the underlying bill amount changes (item added/removed by another flow,
+  // or discount applied), reset the cash/card split to default. Intentional
+  // "reset on prop change" — alternative would be to remount the modal via key=,
+  // which would lose other internal state we want to preserve.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
     setCashRaw(String(effectiveTotal));
     setCardRaw("0");
   }, [effectiveTotal]);
 
-  // Reset discount when modal opens/closes
+  // Reset discount fields each time the modal opens — operator should always
+  // start a fresh checkout, not see stale discount from a previous session.
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on open
       setShowDiscount(false);
       setDiscountPercent(0);
       setDiscountReason("");
