@@ -164,8 +164,6 @@ describe("POST /api/webapp/link/skip", () => {
 });
 
 describe("POST /api/webapp/link/deep-link", () => {
-  const validToken = process.env.TELEGRAM_BOT_TOKEN ?? "test-bot-token";
-
   it("returns 401 without x-bot-token", async () => {
     const res = await deepLinkRoute(
       makeRequest({ token: "a".repeat(48), telegramId: "tg-999" })

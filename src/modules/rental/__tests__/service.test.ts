@@ -61,14 +61,11 @@ vi.mock("@/lib/db", () => ({
 
 import {
   listOffices,
-  getOffice,
   createOffice,
   updateOffice,
   deleteOffice,
   listTenants,
-  getTenant,
   createTenant,
-  updateTenant,
   deleteTenant,
   getTenantContracts,
   listContracts,

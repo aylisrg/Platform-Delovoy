@@ -1,4 +1,4 @@
-import { apiResponse, apiError } from "@/lib/api-response";
+import { apiResponse } from "@/lib/api-response";
 import { redis, redisAvailable } from "@/lib/redis";
 import { parseYandexReviews } from "@landing/lib/parsers/yandex-reviews";
 import { reviewsQuerySchema } from "@landing/lib/parsers/validation";

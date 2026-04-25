@@ -794,7 +794,6 @@ export async function deductStockFifo(
     );
   }
 
-  const movementIds: string[] = [];
   let remaining = quantity;
   let batchesAffected = 0;
 
@@ -1229,7 +1228,7 @@ export async function listAudits() {
 export async function submitAuditCounts(
   auditId: string,
   counts: AuditCountInput[],
-  performedById: string
+  _performedById: string
 ) {
   const audit = await prisma.inventoryAudit.findUnique({ where: { id: auditId } });
   if (!audit) throw new InventoryError("AUDIT_NOT_FOUND", "Инвентаризация не найдена");

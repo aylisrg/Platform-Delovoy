@@ -1,4 +1,3 @@
-import { AdminHeader } from "@/components/admin/header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusWidget } from "@/components/admin/status-widget";
@@ -15,7 +14,6 @@ import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 import { CallButton } from "@/components/admin/telephony/call-button";
-import { TestAlertsButton } from "@/components/admin/ps-park/test-alerts-button";
 import { BookingHistoryTable, type HistoryBooking } from "@/components/admin/ps-park/booking-history-table";
 
 export const dynamic = "force-dynamic";

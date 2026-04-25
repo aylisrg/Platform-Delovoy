@@ -353,7 +353,6 @@ describe("addItemsToBooking", () => {
     await addItemsToBooking("booking-1", "manager-1", newItems);
 
     const updateCall = vi.mocked(prisma.booking.update).mock.calls[0][0];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const metadata = (updateCall as unknown as { data: { metadata: { items: { skuId: string; quantity: number }[] } } }).data.metadata;
     const mergedItem = metadata.items.find((i: { skuId: string }) => i.skuId === "sku-1");
     expect(mergedItem?.quantity).toBe(3); // 1 existing + 2 new

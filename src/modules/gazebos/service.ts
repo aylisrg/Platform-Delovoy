@@ -18,7 +18,6 @@ import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/che
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
-import type { DiscountReason } from "@/modules/booking/discount";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreateBookingInput,

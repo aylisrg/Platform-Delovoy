@@ -6,7 +6,7 @@ import { reachGoal } from "@/lib/metrika";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
-import { pickRandom, TOAST_BOOKING_SUCCESS, TOAST_BOOKING_CANCEL } from "@/lib/easter-eggs";
+import { pickRandom, TOAST_BOOKING_SUCCESS } from "@/lib/easter-eggs";
 import { formatDate as formatDateUnified } from "@/lib/format";
 
 type TimeSlot = {

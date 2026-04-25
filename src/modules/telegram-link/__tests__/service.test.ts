@@ -38,9 +38,6 @@ import {
   LinkError,
 } from "../service";
 
-const mockPrismaUser = prisma.user as ReturnType<typeof vi.fn> & typeof prisma.user;
-const mockRedis = redis as ReturnType<typeof vi.fn> & typeof redis;
-
 beforeEach(() => {
   vi.clearAllMocks();
 });

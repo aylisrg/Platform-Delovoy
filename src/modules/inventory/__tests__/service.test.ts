@@ -34,7 +34,6 @@ import {
   adjustStock,
   voidTransaction,
   validateAndSnapshotItems,
-  InventoryError,
   getHealth,
 } from "../service";
 

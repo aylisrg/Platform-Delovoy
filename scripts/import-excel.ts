@@ -354,7 +354,6 @@ async function main() {
     const wetPoint = String(row[3] || "").toLowerCase() === "да";
     const toilet = String(row[4] || "").toLowerCase() === "да";
     const roofAccess = String(row[5] || "").toLowerCase() !== "нет" && String(row[5] || "") !== "";
-    const pricePerSqm = typeof row[6] === "number" ? row[6] : 0;
     const pricePerMonth = typeof row[7] === "number" ? row[7] : 0;
     const comment = String(row[8] || "").trim() || null;
 

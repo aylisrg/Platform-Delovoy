@@ -72,12 +72,6 @@ export function PhoneActions({ phone, tenantId, displayPhone }: PhoneActionsProp
   }
 
   // --- SMS handlers ---
-  function openSms() {
-    setSmsState("composing");
-    setSmsText("");
-    setSmsError(null);
-  }
-
   function closeSms() {
     setSmsState("idle");
     setSmsText("");

@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { logAudit, logEvent } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { canConfirmReceipt, canCorrectReceipt, canEditModule, hasModuleAccess } from "@/lib/permissions";
+import { canConfirmReceipt, canCorrectReceipt, canEditModule } from "@/lib/permissions";
 import {
   getReceipt,
   editDraftReceipt,
