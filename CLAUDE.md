@@ -483,6 +483,37 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 
 ---
 
+## Реальный список модулей (по `src/modules/` на 2026-04-25)
+
+Этот список — **источник правды** о том, что физически есть в коде. Если фичи нет в этом списке — её нет, точка. Если в списке есть что-то, чего нет в дорожной карте ниже, — это **scope creep**, который накопился без обновления документа правды.
+
+| Модуль | Статус в roadmap | Назначение |
+|--------|------------------|-----------|
+| `auth` | ✅ Phase 0 | NextAuth, magic-link, providers |
+| `monitoring` | ✅ Phase 0 | health checks, SystemEvent |
+| `notifications` | ✅ Phase 0 | unified channel routing |
+| `gazebos` | ✅ Phase 1 | беседки |
+| `ps-park` | ✅ Phase 2 | PlayStation Park |
+| `cafe` | ✅ Phase 2 | кафе |
+| `parking` | ✅ Phase 2 | парковка |
+| `booking` | ✅ Phase 1+2 | shared booking core |
+| `rental` | ✅ Phase 3 | аренда офисов |
+| `clients` | ✅ Phase 3 | CRM арендаторов |
+| `analytics` | ✅ Phase 4 | сводные метрики, balance/conversions/campaigns |
+| `users` | ✅ Phase 4 | админ-управление пользователями |
+| `profile` | ⚠️ только webapp | API контактов USER (`/api/profile/*`) |
+| `feedback` | ❌ scope creep | обращения пользователей |
+| `inventory` | ❌ scope creep | складской учёт (SKU, receipts, audits, write-offs) |
+| `management` | ❌ scope creep | расходы, recurring задачи |
+| `telephony` | ❌ scope creep | Novofon SMS/звонки |
+| `telegram-link` | ❌ scope creep | привязка Telegram-аккаунта к web-юзеру |
+| `pipeline-metrics` | ❌ scope creep | метрики agent-pipeline (eval/) |
+| `backups` | ❌ scope creep | бэкапы БД для super-admin |
+
+**Правило при следующем расхождении:** если модуль появляется в коде до того, как попадает в roadmap, — это нарушение процесса. Чинится через PRD от `product-owner` (см. `agents/po.md`) **до** старта реализации.
+
+---
+
 ## Дорожная карта
 
 ### Phase 0 — Фундамент ✅
@@ -507,7 +538,8 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 - [x] PlayStation Park (бронирование столов, 7 API endpoints, панель менеджера)
 - [x] Кафе (меню CRUD, заказы NEW→PREPARING→READY→DELIVERED, 6 API endpoints, корзина)
 - [x] Парковка (информационная страница — места, правила, контакты)
-- [x] Единый личный кабинет пользователя (все брони и заказы)
+- [x] Единый личный кабинет в **Telegram Mini App** (`/webapp/profile`)
+- [ ] **Публичный личный кабинет в вебе (`/profile`) — НЕ СДЕЛАН.** USER заходит через signin, но дальше ему некуда — нет страницы "мои брони / мои заказы / мои контакты" вне Telegram. Закрывается в текущем рефакторинге.
 - [x] Обновлённая главная страница с навигацией по всем модулям
 
 ### Phase 3 — B2B: Аренда офисов ✅
@@ -601,6 +633,16 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 - Каждый модуль должен реализовать health check: `GET /api/{slug}/health`
 - Каждый модуль имеет свой `src/modules/{slug}/` с файлами: `service.ts`, `types.ts`, `validation.ts`
 - Менеджер модуля назначается через `ModuleAssignment`
+
+### Scope guard (anti-scope-creep)
+
+Правила, которые применяются к Claude Code и всем агентам:
+
+1. **Нельзя создавать новый модуль** (`src/modules/{slug}/`) без PRD от `product-owner` и записи в "Реальный список модулей" в этом файле.
+2. **Нельзя расширять scope в обход PO.** Если в процессе реализации обнаруживается необходимость в дополнительной фиче — это новая итерация: stop, открой issue, дождись PO. Не "пока я тут, добавлю ещё".
+3. **Каждый PR =≤ одна фича.** Релиз-боты и автоматические fix-PR-ы Claude (типа "fix-warehouse-receipt-bug") должны быть точечными и закрывать **один** баг с одним тестом.
+4. **CLAUDE.md синхронизируется в том же PR**, где появляется/удаляется модуль или фича из roadmap. Расхождение этого документа с реальностью — это баг, не норма.
+5. **Code Reviewer обязан флагнуть scope creep.** Если PR трогает 5+ модулей или добавляет нерасписанный новый модуль — verdict NEEDS_CHANGES.
 
 ### Безопасность
 
