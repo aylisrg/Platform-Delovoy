@@ -5,12 +5,12 @@ import { setReleaseNotifyPreference } from "@/modules/notifications/release-noti
 
 type BotContext = Context;
 
-interface TeamUser {
+export interface TeamUser {
   id: string;
   notifyReleases: boolean;
 }
 
-async function getTeamUser(telegramId: string): Promise<TeamUser | null> {
+export async function getTeamUser(telegramId: string): Promise<TeamUser | null> {
   const user = await prisma.user.findUnique({
     where: { telegramId },
     select: {
@@ -27,13 +27,13 @@ async function getTeamUser(telegramId: string): Promise<TeamUser | null> {
   };
 }
 
-function settingsKeyboard(notifyReleases: boolean): InlineKeyboard {
+export function settingsKeyboard(notifyReleases: boolean): InlineKeyboard {
   const action = notifyReleases ? "settings:releases:off" : "settings:releases:on";
   const label = notifyReleases ? "🚀 Релизы: ВКЛ ✅" : "🚀 Релизы: ВЫКЛ";
   return new InlineKeyboard().text(label, action);
 }
 
-function settingsText(notifyReleases: boolean): string {
+export function settingsText(notifyReleases: boolean): string {
   const state = notifyReleases ? "включены" : "выключены";
   return (
     "<b>Настройки команды</b>\n\n" +
