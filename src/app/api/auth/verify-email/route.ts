@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { verifyMagicLinkSchema } from "@/modules/auth/validation";
-import { verifyMagicLink } from "@/modules/auth/email-magic-link.service";
+import {
+  verifyMagicLink,
+  generateSignInNonce,
+} from "@/modules/auth/email-magic-link.service";
 
 /**
  * GET /api/auth/verify-email?token=XXX&email=YYY
  *
- * Validates the magic link token and redirects to the sign-in page
- * with userId param so the client can complete the session via
- * signIn("magic-link", { userId }).
+ * Validates the magic-link token (DB), generates a one-time signin nonce
+ * in Redis, and redirects to /auth/signin?magic=<nonce>. The client then
+ * calls signIn("magic-link", { nonce }) — never userId — so a leaked
+ * cuid alone cannot grant access.
  */
 export async function GET(request: Request) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -28,15 +32,16 @@ export async function GET(request: Request) {
 
   try {
     const { userId } = await verifyMagicLink(token, email);
-    // Redirect to signin page with userId; the page auto-signs in via
-    // the "magic-link" Credentials provider
+    const nonce = await generateSignInNonce(userId);
     return NextResponse.redirect(
-      `${appUrl}/auth/signin?magic=${encodeURIComponent(userId)}`
+      `${appUrl}/auth/signin?magic=${encodeURIComponent(nonce)}`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
 
-    if (message === "TOKEN_EXPIRED") {
+    if (message === "TOKEN_EXPIRED" || message === "REDIS_UNAVAILABLE") {
+      // REDIS_UNAVAILABLE surfaces as "expired" to the user — they retry,
+      // and a healthy Redis on the next attempt will work.
       return NextResponse.redirect(
         `${appUrl}/auth/signin?error=link-expired`
       );

@@ -17,6 +17,7 @@ const { mockVerificationToken, mockUser, mockRedis, redisState } = vi.hoisted(()
     get: vi.fn(),
     set: vi.fn(),
     del: vi.fn(),
+    getdel: vi.fn(),
   };
   const redisState = { available: true };
   return { mockVerificationToken, mockUser, mockRedis, redisState };
@@ -64,6 +65,8 @@ import {
   generateAndStoreMagicLink,
   sendMagicLinkEmail,
   verifyMagicLink,
+  generateSignInNonce,
+  consumeSignInNonce,
 } from "../email-magic-link.service";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 
@@ -342,5 +345,85 @@ describe("verifyMagicLink", () => {
     expect(mockVerificationToken.findFirst).toHaveBeenCalledWith({
       where: { token: "valid-token", identifier: "user@example.com" },
     });
+  });
+});
+
+// --- generateSignInNonce / consumeSignInNonce ---
+//
+// These two functions implement the security fix: instead of redirecting
+// the verified user to /auth/signin?magic=<userId> (where any cuid leak
+// = full account takeover), the verify-email handler stores a one-time
+// nonce in Redis pointing at the userId. The Credentials("magic-link")
+// authorize() consumes the nonce atomically (GETDEL) and only then
+// resolves the user.
+
+describe("generateSignInNonce", () => {
+  beforeEach(() => {
+    mockRedis.set.mockResolvedValue("OK");
+  });
+
+  it("stores userId in Redis under magic-link:signin: prefix with 5 min TTL", async () => {
+    await generateSignInNonce("user-123");
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      expect.stringContaining("magic-link:signin:"),
+      "user-123",
+      "EX",
+      5 * 60
+    );
+  });
+
+  it("returns a hex string of 64 chars (32 random bytes)", async () => {
+    const nonce = await generateSignInNonce("user-123");
+    // crypto mock returns Buffer of 32 'a' bytes -> 64 hex chars of '61'
+    expect(nonce).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("throws REDIS_UNAVAILABLE when Redis is down (fail-closed)", async () => {
+    redisState.available = false;
+    await expect(generateSignInNonce("user-123")).rejects.toThrow(
+      "REDIS_UNAVAILABLE"
+    );
+    expect(mockRedis.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("consumeSignInNonce", () => {
+  it("returns userId and atomically deletes the nonce", async () => {
+    mockRedis.getdel.mockResolvedValue("user-456");
+    const result = await consumeSignInNonce("some-nonce");
+    expect(result).toBe("user-456");
+    expect(mockRedis.getdel).toHaveBeenCalledWith(
+      "magic-link:signin:some-nonce"
+    );
+  });
+
+  it("returns null when nonce is unknown", async () => {
+    mockRedis.getdel.mockResolvedValue(null);
+    const result = await consumeSignInNonce("missing-nonce");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when Redis is unavailable (fail-closed)", async () => {
+    redisState.available = false;
+    const result = await consumeSignInNonce("some-nonce");
+    expect(result).toBeNull();
+    expect(mockRedis.getdel).not.toHaveBeenCalled();
+  });
+
+  it("returns null for empty or non-string nonce without touching Redis", async () => {
+    expect(await consumeSignInNonce("")).toBeNull();
+    expect(mockRedis.getdel).not.toHaveBeenCalled();
+  });
+
+  it("a single nonce can only be consumed once (replay protection)", async () => {
+    // First call: nonce valid, returns userId
+    mockRedis.getdel.mockResolvedValueOnce("user-789");
+    const first = await consumeSignInNonce("nonce-x");
+    expect(first).toBe("user-789");
+
+    // Second call: GETDEL already removed the key, Redis returns null
+    mockRedis.getdel.mockResolvedValueOnce(null);
+    const second = await consumeSignInNonce("nonce-x");
+    expect(second).toBeNull();
   });
 });

@@ -31,10 +31,32 @@
 
 - [x] Stage 0 (CTO): аудит, settings.json, sync CLAUDE.md
 - [x] Stage 1 (PO): PRD
-- [ ] Stage 2 (Architect): ADR
+- [x] Stage 2 (Architect): ADR (subagent упал по timeout, ADR написан CTO в координирующей сессии — простая фича не требует длинного раунда; PO-revision с открытием существующего `/dashboard` сделана прямо в PRD)
 - [ ] Stage 3 (Dev): реализация
 - [ ] Stage 4 (Reviewer): вердикт
 - [ ] Stage 5 (QA): функциональная проверка
+
+## Architect — Ключевые решения (CTO-fallback)
+
+**Дата:** 2026-04-25
+
+### Поправка от CTO в начале Stage 2
+
+При анализе кода для Stage 2 обнаружено: страница `/dashboard` (`src/app/(public)/dashboard/page.tsx`) **уже является полнофункциональным личным кабинетом** — server-side `auth()`, bookings, orders, feedback, `<ContactsCard />`. PRD US-2 ("создать /profile") был бы дубликатом и нарушил бы scope-guard правило, добавленное в CLAUDE.md в Stage 0. PRD переформулирован: фича — **навигация**, а не страница. См. CTO-revision в PRD.
+
+### Magic-link fix (US-1)
+
+Решение из ADR коротко:
+- Redis nonce 5 мин TTL вместо userId в URL.
+- `consumeSignInNonce` через `redis.getdel` (атомарно).
+- Fail-closed при недоступности Redis.
+- Изменения в трёх файлах: `email-magic-link.service.ts` (+2 функции), `verify-email/route.ts` (1 redirect), `auth.ts` (одна замена Credentials).
+
+### Видимость кабинета (US-2)
+
+- `redirectAfterLogin` USER: `/` → `/dashboard` (одна строка в `src/app/auth/signin/page.tsx`).
+- Главная страница: добавить условную кнопку "Личный кабинет" для авторизованного USER через server-side `auth()` в page.tsx или header.
+- Никаких новых модулей, страниц, эндпоинтов.
 
 ## Антипаттерны прошлых прогонов (для Dev)
 

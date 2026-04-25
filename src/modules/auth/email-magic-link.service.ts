@@ -7,9 +7,11 @@ import { magicLinkHtml, magicLinkText } from "@/modules/notifications/email-temp
 
 const TOKEN_TTL_SECONDS = 15 * 60; // 15 minutes
 const COOLDOWN_TTL_SECONDS = 60; // 1 minute between sends
+const SIGNIN_NONCE_TTL_SECONDS = 5 * 60; // 5 minutes between verify-email and signIn
 
 const MAGIC_LINK_PW_PREFIX = "magic-link:pw:";
 const MAGIC_LINK_COOLDOWN_PREFIX = "magic-link:cooldown:";
+const MAGIC_LINK_SIGNIN_PREFIX = "magic-link:signin:";
 
 function normalizeEmail(email: string): string {
   return email.toLowerCase().trim();
@@ -195,4 +197,44 @@ export async function verifyMagicLink(
   });
 
   return { userId: user.id, isNewUser: true };
+}
+
+/**
+ * Generate a one-time sign-in nonce and store userId under it in Redis.
+ *
+ * Used to bridge the verify-email step (server-side token check) and the
+ * client-side signIn("magic-link", { nonce }) call without exposing userId
+ * in the URL. Without this nonce, knowing a user's cuid would be enough
+ * to pass the legacy `signIn("magic-link", { userId })` provider — that's
+ * the security hole this closes.
+ *
+ * Throws Error("REDIS_UNAVAILABLE") when Redis is down — fail-closed:
+ * we'd rather break the email-link login than create a session without
+ * proof of email ownership.
+ */
+export async function generateSignInNonce(userId: string): Promise<string> {
+  if (!redisAvailable) throw new Error("REDIS_UNAVAILABLE");
+  const nonce = crypto.randomBytes(32).toString("hex");
+  await redis.set(
+    MAGIC_LINK_SIGNIN_PREFIX + nonce,
+    userId,
+    "EX",
+    SIGNIN_NONCE_TTL_SECONDS
+  );
+  return nonce;
+}
+
+/**
+ * Atomically read-and-delete a sign-in nonce. Returns the userId on
+ * success, null when the nonce is unknown / already consumed / Redis is
+ * down (fail-closed).
+ *
+ * Uses Redis GETDEL so two simultaneous sign-in attempts with the same
+ * nonce can't both succeed.
+ */
+export async function consumeSignInNonce(nonce: string): Promise<string | null> {
+  if (!redisAvailable) return null;
+  if (!nonce || typeof nonce !== "string") return null;
+  const userId = await redis.getdel(MAGIC_LINK_SIGNIN_PREFIX + nonce);
+  return userId ?? null;
 }
