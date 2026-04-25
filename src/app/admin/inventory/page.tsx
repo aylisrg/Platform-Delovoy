@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { AdminHeader } from "@/components/admin/header";
@@ -180,7 +181,6 @@ export default async function InventoryPage() {
                       unit: s.unit,
                       stockQuantity: s.stockQuantity,
                     }))}
-                    onMerged={() => { window.location.reload(); }}
                   />
                 </div>
               ))}
@@ -220,8 +220,8 @@ export default async function InventoryPage() {
                   {categories.map((category) => {
                     const categorySkus = skus.filter((s) => s.category === category);
                     return (
-                      <>
-                        <tr key={`cat-${category}`} className="bg-zinc-50/60">
+                      <Fragment key={category}>
+                        <tr className="bg-zinc-50/60">
                           <td
                             colSpan={7}
                             className="px-4 py-2 text-xs font-semibold text-zinc-500 uppercase tracking-wide"
@@ -279,7 +279,7 @@ export default async function InventoryPage() {
                             </tr>
                           );
                         })}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
