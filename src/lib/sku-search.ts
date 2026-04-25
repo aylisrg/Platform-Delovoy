@@ -115,22 +115,39 @@ export type SkuInput = {
 };
 
 /**
+ * Dynamic similarity threshold by query length.
+ * Short queries (≤3 chars) need very high similarity to avoid false positives
+ * like "рис" → "лис" (0.67 similarity, but obviously different products).
+ */
+function dynamicThreshold(qLen: number): number {
+  // 0.88 lets a 3-char query be a substring of a longer name (substring score
+  // floor for that case is ~0.89), but rejects raw Levenshtein matches like
+  // "рис" vs "лис" (similarity 0.67).
+  if (qLen <= 3) return 0.88;
+  if (qLen <= 5) return 0.74;
+  return 0.62;
+}
+
+/**
  * Find SKUs similar to `query` from a pre-loaded list.
  * Runs entirely in-browser — no API call required.
  *
  * @param query     - raw user input
  * @param skus      - full list of SKUs to search through
- * @param threshold - minimum similarity score (0–1), default 0.62
+ * @param threshold - minimum similarity score (0–1). When omitted, a dynamic
+ *                   threshold is applied based on query length (stricter for short queries).
  * @param limit     - max results to return, default 6
  */
 export function searchSkus(
   query: string,
   skus: SkuInput[],
-  threshold = 0.62,
+  threshold?: number,
   limit = 6
 ): SkuSearchCandidate[] {
   const q = normalize(query);
   if (q.length < 2) return [];
+
+  const effectiveThreshold = threshold ?? dynamicThreshold(q.length);
 
   const qLat = cyrToLat(q);
   const qCyr = latToCyr(q);
@@ -178,12 +195,16 @@ export function searchSkus(
         continue;
       }
 
-      // Levenshtein similarity
+      // Levenshtein similarity.
+      // Skip pure Levenshtein for very short queries (<4 chars) — noisy at that length.
+      // Substring + exact still applies and is enough for legitimate short matches.
+      if (q.length < 4 && reason === "fuzzy") continue;
+
       const s = pairSimilarity(qa, na);
       if (s > bestScore) { bestScore = s; matchReason = reason; }
     }
 
-    if (bestScore >= threshold) {
+    if (bestScore >= effectiveThreshold) {
       results.push({
         id: sku.id,
         name: sku.name,

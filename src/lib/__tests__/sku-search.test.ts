@@ -103,3 +103,39 @@ describe("searchSkus", () => {
     expect(r.every((c) => c.id === "5")).toBe(true);
   });
 });
+
+describe("searchSkus — dynamic threshold (length-based)", () => {
+  const SHORT_SKUS = [
+    { id: "rice", name: "Рис", category: "Крупы", unit: "кг", stockQuantity: 10 },
+    { id: "fox",  name: "Лис", category: "Игрушки", unit: "шт", stockQuantity: 3 },
+    { id: "rb",   name: "Red Bull 0.25", category: "Напитки", unit: "шт", stockQuantity: 10 },
+    { id: "red",  name: "Редиска", category: "Овощи", unit: "кг", stockQuantity: 4 },
+  ];
+
+  it('does not produce false positive: "рис" should NOT match "Лис" (Levenshtein 0.67)', () => {
+    const r = searchSkus("рис", SHORT_SKUS);
+    // Should match "Рис" exactly, but not "Лис".
+    expect(r.some((c) => c.id === "rice")).toBe(true);
+    expect(r.some((c) => c.id === "fox")).toBe(false);
+  });
+
+  it('"Red Bul" (5 chars) still finds "Red Bull 0.25" via substring', () => {
+    const r = searchSkus("Red Bul", SHORT_SKUS);
+    expect(r.some((c) => c.id === "rb")).toBe(true);
+  });
+
+  it('"Ред" (3 chars) does not return fuzzy noise — only substring/exact allowed at this length', () => {
+    const r = searchSkus("Ред", SHORT_SKUS);
+    // "Ред" is a substring of "Редиска" → should match.
+    expect(r.some((c) => c.id === "red")).toBe(true);
+    // Should NOT pull in unrelated short fuzzy matches.
+    expect(r.some((c) => c.id === "fox")).toBe(false);
+    expect(r.some((c) => c.id === "rice")).toBe(false);
+  });
+
+  it("explicit threshold overrides the dynamic default", () => {
+    // With dynamic threshold "рис" wouldn't match "Лис". Force a low threshold to opt back in.
+    const r = searchSkus("рис", SHORT_SKUS, 0.5);
+    expect(r.some((c) => c.id === "fox")).toBe(true);
+  });
+});

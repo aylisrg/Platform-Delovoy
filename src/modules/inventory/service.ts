@@ -991,40 +991,55 @@ export async function mergeSku(sourceId: string, targetId: string, performedById
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.stockBatch.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
-    await tx.stockReceiptItem.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
-    await tx.stockMovement.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
-    await tx.inventoryTransaction.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
-    await tx.writeOff.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
-    await tx.menuItem.updateMany({ where: { inventorySkuId: sourceId }, data: { inventorySkuId: targetId } });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.stockBatch.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+      await tx.stockReceiptItem.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+      await tx.stockMovement.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+      await tx.inventoryTransaction.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+      await tx.writeOff.updateMany({ where: { skuId: sourceId }, data: { skuId: targetId } });
+      await tx.menuItem.updateMany({ where: { inventorySkuId: sourceId }, data: { inventorySkuId: targetId } });
 
-    // InventoryAuditCount has @@unique([auditId, skuId]) — handle conflicts by summing counts
-    const sourceCounts = await tx.inventoryAuditCount.findMany({ where: { skuId: sourceId } });
-    for (const ac of sourceCounts) {
-      const conflict = await tx.inventoryAuditCount.findUnique({
-        where: { auditId_skuId: { auditId: ac.auditId, skuId: targetId } },
+      // InventoryAuditCount has @@unique([auditId, skuId]) — handle conflicts by summing counts.
+      // Replaced per-row loop with three batch SQL statements to avoid transaction timeout
+      // when source SKU has many audit counts (each loop iteration was 3 round-trips).
+      // Step 1: sum conflicting rows (where target already has an entry in the same audit) into target.
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "InventoryAuditCount" AS t
+        SET "actualQty"   = t."actualQty"   + s."actualQty",
+            "expectedQty" = t."expectedQty" + s."expectedQty",
+            "delta"       = (t."actualQty"   + s."actualQty") - (t."expectedQty" + s."expectedQty")
+        FROM "InventoryAuditCount" AS s
+        WHERE s."skuId"   = ${sourceId}
+          AND t."skuId"   = ${targetId}
+          AND s."auditId" = t."auditId"
+      `);
+
+      // Step 2: delete the now-merged source rows (those that had a conflicting target row).
+      await tx.$executeRaw(Prisma.sql`
+        DELETE FROM "InventoryAuditCount"
+        WHERE "skuId" = ${sourceId}
+          AND "auditId" IN (
+            SELECT "auditId" FROM "InventoryAuditCount" WHERE "skuId" = ${targetId}
+          )
+      `);
+
+      // Step 3: re-point remaining (non-conflicting) source rows to target.
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "InventoryAuditCount"
+        SET "skuId" = ${targetId}
+        WHERE "skuId" = ${sourceId}
+      `);
+
+      await recalculateStock(tx, targetId);
+
+      await tx.inventorySku.update({
+        where: { id: sourceId },
+        data: { isActive: false, name: `[Объединён → ${target.name}] ${source.name}` },
       });
-      if (conflict) {
-        const mergedActual = conflict.actualQty + ac.actualQty;
-        const mergedExpected = conflict.expectedQty + ac.expectedQty;
-        await tx.inventoryAuditCount.update({
-          where: { auditId_skuId: { auditId: ac.auditId, skuId: targetId } },
-          data: { actualQty: mergedActual, expectedQty: mergedExpected, delta: mergedActual - mergedExpected },
-        });
-        await tx.inventoryAuditCount.delete({ where: { id: ac.id } });
-      } else {
-        await tx.inventoryAuditCount.update({ where: { id: ac.id }, data: { skuId: targetId } });
-      }
-    }
-
-    await recalculateStock(tx, targetId);
-
-    await tx.inventorySku.update({
-      where: { id: sourceId },
-      data: { isActive: false, name: `[Объединён → ${target.name}] ${source.name}` },
-    });
-  });
+    },
+    { timeout: 30_000, maxWait: 5_000 }
+  );
 
   const updatedTarget = await getSku(targetId);
   return {

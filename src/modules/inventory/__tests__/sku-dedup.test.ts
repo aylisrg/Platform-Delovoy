@@ -280,6 +280,9 @@ describe("mergeSku", () => {
       .mockResolvedValue({ _sum: { remainingQty: 42 }, _count: 1 });
     const txInnerSkuUpdate = vi.fn().mockResolvedValue({ stockQuantity: 42 });
 
+    // Prisma raw SQL — used by mergeSku for batched audit-count merge
+    const txExecuteRaw = vi.fn().mockResolvedValue(0);
+
     mockPrisma.$transaction.mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
@@ -305,6 +308,7 @@ describe("mergeSku", () => {
               return txSkuUpdate({ where, data });
             }),
           },
+          $executeRaw: txExecuteRaw,
         })
     );
 
@@ -340,6 +344,9 @@ describe("mergeSku", () => {
       where: { skuId: "src" },
       data: { skuId: "tgt" },
     });
+    // Audit counts merged via 3 batched SQL statements (no per-row loop)
+    expect(txExecuteRaw).toHaveBeenCalledTimes(3);
+    expect(txAuditCountFindMany).not.toHaveBeenCalled();
     // Source archived with marker prefix
     expect(txSkuUpdate).toHaveBeenCalledWith({
       where: { id: "src" },
