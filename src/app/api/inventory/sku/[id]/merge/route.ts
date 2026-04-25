@@ -26,7 +26,7 @@ export async function POST(
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
-    if (session.user.role !== "SUPERADMIN") return apiForbidden();
+    if (session.user.role !== "SUPERADMIN" && session.user.role !== "ADMIN") return apiForbidden();
 
     const { id: sourceId } = await params;
 
