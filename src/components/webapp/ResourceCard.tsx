@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useTelegram } from "./TelegramProvider";
 
 interface ResourceCardProps {
@@ -34,10 +35,13 @@ export function ResourceCard({
       {/* Image */}
       <div className="relative aspect-[16/9] overflow-hidden">
         {imageUrl ? (
-          <img
+          <Image
             src={imageUrl}
             alt={name}
-            className="w-full h-full object-cover"
+            fill
+            sizes="(max-width: 640px) 100vw, 50vw"
+            className="object-cover"
+            unoptimized
           />
         ) : (
           <div

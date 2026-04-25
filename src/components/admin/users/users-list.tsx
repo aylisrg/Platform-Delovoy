@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CreateUserForm } from "./create-user-form";
@@ -271,10 +272,13 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
                         {user.image ? (
-                          <img
+                          <Image
                             src={user.image}
                             alt=""
+                            width={32}
+                            height={32}
                             className="h-8 w-8 rounded-full object-cover"
+                            unoptimized
                           />
                         ) : (
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600">

@@ -37,6 +37,17 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  images: {
+    // External avatar/photo sources we render via next/image. Mirrors the
+    // img-src directive in CSP above — keep them in sync.
+    remotePatterns: [
+      { protocol: "https", hostname: "avatars.yandex.net" },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "t.me" },
+      { protocol: "https", hostname: "api.telegram.org" },
+      { protocol: "https", hostname: "avatars.githubusercontent.com" },
+    ],
+  },
   async headers() {
     return [
       {

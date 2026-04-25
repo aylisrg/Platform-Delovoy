@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useTelegram } from "@/components/webapp/TelegramProvider";
 
 export default function ProfilePage() {
@@ -46,10 +47,13 @@ export default function ProfilePage() {
           }}
         >
           {user.image ? (
-            <img
+            <Image
               src={user.image}
               alt=""
+              width={80}
+              height={80}
               className="w-full h-full rounded-full object-cover"
+              unoptimized
             />
           ) : (
             (user.name || "U").charAt(0).toUpperCase()

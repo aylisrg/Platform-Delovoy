@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { MergeDialog } from "./merge-dialog";
 import { formatDate as formatDateUnified } from "@/lib/format";
@@ -306,10 +307,13 @@ export function ClientsPageContent() {
                         className="flex items-center gap-3 group"
                       >
                         {client.image ? (
-                          <img
+                          <Image
                             src={client.image}
                             alt=""
+                            width={32}
+                            height={32}
                             className="h-8 w-8 rounded-full object-cover"
+                            unoptimized
                           />
                         ) : (
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600">
