@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { AdminHeader } from "@/components/admin/header";
+import { SkuMergeDialog } from "@/components/admin/inventory/sku-merge-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,15 @@ export default async function InventoryPage() {
   );
 
   const categories = [...new Set(skus.map((s) => s.category))].sort();
+
+  // Detect duplicate SKU names among active SKUs (case-insensitive, whitespace-normalized)
+  const nameGroups = new Map<string, typeof skus>();
+  for (const sku of activeSkus) {
+    const key = sku.name.toLowerCase().trim().replace(/\s+/g, " ");
+    if (!nameGroups.has(key)) nameGroups.set(key, []);
+    nameGroups.get(key)!.push(sku);
+  }
+  const duplicateGroups = [...nameGroups.values()].filter((g) => g.length > 1);
 
   return (
     <>
@@ -141,6 +151,42 @@ export default async function InventoryPage() {
             </p>
           </div>
         </div>
+
+        {/* Duplicate SKU warning */}
+        {duplicateGroups.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-amber-600 text-base">⚠</span>
+              <h3 className="text-sm font-semibold text-amber-800">
+                Обнаружены дубли — {duplicateGroups.length}{" "}
+                {duplicateGroups.length === 1 ? "группа" : "группы"}
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {duplicateGroups.map((group) => (
+                <div
+                  key={group.map((s) => s.id).join("-")}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"
+                >
+                  <span className="font-medium text-amber-900">{group[0].name}</span>
+                  <span className="text-amber-600 text-xs">
+                    {group.map((s) => `${s.stockQuantity} ${s.unit}`).join(" + ")}
+                  </span>
+                  <SkuMergeDialog
+                    group={group.map((s) => ({
+                      id: s.id,
+                      name: s.name,
+                      category: s.category,
+                      unit: s.unit,
+                      stockQuantity: s.stockQuantity,
+                    }))}
+                    onMerged={() => { window.location.reload(); }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stock catalog */}
         <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
