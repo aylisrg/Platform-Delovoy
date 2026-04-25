@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateRu } from "@/lib/format-date";
+import { SkuNameInput } from "@/components/admin/inventory/sku-name-input";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -470,14 +471,14 @@ export default function ReceiptsPage() {
                                 Отмена
                               </button>
                             </div>
-                            <input
-                              type="text"
+                            <SkuNameInput
                               value={item.newName}
-                              onChange={(e) => updateItem(i, "newName" as keyof ReceiptItem, e.target.value)}
-                              placeholder="Название *"
-                              className={`w-full rounded-lg border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
-                                errors[`item_${i}_sku`] ? "border-red-400 bg-red-50" : "border-zinc-300"
-                              }`}
+                              onChange={(v) => updateItem(i, "newName" as keyof ReceiptItem, v)}
+                              skus={skus}
+                              onSelectExisting={(existing) => {
+                                updateItem(i, "skuId", existing.id);
+                              }}
+                              hasError={!!errors[`item_${i}_sku`]}
                             />
                             {errors[`item_${i}_sku`] && (
                               <p className="text-xs text-red-600">{errors[`item_${i}_sku`]}</p>
