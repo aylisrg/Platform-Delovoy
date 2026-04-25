@@ -29,3 +29,7 @@
 
 | Дата | Отчёт | Кол-во багов | Категории |
 |------|-------|-------------|-----------|
+| 2026-04-12 | 2026-04-12-booking-engine-v2-phase-1a-qa-report.md | 13 | rbac, api, typescript, tests |
+| 2026-04-12 | 2026-04-12-easter-eggs-memes-qa-report.md | 4 | rbac, api, typescript, tests |
+| 2026-04-12 | 2026-04-12-inventory-product-management-qa-report.md | 24 | rbac, api, typescript, tests |
+| 2026-04-25 | 2026-04-25-fix-login-public-profile-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
