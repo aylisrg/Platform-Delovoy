@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 type SkuOption = {
   id: string;
@@ -12,10 +13,10 @@ type SkuOption = {
 
 type Props = {
   group: SkuOption[];
-  onMerged: () => void;
 };
 
-export function SkuMergeDialog({ group, onMerged }: Props) {
+export function SkuMergeDialog({ group }: Props) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [targetId, setTargetId] = useState(group[0].id);
   const [loading, setLoading] = useState(false);
@@ -40,7 +41,7 @@ export function SkuMergeDialog({ group, onMerged }: Props) {
         return;
       }
       setOpen(false);
-      onMerged();
+      router.refresh();
     } catch {
       setError("Сеть недоступна");
       setLoading(false);
