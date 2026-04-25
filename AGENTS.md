@@ -100,7 +100,37 @@ PO → Architect → Developer → Reviewer → QA
 
 Конфигурация — [`.mcp.json`](./.mcp.json). Подробности — [`docs/mcp-servers.md`](./docs/mcp-servers.md).
 
-Подключены: `postgres` (read-only), `filesystem` (scoped на репо), `playwright` (E2E).
+Подключены: `postgres` (read-only), `filesystem` (scoped на репо), `playwright` (E2E), `github-actions` (расширенный GitHub API с actions:write).
+
+### `github-actions` MCP — настройка PAT
+
+Базовый GitHub MCP даёт агенту PR/issue/file/branch ops. `github-actions` MCP — это второй, отдельный сервер, который добавляет `dispatch_workflow` (триггер `workflow_dispatch`-event'ов на наших workflow'ах: `timeweb-manage.yml`, `deploy.yml`, `_run-migration.yml` и т.д.).
+
+**Что нужно сделать одноразово:**
+
+1. Создать **fine-grained Personal Access Token** на https://github.com/settings/personal-access-tokens/new:
+   - **Repository access:** Only select repositories → `aylisrg/Platform-Delovoy`
+   - **Repository permissions:**
+     - `Actions` → Read and write _(нужно для dispatch_workflow)_
+     - `Contents` → Read and write
+     - `Pull requests` → Read and write
+     - `Issues` → Read and write
+     - `Metadata` → Read (auto)
+   - Срок действия — 90 дней (или сколько комфортно), потом ротировать.
+
+2. Сохранить токен в окружение Claude Code как `GITHUB_PERSONAL_ACCESS_TOKEN`. Если работаешь в Claude Code Web → проектные env vars в UI; если локально → `export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...` в `.zshrc`/`.bashrc` или `direnv` `.envrc`.
+
+3. Перезапустить Claude Code-сессию — MCP-серверы поднимаются на старте, новые tools (`mcp__github-actions__*`) появятся в списке.
+
+**Что я смогу после этого:**
+- Триггерить прод-диагностику самостоятельно: `dispatch_workflow timeweb-manage.yml action=server-status` → читать output ран'а → ставить диагноз без вовлечения тебя.
+- Запускать миграции через `_run-migration.yml`, deploy через `deploy.yml` (но ровно по делу, не на каждый чих).
+- Логи контейнеров через `timeweb-manage.yml action=server-logs`.
+
+**Безопасность:**
+- PAT никогда не комитится — `.mcp.json` ссылается только на `${GITHUB_PERSONAL_ACCESS_TOKEN}`, значение приходит из окружения.
+- Fine-grained scope ограничен одним репо — даже если токен утечёт, blast radius минимальный.
+- Любой деструктивный workflow-вызов (deploy, migration) Claude согласовывает с тобой до запуска (см. CLAUDE.md → "Executing actions with care").
 
 ## Параллельная работа агентов и мерж-протокол
 

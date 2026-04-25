@@ -27,6 +27,17 @@
         "@modelcontextprotocol/server-playwright"
       ],
       "description": "Browser automation for QA agent — E2E smoke tests, visual regressions."
+    },
+    "github-actions": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "description": "Расширенный GitHub MCP с actions:write scope. Параллельно с базовым harness-MCP — даёт workflow_dispatch для timeweb-manage.yml (server-status, server-logs, disk-cleanup), trigger deploy.yml, etc. Tools под namespace mcp__github-actions__*. Требует PAT в env (см. AGENTS.md → MCP servers)."
     }
   }
 }
