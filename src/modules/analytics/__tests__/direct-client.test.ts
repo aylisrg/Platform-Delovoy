@@ -34,8 +34,9 @@ describe("DirectClient", () => {
       impressions: 1000,
       clicks: 50,
       ctr: 5.0,
-      cost: 1500.50,
+      cost: 1500.5,
       avgCpc: 30.01,
+      costShare: 0,
     });
   });
 
@@ -47,11 +48,12 @@ describe("DirectClient", () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        text: async () => "CampaignId\tCampaignName\tCampaignStatus\tImpressions\tClicks\tCtr\tCost\tAvgCpc",
+        text: async () =>
+          "CampaignId\tCampaignName\tCampaignStatus\tImpressions\tClicks\tCtr\tCost\tAvgCpc",
       });
 
     const result = await client.getCampaignStats("2026-04-01", "2026-04-15");
-    expect(result).toHaveLength(0); // Only header, no data rows
+    expect(result).toHaveLength(0);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
@@ -64,5 +66,76 @@ describe("DirectClient", () => {
     await expect(
       client.getCampaignStats("2026-04-01", "2026-04-15")
     ).rejects.toThrow("YANDEX_DIRECT_ERROR");
+  });
+
+  describe("getAccountBalance", () => {
+    it("returns manual balance when env var is set and API fails", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "forbidden",
+      });
+
+      const result = await client.getAccountBalance("12500.50");
+      expect(result.amount).toBe(12500.5);
+      expect(result.source).toBe("manual_env");
+      expect(result.currency).toBe("RUB");
+    });
+
+    it("returns unavailable when API fails and no manual env", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "forbidden",
+      });
+
+      const result = await client.getAccountBalance(undefined);
+      expect(result.amount).toBeNull();
+      expect(result.source).toBe("unavailable");
+      expect(result.message).toContain("YANDEX_DIRECT_BALANCE_MANUAL");
+    });
+
+    it("preserves currency from API even when balance is unavailable", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            Clients: [{ Login: "test-login", Currency: "USD", AccountQuality: 95 }],
+          },
+        }),
+      });
+
+      const result = await client.getAccountBalance(undefined);
+      expect(result.currency).toBe("USD");
+      expect(result.source).toBe("unavailable");
+    });
+
+    it("returns manual balance combined with API currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            Clients: [{ Login: "test-login", Currency: "RUB", AccountQuality: 100 }],
+          },
+        }),
+      });
+
+      const result = await client.getAccountBalance("9 999,99");
+      expect(result.amount).toBe(9999.99);
+      expect(result.currency).toBe("RUB");
+      expect(result.source).toBe("manual_env");
+    });
+
+    it("ignores invalid manual balance value", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "forbidden",
+      });
+
+      const result = await client.getAccountBalance("not-a-number");
+      expect(result.amount).toBeNull();
+      expect(result.source).toBe("unavailable");
+    });
   });
 });

@@ -18,7 +18,8 @@ export type GoalConversion = {
   goalName: string;
   reaches: number;
   conversionRate: number;
-  costPerConversion: number | null;
+  shareOfConversions: number; // % from total reaches across all goals
+  attributedCost: number | null; // proportional ad-spend share (totalCost * share)
 };
 
 export type TrafficSource = {
@@ -38,6 +39,7 @@ export type CampaignStats = {
   ctr: number;
   cost: number;
   avgCpc: number;
+  costShare: number; // % of total ad spend across all campaigns in period
 };
 
 export type AdvertisingSummary = {
@@ -48,24 +50,30 @@ export type AdvertisingSummary = {
   avgCpc: number;
 };
 
-// --- Aggregates ---
-
-export type ConversionCost = {
-  goalName: string;
-  reaches: number;
-  totalCost: number;
-  costPerReach: number | null;
+export type AccountBalance = {
+  amount: number | null;
+  currency: string;
+  source: "agency_api" | "manual_env" | "unavailable";
+  message: string | null;
 };
+
+// --- Aggregates ---
 
 export type OverviewData = {
   period: DateRange;
   traffic: TrafficSummary;
+  trafficSources: TrafficSource[];
   advertising: AdvertisingSummary;
+  balance: AccountBalance;
   conversions: GoalConversion[];
+  campaigns: CampaignStats[];
   summary: {
     totalConversions: number;
     totalCost: number;
     avgCostPerConversion: number | null;
+    activeCampaigns: number;
+    bestCampaignByCtr: { name: string; ctr: number } | null;
+    worstCampaignByCtr: { name: string; ctr: number } | null;
   };
   cachedAt: string;
 };
@@ -85,6 +93,5 @@ export type ConversionsData = {
     totalGoalReaches: number;
     overallConversionRate: number;
   };
-  costPerConversion: ConversionCost[];
   cachedAt: string;
 };

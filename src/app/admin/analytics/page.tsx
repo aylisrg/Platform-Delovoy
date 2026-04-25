@@ -1,30 +1,75 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import type { OverviewData, CampaignsData, ConversionsData } from "@/modules/analytics/types";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import type {
+  OverviewData,
+  CampaignsData,
+  ConversionsData,
+  CampaignStats,
+} from "@/modules/analytics/types";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 type Period = "today" | "7d" | "30d";
+type SortKey = "cost" | "clicks" | "impressions" | "ctr" | "avgCpc" | "costShare";
 
-function formatCurrency(n: number | null) {
+function formatCurrency(n: number | null, currency = "RUB") {
   if (n === null) return "—";
-  return `${n.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ₽`;
+  const symbol = currency === "RUB" ? "₽" : currency;
+  return `${n.toLocaleString("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} ${symbol}`;
 }
 
 function formatPct(n: number) {
   return `${n.toFixed(2)}%`;
 }
 
+function formatInt(n: number) {
+  return n.toLocaleString("ru-RU");
+}
+
+function formatPeriod(dateFrom: string, dateTo: string) {
+  const f = formatDate(dateFrom);
+  const t = formatDate(dateTo);
+  return f === t ? f : `${f} — ${t}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    ACCEPTED: "bg-green-100 text-green-800",
-    DRAFT: "bg-yellow-100 text-yellow-800",
-    ARCHIVED: "bg-zinc-100 text-zinc-500",
-    ENDED: "bg-zinc-100 text-zinc-500",
+  const styles: Record<string, string> = {
+    ACCEPTED: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    DRAFT: "bg-amber-50 text-amber-700 border-amber-200",
+    ARCHIVED: "bg-zinc-50 text-zinc-500 border-zinc-200",
+    ENDED: "bg-zinc-50 text-zinc-500 border-zinc-200",
+    SUSPENDED: "bg-rose-50 text-rose-700 border-rose-200",
+  };
+  const labels: Record<string, string> = {
+    ACCEPTED: "Активна",
+    DRAFT: "Черновик",
+    ARCHIVED: "Архив",
+    ENDED: "Завершена",
+    SUSPENDED: "Остановлена",
   };
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[status] ?? "bg-zinc-100 text-zinc-600"}`}>
-      {status}
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
+        styles[status] ?? "bg-zinc-50 text-zinc-600 border-zinc-200"
+      }`}
+    >
+      {labels[status] ?? status}
     </span>
+  );
+}
+
+function Sparkbar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+  return (
+    <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
+      <div
+        className="h-full bg-blue-500 rounded-full transition-all"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
   );
 }
 
@@ -35,6 +80,8 @@ export default function AnalyticsPage() {
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
   const [conversions, setConversions] = useState<ConversionsData | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("cost");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const fetchData = useCallback(async (p: Period, force = false) => {
     setLoading(true);
@@ -69,20 +116,57 @@ export default function AnalyticsPage() {
   }, [period, fetchData]);
 
   const handleRefresh = () => fetchData(period, true);
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const sortedCampaigns = useMemo(() => {
+    if (!campaigns) return [];
+    const arr = [...campaigns.campaigns];
+    arr.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const diff = av - bv;
+      return sortDir === "asc" ? diff : -diff;
+    });
+    return arr;
+  }, [campaigns, sortKey, sortDir]);
+
+  const balanceCurrency = overview?.balance.currency ?? "RUB";
+  const totalSpent = overview?.advertising.cost ?? 0;
+  const balance = overview?.balance.amount ?? null;
+
+  const balanceWarn =
+    balance !== null && totalSpent > 0 && balance < totalSpent * 0.2;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Аналитика рекламы</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs uppercase tracking-wide text-zinc-400 font-semibold">
+              Маркетинг
+            </span>
+            {overview && (
+              <span className="text-xs text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
+                {formatPeriod(overview.period.dateFrom, overview.period.dateTo)}
+              </span>
+            )}
+          </div>
+          <h1 className="text-2xl font-bold text-zinc-900">
+            Аналитика рекламы
+          </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            Яндекс.Директ + Яндекс.Метрика
+            Яндекс.Директ и Яндекс.Метрика — единая сводка для рекламного аналитика
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Period selector */}
-          <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+          <div className="flex rounded-lg border border-zinc-200 overflow-hidden bg-white">
             {(["today", "7d", "30d"] as const).map((p) => (
               <button
                 key={p}
@@ -100,17 +184,17 @@ export default function AnalyticsPage() {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
           >
-            {loading ? "Загрузка..." : "Обновить"}
+            {loading ? "Загрузка…" : "Обновить"}
           </button>
         </div>
       </div>
 
       {/* Cached at */}
       {overview?.cachedAt && (
-        <p className="text-xs text-zinc-400">
-          Данные обновлены: {new Date(overview.cachedAt).toLocaleString("ru-RU")}
+        <p className="text-xs text-zinc-400 -mt-3">
+          Обновлено: {formatDateTime(overview.cachedAt)} · кэш 15 минут
         </p>
       )}
 
@@ -130,158 +214,568 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Overview cards */}
       {overview && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Traffic */}
-            <Card title="Визиты" value={overview.traffic.visits.toLocaleString("ru-RU")} sub="уникальных пользователей" subValue={overview.traffic.users.toLocaleString("ru-RU")} />
-            <Card title="Просмотры страниц" value={overview.traffic.pageviews.toLocaleString("ru-RU")} sub="отказы" subValue={formatPct(overview.traffic.bounceRate)} />
-            <Card title="Ср. время на сайте" value={`${Math.round(overview.traffic.avgVisitDuration)} сек`} />
-
-            {/* Advertising */}
-            <Card title="Показы рекламы" value={overview.advertising.impressions.toLocaleString("ru-RU")} sub="клики" subValue={overview.advertising.clicks.toLocaleString("ru-RU")} />
-            <Card title="CTR" value={formatPct(overview.advertising.ctr)} sub="ср. цена клика" subValue={formatCurrency(overview.advertising.avgCpc)} />
-            <Card title="Расход на рекламу" value={formatCurrency(overview.advertising.cost)} highlight />
-
-            {/* Summary */}
-            <Card title="Всего конверсий" value={overview.summary.totalConversions.toString()} />
-            <Card title="Ср. стоимость конверсии" value={formatCurrency(overview.summary.avgCostPerConversion)} highlight />
+          {/* === ROW 1: Money & balance === */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <BigStat
+              label="Расход за период"
+              value={formatCurrency(totalSpent, balanceCurrency)}
+              hint={`${overview.summary.activeCampaigns} активных кампаний`}
+              tone="primary"
+            />
+            <BigStat
+              label="Баланс рекламного счёта"
+              value={
+                balance !== null
+                  ? formatCurrency(balance, balanceCurrency)
+                  : "—"
+              }
+              hint={
+                overview.balance.source === "agency_api"
+                  ? "Через API Директа"
+                  : overview.balance.source === "manual_env"
+                    ? "Из переменной окружения"
+                    : "Недоступно — настройте YANDEX_DIRECT_BALANCE_MANUAL"
+              }
+              tone={balanceWarn ? "warn" : balance === null ? "muted" : "default"}
+            />
+            <BigStat
+              label="Стоимость конверсии"
+              value={formatCurrency(
+                overview.summary.avgCostPerConversion,
+                balanceCurrency
+              )}
+              hint={`${overview.summary.totalConversions} конверсий за период`}
+              tone="default"
+            />
           </div>
 
-          {/* Conversions by goal */}
-          {overview.conversions.length > 0 && (
-            <Section title="Конверсии по целям">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-200 text-left text-zinc-500">
-                      <th className="pb-2 font-medium">Цель</th>
-                      <th className="pb-2 font-medium text-right">Достижений</th>
-                      <th className="pb-2 font-medium text-right">Конверсия</th>
-                      <th className="pb-2 font-medium text-right">Стоимость</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {overview.conversions.map((c) => (
-                      <tr key={c.goalId} className="border-b border-zinc-100">
-                        <td className="py-2.5 text-zinc-900">{c.goalName}</td>
-                        <td className="py-2.5 text-right font-medium">{c.reaches}</td>
-                        <td className="py-2.5 text-right">{formatPct(c.conversionRate)}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(c.costPerConversion)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {balance !== null && totalSpent > 0 && (
+            <BalanceBar
+              balance={balance}
+              spent={totalSpent}
+              currency={balanceCurrency}
+            />
+          )}
+
+          {/* === ROW 2: Traffic & engagement === */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Stat
+              label="Визиты"
+              value={formatInt(overview.traffic.visits)}
+              sub={`${formatInt(overview.traffic.users)} пользователей`}
+            />
+            <Stat
+              label="Просмотры"
+              value={formatInt(overview.traffic.pageviews)}
+              sub={`Отказы: ${formatPct(overview.traffic.bounceRate)}`}
+            />
+            <Stat
+              label="Среднее время"
+              value={`${Math.round(overview.traffic.avgVisitDuration)} сек`}
+              sub="на сайте"
+            />
+            <Stat
+              label="Конверсия сайта"
+              value={
+                overview.traffic.visits > 0
+                  ? formatPct(
+                      (overview.summary.totalConversions /
+                        overview.traffic.visits) *
+                        100
+                    )
+                  : "—"
+              }
+              sub={`${overview.summary.totalConversions} достижений целей`}
+            />
+          </div>
+
+          {/* === ROW 3: Ad performance === */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Stat
+              label="Показы рекламы"
+              value={formatInt(overview.advertising.impressions)}
+            />
+            <Stat
+              label="Клики"
+              value={formatInt(overview.advertising.clicks)}
+              sub={`CTR ${formatPct(overview.advertising.ctr)}`}
+            />
+            <Stat
+              label="Средний CPC"
+              value={formatCurrency(overview.advertising.avgCpc, balanceCurrency)}
+            />
+            <Stat
+              label="Лучшая по CTR"
+              value={
+                overview.summary.bestCampaignByCtr
+                  ? formatPct(overview.summary.bestCampaignByCtr.ctr)
+                  : "—"
+              }
+              sub={overview.summary.bestCampaignByCtr?.name ?? "нет данных"}
+            />
+          </div>
+
+          {/* === Funnel === */}
+          {conversions && (
+            <Section title="Воронка: визиты → конверсии">
+              <Funnel
+                visits={conversions.funnel.totalVisits}
+                clicks={overview.advertising.clicks}
+                conversions={conversions.funnel.totalGoalReaches}
+                conversionRate={conversions.funnel.overallConversionRate}
+              />
             </Section>
           )}
+
+          {/* === Campaigns table === */}
+          {campaigns && campaigns.campaigns.length > 0 && (
+            <Section
+              title="Результаты по рекламным кампаниям"
+              subtitle="Сортируется по любому столбцу — клик по заголовку"
+            >
+              <CampaignsTable
+                campaigns={sortedCampaigns}
+                totals={campaigns.totals}
+                currency={balanceCurrency}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+            </Section>
+          )}
+
+          {/* === Goals breakdown === */}
+          {overview.conversions.length > 0 && (
+            <Section
+              title="Конверсии по целям"
+              subtitle="Расход распределён пропорционально доле каждой цели"
+            >
+              <GoalsTable
+                goals={overview.conversions}
+                currency={balanceCurrency}
+              />
+            </Section>
+          )}
+
+          {/* === Traffic sources === */}
+          {overview.trafficSources.length > 0 && (
+            <Section title="Источники трафика">
+              <TrafficSourcesTable sources={overview.trafficSources} />
+            </Section>
+          )}
+
+          {/* === Footer notes === */}
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-500 space-y-1">
+            <p>
+              <strong className="text-zinc-700">Методология:</strong> расход — из
+              отчёта CAMPAIGN_PERFORMANCE_REPORT (с НДС). Стоимость конверсии =
+              расход / общее число достижений целей. Доля цели — пропорция
+              достижений, attributed_cost = расход × доля.
+            </p>
+            <p>
+              Кэш данных — 15 минут (5 минут для баланса). Принудительно обновить:
+              кнопка «Обновить».
+            </p>
+          </div>
         </>
       )}
-
-      {/* Campaigns table */}
-      {campaigns && campaigns.campaigns.length > 0 && (
-        <Section title="Кампании Яндекс.Директ">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 text-left text-zinc-500">
-                  <th className="pb-2 font-medium">Кампания</th>
-                  <th className="pb-2 font-medium">Статус</th>
-                  <th className="pb-2 font-medium text-right">Показы</th>
-                  <th className="pb-2 font-medium text-right">Клики</th>
-                  <th className="pb-2 font-medium text-right">CTR</th>
-                  <th className="pb-2 font-medium text-right">Расход</th>
-                  <th className="pb-2 font-medium text-right">CPC</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaigns.campaigns.map((c) => {
-                  const bestCtr = Math.max(...campaigns.campaigns.map((x) => x.ctr));
-                  const worstCtr = Math.min(...campaigns.campaigns.filter((x) => x.ctr > 0).map((x) => x.ctr));
-                  return (
-                    <tr key={c.campaignId} className="border-b border-zinc-100">
-                      <td className="py-2.5 text-zinc-900 font-medium">{c.campaignName}</td>
-                      <td className="py-2.5"><StatusBadge status={c.status} /></td>
-                      <td className="py-2.5 text-right">{c.impressions.toLocaleString("ru-RU")}</td>
-                      <td className="py-2.5 text-right">{c.clicks.toLocaleString("ru-RU")}</td>
-                      <td className="py-2.5 text-right">
-                        <span className={c.ctr === bestCtr ? "text-green-600 font-medium" : c.ctr === worstCtr && c.ctr > 0 ? "text-orange-500" : ""}>
-                          {formatPct(c.ctr)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right">{formatCurrency(c.cost)}</td>
-                      <td className="py-2.5 text-right">{formatCurrency(c.avgCpc)}</td>
-                    </tr>
-                  );
-                })}
-                {/* Totals row */}
-                <tr className="font-medium bg-zinc-50">
-                  <td className="py-2.5 text-zinc-900" colSpan={2}>Итого</td>
-                  <td className="py-2.5 text-right">{campaigns.totals.impressions.toLocaleString("ru-RU")}</td>
-                  <td className="py-2.5 text-right">{campaigns.totals.clicks.toLocaleString("ru-RU")}</td>
-                  <td className="py-2.5 text-right">{formatPct(campaigns.totals.ctr)}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(campaigns.totals.cost)}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(campaigns.totals.avgCpc)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </Section>
-      )}
-
-      {/* Funnel */}
-      {conversions && (
-        <Section title="Воронка конверсий">
-          <div className="flex items-center gap-4 text-sm">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-zinc-900">{conversions.funnel.totalVisits}</div>
-              <div className="text-zinc-500">Визиты</div>
-            </div>
-            <div className="text-zinc-300 text-xl">→</div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-zinc-900">{conversions.funnel.totalGoalReaches}</div>
-              <div className="text-zinc-500">Конверсии</div>
-            </div>
-            <div className="text-zinc-300 text-xl">→</div>
-            <div className="text-center">
-              <div className={`text-2xl font-bold ${conversions.funnel.overallConversionRate < 1 ? "text-orange-500" : "text-green-600"}`}>
-                {formatPct(conversions.funnel.overallConversionRate)}
-              </div>
-              <div className="text-zinc-500">Конверсия</div>
-            </div>
-          </div>
-        </Section>
-      )}
     </div>
   );
 }
 
-function Card({ title, value, sub, subValue, highlight }: {
-  title: string;
+// === Components ===
+
+function BigStat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone: "primary" | "default" | "warn" | "muted";
+}) {
+  const styles = {
+    primary: "border-blue-200 bg-blue-50",
+    default: "border-zinc-200 bg-white",
+    warn: "border-amber-300 bg-amber-50",
+    muted: "border-dashed border-zinc-200 bg-zinc-50",
+  };
+  return (
+    <div className={`rounded-xl border p-5 ${styles[tone]}`}>
+      <p className="text-sm text-zinc-500 mb-1">{label}</p>
+      <p
+        className={`text-3xl font-bold tracking-tight ${
+          tone === "muted" ? "text-zinc-400" : "text-zinc-900"
+        }`}
+      >
+        {value}
+      </p>
+      {hint && <p className="text-xs text-zinc-500 mt-2">{hint}</p>}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
   value: string;
   sub?: string;
-  subValue?: string;
-  highlight?: boolean;
 }) {
   return (
-    <div className={`rounded-xl border p-5 ${highlight ? "border-blue-200 bg-blue-50" : "border-zinc-200 bg-white"}`}>
-      <p className="text-sm text-zinc-500">{title}</p>
-      <p className="text-2xl font-bold text-zinc-900 mt-1">{value}</p>
-      {sub && (
-        <p className="text-xs text-zinc-400 mt-2">
-          {sub}: <span className="font-medium text-zinc-600">{subValue}</span>
-        </p>
-      )}
+    <div className="rounded-xl border border-zinc-200 bg-white p-4">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className="text-xl font-semibold text-zinc-900 mt-1">{value}</p>
+      {sub && <p className="text-xs text-zinc-400 mt-1 truncate">{sub}</p>}
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5">
-      <h2 className="text-lg font-semibold text-zinc-900 mb-4">{title}</h2>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
+        {subtitle && <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>}
+      </div>
       {children}
+    </div>
+  );
+}
+
+function BalanceBar({
+  balance,
+  spent,
+  currency,
+}: {
+  balance: number;
+  spent: number;
+  currency: string;
+}) {
+  const total = balance + spent;
+  const balancePct = total > 0 ? (balance / total) * 100 : 0;
+  const spentPct = total > 0 ? (spent / total) * 100 : 0;
+  const burnRate = spent > 0 ? balance / (spent / 30) : null;
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-medium text-zinc-700">
+          Соотношение «потрачено / на счёте»
+        </h3>
+        {burnRate !== null && (
+          <p className="text-xs text-zinc-500">
+            При текущем темпе хватит на ~{Math.round(burnRate)} дн.
+          </p>
+        )}
+      </div>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-100">
+        <div
+          className="bg-blue-500 transition-all"
+          style={{ width: `${spentPct}%` }}
+          title={`Потрачено: ${spent}`}
+        />
+        <div
+          className="bg-emerald-500 transition-all"
+          style={{ width: `${balancePct}%` }}
+          title={`Баланс: ${balance}`}
+        />
+      </div>
+      <div className="flex items-center justify-between mt-2 text-xs">
+        <span className="text-blue-600 font-medium">
+          Потрачено: {formatCurrency(spent, currency)}
+        </span>
+        <span className="text-emerald-600 font-medium">
+          На счёте: {formatCurrency(balance, currency)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Funnel({
+  visits,
+  clicks,
+  conversions,
+  conversionRate,
+}: {
+  visits: number;
+  clicks: number;
+  conversions: number;
+  conversionRate: number;
+}) {
+  const max = Math.max(visits, clicks, conversions, 1);
+  const rows = [
+    { label: "Визиты на сайт", value: visits, color: "bg-zinc-400" },
+    { label: "Клики из рекламы", value: clicks, color: "bg-blue-500" },
+    { label: "Конверсии", value: conversions, color: "bg-emerald-500" },
+  ];
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.label}>
+          <div className="flex items-center justify-between text-sm mb-1">
+            <span className="text-zinc-600">{r.label}</span>
+            <span className="font-semibold text-zinc-900">
+              {formatInt(r.value)}
+            </span>
+          </div>
+          <div className="h-2 w-full bg-zinc-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${r.color} rounded-full transition-all`}
+              style={{
+                width: `${Math.max(2, Math.round((r.value / max) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      ))}
+      <div className="text-xs text-zinc-500 pt-1">
+        Сквозная конверсия (визит → цель):{" "}
+        <span
+          className={`font-semibold ${
+            conversionRate < 1 ? "text-amber-600" : "text-emerald-600"
+          }`}
+        >
+          {formatPct(conversionRate)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SortHeader({
+  label,
+  keyName,
+  align = "right",
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  keyName: SortKey;
+  align?: "left" | "right";
+  sortKey: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th
+      className={`pb-2 px-3 font-medium cursor-pointer hover:text-zinc-700 select-none ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+      onClick={() => onSort(keyName)}
+    >
+      {label}
+      {sortKey === keyName && (
+        <span className="ml-1 text-zinc-400">{sortDir === "asc" ? "↑" : "↓"}</span>
+      )}
+    </th>
+  );
+}
+
+function CampaignsTable({
+  campaigns,
+  totals,
+  currency,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  campaigns: CampaignStats[];
+  totals: { impressions: number; clicks: number; ctr: number; cost: number; avgCpc: number };
+  currency: string;
+  sortKey: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+}) {
+  const maxCost = Math.max(...campaigns.map((c) => c.cost), 1);
+  const ctrs = campaigns.filter((c) => c.impressions > 0).map((c) => c.ctr);
+  const bestCtr = ctrs.length > 0 ? Math.max(...ctrs) : 0;
+  const worstCtr = ctrs.length > 1 ? Math.min(...ctrs) : -1;
+
+  const sortProps = { sortKey, sortDir, onSort };
+
+  return (
+    <div className="overflow-x-auto -mx-5">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-zinc-200 text-zinc-500">
+            <th className="pb-2 px-3 text-left font-medium">Кампания</th>
+            <th className="pb-2 px-3 text-left font-medium">Статус</th>
+            <SortHeader label="Показы" keyName="impressions" {...sortProps} />
+            <SortHeader label="Клики" keyName="clicks" {...sortProps} />
+            <SortHeader label="CTR" keyName="ctr" {...sortProps} />
+            <SortHeader label="CPC" keyName="avgCpc" {...sortProps} />
+            <SortHeader label="Расход" keyName="cost" {...sortProps} />
+            <SortHeader label="Доля" keyName="costShare" {...sortProps} />
+          </tr>
+        </thead>
+        <tbody>
+          {campaigns.map((c) => (
+            <tr
+              key={c.campaignId}
+              className="border-b border-zinc-100 hover:bg-zinc-50/50"
+            >
+              <td className="py-3 px-3 text-zinc-900 font-medium max-w-[280px]">
+                <div className="truncate" title={c.campaignName}>
+                  {c.campaignName || `#${c.campaignId}`}
+                </div>
+              </td>
+              <td className="py-3 px-3">
+                <StatusBadge status={c.status} />
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
+                {formatInt(c.impressions)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
+                {formatInt(c.clicks)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums">
+                <span
+                  className={
+                    c.ctr === bestCtr && c.impressions > 0
+                      ? "text-emerald-600 font-semibold"
+                      : c.ctr === worstCtr && worstCtr > -1
+                        ? "text-amber-600"
+                        : "text-zinc-700"
+                  }
+                >
+                  {formatPct(c.ctr)}
+                </span>
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
+                {formatCurrency(c.avgCpc, currency)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums">
+                <div className="font-semibold text-zinc-900">
+                  {formatCurrency(c.cost, currency)}
+                </div>
+                <div className="mt-1">
+                  <Sparkbar value={c.cost} max={maxCost} />
+                </div>
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-500">
+                {formatPct(c.costShare)}
+              </td>
+            </tr>
+          ))}
+          <tr className="font-medium bg-zinc-50">
+            <td className="py-3 px-3 text-zinc-900" colSpan={2}>
+              Итого по {campaigns.length}{" "}
+              {campaigns.length === 1 ? "кампании" : "кампаниям"}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">
+              {formatInt(totals.impressions)}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">
+              {formatInt(totals.clicks)}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">
+              {formatPct(totals.ctr)}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">
+              {formatCurrency(totals.avgCpc, currency)}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">
+              {formatCurrency(totals.cost, currency)}
+            </td>
+            <td className="py-3 px-3 text-right tabular-nums">100%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GoalsTable({
+  goals,
+  currency,
+}: {
+  goals: OverviewData["conversions"];
+  currency: string;
+}) {
+  return (
+    <div className="overflow-x-auto -mx-5">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-zinc-200 text-zinc-500 text-left">
+            <th className="pb-2 px-3 font-medium">Цель</th>
+            <th className="pb-2 px-3 text-right font-medium">Достижений</th>
+            <th className="pb-2 px-3 text-right font-medium">CR сайта</th>
+            <th className="pb-2 px-3 text-right font-medium">Доля от целей</th>
+            <th className="pb-2 px-3 text-right font-medium">
+              Распределённый расход
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {goals.map((g) => (
+            <tr
+              key={g.goalId}
+              className="border-b border-zinc-100 hover:bg-zinc-50/50"
+            >
+              <td className="py-3 px-3 text-zinc-900 font-medium">
+                {g.goalName}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums">
+                {formatInt(g.reaches)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-600">
+                {formatPct(g.conversionRate)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-600">
+                {formatPct(g.shareOfConversions)}
+              </td>
+              <td className="py-3 px-3 text-right tabular-nums text-zinc-700">
+                {formatCurrency(g.attributedCost, currency)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TrafficSourcesTable({
+  sources,
+}: {
+  sources: OverviewData["trafficSources"];
+}) {
+  const max = Math.max(...sources.map((s) => s.visits), 1);
+  return (
+    <div className="space-y-2">
+      {sources.map((s) => (
+        <div key={s.source} className="flex items-center gap-3">
+          <div className="w-32 text-sm text-zinc-700 truncate" title={s.source}>
+            {s.source}
+          </div>
+          <div className="flex-1">
+            <Sparkbar value={s.visits} max={max} />
+          </div>
+          <div className="w-20 text-right text-sm tabular-nums text-zinc-700">
+            {formatInt(s.visits)}
+          </div>
+          <div className="w-14 text-right text-xs tabular-nums text-zinc-500">
+            {formatPct(s.percentage)}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

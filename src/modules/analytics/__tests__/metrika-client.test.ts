@@ -49,6 +49,33 @@ describe("MetrikaClient", () => {
     expect(result[0]).toEqual({ id: 1, name: "Бронирование беседки" });
   });
 
+  it("returns raw goal conversions without cost (cost attribution lives in service)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          goals: [
+            { id: 10, name: "Бронирование", type: "action" },
+            { id: 11, name: "Заявка на офис", type: "action" },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          totals: [42, 3.5, 15, 1.2],
+          data: [],
+          query: { metrics: [] },
+        }),
+      });
+
+    const result = await client.getGoalConversions("2026-04-01", "2026-04-15");
+    expect(result).toEqual([
+      { goalId: 10, goalName: "Бронирование", reaches: 42, conversionRate: 3.5 },
+      { goalId: 11, goalName: "Заявка на офис", reaches: 15, conversionRate: 1.2 },
+    ]);
+  });
+
   it("throws on API error", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

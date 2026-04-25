@@ -1,4 +1,11 @@
-import type { TrafficSummary, GoalConversion, TrafficSource } from "./types";
+import type { TrafficSummary, TrafficSource } from "./types";
+
+export type RawGoalConversion = {
+  goalId: number;
+  goalName: string;
+  reaches: number;
+  conversionRate: number;
+};
 
 const METRIKA_STAT_URL = "https://api-metrika.yandex.net/stat/v1/data";
 const METRIKA_MGMT_URL = "https://api-metrika.yandex.net/management/v1";
@@ -61,7 +68,7 @@ export class MetrikaClient {
     };
   }
 
-  async getGoalConversions(dateFrom: string, dateTo: string): Promise<GoalConversion[]> {
+  async getGoalConversions(dateFrom: string, dateTo: string): Promise<RawGoalConversion[]> {
     const goals = await this.getGoals();
     if (goals.length === 0) return [];
 
@@ -83,7 +90,6 @@ export class MetrikaClient {
       goalName: goal.name,
       reaches: Math.round(totals[i * 2] ?? 0),
       conversionRate: Math.round((totals[i * 2 + 1] ?? 0) * 100) / 100,
-      costPerConversion: null,
     }));
   }
 
