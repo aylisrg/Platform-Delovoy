@@ -126,6 +126,66 @@ describe("createFeedbackSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // === officeId (optional FK to Office.id) ===
+
+  it("accepts a valid CUID as officeId", () => {
+    const result = createFeedbackSchema.safeParse({
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+      officeId: "ckabcdefghij1234567890ab",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.officeId).toBe("ckabcdefghij1234567890ab");
+  });
+
+  it("treats empty officeId string as undefined (FormData friendly)", () => {
+    const result = createFeedbackSchema.safeParse({
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+      officeId: "",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.officeId).toBeUndefined();
+  });
+
+  it("treats whitespace-only officeId as undefined", () => {
+    const result = createFeedbackSchema.safeParse({
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+      officeId: "   ",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.officeId).toBeUndefined();
+  });
+
+  it("rejects officeId with invalid format", () => {
+    const result = createFeedbackSchema.safeParse({
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+      officeId: "not-a-cuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("succeeds when officeId is omitted entirely", () => {
+    const result = createFeedbackSchema.safeParse({
+      type: "BUG",
+      description: "Описание длиной 10+ символов",
+      pageUrl: "/cafe",
+      isUrgent: false,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.officeId).toBeUndefined();
+  });
 });
 
 describe("feedbackFilterSchema", () => {

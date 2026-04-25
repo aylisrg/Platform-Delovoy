@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { OfficeCombobox, type OfficeOption } from "@/components/ui/office-combobox";
 
 type FeedbackType = "BUG" | "SUGGESTION";
 
@@ -11,6 +12,7 @@ export function FeedbackButton() {
   const [type, setType] = useState<FeedbackType>("BUG");
   const [description, setDescription] = useState("");
   const [isUrgent, setIsUrgent] = useState(false);
+  const [office, setOffice] = useState<OfficeOption | null>(null);
   const [screenshot, setScreenshot] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -36,6 +38,9 @@ export function FeedbackButton() {
       formData.append("description", description);
       formData.append("pageUrl", window.location.pathname);
       formData.append("isUrgent", String(isUrgent));
+      if (office) {
+        formData.append("officeId", office.id);
+      }
       if (screenshot) {
         formData.append("screenshot", screenshot);
       }
@@ -68,6 +73,7 @@ export function FeedbackButton() {
     setType("BUG");
     setDescription("");
     setIsUrgent(false);
+    setOffice(null);
     setScreenshot(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -190,6 +196,18 @@ export function FeedbackButton() {
                   <p className="mt-1 text-right text-xs text-zinc-400">
                     {description.length}/2000
                   </p>
+                </div>
+
+                {/* Office */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-500">
+                    Ваш офис (необязательно)
+                  </label>
+                  <OfficeCombobox
+                    value={office}
+                    onChange={setOffice}
+                    disabled={isSubmitting}
+                  />
                 </div>
 
                 {/* Screenshot */}

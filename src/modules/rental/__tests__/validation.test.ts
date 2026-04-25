@@ -19,6 +19,7 @@ import {
   dealFilterSchema,
   reorderDealSchema,
   reorderDealsSchema,
+  searchOfficeSchema,
 } from "@/modules/rental/validation";
 
 // === Office Schemas ===
@@ -736,6 +737,39 @@ describe("reorderDealsSchema", () => {
       newStage: "SHOWING",
       sortOrder: 0,
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("searchOfficeSchema", () => {
+  it("accepts a 1-character query", () => {
+    const result = searchOfficeSchema.safeParse({ q: "3" });
+    expect(result.success).toBe(true);
+  });
+
+  it("trims whitespace", () => {
+    const result = searchOfficeSchema.safeParse({ q: "  301  " });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.q).toBe("301");
+  });
+
+  it("rejects empty string", () => {
+    const result = searchOfficeSchema.safeParse({ q: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects whitespace-only string after trim", () => {
+    const result = searchOfficeSchema.safeParse({ q: "   " });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects strings longer than 50 chars", () => {
+    const result = searchOfficeSchema.safeParse({ q: "a".repeat(51) });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing q", () => {
+    const result = searchOfficeSchema.safeParse({});
     expect(result.success).toBe(false);
   });
 });

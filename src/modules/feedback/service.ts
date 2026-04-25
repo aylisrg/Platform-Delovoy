@@ -81,6 +81,17 @@ export async function createFeedback(
     throw new RateLimitError(limitError);
   }
 
+  // If officeId is provided, verify the office exists before insert.
+  // Without this check Prisma would surface a P2003 FK violation; we'd
+  // rather give the caller a clean "офис не найден" 422.
+  if (input.officeId) {
+    const office = await prisma.office.findUnique({
+      where: { id: input.officeId },
+      select: { id: true },
+    });
+    if (!office) throw new OfficeNotFoundError();
+  }
+
   // Create feedback item
   const feedback = await prisma.feedbackItem.create({
     data: {
@@ -90,6 +101,7 @@ export async function createFeedback(
       pageUrl: input.pageUrl,
       isUrgent: input.isUrgent,
       screenshotPath: input.screenshotPath ?? null,
+      officeId: input.officeId ?? null,
     },
     include: {
       user: { select: { id: true, name: true, email: true } },
@@ -190,6 +202,7 @@ export async function getFeedbackById(
     where: { id: feedbackId },
     include: {
       user: { select: { id: true, name: true, email: true } },
+      office: { select: { id: true, number: true, floor: true, building: true } },
       comments: {
         orderBy: { createdAt: "asc" },
       },
@@ -321,5 +334,12 @@ export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+export class OfficeNotFoundError extends Error {
+  constructor() {
+    super("Офис не найден");
+    this.name = "OfficeNotFoundError";
   }
 }

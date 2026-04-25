@@ -96,7 +96,10 @@ export default async function DashboardPage() {
     }),
     prisma.feedbackItem.findMany({
       where: { userId },
-      include: { comments: { orderBy: { createdAt: "asc" } } },
+      include: {
+        comments: { orderBy: { createdAt: "asc" } },
+        office: { select: { id: true, number: true, floor: true, building: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
@@ -294,7 +297,7 @@ export default async function DashboardPage() {
                 {feedbackItems.map((fb) => (
                   <div key={fb.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
                           fb.type === "BUG" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
                         }`}>
@@ -303,6 +306,11 @@ export default async function DashboardPage() {
                         {fb.isUrgent && (
                           <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                             СРОЧНО
+                          </span>
+                        )}
+                        {fb.office && (
+                          <span className="inline-block rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
+                            Корп. {fb.office.building}, эт. {fb.office.floor}, оф. {fb.office.number}
                           </span>
                         )}
                       </div>
