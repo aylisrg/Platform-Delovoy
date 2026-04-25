@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateRu } from "@/lib/format-date";
+import { SkuNameInput } from "@/components/admin/inventory/sku-name-input";
 
 const NAV_TABS = [
   { href: "/admin/inventory", label: "Остатки" },
@@ -214,8 +215,22 @@ export default function ReceiptsPage() {
             price: parseFloat(it.newPrice),
           }),
         });
-        const skuJson = await skuRes.json() as { success: boolean; data?: { id: string; name: string; category: string; unit: string }; error?: { message?: string } };
+        const skuJson = await skuRes.json() as {
+          success: boolean;
+          data?: { id: string; name: string; category: string; unit: string };
+          error?: { code?: string; message?: string; existingSkuId?: string; existingSkuName?: string };
+        };
         if (!skuJson.success || !skuJson.data) {
+          // If the SKU already exists, silently use it rather than blocking the receipt
+          if (skuJson.error?.code === "SKU_DUPLICATE" && skuJson.error.existingSkuId) {
+            const existingId = skuJson.error.existingSkuId;
+            const existingName = skuJson.error.existingSkuName ?? it.newName;
+            resolvedItems[i] = { ...it, skuId: existingId, isNew: false };
+            if (!skus.some((s) => s.id === existingId)) {
+              setSkus((prev) => [...prev, { id: existingId, name: existingName, category: it.newCategory || "Товары", unit: it.newUnit || "шт" }]);
+            }
+            continue;
+          }
           setBanner({ type: "error", text: skuJson.error?.message ?? `Не удалось создать товар "${it.newName}"` });
           setLoading(false);
           return;
@@ -456,14 +471,14 @@ export default function ReceiptsPage() {
                                 Отмена
                               </button>
                             </div>
-                            <input
-                              type="text"
+                            <SkuNameInput
                               value={item.newName}
-                              onChange={(e) => updateItem(i, "newName" as keyof ReceiptItem, e.target.value)}
-                              placeholder="Название *"
-                              className={`w-full rounded-lg border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${
-                                errors[`item_${i}_sku`] ? "border-red-400 bg-red-50" : "border-zinc-300"
-                              }`}
+                              onChange={(v) => updateItem(i, "newName" as keyof ReceiptItem, v)}
+                              skus={skus}
+                              onSelectExisting={(existing) => {
+                                updateItem(i, "skuId", existing.id);
+                              }}
+                              hasError={!!errors[`item_${i}_sku`]}
                             />
                             {errors[`item_${i}_sku`] && (
                               <p className="text-xs text-red-600">{errors[`item_${i}_sku`]}</p>
