@@ -49,10 +49,60 @@ PR #178 (`73b0226 feat(tasks)!: v2.0`) — реализовал tasks с `type: 
 ---
 
 ## PO — Ключевые решения
-<!-- заполняется product-owner агентом в Stage 1 -->
+
+**Дата:** 2026-04-26
+
+**Must для V1 (без этого модуль не запускается):**
+- Настраиваемые колонки через БД (TaskBoard/TaskColumn) — не enum в коде. Это фундамент всего.
+- Публичная форма /report с rate limiting, OFFICE_AMBIGUOUS и trackingId — главный канал жалоб арендаторов.
+- Множественные участники через TaskAssignee (RESPONSIBLE / COLLABORATOR / WATCHER) с матрицей уведомлений.
+- Channel-agnostic NotificationDispatcher с рабочими каналами Telegram + Email — архитектурный контракт, не опциональная деталь.
+- Timeline TaskEvent и страница /track для анонимов — без них репортёр слеп.
+- AuditLog на все мутации — требование безопасности.
+
+**Критические AC для Architect:**
+- AC-005 (publicId TASK-XXXXX, base32 без 0/1/I/O) — алгоритм генерации важен для корреляции email.
+- AC-011 (OFFICE_AMBIGUOUS) — отдельный API-статус 409, не просто ошибка валидации.
+- AC-024 (emailMessageId UNIQUE) — идемпотентность inbound email через constraint в БД, не прикладной дедуп.
+- AC-036 (optimistic update drag-and-drop) — требует отдельного API PATCH /api/tasks/:id/column.
+- AC-059 (quiet hours + DEFERRED) — OutgoingNotification.status=DEFERRED, нужен воркер с cron для отправки отложенных.
+
+**Явно отложено в V2:**
+- SLA-эскалация (автоматическая передача просроченных задач).
+- WhatsApp/MAX/SMS как рабочие каналы (заглушки должны быть, но isAvailable=false).
+- Per-board и per-category настройки уведомлений.
+- Кастомные поля задач, подзадачи, спринты.
+- Общие (расшариваемые) сохранённые виды.
+
+**Важно знать Architect:**
+- Рефакторинг `notifications` обязан сохранить обратную совместимость — все существующие модули (кафе, беседки, PS Park) должны продолжать работать через новый NotificationDispatcher без изменений в их коде.
+- Модуль `tasks` не должен появляться в `src/modules/` до обновления CLAUDE.md в том же PR — scope guard rule.
 
 ## Architect — Ключевые решения
-<!-- заполняется system-architect агентом в Stage 2 -->
+
+**Дата:** 2026-04-26
+**ADR:** `docs/architecture/2026-04-26-tasks-kanban-adr.md`
+
+**Критические технологические выборы:**
+- Один `Task` без `type`, `TaskAssignee` m2m с `TaskAssigneeRole`, `TaskBoard`/`TaskColumn` как первоклассные сущности БД (не enum). `publicId TASK-XXXXX` через 32-символьный base32 без `0/1/I/O`, 5 знаков, UNIQUE + retry на коллизию.
+- `Task.sortOrder` — Float (фракционный); rebalance worker раз в неделю. Lex-fractional indexing отложен в V2.
+- `TaskComment.emailMessageId @unique` — идемпотентность IMAP **на уровне БД constraint**, не в приложении.
+- Введён **новый** enum `NotificationChannelKind` (TELEGRAM/EMAIL/WHATSAPP/MAX/IMESSAGE/SMS/PUSH/VK), новые модели `UserNotificationChannel`, `NotificationEventPreference`, `NotificationGlobalPreference`, `OutgoingNotification`. Старые `NotificationPreference`/`NotificationLog` **остаются** для обратной совместимости — миграция данных через отдельный скрипт, не в DDL.
+- Channel-agnostic: `INotificationChannel` (3 метода) + `ChannelRegistry`. Stub-каналы (`WhatsApp/Max/iMessage/SMS/Push`) присутствуют с `isAvailable()===false` — Dispatcher не падает, если в БД проставлен ещё неготовый канал.
+- `OutgoingNotification` — это **очередь со статусами** (PENDING/DEFERRED/SENT/FAILED/SKIPPED), не лог. Воркер cron каждую минуту тянет PENDING/DEFERRED. Dedup через `dedupKey=sha256(userId|eventType|entityId|payloadHash)` в окне 5 минут.
+- Quiet hours / DND вычисляются перед `INSERT` — `scheduledFor=конец окна` + `status=DEFERRED`.
+- Legacy shim `notifications/legacy.ts` экспортирует `notify(userId, eventType, payload)` — старые модули (кафе/беседки/ps-park) **не правятся**.
+
+**Риски, на которые Developer обязан обратить внимание:**
+- При сохранении legacy `NotificationPreference`/`NotificationLog` параллельно с новой схемой — следить, чтобы новые мутации шли только через `NotificationDispatcher`. Иначе — двойные записи и расхождение каналов.
+- `POST /api/tasks/report` без auth: rate limit 5/час/IP — обязателен **до** валидации, иначе можно DoS на Zod.
+- `OFFICE_AMBIGUOUS` — это **409**, не 400, и не блок ошибок Zod. Отдельный код.
+- Drag-n-drop column endpoint в условиях гонок — короткая транзакция или оптимистический лок по `(columnId, sortOrder)`.
+- Mentions API не должен раскрывать существование USER аккаунтов для anonymous (V2-вектор атаки).
+- IMAP-воркер должен идемпотентно обрабатывать повторные доставки (`emailMessageId UNIQUE` + try/catch на UNIQUE violation = no-op).
+- Stub-каналы должны логировать WARNING в `SystemEvent`, чтобы не молчать при реальной потребности отправки.
+- Seed `tasks` модуля + дефолтная доска `general` + 9 категорий + 6 колонок — обязателен в `prisma/seed.ts`, иначе модуль нерабочий «из коробки».
+- CLAUDE.md обновляется **в том же PR** что и код (scope guard) — `tasks` в реестр + Phase 5.4 в roadmap.
 
 ## Developer — Решения и отступления от ADR
 <!-- заполняется в Stage 3 -->

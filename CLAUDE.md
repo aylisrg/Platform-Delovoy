@@ -491,7 +491,7 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 |--------|------------------|-----------|
 | `auth` | ✅ Phase 0 | NextAuth, magic-link, providers |
 | `monitoring` | ✅ Phase 0 | health checks, SystemEvent |
-| `notifications` | ✅ Phase 0 | unified channel routing |
+| `notifications` | ✅ Phase 0 + 5.4 | unified channel routing + channel-agnostic dispatcher (`src/modules/notifications/dispatch/`) |
 | `gazebos` | ✅ Phase 1 | беседки |
 | `ps-park` | ✅ Phase 2 | PlayStation Park |
 | `cafe` | ✅ Phase 2 | кафе |
@@ -503,6 +503,7 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 | `users` | ✅ Phase 4 | админ-управление пользователями |
 | `profile` | ⚠️ только webapp | API контактов USER (`/api/profile/*`) |
 | `feedback` | ❌ scope creep | обращения пользователей |
+| `tasks` | ✅ Phase 5.4 | единый канбан задач и обращений арендаторов (web/email/TG/manual ввод) |
 | `inventory` | ❌ scope creep | складской учёт (SKU, receipts, audits, write-offs) |
 | `management` | ❌ scope creep | расходы, recurring задачи |
 | `telephony` | ❌ scope creep | Novofon SMS/звонки |
@@ -605,6 +606,20 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 - [ ] Общий P&L по парку одной строкой
 - [ ] Система алертов: нет броней 3+ часа, истекающие договоры, рекорд выручки, 5xx ошибки (#72)
 - [ ] Доставка алертов: дашборд + Telegram (CRITICAL сразу, MEDIUM — утренний дайджест)
+
+### Phase 5.4 — Задачи Делового («единый канбан»)
+
+Единый канбан для всех задач парка — внутренние задачи менеджеров и обращения арендаторов в одной доске. Заменяет разрозненные Telegram-чаты, Excel и звонки. Channel-agnostic уведомления — добавление WhatsApp/MAX/iMessage/SMS = реализация одного интерфейса без правок в модулях.
+
+- [x] Prisma-схема: TaskBoard, TaskColumn (настраиваемые), Task (без `type`, source ∈ MANUAL/TELEGRAM/EMAIL/WEB/API), TaskAssignee m2m с RESPONSIBLE/COLLABORATOR/WATCHER, TaskCategory с keyword-маршрутизацией, TaskComment (emailMessageId UNIQUE для idempotency), TaskEvent (timeline)
+- [x] Channel-agnostic notifications: интерфейс `INotificationChannel`, `ChannelRegistry`, `NotificationDispatcher` без хардкода Telegram. Stubs для WhatsApp/MAX/iMessage/SMS/PUSH
+- [x] `UserNotificationChannel` (per-user адреса), `NotificationEventPreference` (primary/fallback/quiet hours/timezone), `OutgoingNotification` (PENDING/DEFERRED/SENT/FAILED + dedup 5 мин)
+- [x] API: `/api/tasks/*` (CRUD + drag-n-drop column), `/api/tasks/boards/*`, `/api/tasks/categories/*`, `/api/tasks/report` (publicate, rate-limit), `/api/tasks/track/:publicId`, `/api/tasks/offices` (autosuggest)
+- [x] Public form `/report` + tracking page `/track/:publicId`
+- [x] Admin kanban UI с @dnd-kit + task detail с timeline и комментариями
+- [ ] Telegram-бот /issue (state machine с RentalContract → Tenant → Office) — **deferred V1.5**
+- [ ] IMAP email inbound (Yandex SMTP, корреляция `[TASK-XXXXX]`) — **deferred V1.5** (gated `INBOUND_EMAIL_ENABLED`)
+- [ ] Saved views, swimlanes UI, фильтр-панель — **deferred V1.5**
 
 ---
 
