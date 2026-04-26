@@ -25,6 +25,7 @@ export const ADMIN_SECTIONS = [
   { slug: "management", label: "Управленка", icon: "💰" },
   { slug: "monitoring", label: "Мониторинг", icon: "🔍" },
   { slug: "architect", label: "Архитектор", icon: "🗺" },
+  { slug: "tasks", label: "Задачи", icon: "📌" },
 ] as const;
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]["slug"];
