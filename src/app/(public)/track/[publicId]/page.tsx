@@ -1,5 +1,7 @@
 import { getPublicTask } from "@/modules/tasks/report-service";
 import { notFound } from "next/navigation";
+import { auth } from "@/lib/auth";
+import TrackCommentForm from "./track-comment-form";
 
 export const metadata = { title: "Отслеживание обращения — Деловой Парк" };
 
@@ -11,6 +13,7 @@ type Props = {
 export default async function TrackPage({ params, searchParams }: Props) {
   const { publicId } = await params;
   const sp = await searchParams;
+  const session = await auth();
   if (!/^TASK-[2-9A-HJ-NP-Z]{5}$/.test(publicId)) notFound();
 
   let data: Awaited<ReturnType<typeof getPublicTask>> = null;
@@ -70,6 +73,18 @@ export default async function TrackPage({ params, searchParams }: Props) {
             </article>
           ))}
         </section>
+      )}
+
+      {session?.user?.id && !data.columnIsTerminal && (
+        <section className="mt-6">
+          <h2 className="mb-2 text-lg font-medium">Добавить уточнение</h2>
+          <TrackCommentForm publicId={data.publicId} />
+        </section>
+      )}
+      {!session?.user?.id && !data.columnIsTerminal && (
+        <p className="mt-6 text-xs text-gray-500">
+          Чтобы добавить уточнение по обращению, войдите тем же email или Telegram, что указали при отправке.
+        </p>
       )}
     </main>
   );

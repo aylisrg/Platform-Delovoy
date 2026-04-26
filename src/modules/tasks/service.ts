@@ -1,5 +1,6 @@
 import { Prisma, type Role, type Task } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { hasModuleAccess } from "@/lib/permissions";
 import { generatePublicId } from "./public-id";
 import {
   resolveDefaultResponsible,
@@ -203,15 +204,29 @@ export async function listTasks(
   }
   if (q.dueFrom) where.dueAt = { ...(where.dueAt as object), gte: q.dueFrom };
   if (q.dueTo) where.dueAt = { ...(where.dueAt as object), lte: q.dueTo };
-  if (q.overdue) where.dueAt = { lt: new Date() };
+  if (q.overdue) {
+    where.dueAt = { lt: new Date() };
+    where.closedAt = null;
+  }
 
-  // RBAC scope: non-admin users only see tasks where they are assignee or reporter
+  // RBAC scope:
+  // - SUPERADMIN/ADMIN: all
+  // - MANAGER with hasModuleAccess("tasks"): all in his boards (V1 == all)
+  // - other: only tasks where user is assignee or reporter
   if (!isAdmin(ctx.actorRole)) {
-    const orClauses: Prisma.TaskWhereInput[] = [
-      { reporterUserId: ctx.actorUserId },
-      { assignees: { some: { userId: ctx.actorUserId } } },
-    ];
-    where.AND = [{ OR: orClauses }, ...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [])];
+    const isManagerWithAccess =
+      ctx.actorRole === "MANAGER" &&
+      (await hasModuleAccess(ctx.actorUserId, "tasks"));
+    if (!isManagerWithAccess) {
+      const orClauses: Prisma.TaskWhereInput[] = [
+        { reporterUserId: ctx.actorUserId },
+        { assignees: { some: { userId: ctx.actorUserId } } },
+      ];
+      where.AND = [
+        { OR: orClauses },
+        ...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []),
+      ];
+    }
   }
 
   if (q.assigneeId) {

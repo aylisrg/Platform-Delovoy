@@ -25,11 +25,12 @@ export async function rateLimitCustom(
     const results = await pipeline.exec();
     const count = results?.[2]?.[1] as number;
     if (count > limit) {
-      return apiError(
-        "RATE_LIMIT",
-        `Слишком много запросов. Попробуйте позже.`,
-        429
-      );
+      const retryAfterMin = Math.ceil(windowSeconds / 60);
+      const human =
+        retryAfterMin >= 60
+          ? `Попробуйте через ${Math.ceil(retryAfterMin / 60)} ч.`
+          : `Попробуйте через ${retryAfterMin} мин.`;
+      return apiError("RATE_LIMIT", `Слишком много заявок. ${human}`, 429);
     }
     return null;
   } catch {

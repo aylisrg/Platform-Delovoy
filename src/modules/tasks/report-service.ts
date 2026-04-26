@@ -1,10 +1,11 @@
-import type { Office, TaskCategory } from "@prisma/client";
+import type { Office } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { matchOffice, type OfficeRecord } from "./office-matcher";
 import { categorizeByKeywords } from "./routing";
 import { createTask } from "./service";
 import type { ReportTaskPayload } from "./validation";
 import { TaskValidationError } from "./access";
+import { EmailChannel } from "@/modules/notifications/dispatch/channels/email";
 
 export class OfficeAmbiguousError extends Error {
   candidates: { id: string; label: string }[];
@@ -107,6 +108,22 @@ export async function submitPublicReport(
       },
     },
   });
+
+  // AC-013 — fire-and-forget reporter confirmation email
+  if (payload.email) {
+    const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/track/${result.publicId}`;
+    const channel = new EmailChannel();
+    void channel
+      .send(payload.email, {
+        title: `Обращение принято · ${result.publicId}`,
+        body: `Здравствуйте${payload.name ? ", " + payload.name : ""}!\n\nВаше обращение зарегистрировано под номером ${result.publicId}.\n\nОтслеживать статус: ${trackingUrl}\n\n— Деловой Парк`,
+        actions: [{ label: "Открыть статус", url: trackingUrl }],
+        metadata: { entityType: "Task", entityId: result.id, publicId: result.publicId },
+      })
+      .catch((err) => {
+        console.error("[tasks/report] reporter confirmation email failed", err);
+      });
+  }
 
   return { publicId: result.publicId };
 }
