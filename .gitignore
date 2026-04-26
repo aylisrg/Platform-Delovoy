@@ -50,3 +50,4 @@ docker-compose.override.yml
 
 # user uploads (feedback screenshots, etc.)
 uploads/
+.claude/worktrees/
