@@ -90,22 +90,17 @@ export const taskListQuerySchema = z.object({
 
 const e164 = /^\+?[1-9]\d{6,14}$/;
 
-export const reportTaskSchema = z
-  .object({
-    description: z.string().trim().min(10).max(2000),
-    title: z.string().trim().min(1).max(200).optional(),
-    officeNumber: z.string().trim().max(50).optional(),
-    officeId: z.string().cuid().optional(),
-    name: z.string().trim().min(1).max(100).optional(),
-    email: z.string().trim().email().max(200).optional(),
-    phone: z.string().trim().regex(e164, "phone must be E.164").optional(),
-    category: z.string().trim().min(1).max(80).optional(),
-    ambiguityResolution: z.enum(["specific", "unknown"]).optional(),
-  })
-  .refine((v) => !!(v.email || v.phone), {
-    message: "email or phone required",
-    path: ["email"],
-  });
+export const reportTaskSchema = z.object({
+  description: z.string().trim().min(10).max(2000),
+  title: z.string().trim().min(1).max(200).optional(),
+  officeNumber: z.string().trim().max(50).optional(),
+  officeId: z.string().cuid().optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  email: z.string().trim().email().max(200).optional(),
+  phone: z.string().trim().regex(e164, "phone must be E.164").optional(),
+  category: z.string().trim().min(1).max(80).optional(),
+  ambiguityResolution: z.enum(["specific", "unknown"]).optional(),
+});
 
 export const officeSuggestSchema = z.object({
   q: z.string().trim().min(1).max(50),

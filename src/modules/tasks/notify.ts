@@ -10,7 +10,7 @@ import type { TaskAssigneeRole } from "@prisma/client";
 const ROLE_MATRIX: Record<string, Record<TaskAssigneeRole | "REPORTER", boolean>> = {
   "task.created": {
     RESPONSIBLE: true,
-    COLLABORATOR: true,
+    COLLABORATOR: false,
     WATCHER: false,
     REPORTER: false,
   },

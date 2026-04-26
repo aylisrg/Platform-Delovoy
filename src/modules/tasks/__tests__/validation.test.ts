@@ -30,11 +30,11 @@ describe("createTaskSchema", () => {
 });
 
 describe("reportTaskSchema", () => {
-  it("requires email or phone", () => {
+  it("accepts description-only (anonymous, no contacts)", () => {
     const r = reportTaskSchema.safeParse({
       description: "Сломан кран в офисе 301",
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
   });
 
   it("accepts email-only", () => {
