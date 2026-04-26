@@ -19,6 +19,12 @@ ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_YANDEX_MAPS_URL="https://yandex.ru/maps/-/CPrFnN9z"
 ENV NEXT_PUBLIC_YANDEX_MAPS_URL=$NEXT_PUBLIC_YANDEX_MAPS_URL
 
+# Build provenance — surfaced at runtime via /api/version
+ARG GIT_SHA="unknown"
+ENV BUILD_GIT_SHA=$GIT_SHA
+ARG BUILD_TIME="unknown"
+ENV BUILD_TIME=$BUILD_TIME
+
 RUN npm run build
 
 # Clean Next.js build cache to reduce image size
@@ -33,6 +39,12 @@ RUN apk add --no-cache su-exec wget && \
     adduser --system --uid 1001 nextjs
 
 ENV NODE_ENV=production
+
+# Re-declare build provenance ARGs in the runner stage and persist as ENV
+ARG GIT_SHA="unknown"
+ENV BUILD_GIT_SHA=$GIT_SHA
+ARG BUILD_TIME="unknown"
+ENV BUILD_TIME=$BUILD_TIME
 
 # Copy standalone Next.js output (includes all runtime deps)
 COPY --from=builder /app/.next/standalone ./
