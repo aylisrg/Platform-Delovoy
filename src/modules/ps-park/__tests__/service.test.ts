@@ -1210,5 +1210,15 @@ describe("autoCompleteExpiredSessions", () => {
         }),
       })
     );
+
+    // AC-4.3: cron path writes session.auto_complete (not session.complete)
+    // with metadata.actor = "CRON".
+    const auditCalls = vi.mocked(prisma.auditLog.create).mock.calls;
+    const autoCompleteAudit = auditCalls.find(
+      (c) => (c[0] as unknown as { data: { action: string } }).data.action === "session.auto_complete"
+    );
+    expect(autoCompleteAudit).toBeDefined();
+    const meta = (autoCompleteAudit![0] as unknown as { data: { metadata: { actor: string } } }).data.metadata;
+    expect(meta.actor).toBe("CRON");
   });
 });

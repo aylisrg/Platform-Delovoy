@@ -90,16 +90,13 @@ export async function PATCH(
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
 
-    // session.complete is logged inside updateBookingStatus's transaction so
-    // it commits with the FinancialTransaction; here we only log the other
-    // transitions (CONFIRMED, CHECKED_IN, NO_SHOW, plus session.cancel which
-    // we surface explicitly so analytics can distinguish it from generic
-    // status_change events).
-    if (status !== "COMPLETED") {
-      const action = status === "CANCELLED" ? "session.cancel" : "booking.status_change";
-      await logAudit(session.user.id, action, "Booking", id, {
+    // session.complete / session.cancel / session.auto_complete are logged
+    // inside updateBookingStatus's transaction (atomic with FT and item
+    // returns). Here we only emit booking.status_change for the remaining
+    // non-terminal transitions: CONFIRMED, CHECKED_IN, NO_SHOW.
+    if (status !== "COMPLETED" && status !== "CANCELLED") {
+      await logAudit(session.user.id, "booking.status_change", "Booking", id, {
         newStatus: status,
-        ...(body.reason && { reason: body.reason }),
       });
     }
 
