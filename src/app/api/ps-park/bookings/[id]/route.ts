@@ -90,9 +90,18 @@ export async function PATCH(
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
 
-    await logAudit(session.user.id, "booking.status_change", "Booking", id, {
-      newStatus: status,
-    });
+    // session.complete is logged inside updateBookingStatus's transaction so
+    // it commits with the FinancialTransaction; here we only log the other
+    // transitions (CONFIRMED, CHECKED_IN, NO_SHOW, plus session.cancel which
+    // we surface explicitly so analytics can distinguish it from generic
+    // status_change events).
+    if (status !== "COMPLETED") {
+      const action = status === "CANCELLED" ? "session.cancel" : "booking.status_change";
+      await logAudit(session.user.id, action, "Booking", id, {
+        newStatus: status,
+        ...(body.reason && { reason: body.reason }),
+      });
+    }
 
     // Enrich response with top-level discount fields per AC-1.8
     const meta = updated.metadata as Record<string, unknown> | null;
@@ -111,7 +120,16 @@ export async function PATCH(
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof PSBookingError) {
-      const status = error.code === "DISCOUNT_EXCEEDS_LIMIT" ? 422 : 400;
+      const conflictCodes = new Set([
+        "INVALID_STATUS_TRANSITION",
+        "ALREADY_COMPLETED",
+        "ALREADY_CANCELLED",
+      ]);
+      const status = conflictCodes.has(error.code)
+        ? 409
+        : error.code === "DISCOUNT_EXCEEDS_LIMIT"
+          ? 422
+          : 400;
       return apiError(error.code, error.message, status);
     }
     return apiServerError();
