@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.1.0...v2.2.0) (2026-04-27)
+
+
+### Features
+
+* /api/version endpoint + honest src/version.ts ([ba8d83c](https://github.com/aylisrg/Platform-Delovoy/commit/ba8d83cca06cd81f21c0ea76719d9250359a5995))
+* **feedback:** link office to feedback items via FK + autocomplete ([3bcb63e](https://github.com/aylisrg/Platform-Delovoy/commit/3bcb63ed8ebab8d3477470c0d007f6576a4f8486))
+
+
+### Bug Fixes
+
+* **auth:** close magic-link userId vulnerability + open /dashboard cabinet ([5c1382c](https://github.com/aylisrg/Platform-Delovoy/commit/5c1382cdf10475775e4ffa84fd20291fc616e345))
+* **feedback:** hide RESERVED offices from combobox per PRD ([13e8778](https://github.com/aylisrg/Platform-Delovoy/commit/13e8778fba39d848ad58fbf61e281b1524e545b1))
+
 ## [2.1.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.0.0...v2.1.0) (2026-04-25)
 
 
