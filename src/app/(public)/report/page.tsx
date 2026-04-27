@@ -5,6 +5,8 @@ export const metadata = {
   title: "Сообщить о проблеме — Деловой Парк",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function ReportPage() {
   const categories = await prisma.taskCategory.findMany({
     where: { isArchived: false },
