@@ -114,3 +114,37 @@
 ### Полный ADR
 
 См. `docs/architecture/2026-04-27-ps-park-session-shift-fix-adr.md`.
+
+## Reviewer — Iteration Log
+
+### Iteration 1 (коммит 5c99132) — NEEDS_CHANGES
+
+1. **BLOCKER AC-4.3**: `autoCompleteExpiredSessions` писал `session.complete` вместо `session.auto_complete`.
+2. **MINOR AC-2.4**: metadata `session.cancel` в route handler содержала `{newStatus, reason}` вместо ADR-контракта `{bookingId, resourceName, clientName, reason?, hadItems}`.
+
+### Iteration 2 (коммит f2d7a4f) — PASS
+
+Оба findings закрыты:
+- AC-4.3: `completionAction = actorRole === "CRON" ? "session.auto_complete" : "session.complete"` + `metadata.actor = "CRON"` в ветке COMPLETED.
+- AC-2.4: оба пути CANCELLED (items / plain) пишут полный ADR-контракт metadata внутри `$transaction`. Route handler больше не дублирует cancel-лог.
+- Бонус: plain CANCELLED получил `updateMany` status-guard для симметричной idempotency.
+- Тесты: 4572/4572, новый assertion проверяет `action === "session.auto_complete"` и `meta.actor === "CRON"`.
+- Security: инцидентов не обнаружено.
+
+## QA — вердикт
+
+**PASS**
+
+Проверено QA Agent (claude-sonnet-4-6) 2026-04-27.
+
+- Тесты: 4572/4572 зелёных, TypeScript clean.
+- Все AC (US-1..US-5) реализованы и подтверждены трассировкой по коду.
+- State machine: CRON добавлен в `allowedActors` для `CONFIRMED:COMPLETED` и `CHECKED_IN:COMPLETED`.
+- Idempotency: `updateMany` с status-guard для обоих терминальных переходов.
+- AuditLog атомарен с FinancialTransaction внутри `$transaction`.
+- `/api/ps-park/auto-complete`: 503 без CRON_SECRET env, 401 без токена, CRON_SECRET не утекает в ответы.
+- RBAC: USER → 403, MANAGER без ps-park → 403, cron без секрета → 401/503.
+
+Два нефункциональных замечания (не блокируют):
+1. ADR описывает `x-cron-secret` header, реализация использует `Authorization: Bearer` — функционально эквивалентно, соответствует паттерну других cron-endpoints проекта.
+2. `ActiveSession.status` hardcoded `"CONFIRMED"` даже для CHECKED_IN сессий — известное V1 ограничение, задокументировано в ADR §13.
