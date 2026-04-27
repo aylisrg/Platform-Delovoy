@@ -49,10 +49,10 @@ const TRANSITIONS: Record<string, TransitionRule> = {
     conditionMessage: `Нельзя отметить No-show — не прошёл порог времени`,
   },
   "CONFIRMED:COMPLETED": {
-    allowedActors: ["MANAGER", "SUPERADMIN"],
+    allowedActors: ["MANAGER", "SUPERADMIN", "CRON"],
   },
   "CHECKED_IN:COMPLETED": {
-    allowedActors: ["MANAGER", "SUPERADMIN"],
+    allowedActors: ["MANAGER", "SUPERADMIN", "CRON"],
   },
   "NO_SHOW:CHECKED_IN": {
     allowedActors: ["MANAGER", "SUPERADMIN"],

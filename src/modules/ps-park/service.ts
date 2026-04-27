@@ -229,7 +229,8 @@ export async function updateBookingStatus(
   cancelReason?: string,
   cashAmount?: number,
   cardAmount?: number,
-  discountInput?: CheckoutDiscountInput
+  discountInput?: CheckoutDiscountInput,
+  actorRole: import("@/modules/booking/state-machine").ActorRole = "MANAGER"
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -243,7 +244,7 @@ export async function updateBookingStatus(
     assertValidTransition({
       currentStatus: booking.status,
       targetStatus: status,
-      actorRole: "MANAGER",
+      actorRole,
       now: new Date(),
       startTime: booking.startTime,
       noShowThresholdMinutes: 30,
@@ -364,10 +365,12 @@ export async function updateBookingStatus(
     booking.status === "CONFIRMED" &&
     items.length > 0
   ) {
-    // Atomically update booking status + return inventory
+    // Atomically update booking status + return inventory.
+    // Use updateMany with status guard so a concurrent writer (double click,
+    // cron, second manager) cannot trigger a duplicate cancellation.
     updated = await prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({
-        where: { id },
+      const res = await tx.booking.updateMany({
+        where: { id, status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "NO_SHOW"] } },
         data: {
           status,
           ...(managerId && { managerId }),
@@ -375,8 +378,11 @@ export async function updateBookingStatus(
           ...(googleEventId !== booking.googleEventId && { googleEventId }),
         },
       });
+      if (res.count === 0) {
+        throw new PSBookingError("ALREADY_CANCELLED", "Бронирование уже завершено или отменено");
+      }
       await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
-      return b;
+      return tx.booking.findUniqueOrThrow({ where: { id } });
     });
   } else if (status === "COMPLETED") {
     // === Apply discount if provided ===
@@ -430,8 +436,11 @@ export async function updateBookingStatus(
       : metadataWithBill;
 
     updated = await prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({
-        where: { id },
+      // Idempotent COMPLETE: only flip CONFIRMED/CHECKED_IN sessions. If the row
+      // is already COMPLETED/CANCELLED (double click, cron-vs-manager race),
+      // count===0 and we throw ALREADY_COMPLETED — FT is NOT created twice.
+      const res = await tx.booking.updateMany({
+        where: { id, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
         data: {
           status,
           ...(managerId && { managerId }),
@@ -441,6 +450,10 @@ export async function updateBookingStatus(
           ...(actualEndTime.getTime() !== booking.endTime.getTime() && { endTime: actualEndTime }),
         },
       });
+      if (res.count === 0) {
+        throw new PSBookingError("ALREADY_COMPLETED", "Сессия уже завершена");
+      }
+      const b = await tx.booking.findUniqueOrThrow({ where: { id } });
 
       // Financial ledger — immutable record (totalAmount = after discount)
       await tx.financialTransaction.create({
@@ -455,6 +468,29 @@ export async function updateBookingStatus(
           performedByName: managerName,
           description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
           metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
+        },
+      });
+
+      // session.complete — specialized AuditLog inside the same tx as the FT
+      // so revenue line and audit trail commit/rollback together.
+      await tx.auditLog.create({
+        data: {
+          userId: performedById,
+          action: "session.complete",
+          entity: "Booking",
+          entityId: id,
+          metadata: {
+            bookingId: id,
+            moduleSlug: MODULE_SLUG,
+            resourceName: resource?.name ?? "—",
+            clientName: booking.clientName ?? "—",
+            totalAmount: completedTotalBill,
+            cashAmount: resolvedCash,
+            cardAmount: resolvedCard,
+            billedHours: completedBilledHours,
+            pricePerHour: completedPricePerHour,
+            itemsTotal: completedItemsTotal,
+          },
         },
       });
 
@@ -865,8 +901,16 @@ export async function addItemsToBooking(
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
-  if (booking.status !== "PENDING" && booking.status !== "CONFIRMED") {
-    throw new PSBookingError("INVALID_STATUS", "Товары можно добавлять только к активным бронированиям");
+  if (
+    booking.status !== "PENDING" &&
+    booking.status !== "CONFIRMED" &&
+    booking.status !== "CHECKED_IN" &&
+    booking.status !== "COMPLETED"
+  ) {
+    throw new PSBookingError(
+      "INVALID_STATUS",
+      "Товары можно добавлять только к активным или завершённым бронированиям"
+    );
   }
 
   const { snapshots, itemsTotal: newItemsTotal } = await validateAndSnapshotItems(newItems);
@@ -895,14 +939,75 @@ export async function addItemsToBooking(
     itemsTotal: (existingTotal + newItemsTotal).toFixed(2),
   };
 
-  if (booking.status === "CONFIRMED") {
-    // Already confirmed — deduct stock immediately
+  if (booking.status === "CONFIRMED" || booking.status === "CHECKED_IN") {
+    // Already confirmed/in-progress — deduct stock immediately
     return prisma.$transaction(async (tx) => {
       const b = await tx.booking.update({
         where: { id: bookingId },
         data: { metadata: newMetadata },
       });
       await saleBookingItems(tx, bookingId, MODULE_SLUG, snapshots, managerId);
+      return b;
+    });
+  }
+
+  if (booking.status === "COMPLETED") {
+    // Post-factum addition: extra hour, drinks, late fee paid after the
+    // session was already finalized. We record an ADJUSTMENT FT so the items
+    // roll into shift revenue, and audit the action separately from the
+    // original session.complete event.
+    const managerUser = await prisma.user.findUnique({
+      where: { id: managerId },
+      select: { name: true, email: true },
+    });
+    const managerName = managerUser?.name ?? managerUser?.email ?? "Менеджер";
+    const completedAtRaw = (metadata as Record<string, unknown>)?.bill;
+    const completedAtIso =
+      completedAtRaw && typeof completedAtRaw === "object" && completedAtRaw !== null
+        ? ((completedAtRaw as Record<string, unknown>).completedAt as string | undefined)
+        : undefined;
+    const ageHours = completedAtIso
+      ? (Date.now() - new Date(completedAtIso).getTime()) / (1000 * 60 * 60)
+      : null;
+
+    return prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id: bookingId },
+        data: { metadata: newMetadata },
+      });
+      await saleBookingItems(tx, bookingId, MODULE_SLUG, snapshots, managerId);
+      await tx.financialTransaction.create({
+        data: {
+          moduleSlug: MODULE_SLUG,
+          type: "ADJUSTMENT",
+          bookingId,
+          totalAmount: newItemsTotal,
+          cashAmount: newItemsTotal,
+          cardAmount: 0,
+          performedById: managerId,
+          performedByName: managerName,
+          description: `Доплата к сессии: ${snapshots.map((s) => s.skuName).join(", ")}`,
+          metadata: {
+            items: snapshots,
+            adjustment: true,
+          } as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: managerId,
+          action: "session.items_added_post_complete",
+          entity: "Booking",
+          entityId: bookingId,
+          metadata: {
+            bookingId,
+            moduleSlug: MODULE_SLUG,
+            items: snapshots,
+            itemsTotal: newItemsTotal,
+            ageHours,
+          },
+        },
+      });
       return b;
     });
   }
@@ -1014,7 +1119,7 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
     where: {
       moduleSlug: MODULE_SLUG,
       deletedAt: null,
-      status: "CONFIRMED",
+      status: { in: ["CONFIRMED", "CHECKED_IN"] },
       date: today,
       startTime: { lte: now },
       endTime: { gt: now },
@@ -1063,6 +1168,69 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
       totalBill: hoursCost + itemsTotal,
     };
   });
+}
+
+// === AUTO-COMPLETE (cron) ===
+
+export type AutoCompleteResult = {
+  processed: number;
+  skipped: number;
+  errors: { bookingId: string; code: string }[];
+};
+
+/**
+ * Auto-completes any active session whose scheduled endTime has passed.
+ * Called by cron via /api/ps-park/auto-complete (CRON_SECRET-protected).
+ *
+ * Idempotency: each booking is finalized via updateBookingStatus, which uses
+ * updateMany with a status guard — concurrent cron+manager attempts on the
+ * same row produce one COMPLETE and one ALREADY_COMPLETED (counted as skip).
+ */
+export async function autoCompleteExpiredSessions(
+  cronUserId: string
+): Promise<AutoCompleteResult> {
+  const now = new Date();
+  const expired = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      deletedAt: null,
+      status: { in: ["CONFIRMED", "CHECKED_IN"] },
+      endTime: { lt: now },
+    },
+    select: { id: true },
+  });
+
+  let processed = 0;
+  let skipped = 0;
+  const errors: { bookingId: string; code: string }[] = [];
+
+  for (const { id } of expired) {
+    try {
+      await updateBookingStatus(
+        id,
+        "COMPLETED",
+        cronUserId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "CRON"
+      );
+      processed += 1;
+    } catch (err) {
+      const code = err instanceof PSBookingError ? err.code : "UNKNOWN";
+      if (
+        code === "ALREADY_COMPLETED" ||
+        code === "INVALID_STATUS_TRANSITION"
+      ) {
+        skipped += 1;
+      } else {
+        errors.push({ bookingId: id, code });
+      }
+    }
+  }
+
+  return { processed, skipped, errors };
 }
 
 // === EXTEND BOOKING ===
@@ -1203,13 +1371,17 @@ function effectiveBillingEnd(startTime: Date, scheduledEnd: Date, now: Date): Da
 // === DAY REPORT & SHIFT HANDOVER ===
 
 export async function getDayReport(date: string): Promise<DayReport> {
-  const dayStart = new Date(`${date}T00:00:00Z`);
-  const dayEnd = new Date(`${date}T23:59:59.999Z`);
+  // Park operates in MSK (UTC+3). A UTC day window would lose late-evening
+  // sessions to the next calendar day's report and mis-attribute revenue.
+  const dayStart = new Date(`${date}T00:00:00+03:00`);
+  const dayEnd = new Date(`${date}T23:59:59.999+03:00`);
 
   const txs = await prisma.financialTransaction.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
-      type: "SESSION_PAYMENT",
+      // Include post-factum ADJUSTMENT entries (extra hour, drinks, fees added
+      // after a session was already COMPLETED) so they roll into shift revenue.
+      type: { in: ["SESSION_PAYMENT", "ADJUSTMENT"] },
       createdAt: { gte: dayStart, lte: dayEnd },
     },
     orderBy: { createdAt: "asc" },

@@ -27,8 +27,10 @@ vi.mock("@/lib/db", () => ({
     booking: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
       delete: vi.fn(),
       count: vi.fn(),
     },
@@ -41,6 +43,9 @@ vi.mock("@/lib/db", () => ({
     financialTransaction: {
       create: vi.fn(),
       findMany: vi.fn(),
+    },
+    auditLog: {
+      create: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -64,6 +69,8 @@ import {
   listBookingsPaginated,
   softDeleteBooking,
   hardDeleteBooking,
+  autoCompleteExpiredSessions,
+  getDayReport,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
 import { validateAndSnapshotItems, saleBookingItems, returnBookingItems } from "@/modules/inventory/service";
@@ -210,16 +217,38 @@ describe("updateBookingStatus", () => {
     vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
       return (fn as (tx: typeof prisma) => Promise<unknown>)(prisma);
     });
-    vi.mocked(prisma.booking.update).mockResolvedValue(completedBooking as never);
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(completedBooking as never);
     vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
 
     await updateBookingStatus("booking-1", "COMPLETED");
-    expect(prisma.booking.update).toHaveBeenCalledWith(
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: expect.objectContaining({
+          id: "booking-1",
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        }),
         data: expect.objectContaining({ status: "COMPLETED" }),
       })
     );
     expect(prisma.financialTransaction.create).toHaveBeenCalled();
+  });
+
+  it("throws ALREADY_COMPLETED when concurrent writer already completed (updateMany count=0)", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED" }) as never
+    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Менеджер", email: null } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      return (fn as (tx: typeof prisma) => Promise<unknown>)(prisma);
+    });
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 0 } as never);
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
+
+    await expect(updateBookingStatus("booking-1", "COMPLETED")).rejects.toMatchObject({
+      code: "ALREADY_COMPLETED",
+    });
+    expect(prisma.financialTransaction.create).not.toHaveBeenCalled();
   });
 
   it("throws INVALID_STATUS_TRANSITION for CANCELLED → CONFIRMED", async () => {
@@ -228,6 +257,16 @@ describe("updateBookingStatus", () => {
     );
 
     await expect(updateBookingStatus("booking-1", "CONFIRMED")).rejects.toMatchObject({
+      code: "INVALID_STATUS_TRANSITION",
+    });
+  });
+
+  it("throws INVALID_STATUS_TRANSITION when completing already completed (assertValidTransition)", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+
+    await expect(updateBookingStatus("booking-1", "COMPLETED")).rejects.toMatchObject({
       code: "INVALID_STATUS_TRANSITION",
     });
   });
@@ -366,14 +405,46 @@ describe("addItemsToBooking", () => {
     });
   });
 
-  it("throws INVALID_STATUS for COMPLETED booking", async () => {
+  it("creates ADJUSTMENT FT and post-factum audit log when booking is COMPLETED", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ status: "COMPLETED" }) as never
+      mockBooking({
+        status: "COMPLETED",
+        metadata: {
+          items: [],
+          itemsTotal: "0.00",
+          bill: { completedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+        },
+      }) as never
     );
+    vi.mocked(validateAndSnapshotItems).mockResolvedValue({
+      snapshots: [snapshot],
+      itemsTotal: 250,
+    } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Менеджер", email: null } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) =>
+      (fn as (tx: typeof prisma) => Promise<unknown>)(prisma)
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "COMPLETED" }) as never);
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
 
-    await expect(addItemsToBooking("booking-1", "manager-1", newItems)).rejects.toMatchObject({
-      code: "INVALID_STATUS",
-    });
+    await addItemsToBooking("booking-1", "manager-1", newItems);
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: "ADJUSTMENT",
+          bookingId: "booking-1",
+          totalAmount: 250,
+        }),
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "session.items_added_post_complete",
+        }),
+      })
+    );
   });
 
   it("throws INVALID_STATUS for CANCELLED booking", async () => {
@@ -1050,5 +1121,94 @@ describe("hardDeleteBooking", () => {
 
     expect(returnBookingItems).not.toHaveBeenCalled();
     expect(txDelete).toHaveBeenCalled();
+  });
+});
+
+// ===== getDayReport =====
+
+describe("getDayReport", () => {
+  it("uses MSK day window and includes ADJUSTMENT transactions in revenue", async () => {
+    vi.mocked(prisma.financialTransaction.findMany).mockResolvedValue([
+      {
+        id: "tx-1",
+        bookingId: "b-1",
+        totalAmount: 600,
+        cashAmount: 600,
+        cardAmount: 0,
+        performedByName: "Менеджер",
+        description: "Сессия",
+        createdAt: new Date("2026-04-27T20:00:00+03:00"),
+      },
+      {
+        id: "tx-2",
+        bookingId: "b-2",
+        totalAmount: 250,
+        cashAmount: 0,
+        cardAmount: 250,
+        performedByName: "Менеджер",
+        description: "Доплата",
+        createdAt: new Date("2026-04-27T22:30:00+03:00"),
+      },
+    ] as never);
+
+    const report = await getDayReport("2026-04-27");
+
+    const callArg = vi.mocked(prisma.financialTransaction.findMany).mock.calls[0][0]!;
+    const where = callArg.where as { type?: { in: string[] }; createdAt?: { gte: Date; lte: Date } };
+    expect(where.type).toEqual({ in: ["SESSION_PAYMENT", "ADJUSTMENT"] });
+    // 00:00 MSK on 2026-04-27 is 21:00 UTC on 2026-04-26.
+    expect(where.createdAt!.gte.toISOString()).toBe("2026-04-26T21:00:00.000Z");
+    expect(where.createdAt!.lte.toISOString()).toBe("2026-04-27T20:59:59.999Z");
+
+    expect(report.cashTotal).toBe(600);
+    expect(report.cardTotal).toBe(250);
+    expect(report.totalRevenue).toBe(850);
+    expect(report.totalSessions).toBe(2);
+  });
+});
+
+// ===== autoCompleteExpiredSessions =====
+
+describe("autoCompleteExpiredSessions", () => {
+  it("processes expired CONFIRMED/CHECKED_IN sessions and counts skipped on ALREADY_COMPLETED", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      { id: "b-1" },
+      { id: "b-2" },
+      { id: "b-3" },
+    ] as never);
+
+    const completedRow = mockBooking({ status: "COMPLETED" });
+    vi.mocked(prisma.booking.findFirst)
+      // b-1 → CONFIRMED, succeeds
+      .mockResolvedValueOnce(mockBooking({ status: "CONFIRMED" }) as never)
+      // b-2 → CONFIRMED, but updateMany returns count=0 (race) → ALREADY_COMPLETED
+      .mockResolvedValueOnce(mockBooking({ status: "CONFIRMED" }) as never)
+      // b-3 → already COMPLETED, state-machine throws INVALID_STATUS_TRANSITION
+      .mockResolvedValueOnce(mockBooking({ status: "COMPLETED" }) as never);
+
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Admin", email: null } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) =>
+      (fn as (tx: typeof prisma) => Promise<unknown>)(prisma)
+    );
+    // First call → count=1 (success), second → count=0 (race)
+    vi.mocked(prisma.booking.updateMany)
+      .mockResolvedValueOnce({ count: 1 } as never)
+      .mockResolvedValueOnce({ count: 0 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(completedRow as never);
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
+
+    const result = await autoCompleteExpiredSessions("admin-1");
+
+    expect(result.processed).toBe(1);
+    expect(result.skipped).toBe(2);
+    expect(result.errors).toEqual([]);
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
+          deletedAt: null,
+        }),
+      })
+    );
   });
 });
