@@ -382,6 +382,22 @@ export async function updateBookingStatus(
         throw new PSBookingError("ALREADY_CANCELLED", "Бронирование уже завершено или отменено");
       }
       await returnBookingItems(tx, id, MODULE_SLUG, items, performedById);
+      await tx.auditLog.create({
+        data: {
+          userId: performedById,
+          action: "session.cancel",
+          entity: "Booking",
+          entityId: id,
+          metadata: {
+            bookingId: id,
+            moduleSlug: MODULE_SLUG,
+            resourceName: resource?.name ?? "—",
+            clientName: booking.clientName ?? "—",
+            ...(cancelReason && { reason: cancelReason }),
+            hadItems: true,
+          },
+        },
+      });
       return tx.booking.findUniqueOrThrow({ where: { id } });
     });
   } else if (status === "COMPLETED") {
@@ -471,12 +487,15 @@ export async function updateBookingStatus(
         },
       });
 
-      // session.complete — specialized AuditLog inside the same tx as the FT
-      // so revenue line and audit trail commit/rollback together.
+      // session.complete (or session.auto_complete for CRON) — specialized
+      // AuditLog inside the same tx as the FT so revenue line and audit
+      // trail commit/rollback together.
+      const completionAction =
+        actorRole === "CRON" ? "session.auto_complete" : "session.complete";
       await tx.auditLog.create({
         data: {
           userId: performedById,
-          action: "session.complete",
+          action: completionAction,
           entity: "Booking",
           entityId: id,
           metadata: {
@@ -490,6 +509,7 @@ export async function updateBookingStatus(
             billedHours: completedBilledHours,
             pricePerHour: completedPricePerHour,
             itemsTotal: completedItemsTotal,
+            ...(actorRole === "CRON" && { actor: "CRON" }),
           },
         },
       });
@@ -522,6 +542,43 @@ export async function updateBookingStatus(
       }
 
       return b;
+    });
+  } else if (status === "CANCELLED") {
+    // Plain CANCELLED branch (no items / not from CONFIRMED): keep audit
+    // atomic with the status change so analytics never see an orphan event.
+    updated = await prisma.$transaction(async (tx) => {
+      const res = await tx.booking.updateMany({
+        where: {
+          id,
+          status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "NO_SHOW"] },
+        },
+        data: {
+          status,
+          ...(managerId && { managerId }),
+          ...(cancelReason && { cancelReason }),
+          ...(googleEventId !== booking.googleEventId && { googleEventId }),
+        },
+      });
+      if (res.count === 0) {
+        throw new PSBookingError("ALREADY_CANCELLED", "Бронирование уже завершено или отменено");
+      }
+      await tx.auditLog.create({
+        data: {
+          userId: performedById,
+          action: "session.cancel",
+          entity: "Booking",
+          entityId: id,
+          metadata: {
+            bookingId: id,
+            moduleSlug: MODULE_SLUG,
+            resourceName: resource?.name ?? "—",
+            clientName: booking.clientName ?? "—",
+            ...(cancelReason && { reason: cancelReason }),
+            hadItems: false,
+          },
+        },
+      });
+      return tx.booking.findUniqueOrThrow({ where: { id } });
     });
   } else {
     updated = await prisma.booking.update({
