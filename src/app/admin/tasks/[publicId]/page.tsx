@@ -15,8 +15,11 @@ export default async function AdminTaskDetailPage({ params }: Props) {
   if (!session?.user?.id) redirect("/auth/signin");
   const { publicId } = await params;
 
+  let task: Awaited<ReturnType<typeof getTaskByPublicId>>;
+  let events: Awaited<ReturnType<typeof listEvents>>;
+  let comments: Awaited<ReturnType<typeof listComments>>;
   try {
-    const [task, events, comments] = await Promise.all([
+    [task, events, comments] = await Promise.all([
       getTaskByPublicId(publicId, {
         actorUserId: session.user.id,
         actorRole: session.user.role,
@@ -30,44 +33,45 @@ export default async function AdminTaskDetailPage({ params }: Props) {
         actorRole: session.user.role,
       }),
     ]);
-    return (
-      <TaskDetailClient
-        task={{
-          id: task.id,
-          publicId: task.publicId,
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          source: task.source,
-          column: { id: task.column.id, name: task.column.name },
-          assignees: task.assignees.map((a) => ({
-            userId: a.userId,
-            role: a.role,
-            name: a.user.name,
-            email: a.user.email,
-          })),
-          labels: task.labels,
-          createdAt: task.createdAt.toISOString(),
-        }}
-        events={events.map((e) => ({
-          id: e.id,
-          kind: e.kind,
-          actorName: e.actor?.name ?? null,
-          createdAt: e.createdAt.toISOString(),
-          metadata: e.metadata,
-        }))}
-        comments={comments.map((c) => ({
-          id: c.id,
-          body: c.body,
-          authorUserId: c.authorUserId,
-          visibleToReporter: c.visibleToReporter,
-          createdAt: c.createdAt.toISOString(),
-        }))}
-      />
-    );
   } catch (err) {
     if (err instanceof TaskNotFoundError) notFound();
     if (err instanceof TaskAccessError) redirect("/admin/forbidden");
     throw err;
   }
+
+  return (
+    <TaskDetailClient
+      task={{
+        id: task.id,
+        publicId: task.publicId,
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        source: task.source,
+        column: { id: task.column.id, name: task.column.name },
+        assignees: task.assignees.map((a) => ({
+          userId: a.userId,
+          role: a.role,
+          name: a.user.name,
+          email: a.user.email,
+        })),
+        labels: task.labels,
+        createdAt: task.createdAt.toISOString(),
+      }}
+      events={events.map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        actorName: e.actor?.name ?? null,
+        createdAt: e.createdAt.toISOString(),
+        metadata: e.metadata,
+      }))}
+      comments={comments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        authorUserId: c.authorUserId,
+        visibleToReporter: c.visibleToReporter,
+        createdAt: c.createdAt.toISOString(),
+      }))}
+    />
+  );
 }
