@@ -21,10 +21,26 @@ model User {
   role          Role      @default(USER)
   telegramId    String?   @unique
   vkId          String?   @unique
-  birthday      DateTime? // Дата рождения (из Яндекс OAuth / профиля)
-  gender        String? // "male" | "female" | null (из Яндекс OAuth)
+  birthday      DateTime? // Дата рождения (из старых OAuth провайдеров / профиля)
+  gender        String? // "male" | "female" | null (legacy, заполнялось Яндексом)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  // === CRM v1 (Wave 1) ===
+  tags             String[]  @default([])
+  notes            String?   @db.Text
+  lastSeenAt       DateTime?
+  // Источник регистрации: "telegram_bot" | "vk_id" | "email" | "import" | "legacy"
+  source           String?
+  // Soft-merge: если заполнено — пользователь "слит" в primary (mergedIntoUserId)
+  mergedIntoUserId String?
+  mergedAt         DateTime?
+  mergedInto       User?     @relation("UserMerge", fields: [mergedIntoUserId], references: [id])
+  mergedFrom       User[]    @relation("UserMerge")
+  // Нормализованные phone/email — для поиска дубликатов и partial-unique индекса
+  // (см. raw SQL в миграции: уникальность только когда mergedIntoUserId IS NULL)
+  phoneNormalized  String?
+  emailNormalized  String?
 
   accounts               Account[]
   sessions               Session[]
@@ -48,6 +64,37 @@ model User {
   notificationChannels   UserNotificationChannel[]     @relation("UNCUser")
   notificationEventPrefs NotificationEventPreference[] @relation("NEPUser")
   notificationGlobalPref NotificationGlobalPreference? @relation("NGPUser")
+
+  mergeCandidatesPrimary   MergeCandidate[] @relation("MergeCandidatePrimary")
+  mergeCandidatesSecondary MergeCandidate[] @relation("MergeCandidateSecondary")
+
+  @@index([mergedIntoUserId])
+  @@index([lastSeenAt])
+  @@index([phoneNormalized])
+  @@index([emailNormalized])
+  @@index([source])
+}
+
+/// Кандидаты на ручное объединение (детектируется при auto-merge конфликтах
+/// и периодической задачей по `phoneNormalized`/`emailNormalized`).
+/// Резолвится SUPERADMIN-ом через `/admin/users/duplicates`.
+model MergeCandidate {
+  id               String    @id @default(cuid())
+  primaryUserId    String
+  candidateUserId  String
+  primary          User      @relation("MergeCandidatePrimary", fields: [primaryUserId], references: [id])
+  candidate        User      @relation("MergeCandidateSecondary", fields: [candidateUserId], references: [id])
+  matchedFields    String[] // ["phone", "email"]
+  matchScore       Float // 0..1
+  status           String    @default("PENDING") // PENDING | RESOLVED_MERGED | RESOLVED_KEPT_SEPARATE | DISMISSED
+  detectedAt       DateTime  @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+
+  @@unique([primaryUserId, candidateUserId])
+  @@index([status, detectedAt])
+  @@index([primaryUserId])
+  @@index([candidateUserId])
 }
 
 model Account {
