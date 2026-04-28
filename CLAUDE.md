@@ -511,6 +511,12 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 | `pipeline-metrics` | ❌ scope creep | метрики agent-pipeline (eval/) |
 | `backups` | ❌ scope creep | бэкапы БД для super-admin |
 
+### Интеграции (НЕ модули)
+
+| Интеграция | Где живёт | Назначение |
+|------------|-----------|-----------|
+| `avito` | `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/` | Avito Professionals API: реестр объявлений, статистика, лиды → Tasks (Phase 5.4), отзывы. **НЕ создаёт `src/modules/avito/`** — обогащает существующие модули (gazebos, ps-park). Один аккаунт, много объявлений. См. `docs/architecture/2026-04-28-delovoy-avito-adr.md` |
+
 **Правило при следующем расхождении:** если модуль появляется в коде до того, как попадает в roadmap, — это нарушение процесса. Чинится через PRD от `product-owner` (см. `agents/po.md`) **до** старта реализации.
 
 ---
