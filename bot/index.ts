@@ -14,6 +14,11 @@ import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
 import { handleLinkDeepLink } from "./handlers/link";
+import {
+  AUTH_DEEPLINK_PREFIX,
+  handleAuthDeepLink,
+  registerAuthDeepLinkHandlers,
+} from "./handlers/auth-deeplink";
 import { registerTeamSettingsHandlers } from "./handlers/team-settings";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
@@ -128,6 +133,11 @@ async function startBot() {
     const deepLink = ctx.match?.trim();
 
     // Handle deep links
+    if (deepLink?.startsWith(AUTH_DEEPLINK_PREFIX)) {
+      await handleAuthDeepLink(ctx, deepLink);
+      return;
+    }
+
     if (deepLink?.startsWith("link_")) {
       await handleLinkDeepLink(ctx, deepLink);
       return;
@@ -245,6 +255,7 @@ async function startBot() {
   registerCafeHandlers(bot);
   registerMyBookingsHandler(bot);
   registerTeamSettingsHandlers(bot);
+  registerAuthDeepLinkHandlers(bot);
 
   // Error handler
   bot.catch((err) => {

@@ -8,6 +8,9 @@ import { prisma } from "./db";
 import { authConfig } from "./auth.config";
 import { ADMIN_SECTION_SLUGS } from "./permissions";
 import { authorizeMagicLinkNonce } from "@/modules/auth/magic-link-authorize";
+import { verifyTelegramTokenJwt } from "@/modules/auth/telegram-token-jwt";
+import { reserveJti } from "@/modules/auth/telegram-deep-link";
+import { logAuthEvent } from "@/lib/audit";
 
 // Telegram login data verification (used by legacy Login Widget Credentials
 // provider — kept as 30-day fallback per ADR §10. New deep-link flow lives
@@ -96,6 +99,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return result;
     },
   },
+  events: {
+    async signIn(message) {
+      const userId = message.user?.id;
+      const provider = message.account?.provider;
+      const isNewUser = message.isNewUser;
+      if (!userId) return;
+      // telegram-token already logs auth.signin.success in the bot handler
+      // with richer metadata (chatIdMasked, isNewUser). Skip here to avoid
+      // duplicate AuditLog rows for the same login event.
+      if (provider === "telegram-token") return;
+      // We rely on the Credentials providers to log signin.failure
+      // themselves (they have the reason). Here we record the success
+      // path uniformly across all providers.
+      await logAuthEvent("auth.signin.success", userId, {
+        provider: provider ?? "unknown",
+        isNewUser: isNewUser ?? undefined,
+      });
+    },
+    async signOut(message) {
+      // grammar: signOut payload differs between JWT (token) and DB
+      // (session) strategies. We use JWT, so prefer token.sub.
+      const userId =
+        ("token" in message && message.token?.sub) ||
+        ("session" in message && message.session?.userId) ||
+        null;
+      if (!userId) return;
+      await logAuthEvent("auth.signout", userId as string, {});
+    },
+  },
   providers: [
     // Email + Password
     Credentials({
@@ -114,23 +146,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: { email: normalizedEmail },
         });
 
-        if (!user || !user.passwordHash) return null;
+        if (!user || !user.passwordHash) {
+          await logAuthEvent("auth.signin.failure", user?.id ?? null, {
+            provider: "credentials",
+            reason: "USER_NOT_FOUND_OR_NO_PASSWORD",
+          });
+          return null;
+        }
 
         const isValid = await bcrypt.compare(
           credentials.password as string,
           user.passwordHash
         );
 
-        if (!isValid) return null;
+        if (!isValid) {
+          await logAuthEvent("auth.signin.failure", user.id, {
+            provider: "credentials",
+            reason: "BAD_PASSWORD",
+          });
+          return null;
+        }
 
         return user;
       },
     }),
 
-    // Telegram Login Widget — DEPRECATED, scheduled for removal 30 days
-    // after the new Telegram bot deep-link flow ships (Wave 2). Kept here
-    // so existing front-ends / cached HTML keep working during the
-    // transition. Do NOT add new entry points to this provider.
+    // Telegram Login Widget — DEPRECATED, scheduled for removal 2026-05-28
+    // (30 days after Wave 2 ships on 2026-04-28). Kept so existing
+    // front-ends / cached HTML keep working during the transition. Do NOT
+    // add new entry points to this provider.
     // See: docs/adr/2026-04-27-auth-refactor-and-crm-v1.md §10
     Credentials({
       id: "telegram",
@@ -198,6 +242,69 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         nonce: { type: "text" },
       },
       authorize: authorizeMagicLinkNonce,
+    }),
+
+    // Telegram bot deep-link — Wave 2 (ADR 2026-04-27 §1).
+    // Frontend hits /api/auth/telegram/start, user confirms in the bot
+    // (which writes the User + UserNotificationChannel + Account), then
+    // /api/auth/telegram/status mints a 30-second one-time JWT. We verify
+    // signature, audience, issuer, exp + dedup the jti in Redis, then
+    // return the user.
+    Credentials({
+      id: "telegram-token",
+      name: "Telegram (one-time code)",
+      credentials: {
+        oneTimeCode: { type: "text" },
+      },
+      async authorize(credentials) {
+        const oneTimeCode =
+          typeof credentials?.oneTimeCode === "string"
+            ? credentials.oneTimeCode
+            : "";
+        if (!oneTimeCode) return null;
+
+        const secret = process.env.NEXTAUTH_SECRET;
+        if (!secret) return null;
+
+        const payload = await verifyTelegramTokenJwt(oneTimeCode, secret);
+        if (!payload) {
+          await logAuthEvent("auth.signin.failure", null, {
+            provider: "telegram-token",
+            reason: "JWT_INVALID_OR_EXPIRED",
+          });
+          return null;
+        }
+
+        // jti dedup — second authorize() with the same code loses.
+        const fresh = await reserveJti(payload.jti);
+        if (!fresh) {
+          await logAuthEvent("auth.signin.failure", payload.sub, {
+            provider: "telegram-token",
+            reason: "JWT_REPLAY",
+          });
+          return null;
+        }
+
+        const user = await prisma.user.findUnique({
+          where: { id: payload.sub },
+        });
+        if (!user) {
+          await logAuthEvent("auth.signin.failure", payload.sub, {
+            provider: "telegram-token",
+            reason: "USER_NOT_FOUND",
+          });
+          return null;
+        }
+        if (user.mergedIntoUserId) {
+          // Tombstoned user — JWT was minted before a merge happened.
+          // Resolve to the surviving primary so the session goes there.
+          const primary = await prisma.user.findUnique({
+            where: { id: user.mergedIntoUserId },
+          });
+          return primary ?? null;
+        }
+        return user;
+      },
     }),
 
     // VK (Max) OAuth — Wave 3 will replace with custom VK ID v2 provider
