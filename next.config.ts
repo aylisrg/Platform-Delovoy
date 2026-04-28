@@ -24,7 +24,7 @@ const securityHeaders = [
       "img-src 'self' data: blob: https://mc.yandex.ru https://avatars.yandex.net https://lh3.googleusercontent.com https://t.me https://api.telegram.org https://avatars.githubusercontent.com",
       "media-src 'self'",
       "connect-src 'self' https://mc.yandex.ru https://api.telegram.org https://oauth.telegram.org wss://*.delovoy-park.ru",
-      "frame-src https://oauth.telegram.org",
+      "frame-src https://oauth.telegram.org https://yandex.ru https://*.yandex.ru https://*.yandex.net",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

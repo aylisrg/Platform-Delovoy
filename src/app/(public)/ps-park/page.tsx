@@ -6,6 +6,7 @@ import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
 import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
 import { CallWidget } from "@/components/public/call-widget";
+import { YandexMap } from "@/components/ui/yandex-map";
 import { Navbar } from "@landing/components/navbar";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
@@ -39,8 +40,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.519479,
-        longitude: 36.978566,
+        latitude: 55.516945,
+        longitude: 36.978520,
       },
       openingHoursSpecification: [
         {
@@ -398,6 +399,31 @@ export default async function PSParkPage() {
           <DarkAvailabilityGrid
             initialAvailability={initialAvailability}
             initialDate={today}
+          />
+        </section>
+
+        {/* ── LOCATION ── */}
+        <section id="location" className="max-w-6xl mx-auto px-4 py-16">
+          <div className="mb-8">
+            <h2
+              className="font-[family-name:var(--font-manrope)] font-bold text-white"
+              style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
+            >
+              Как добраться
+            </h2>
+            <p className="text-zinc-500 text-sm mt-2">
+              Селятино, Промышленная ул., 1 · 30 км от Москвы по Киевскому шоссе · бесплатная парковка
+            </p>
+          </div>
+          {/* Источник: https://yandex.ru/maps/org/145969813767/ — карточка организации «Плей Парк». */}
+          <YandexMap
+            orgId="145969813767"
+            lat={55.516945}
+            lon={36.978520}
+            zoom={17}
+            title="Плей Парк — Бизнес-парк «Деловой», Селятино"
+            theme="dark"
+            className="aspect-[16/9] min-h-[420px]"
           />
         </section>
 
