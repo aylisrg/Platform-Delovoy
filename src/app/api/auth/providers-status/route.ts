@@ -37,10 +37,15 @@ async function shouldSendAlert(key: string): Promise<boolean> {
 }
 
 export async function GET() {
+  // Wave 2 deep-link login uses TELEGRAM_BOT_USERNAME (server-only, used
+  // by /api/auth/telegram/start to build the t.me link) + TELEGRAM_BOT_TOKEN.
+  // The legacy widget uses NEXT_PUBLIC_TELEGRAM_BOT_NAME — accept either
+  // for the username slot during the transition window (per ADR §10).
+  const botUsername =
+    process.env.TELEGRAM_BOT_USERNAME ||
+    process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
   const status: ProviderStatus = {
-    telegram: Boolean(
-      process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME && process.env.TELEGRAM_BOT_TOKEN
-    ),
+    telegram: Boolean(botUsername && process.env.TELEGRAM_BOT_TOKEN),
     email: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
     yandex: false,
     google: false,
@@ -49,7 +54,7 @@ export async function GET() {
 
   if (!status.telegram && (await shouldSendAlert(MISSING_TELEGRAM_ALERT_KEY))) {
     const missing = [
-      !process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME && "NEXT_PUBLIC_TELEGRAM_BOT_NAME",
+      !botUsername && "TELEGRAM_BOT_USERNAME (or NEXT_PUBLIC_TELEGRAM_BOT_NAME)",
       !process.env.TELEGRAM_BOT_TOKEN && "TELEGRAM_BOT_TOKEN",
     ]
       .filter(Boolean)
