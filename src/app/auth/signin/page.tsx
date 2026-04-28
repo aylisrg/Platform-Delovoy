@@ -4,65 +4,11 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { TelegramSignInBlock } from "@/components/auth/telegram-polling";
 
 type AuthView = "main" | "email";
 type EmailMode = "password" | "magic-link";
 type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
-
-// Telegram Login Widget component
-function TelegramLoginButton() {
-  const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
-
-  useEffect(() => {
-    if (!botName) return;
-
-    // Define the global callback
-    (window as unknown as Record<string, unknown>).onTelegramAuth = async (user: Record<string, string>) => {
-      await signIn("telegram", {
-        ...user,
-        redirect: true,
-        callbackUrl: "/auth/redirect",
-      });
-    };
-
-    // Load Telegram widget script
-    const container = document.getElementById("telegram-login");
-    if (!container) return;
-    container.innerHTML = "";
-
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", botName);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.async = true;
-    container.appendChild(script);
-
-    return () => {
-      delete (window as unknown as Record<string, unknown>).onTelegramAuth;
-    };
-  }, [botName]);
-
-  if (!botName) {
-    return (
-      <div className="flex items-center justify-center gap-2 rounded-xl bg-[#26A5E4]/10 border border-[#26A5E4]/20 px-4 py-4">
-        <TelegramIcon />
-        <span className="text-sm text-[#26A5E4]">Telegram-вход временно недоступен</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="flex items-center gap-2 text-[#26A5E4] mb-1">
-        <TelegramIcon />
-        <span className="text-sm font-medium">Быстрый вход через Telegram</span>
-      </div>
-      <div id="telegram-login" className="flex justify-center" />
-    </div>
-  );
-}
 
 // Inner component that uses useSearchParams (requires Suspense boundary)
 function SignInInner() {
@@ -193,28 +139,27 @@ function SignInInner() {
           {/* Main view — Telegram first */}
           {view === "main" && (
             <div className="space-y-5">
-              {/* Telegram — primary */}
-              <TelegramLoginButton />
+              {/* Telegram — primary, Wave 2 deep-link flow */}
+              <TelegramSignInBlock callbackUrl="/auth/redirect" />
 
-              {/* Divider */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-zinc-700/50" />
-                <span className="text-xs text-zinc-500">или</span>
-                <div className="flex-1 h-px bg-zinc-700/50" />
-              </div>
+              {/* Divider — collapsed "Other ways" */}
+              <details className="group">
+                <summary className="cursor-pointer list-none text-center text-xs text-zinc-500 hover:text-zinc-300">
+                  <span className="group-open:hidden">Другие способы</span>
+                  <span className="hidden group-open:inline">Скрыть</span>
+                </summary>
 
-              {/* Auth buttons — Yandex removed in Wave 1 of auth refactor.
-                   VK ID + new Telegram deep-link flow land in later waves. */}
-              <div className="space-y-2.5">
-                <button
-                  onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  <MailIconSmall />
-                  Войти по Email
-                </button>
-              </div>
+                <div className="mt-3 space-y-2.5">
+                  <button
+                    onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
+                    disabled={loading}
+                    className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    <MailIconSmall />
+                    Войти по Email
+                  </button>
+                </div>
+              </details>
 
               {error && <p className="text-center text-sm text-red-400">{error}</p>}
 
@@ -415,11 +360,3 @@ function MailIconSmall() {
   );
 }
 
-function TelegramIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#26A5E4" />
-      <path d="M17.05 7.26l-1.83 9.43c-.14.62-.5.77-.99.48l-2.78-2.05-1.34 1.29c-.15.15-.27.27-.56.27l.2-2.83 5.15-4.65c.22-.2-.05-.31-.35-.12l-6.36 4.01-2.74-.85c-.59-.19-.61-.59.12-.88l10.72-4.13c.5-.19.94.12.76.88z" fill="white" />
-    </svg>
-  );
-}
