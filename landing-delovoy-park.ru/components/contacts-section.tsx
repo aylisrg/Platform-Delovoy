@@ -1,20 +1,16 @@
 import React from "react";
+import { YandexMap } from "@/components/ui/yandex-map";
 
 const PHONE = "+74996774888";
 const PHONE_DISPLAY = "+7 (499) 677-48-88";
 const WHATSAPP_NUMBER = "74996774888";
 
 // Бизнес-парк "Деловой" — Промышленная ул., 1, пгт Селятино, 143345
-// Используем явные координаты вместо widget-shortcode (последний может истечь
-// на стороне Яндекса — что и привело к пропаже карты).
-const PARK_LAT = 55.519479;
-const PARK_LON = 36.978566;
-const MAP_EMBED_URL =
-  `https://yandex.ru/map-widget/v1/?ll=${PARK_LON}%2C${PARK_LAT}` +
-  `&z=16&pt=${PARK_LON}%2C${PARK_LAT}%2Cpm2rdl&l=map`;
-const MAP_OPEN_URL =
-  `https://yandex.ru/maps/?ll=${PARK_LON}%2C${PARK_LAT}` +
-  `&z=16&pt=${PARK_LON}%2C${PARK_LAT}&mode=routes&rtext=~${PARK_LAT}%2C${PARK_LON}&rtt=auto`;
+// Используем organization ID, не shortlink (последний экспирится).
+// Источник: https://yandex.ru/maps/org/delovoy/165904522406/
+const PARK_OID = "165904522406";
+const PARK_LAT = 55.516945;
+const PARK_LON = 36.978520;
 
 const contacts = [
   {
@@ -94,36 +90,15 @@ export function ContactsSection() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
           {/* Yandex Maps — слева, на половину ширины */}
-          <div className="flex flex-col gap-4">
-            <div
-              className="relative w-full overflow-hidden rounded-3xl bg-[#f5f5f7] ring-1 ring-black/5 shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
-              style={{ minHeight: "460px", aspectRatio: "4 / 3" }}
-            >
-              <iframe
-                src={MAP_EMBED_URL}
-                title="Бизнес-парк «Деловой» — Селятино, Промышленная ул., 1"
-                loading="lazy"
-                allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
-                className="absolute inset-0 h-full w-full border-0"
-              />
-            </div>
-            <a
-              href={MAP_OPEN_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 self-start rounded-full bg-[#f5f5f7] hover:bg-[#ebebed] px-5 py-3 text-sm font-medium text-[#1d1d1f] font-[family-name:var(--font-inter)] transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s-8-7.5-8-13a8 8 0 0 1 16 0c0 5.5-8 13-8 13z" />
-                <circle cx="12" cy="9" r="3" />
-              </svg>
-              Построить маршрут в Яндекс Картах
-              <svg className="w-3.5 h-3.5 text-[#86868b]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </a>
-          </div>
+          <YandexMap
+            orgId={PARK_OID}
+            lat={PARK_LAT}
+            lon={PARK_LON}
+            zoom={17}
+            title="Бизнес-парк «Деловой» — Селятино, Промышленная ул., 1"
+            theme="light"
+            className="aspect-[4/3] min-h-[460px]"
+          />
 
           {/* Contacts — справа, на половину ширины */}
           <div className="flex flex-col justify-center gap-5">
