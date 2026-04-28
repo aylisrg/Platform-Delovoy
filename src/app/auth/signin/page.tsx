@@ -10,13 +10,6 @@ type AuthView = "main" | "email";
 type EmailMode = "password" | "magic-link";
 type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
 
-// PRD AC-14: Telegram primary button is hidden entirely when the bot
-// is not configured for this deployment (e.g. local dev without bot).
-// NEXT_PUBLIC_* is inlined at build time by Next.js.
-const TELEGRAM_LOGIN_ENABLED = Boolean(
-  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
-);
-
 // Inner component that uses useSearchParams (requires Suspense boundary)
 function SignInInner() {
   const searchParams = useSearchParams();
@@ -27,6 +20,13 @@ function SignInInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // PRD AC-14: hide Telegram primary button when the bot is not
+  // configured for this deployment. We default to ENABLED so the button
+  // is visible immediately on page load (no flash of email-only). The
+  // server-side /api/auth/providers-status check tells us if it's
+  // actually misconfigured — runtime check, not build-time, so changing
+  // env on prod takes effect without a Docker rebuild.
+  const [telegramEnabled, setTelegramEnabled] = useState(true);
 
   const redirectAfterLogin = useCallback(async () => {
     const sessionRes = await fetch("/api/auth/session");
@@ -39,10 +39,20 @@ function SignInInner() {
     }
   }, []);
 
-  // Ping server-side provider status on mount — triggers admin alert if
-  // Telegram (primary login channel) is misconfigured. Fire-and-forget.
+  // Ping server-side provider status on mount — also triggers admin alert
+  // if Telegram (primary login channel) is misconfigured. We use the
+  // response to gate the Telegram button (PRD AC-14).
   useEffect(() => {
-    fetch("/api/auth/providers-status").catch(() => {});
+    fetch("/api/auth/providers-status")
+      .then((r) => r.json())
+      .then((body) => {
+        if (body?.success && body.data && typeof body.data.telegram === "boolean") {
+          setTelegramEnabled(body.data.telegram);
+        }
+      })
+      .catch(() => {
+        // Network error: keep TG visible; clicking will surface a real error.
+      });
   }, []);
 
   // Handle magic link redirect: ?magic=<one-time signin nonce>
@@ -146,7 +156,7 @@ function SignInInner() {
           {/* Main view — Telegram first when configured, else email primary */}
           {view === "main" && (
             <div className="space-y-5">
-              {TELEGRAM_LOGIN_ENABLED ? (
+              {telegramEnabled ? (
                 <>
                   {/* Telegram — primary, Wave 2 deep-link flow */}
                   <TelegramSignInBlock callbackUrl="/auth/redirect" />

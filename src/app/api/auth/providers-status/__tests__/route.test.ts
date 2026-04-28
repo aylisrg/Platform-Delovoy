@@ -29,6 +29,7 @@ import { GET } from "../route";
 
 const PROVIDER_ENV_KEYS = [
   "NEXT_PUBLIC_TELEGRAM_BOT_NAME",
+  "TELEGRAM_BOT_USERNAME",
   "TELEGRAM_BOT_TOKEN",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
@@ -62,7 +63,15 @@ describe("GET /api/auth/providers-status", () => {
     });
   });
 
-  it("reports Telegram available when both bot name and token present", async () => {
+  it("reports Telegram available with TELEGRAM_BOT_USERNAME (Wave 2) + token", async () => {
+    vi.stubEnv("TELEGRAM_BOT_USERNAME", "DelovoyPark_bot");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:abc");
+    const res = await GET();
+    const body = await res.json();
+    expect(body.data.telegram).toBe(true);
+  });
+
+  it("reports Telegram available via legacy NEXT_PUBLIC_TELEGRAM_BOT_NAME fallback", async () => {
     vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "DelovoyBot");
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:abc");
     const res = await GET();
@@ -70,8 +79,8 @@ describe("GET /api/auth/providers-status", () => {
     expect(body.data.telegram).toBe(true);
   });
 
-  it("reports Telegram unavailable when only bot name present", async () => {
-    vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "DelovoyBot");
+  it("reports Telegram unavailable when only username present (no token)", async () => {
+    vi.stubEnv("TELEGRAM_BOT_USERNAME", "DelovoyPark_bot");
     const res = await GET();
     const body = await res.json();
     expect(body.data.telegram).toBe(false);
@@ -91,7 +100,7 @@ describe("GET /api/auth/providers-status", () => {
   });
 
   it("does not alert when Telegram is configured correctly", async () => {
-    vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "DelovoyBot");
+    vi.stubEnv("TELEGRAM_BOT_USERNAME", "DelovoyPark_bot");
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:abc");
     await GET();
     expect(mockLog.critical).not.toHaveBeenCalled();
@@ -116,12 +125,13 @@ describe("GET /api/auth/providers-status", () => {
   });
 
   it("lists missing env vars in alert metadata", async () => {
+    vi.stubEnv("TELEGRAM_BOT_USERNAME", "");
     vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "");
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
     await GET();
     const call = mockLog.critical.mock.calls[0];
     const metadata = call[2] as { missingEnv: string };
-    expect(metadata.missingEnv).toContain("NEXT_PUBLIC_TELEGRAM_BOT_NAME");
+    expect(metadata.missingEnv).toContain("TELEGRAM_BOT_USERNAME");
     expect(metadata.missingEnv).toContain("TELEGRAM_BOT_TOKEN");
   });
 
