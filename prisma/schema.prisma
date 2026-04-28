@@ -1417,6 +1417,7 @@ enum NotificationChannelKind {
   SMS
   PUSH
   VK
+  AVITO
 }
 
 enum OutgoingNotificationStatus {
@@ -1692,4 +1693,151 @@ model OutgoingNotification {
   @@index([dedupKey, createdAt])
   @@index([userId, createdAt])
   @@index([entityType, entityId])
+}
+
+// === AVITO INTEGRATION ===
+// Платформа подключена как интеграция, не отдельный модуль.
+// См. docs/architecture/2026-04-28-delovoy-avito-adr.md
+
+/// Один аккаунт парка в Avito Pro. Singleton (id="default").
+model AvitoIntegration {
+  id                     String    @id @default("default")
+  avitoUserId            String?
+  accountName            String?
+  webhookSecret          String?
+  webhookSecretRotatedAt DateTime?
+  webhookEnabled         Boolean   @default(false)
+  pollEnabled            Boolean   @default(true)
+  lastBalanceRub         Decimal?
+  lastBalanceSyncAt      DateTime?
+  lastAccountSyncAt      DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+/// Реестр объявлений парка. Привязка к moduleSlug — для RBAC и маршрутизации лидов.
+model AvitoItem {
+  id            String          @id @default(cuid())
+  avitoItemId   String          @unique
+  title         String
+  url           String?
+  status        AvitoItemStatus @default(ACTIVE)
+  moduleSlug    String?
+  category      String?
+  priceRub      Decimal?
+  lastSyncedAt  DateTime?
+  lastSyncError String?         @db.Text
+  avgRating     Float?
+  reviewsCount  Int             @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  messages       AvitoMessage[]
+  reviews        AvitoReview[]
+  callEvents     AvitoCallEvent[]
+  statsSnapshots AvitoItemStatsSnapshot[]
+
+  @@index([moduleSlug, status])
+  @@index([deletedAt])
+}
+
+enum AvitoItemStatus {
+  ACTIVE
+  ARCHIVED
+  BLOCKED
+  REMOVED
+}
+
+/// Кэш сообщений Messenger (idempotency + аудит).
+model AvitoMessage {
+  id                String                @id @default(cuid())
+  avitoMessageId    String                @unique
+  avitoChatId       String
+  avitoItemId       String?
+  avitoItem         AvitoItem?            @relation(fields: [avitoItemId], references: [id], onDelete: SetNull)
+  direction         AvitoMessageDirection
+  authorAvitoUserId String?
+  authorName        String?
+  body              String                @db.Text
+  attachments       Json?
+  taskId            String?
+  taskCommentId     String?
+  rawPayload        Json?
+  receivedAt        DateTime
+  createdAt         DateTime              @default(now())
+
+  @@index([avitoChatId, receivedAt])
+  @@index([avitoItemId])
+  @@index([taskId])
+  @@index([direction, createdAt])
+}
+
+enum AvitoMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// Отзывы. Sync через cron, alert при rating <= 3 (PR-3).
+model AvitoReview {
+  id            String    @id @default(cuid())
+  avitoReviewId String    @unique
+  avitoItemId   String
+  avitoItem     AvitoItem @relation(fields: [avitoItemId], references: [id], onDelete: Cascade)
+  rating        Int
+  authorName    String?
+  body          String?   @db.Text
+  reviewedAt    DateTime
+  alertSent     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  @@index([avitoItemId, rating])
+  @@index([alertSent, rating])
+  @@index([reviewedAt])
+}
+
+/// События call-tracking. Для пропущенных звонков (PR-4).
+model AvitoCallEvent {
+  id          String          @id @default(cuid())
+  avitoCallId String          @unique
+  avitoItemId String?
+  avitoItem   AvitoItem?      @relation(fields: [avitoItemId], references: [id], onDelete: SetNull)
+  callerPhone String?
+  status      AvitoCallStatus
+  durationSec Int?
+  startedAt   DateTime
+  taskId      String?
+  rawPayload  Json?
+  createdAt   DateTime        @default(now())
+
+  @@index([avitoItemId, status])
+  @@index([startedAt])
+  @@index([taskId])
+}
+
+enum AvitoCallStatus {
+  ANSWERED
+  MISSED
+  REJECTED
+  FAILED
+}
+
+/// Снапшот метрик за период. Cron 15 мин обновляет, UI читает только отсюда.
+model AvitoItemStatsSnapshot {
+  id          String    @id @default(cuid())
+  avitoItemId String
+  avitoItem   AvitoItem @relation(fields: [avitoItemId], references: [id], onDelete: Cascade)
+  period      String
+  dateFrom    DateTime
+  dateTo      DateTime
+  views       Int       @default(0)
+  uniqViews   Int       @default(0)
+  contacts    Int       @default(0)
+  favorites   Int       @default(0)
+  calls       Int       @default(0)
+  missedCalls Int       @default(0)
+  syncedAt    DateTime  @default(now())
+
+  @@unique([avitoItemId, period])
+  @@index([syncedAt])
 }
