@@ -30,4 +30,7 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
 
   // Rental inquiries (admin-only)
   "inquiry.created": { client: false, admin: true },
+
+  // Avito integration — lead came in via Messenger (PR-2).
+  "avito.lead.new": { client: false, admin: true },
 };

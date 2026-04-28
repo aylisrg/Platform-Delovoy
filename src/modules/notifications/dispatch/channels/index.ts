@@ -1,6 +1,7 @@
 import { ChannelRegistry } from "../channel-registry";
 import { TelegramChannel } from "./telegram";
 import { EmailChannel } from "./email";
+import { AvitoChannel } from "./avito";
 import {
   WhatsAppChannel,
   MaxChannel,
@@ -21,6 +22,7 @@ export function bootstrapChannels(): void {
   if (bootstrapped) return;
   ChannelRegistry.register(new TelegramChannel());
   ChannelRegistry.register(new EmailChannel());
+  ChannelRegistry.register(new AvitoChannel());
   ChannelRegistry.register(WhatsAppChannel);
   ChannelRegistry.register(MaxChannel);
   ChannelRegistry.register(IMessageChannel);

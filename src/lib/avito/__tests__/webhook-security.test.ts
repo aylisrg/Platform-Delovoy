@@ -11,12 +11,14 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import {
+  constantTimeCompare,
   constantTimeEquals,
+  verifyWebhookToken,
   verifyAvitoWebhookToken,
 } from "../webhook-security";
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  findUniqueMock.mockReset();
 });
 
 describe("constantTimeEquals", () => {
@@ -34,6 +36,39 @@ describe("constantTimeEquals", () => {
 
   it("returns false for empty + nonempty", () => {
     expect(constantTimeEquals("", "secret")).toBe(false);
+  });
+});
+
+describe("constantTimeCompare", () => {
+  it("returns true for identical non-empty strings", () => {
+    expect(constantTimeCompare("abc123", "abc123")).toBe(true);
+  });
+
+  it("returns false for length mismatch (no timing leak)", () => {
+    expect(constantTimeCompare("abc123", "abc1234")).toBe(false);
+    expect(constantTimeCompare("a", "ab")).toBe(false);
+  });
+
+  it("returns false for different bytes of equal length", () => {
+    expect(constantTimeCompare("aaaa", "aaab")).toBe(false);
+    expect(constantTimeCompare("ZzZz", "zZzZ")).toBe(false);
+  });
+
+  it("returns false for empty strings", () => {
+    expect(constantTimeCompare("", "")).toBe(false);
+    expect(constantTimeCompare("", "abc")).toBe(false);
+    expect(constantTimeCompare("abc", "")).toBe(false);
+  });
+
+  it("returns false for non-string inputs", () => {
+    expect(
+      // @ts-expect-error — runtime guard for bad callers
+      constantTimeCompare(undefined, "abc")
+    ).toBe(false);
+    expect(
+      // @ts-expect-error — runtime guard for bad callers
+      constantTimeCompare("abc", null)
+    ).toBe(false);
   });
 });
 
@@ -68,5 +103,31 @@ describe("verifyAvitoWebhookToken", () => {
     findUniqueMock.mockResolvedValue({ webhookSecret: "abcd1234" });
     const r = await verifyAvitoWebhookToken("abcd1234");
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("verifyWebhookToken", () => {
+  it("returns false when token is null", async () => {
+    expect(await verifyWebhookToken(null)).toBe(false);
+  });
+
+  it("returns false when integration row missing", async () => {
+    findUniqueMock.mockResolvedValueOnce(null);
+    expect(await verifyWebhookToken("abc")).toBe(false);
+  });
+
+  it("returns false when webhookSecret is null", async () => {
+    findUniqueMock.mockResolvedValueOnce({ webhookSecret: null });
+    expect(await verifyWebhookToken("abc")).toBe(false);
+  });
+
+  it("returns false when token mismatches", async () => {
+    findUniqueMock.mockResolvedValueOnce({ webhookSecret: "expected" });
+    expect(await verifyWebhookToken("provided")).toBe(false);
+  });
+
+  it("returns true when token matches stored secret", async () => {
+    findUniqueMock.mockResolvedValueOnce({ webhookSecret: "shared-secret" });
+    expect(await verifyWebhookToken("shared-secret")).toBe(true);
   });
 });
