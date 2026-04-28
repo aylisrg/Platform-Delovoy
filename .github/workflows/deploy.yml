@@ -240,6 +240,14 @@ jobs:
             done
 
             if [ "$HEALTHY" = true ]; then
+              echo "=== Run unified seed pipeline ==="
+              # Idempotent reference-data seed (modules, boards, categories, demo offices, etc).
+              # See docs/adr/ADR-0001-unified-seed-pipeline.md
+              # Failure here is a deploy failure — without seed Tasks/etc are broken.
+              docker compose exec -T app npx tsx scripts/seed.ts \
+                && echo "✅ Seed pipeline OK" \
+                || { echo "❌ Seed pipeline FAILED"; exit 1; }
+
               echo "=== Run data migrations ==="
               docker compose exec -T app npx tsx scripts/set-public-phone.ts \
                 && echo "✅ Phone config applied" \
