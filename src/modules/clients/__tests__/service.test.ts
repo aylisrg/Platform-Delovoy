@@ -16,6 +16,8 @@ vi.mock("@/lib/db", () => ({
     resource: {
       findMany: vi.fn(),
     },
+    // mergeClients tests inject their own implementation per-test.
+    $transaction: vi.fn(),
   },
 }));
 
@@ -24,6 +26,7 @@ import {
   getClientDetail,
   getClientStats,
   calculateBookingCost,
+  mergeClients,
 } from "@/modules/clients/service";
 import { prisma } from "@/lib/db";
 
@@ -365,5 +368,378 @@ describe("getClientStats", () => {
     expect(result.topSpenders).toHaveLength(1);
     expect(result.topSpenders[0].totalSpent).toBe(5000);
     expect(result.moduleBreakdown).toHaveLength(3);
+  });
+});
+
+// ============================================================================
+// mergeClients — soft-merge with FK transfer (no hard-delete)
+//
+// Strategy: build an in-memory mock `tx` whose tables are plain arrays.
+// Each Prisma method we use is implemented just enough to make the merge
+// run end-to-end. Then we assert on the post-merge state of the arrays
+// (and on the AuditLog row) for each scenario.
+// ============================================================================
+
+type Row = Record<string, unknown>;
+type TxTables = Record<string, Row[]>;
+
+function makeUser(overrides: Partial<Row> = {}): Row {
+  return {
+    id: "u-x",
+    role: "USER",
+    name: null,
+    email: null,
+    phone: null,
+    image: null,
+    telegramId: null,
+    vkId: null,
+    phoneNormalized: null,
+    emailNormalized: null,
+    mergedIntoUserId: null,
+    mergedAt: null,
+    ...overrides,
+  };
+}
+
+function buildTx(tables: TxTables) {
+  const t = (name: string): Row[] => {
+    if (!tables[name]) tables[name] = [];
+    return tables[name];
+  };
+
+  const matches = (row: Row, where: Row): boolean => {
+    for (const [k, v] of Object.entries(where)) {
+      if (row[k] !== v) return false;
+    }
+    return true;
+  };
+
+  const updateMany = (table: string) => async ({ where, data }: { where: Row; data: Row }) => {
+    let count = 0;
+    for (const row of t(table)) {
+      if (matches(row, where)) {
+        Object.assign(row, data);
+        count++;
+      }
+    }
+    return { count };
+  };
+
+  const findMany = (table: string) => async ({ where = {} }: { where?: Row; select?: Row } = {}) => {
+    return t(table).filter((r) => matches(r, where));
+  };
+
+  const findUnique = (table: string) => async ({ where }: { where: Row }) => {
+    return t(table).find((r) => matches(r, where)) ?? null;
+  };
+
+  const deleteOne = (table: string) => async ({ where }: { where: Row }) => {
+    const arr = t(table);
+    const idx = arr.findIndex((r) => matches(r, where));
+    if (idx === -1) throw new Error(`No ${table} row matches delete()`);
+    return arr.splice(idx, 1)[0];
+  };
+
+  const deleteMany = (table: string) => async ({ where }: { where: Row }) => {
+    const arr = t(table);
+    let count = 0;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (matches(arr[i], where)) {
+        arr.splice(i, 1);
+        count++;
+      }
+    }
+    return { count };
+  };
+
+  const update = (table: string) => async ({ where, data }: { where: Row; data: Row }) => {
+    const row = t(table).find((r) => matches(r, where));
+    if (!row) throw new Error(`No ${table} row matches update()`);
+    Object.assign(row, data);
+    return row;
+  };
+
+  const create = (table: string) => async ({ data }: { data: Row }) => {
+    const row = { id: `${table}-${t(table).length + 1}`, ...data };
+    t(table).push(row);
+    return row;
+  };
+
+  const tableApi = (name: string) => ({
+    findMany: findMany(name),
+    findUnique: findUnique(name),
+    update: update(name),
+    updateMany: updateMany(name),
+    delete: deleteOne(name),
+    deleteMany: deleteMany(name),
+    create: create(name),
+  });
+
+  return {
+    user: tableApi("user"),
+    booking: tableApi("booking"),
+    order: tableApi("order"),
+    account: tableApi("account"),
+    session: tableApi("session"),
+    auditLog: tableApi("auditLog"),
+    feedbackItem: tableApi("feedbackItem"),
+    notificationLog: tableApi("notificationLog"),
+    notificationPreference: tableApi("notificationPreference"),
+    moduleAssignment: tableApi("moduleAssignment"),
+    adminPermission: tableApi("adminPermission"),
+    rentalChangeLog: tableApi("rentalChangeLog"),
+    telegramLinkToken: tableApi("telegramLinkToken"),
+    backupLog: {
+      ...tableApi("backupLog"),
+      // backupLog uses performedById, not userId — re-bind updateMany to that key.
+      // (our generic matches() already handles arbitrary where keys.)
+    },
+    task: tableApi("task"),
+    taskAssignee: tableApi("taskAssignee"),
+    taskComment: tableApi("taskComment"),
+    taskEvent: tableApi("taskEvent"),
+    taskSubscription: tableApi("taskSubscription"),
+    savedTaskView: tableApi("savedTaskView"),
+    userNotificationChannel: tableApi("userNotificationChannel"),
+    notificationEventPreference: tableApi("notificationEventPreference"),
+    notificationGlobalPreference: tableApi("notificationGlobalPreference"),
+    outgoingNotification: tableApi("outgoingNotification"),
+  };
+}
+
+function installTx(tables: TxTables) {
+  vi.mocked(prisma.$transaction as unknown as (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>)
+    .mockImplementation(async (cb) => cb(buildTx(tables)));
+}
+
+describe("mergeClients", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("happy path: transfers FK from secondary to primary, tombstones secondary", async () => {
+    const tables: TxTables = {
+      user: [
+        makeUser({ id: "primary", email: "p@test.com", phone: "+79991111111", phoneNormalized: "79991111111" }),
+        makeUser({ id: "secondary", name: "Иван", phone: "+79992222222", phoneNormalized: "79992222222" }),
+      ],
+      booking: [{ id: "b1", userId: "secondary" }, { id: "b2", userId: "secondary" }],
+      order: [{ id: "o1", userId: "secondary" }],
+      auditLog: [{ id: "a-old", userId: "secondary", action: "old" }],
+    };
+    installTx(tables);
+
+    const result = await mergeClients("primary", "secondary", "admin-1");
+
+    expect(result.primaryId).toBe("primary");
+    expect(result.tombstonedUserId).toBe("secondary");
+    expect(result.deletedUserId).toBe("secondary"); // backwards-compat alias
+    expect(result.merged.bookings).toBe(2);
+    expect(result.merged.orders).toBe(1);
+    // existing auditLogs row reassigned (the new "auth.merge.manual" row is a separate create)
+    expect(result.merged.auditLogs).toBe(1);
+
+    // FK rewritten
+    for (const b of tables.booking) expect(b.userId).toBe("primary");
+    for (const o of tables.order) expect(o.userId).toBe("primary");
+
+    // primary enriched with secondary's name (was null)
+    const primary = tables.user.find((u) => u.id === "primary")!;
+    expect(primary.name).toBe("Иван");
+    // primary's email/phone NOT overwritten (primary wins)
+    expect(primary.email).toBe("p@test.com");
+    expect(primary.phone).toBe("+79991111111");
+  });
+
+  it("regression: secondary is NOT hard-deleted — it becomes a tombstone", async () => {
+    const tables: TxTables = {
+      user: [
+        makeUser({ id: "primary" }),
+        makeUser({ id: "secondary", email: "s@test.com" }),
+      ],
+    };
+    installTx(tables);
+
+    await mergeClients("primary", "secondary", "admin-1");
+
+    // The row still exists.
+    const sec = tables.user.find((u) => u.id === "secondary");
+    expect(sec).toBeDefined();
+    // mergedIntoUserId points at primary, mergedAt is set.
+    expect(sec!.mergedIntoUserId).toBe("primary");
+    expect(sec!.mergedAt).toBeInstanceOf(Date);
+    // unique fields freed.
+    expect(sec!.email).toBeNull();
+    expect(sec!.phone).toBeNull();
+    expect(sec!.telegramId).toBeNull();
+    expect(sec!.vkId).toBeNull();
+    expect(sec!.phoneNormalized).toBeNull();
+    expect(sec!.emailNormalized).toBeNull();
+  });
+
+  it("regression: Phase 5.4 FK (Task, TaskAssignee, TaskComment, TaskEvent, channels, prefs) all transferred", async () => {
+    const tables: TxTables = {
+      user: [makeUser({ id: "primary" }), makeUser({ id: "secondary" })],
+      task: [{ id: "t1", reporterUserId: "secondary" }],
+      taskAssignee: [{ id: "ta1", taskId: "t99", userId: "secondary", role: "RESPONSIBLE" }],
+      taskComment: [{ id: "tc1", taskId: "t1", authorUserId: "secondary" }],
+      taskEvent: [{ id: "te1", taskId: "t1", actorUserId: "secondary" }],
+      taskSubscription: [{ id: "ts1", userId: "secondary", scope: "TASK", taskId: "t1", boardId: null, categoryId: null }],
+      savedTaskView: [{ id: "sv1", userId: "secondary", name: "view" }],
+      userNotificationChannel: [{ id: "ch1", userId: "secondary", kind: "TELEGRAM", address: "12345" }],
+      notificationEventPreference: [{ id: "nep1", userId: "secondary", eventType: "task.created" }],
+      notificationGlobalPreference: [{ userId: "secondary", timezone: "Europe/Moscow", quietHoursFrom: null, quietHoursTo: null, dndUntil: null }],
+      auditLog: [{ id: "al1", userId: "secondary", action: "x" }],
+    };
+    installTx(tables);
+
+    const result = await mergeClients("primary", "secondary", "admin-1");
+
+    expect(tables.task[0].reporterUserId).toBe("primary");
+    expect(tables.taskAssignee[0].userId).toBe("primary");
+    expect(tables.taskComment[0].authorUserId).toBe("primary");
+    expect(tables.taskEvent[0].actorUserId).toBe("primary");
+    expect(tables.taskSubscription[0].userId).toBe("primary");
+    expect(tables.savedTaskView[0].userId).toBe("primary");
+    expect(tables.userNotificationChannel[0].userId).toBe("primary");
+    expect(tables.notificationEventPreference[0].userId).toBe("primary");
+    // Global pref: copied across (PK is userId, can't UPDATE).
+    expect(tables.notificationGlobalPreference.find((p) => p.userId === "primary")).toBeDefined();
+    expect(tables.notificationGlobalPreference.find((p) => p.userId === "secondary")).toBeUndefined();
+    expect(tables.auditLog.find((a) => a.id === "al1")!.userId).toBe("primary");
+
+    expect(result.merged.reportedTasks).toBe(1);
+    expect(result.merged.taskAssignments).toBe(1);
+    expect(result.merged.taskComments).toBe(1);
+    expect(result.merged.taskEvents).toBe(1);
+    expect(result.merged.taskSubscriptions).toBe(1);
+    expect(result.merged.savedTaskViews).toBe(1);
+    expect(result.merged.notificationChannels).toBe(1);
+    expect(result.merged.notificationEventPrefs).toBe(1);
+    expect(result.merged.notificationGlobalPref).toBe(1);
+  });
+
+  it("edge: UserNotificationChannel unique conflict — primary wins, secondary's channel is dropped", async () => {
+    const tables: TxTables = {
+      user: [makeUser({ id: "primary" }), makeUser({ id: "secondary" })],
+      userNotificationChannel: [
+        { id: "p-tg", userId: "primary", kind: "TELEGRAM", address: "777" },
+        { id: "s-tg", userId: "secondary", kind: "TELEGRAM", address: "777" }, // same kind+address
+        { id: "s-email", userId: "secondary", kind: "EMAIL", address: "x@y.z" }, // unique to secondary
+      ],
+      outgoingNotification: [
+        { id: "on1", userId: "secondary", channelId: "s-tg", eventType: "x" }, // tied to dropped channel
+      ],
+    };
+    installTx(tables);
+
+    await mergeClients("primary", "secondary", "admin-1");
+
+    // Primary's channel preserved.
+    expect(tables.userNotificationChannel.find((c) => c.id === "p-tg")).toBeDefined();
+    // Secondary's duplicate dropped.
+    expect(tables.userNotificationChannel.find((c) => c.id === "s-tg")).toBeUndefined();
+    // Secondary's unique channel reassigned.
+    const sEmail = tables.userNotificationChannel.find((c) => c.id === "s-email");
+    expect(sEmail).toBeDefined();
+    expect(sEmail!.userId).toBe("primary");
+    // OutgoingNotification tied to dropped channel was cleaned.
+    expect(tables.outgoingNotification.find((o) => o.id === "on1")).toBeUndefined();
+  });
+
+  it("edge: Account unique conflict on (provider, providerAccountId) — same provider/id is dropped, others move", async () => {
+    const tables: TxTables = {
+      user: [makeUser({ id: "primary" }), makeUser({ id: "secondary" })],
+      account: [
+        { id: "p-tg", userId: "primary", provider: "telegram", providerAccountId: "777" },
+        { id: "s-tg", userId: "secondary", provider: "telegram", providerAccountId: "777" }, // dup
+        { id: "s-email", userId: "secondary", provider: "email", providerAccountId: "x@y.z" }, // unique
+      ],
+    };
+    installTx(tables);
+
+    const result = await mergeClients("primary", "secondary", "admin-1");
+
+    expect(tables.account.find((a) => a.id === "p-tg")).toBeDefined();
+    expect(tables.account.find((a) => a.id === "s-tg")).toBeUndefined();
+    const sEmail = tables.account.find((a) => a.id === "s-email");
+    expect(sEmail!.userId).toBe("primary");
+    expect(result.merged.accounts).toBe(1); // only s-email transferred
+  });
+
+  it("edge: secondary's email/phone are freed so a new user can claim them", async () => {
+    const tables: TxTables = {
+      user: [
+        makeUser({ id: "primary" }),
+        makeUser({ id: "secondary", email: "freed@test.com", phone: "+79993333333", emailNormalized: "freed@test.com", phoneNormalized: "79993333333" }),
+      ],
+    };
+    installTx(tables);
+
+    await mergeClients("primary", "secondary", "admin-1");
+
+    const sec = tables.user.find((u) => u.id === "secondary")!;
+    expect(sec.email).toBeNull();
+    expect(sec.phone).toBeNull();
+    expect(sec.emailNormalized).toBeNull();
+    expect(sec.phoneNormalized).toBeNull();
+    // (DB-level uniqueness is verified by the partial-unique index in the
+    // migration; here we only assert the application contract.)
+  });
+
+  it("audit log: writes a single auth.merge.manual entry with primaryId/secondaryId/fkMoved metadata", async () => {
+    const tables: TxTables = {
+      user: [makeUser({ id: "primary" }), makeUser({ id: "secondary", name: "Bob" })],
+      booking: [{ id: "b1", userId: "secondary" }],
+    };
+    installTx(tables);
+
+    await mergeClients("primary", "secondary", "admin-7");
+
+    const mergeLog = tables.auditLog.find((l) => l.action === "auth.merge.manual");
+    expect(mergeLog).toBeDefined();
+    expect(mergeLog!.userId).toBe("admin-7");
+    expect(mergeLog!.entity).toBe("User");
+    expect(mergeLog!.entityId).toBe("primary");
+    const meta = mergeLog!.metadata as Record<string, unknown>;
+    expect(meta.primaryId).toBe("primary");
+    expect(meta.secondaryId).toBe("secondary");
+    expect(meta.source).toBe("admin_ui");
+    expect((meta.fkMoved as Record<string, number>).bookings).toBe(1);
+  });
+
+  it("error: refuses to merge a user with itself", async () => {
+    installTx({ user: [makeUser({ id: "same" })] });
+    await expect(mergeClients("same", "same", "admin-1")).rejects.toThrow(/сам с собой/);
+  });
+
+  it("error: throws if primary not found", async () => {
+    installTx({ user: [makeUser({ id: "secondary" })] });
+    await expect(mergeClients("missing", "secondary", "admin-1")).rejects.toThrow(/Основной клиент не найден/);
+  });
+
+  it("error: throws if secondary not found", async () => {
+    installTx({ user: [makeUser({ id: "primary" })] });
+    await expect(mergeClients("primary", "missing", "admin-1")).rejects.toThrow(/Второй клиент не найден/);
+  });
+
+  it("error: refuses to merge already-tombstoned secondary", async () => {
+    installTx({
+      user: [
+        makeUser({ id: "primary" }),
+        makeUser({ id: "secondary", mergedIntoUserId: "older-primary" }),
+      ],
+    });
+    await expect(mergeClients("primary", "secondary", "admin-1")).rejects.toThrow(/уже объединён/);
+  });
+
+  it("error: refuses to merge into a non-USER role", async () => {
+    installTx({
+      user: [
+        makeUser({ id: "primary", role: "MANAGER" }),
+        makeUser({ id: "secondary" }),
+      ],
+    });
+    await expect(mergeClients("primary", "secondary", "admin-1")).rejects.toThrow(/не является клиентом/);
   });
 });
