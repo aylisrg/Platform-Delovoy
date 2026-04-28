@@ -71,7 +71,7 @@ export async function listClients(
 
   // Build user WHERE clause
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userWhere: any = { role: "USER" as const };
+  const userWhere: any = { role: "USER" as const, mergedIntoUserId: null };
 
   if (search) {
     userWhere.OR = [
@@ -281,7 +281,7 @@ export async function getClientDetail(
   userId: string
 ): Promise<ClientDetail | null> {
   const user = await prisma.user.findUnique({
-    where: { id: userId, role: "USER" },
+    where: { id: userId, role: "USER", mergedIntoUserId: null },
     select: {
       id: true,
       name: true,

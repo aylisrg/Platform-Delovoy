@@ -250,6 +250,26 @@ describe("listClients", () => {
     const result = await listClients();
     expect(result.clients[0].totalSpent).toBe(0);
   });
+
+  it("excludes tombstoned (merged) users from list", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listClients();
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          role: "USER",
+          mergedIntoUserId: null,
+        }),
+      })
+    );
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ mergedIntoUserId: null }),
+    });
+  });
 });
 
 describe("getClientDetail", () => {
@@ -281,6 +301,23 @@ describe("getClientDetail", () => {
 
     const result = await getClientDetail("nonexistent");
     expect(result).toBeNull();
+  });
+
+  it("returns null for tombstoned (merged) user", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+
+    const result = await getClientDetail("merged-user");
+
+    expect(result).toBeNull();
+    expect(prisma.user.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "merged-user",
+          role: "USER",
+          mergedIntoUserId: null,
+        }),
+      })
+    );
   });
 
   it("builds monthly spending correctly", async () => {
