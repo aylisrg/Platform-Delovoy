@@ -80,14 +80,23 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/parking") ||
         pathname.startsWith("/api/rental") ||
         pathname === "/api/inventory" ||
-        pathname === "/api/inventory/health";
+        pathname === "/api/inventory/health" ||
+        // Phase 5.4 public tasks endpoints (Wave 2 hotfix):
+        //   /api/tasks/track/<publicId> — anonymous status tracking after /report
+        //   /api/tasks/offices?q=...    — autosuggest used by the public /report form
+        // Both are rate-limited by IP in the route handler itself.
+        pathname.startsWith("/api/tasks/track") ||
+        pathname === "/api/tasks/offices";
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/waitlist") ||
         pathname.startsWith("/api/bot/") ||
         // Guest checkout: booking endpoints accept unauthenticated POSTs when
         // the body carries guestName + guestPhone. The handler enforces the rule.
-        pathname === "/api/gazebos/book";
+        pathname === "/api/gazebos/book" ||
+        // Public report form (Phase 5.4) — anonymous submission, IP rate-limited
+        // (5/hour per IP) inside the route handler.
+        pathname === "/api/tasks/report";
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
       // Webapp (Mini App) routes use their own JWT — not NextAuth sessions
