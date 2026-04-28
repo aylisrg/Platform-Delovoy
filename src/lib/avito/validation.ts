@@ -17,3 +17,12 @@ export const AvitoItemsQuerySchema = z.object({
 export const AvitoReplySchema = z.object({
   text: z.string().min(1).max(2000),
 });
+
+export const AvitoReviewsQuerySchema = z.object({
+  moduleSlug: z
+    .union([z.enum(ATTACHED_MODULES), z.literal("none"), z.literal("all")])
+    .optional(),
+  minRating: z.coerce.number().int().min(1).max(5).optional(),
+  maxRating: z.coerce.number().int().min(1).max(5).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
