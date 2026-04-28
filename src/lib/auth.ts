@@ -105,6 +105,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const provider = message.account?.provider;
       const isNewUser = message.isNewUser;
       if (!userId) return;
+      // telegram-token already logs auth.signin.success in the bot handler
+      // with richer metadata (chatIdMasked, isNewUser). Skip here to avoid
+      // duplicate AuditLog rows for the same login event.
+      if (provider === "telegram-token") return;
       // We rely on the Credentials providers to log signin.failure
       // themselves (they have the reason). Here we record the success
       // path uniformly across all providers.
@@ -167,10 +171,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
-    // Telegram Login Widget — DEPRECATED, scheduled for removal 30 days
-    // after the new Telegram bot deep-link flow ships (Wave 2). Kept here
-    // so existing front-ends / cached HTML keep working during the
-    // transition. Do NOT add new entry points to this provider.
+    // Telegram Login Widget — DEPRECATED, scheduled for removal 2026-05-28
+    // (30 days after Wave 2 ships on 2026-04-28). Kept so existing
+    // front-ends / cached HTML keep working during the transition. Do NOT
+    // add new entry points to this provider.
     // See: docs/adr/2026-04-27-auth-refactor-and-crm-v1.md §10
     Credentials({
       id: "telegram",

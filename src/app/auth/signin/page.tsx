@@ -10,6 +10,13 @@ type AuthView = "main" | "email";
 type EmailMode = "password" | "magic-link";
 type EmailSubView = "form" | "magic-link-sent" | "auto-signing-in";
 
+// PRD AC-14: Telegram primary button is hidden entirely when the bot
+// is not configured for this deployment (e.g. local dev without bot).
+// NEXT_PUBLIC_* is inlined at build time by Next.js.
+const TELEGRAM_LOGIN_ENABLED = Boolean(
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
+);
+
 // Inner component that uses useSearchParams (requires Suspense boundary)
 function SignInInner() {
   const searchParams = useSearchParams();
@@ -136,30 +143,44 @@ function SignInInner() {
         {/* Card */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-8">
 
-          {/* Main view — Telegram first */}
+          {/* Main view — Telegram first when configured, else email primary */}
           {view === "main" && (
             <div className="space-y-5">
-              {/* Telegram — primary, Wave 2 deep-link flow */}
-              <TelegramSignInBlock callbackUrl="/auth/redirect" />
+              {TELEGRAM_LOGIN_ENABLED ? (
+                <>
+                  {/* Telegram — primary, Wave 2 deep-link flow */}
+                  <TelegramSignInBlock callbackUrl="/auth/redirect" />
 
-              {/* Divider — collapsed "Other ways" */}
-              <details className="group">
-                <summary className="cursor-pointer list-none text-center text-xs text-zinc-500 hover:text-zinc-300">
-                  <span className="group-open:hidden">Другие способы</span>
-                  <span className="hidden group-open:inline">Скрыть</span>
-                </summary>
+                  {/* Divider — collapsed "Other ways" */}
+                  <details className="group">
+                    <summary className="cursor-pointer list-none text-center text-xs text-zinc-500 hover:text-zinc-300">
+                      <span className="group-open:hidden">Другие способы</span>
+                      <span className="hidden group-open:inline">Скрыть</span>
+                    </summary>
 
-                <div className="mt-3 space-y-2.5">
-                  <button
-                    onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
-                    disabled={loading}
-                    className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-                  >
-                    <MailIconSmall />
-                    Войти по Email
-                  </button>
-                </div>
-              </details>
+                    <div className="mt-3 space-y-2.5">
+                      <button
+                        onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
+                        disabled={loading}
+                        className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        <MailIconSmall />
+                        Войти по Email
+                      </button>
+                    </div>
+                  </details>
+                </>
+              ) : (
+                /* Telegram not configured — email becomes primary */
+                <button
+                  onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl bg-blue-600 px-4 py-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <MailIconSmall />
+                  Войти по Email
+                </button>
+              )}
 
               {error && <p className="text-center text-sm text-red-400">{error}</p>}
 

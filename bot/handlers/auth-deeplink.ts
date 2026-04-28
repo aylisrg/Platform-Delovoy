@@ -198,6 +198,17 @@ export async function handleAuthContact(ctx: Context): Promise<boolean> {
         survivor = { id: byPhone.id, role: byPhone.role };
       }
 
+      // ADR §1: admin accounts must NOT be created/enriched via the public
+      // bot flow — they log in only through credentials/magic-link.
+      if (survivor && survivor.role !== "USER") {
+        const e = new Error("ADMIN_NO_BOT_LOGIN");
+        // Attach matched admin id so the catch handler can write a proper
+        // AuditLog row tied to that user (logAuthEvent skips when userId is null).
+        (e as Error & { adminUserId?: string; adminRole?: string }).adminUserId = survivor.id;
+        (e as Error & { adminUserId?: string; adminRole?: string }).adminRole = survivor.role;
+        throw e;
+      }
+
       if (!survivor) {
         // Brand-new account.
         const created = await tx.user.create({
@@ -289,6 +300,22 @@ export async function handleAuthContact(ctx: Context): Promise<boolean> {
       };
     }
   } catch (err) {
+    if (err instanceof Error && err.message === "ADMIN_NO_BOT_LOGIN") {
+      const adminUserId = (err as Error & { adminUserId?: string }).adminUserId;
+      const adminRole = (err as Error & { adminRole?: string }).adminRole;
+      await logAuthEvent("auth.merge.skipped_admin", adminUserId, {
+        provider: "telegram-token",
+        reason: "admin_bot_login_blocked",
+        role: adminRole,
+        chatIdMasked: maskChatId(chatId),
+      });
+      await redis.del(awaitingKey);
+      await ctx.reply(
+        "Этот аккаунт привязан к админ-роли. Войди через email на сайте — вход через бота для админов отключён.",
+        { reply_markup: { remove_keyboard: true } }
+      );
+      return true;
+    }
     console.error("[Auth/bot] sign-in transaction failed", err);
     await ctx.reply(
       "Что-то пошло не так. Попробуй ещё раз через минуту.",

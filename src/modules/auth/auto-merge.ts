@@ -96,7 +96,7 @@ export async function autoMergeOnLogin(
           status: "PENDING",
         },
         update: {
-          matchedFields: { set: [cand.matchedBy] },
+          matchedFields: { push: cand.matchedBy },
         },
       });
     }

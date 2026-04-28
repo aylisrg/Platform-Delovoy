@@ -292,4 +292,95 @@ describe("handleAuthContact", () => {
     // chatId 9876543210 → last 4 visible: ******3210
     expect(meta.chatIdMasked).toBe("******3210");
   });
+
+  it("blocks MANAGER from logging in via bot (admin RBAC)", async () => {
+    const ctx = makeCtx({
+      message: { contact: { phone_number: "+79001234567", user_id: 12345 } },
+    });
+    mockRedis.get.mockReset();
+    mockRedis.get
+      .mockResolvedValueOnce("longLongLongTokenValueXXX")
+      .mockResolvedValueOnce(
+        JSON.stringify({ status: "PENDING", createdAt: new Date().toISOString() })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ status: "PENDING", createdAt: new Date().toISOString() })
+      );
+
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn) => {
+      const txMock = {
+        user: {
+          findFirst: vi.fn()
+            .mockResolvedValueOnce({ id: "manager-user", role: "MANAGER", name: "Менеджер" })
+            .mockResolvedValueOnce(null),
+          findUnique: vi.fn(),
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+        userNotificationChannel: { upsert: vi.fn() },
+        account: { upsert: vi.fn() },
+      };
+      // @ts-expect-error simplified mock
+      return fn(txMock);
+    });
+
+    await handleAuthContact(ctx as never);
+
+    // No channel/account/user mutations should have happened.
+    expect(mockAutoMerge).not.toHaveBeenCalled();
+    // Audit must record the admin-skip event.
+    const calls = vi.mocked(prisma.auditLog.create).mock.calls;
+    const skipCall = calls.find(
+      (c) => (c[0].data as { action: string }).action === "auth.merge.skipped_admin"
+    );
+    expect(skipCall).toBeDefined();
+    expect((skipCall![0].data.metadata as Record<string, unknown>).reason).toBe(
+      "admin_bot_login_blocked"
+    );
+    // User-facing reply.
+    const replyCalls = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls;
+    const replyTexts = replyCalls.map((c) => c[0] as string).join("\n");
+    expect(replyTexts).toContain("админ-роли");
+  });
+
+  it("blocks SUPERADMIN from logging in via bot", async () => {
+    const ctx = makeCtx({
+      message: { contact: { phone_number: "+79001234567", user_id: 12345 } },
+    });
+    mockRedis.get.mockReset();
+    mockRedis.get
+      .mockResolvedValueOnce("longLongLongTokenValueXXX")
+      .mockResolvedValueOnce(
+        JSON.stringify({ status: "PENDING", createdAt: new Date().toISOString() })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ status: "PENDING", createdAt: new Date().toISOString() })
+      );
+
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn) => {
+      const txMock = {
+        user: {
+          findFirst: vi.fn()
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ id: "super-user", role: "SUPERADMIN", name: "Босс" }),
+          findUnique: vi.fn(),
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+        userNotificationChannel: { upsert: vi.fn() },
+        account: { upsert: vi.fn() },
+      };
+      // @ts-expect-error simplified mock
+      return fn(txMock);
+    });
+
+    await handleAuthContact(ctx as never);
+
+    const calls = vi.mocked(prisma.auditLog.create).mock.calls;
+    expect(
+      calls.some(
+        (c) => (c[0].data as { action: string }).action === "auth.merge.skipped_admin"
+      )
+    ).toBe(true);
+  });
 });
