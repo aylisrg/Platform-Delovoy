@@ -37,6 +37,13 @@ export {
   syncItemsRegistry,
 } from "./items";
 export { getAccountSnapshot, syncAccount, fetchSelfAccount, fetchBalance } from "./account";
+export {
+  fetchReviewsForItem,
+  syncReviewsForItem,
+  syncAllReviews,
+  NEGATIVE_RATING_THRESHOLD,
+} from "./reviews";
+export type { RawAvitoReview } from "./reviews";
 
 /**
  * Legacy: aggregate stats for a single item (backed by AVITO_ITEM_ID env or
