@@ -739,63 +739,322 @@ export async function previewMerge(
   };
 }
 
+/**
+ * Merge `secondary` USER into `primary` USER.
+ *
+ * Soft-merge semantics (ADR 2026-04-27 §6):
+ *  - All FK rows pointing at `secondary` are re-pointed to `primary`.
+ *  - Unique-constrained relations (Account, ModuleAssignment, AdminPermission,
+ *    TaskAssignee, TaskSubscription, UserNotificationChannel,
+ *    NotificationEventPreference, NotificationGlobalPreference,
+ *    NotificationPreference) are de-duplicated first (primary wins),
+ *    then the remaining secondary rows are re-pointed.
+ *  - Secondary's unique fields (email, phone, telegramId, vkId,
+ *    phoneNormalized, emailNormalized) are nulled so a future login can
+ *    claim them.
+ *  - Secondary is **NOT** deleted. It's tombstoned via `mergedIntoUserId`
+ *    + `mergedAt` so the AuditLog FK chain stays intact and analytics
+ *    can still resolve historical user IDs.
+ *
+ * The whole operation runs inside a single Prisma transaction.
+ */
 export async function mergeClients(
   primaryId: string,
   secondaryId: string,
   performedById: string
 ): Promise<MergeResult> {
+  if (primaryId === secondaryId) {
+    throw new Error("Нельзя объединить аккаунт сам с собой");
+  }
+
   return prisma.$transaction(async (tx) => {
-    // Validate both users exist and are USER role
+    // ── 0. Validate both users exist, are USER role, and not already tombstoned
     const [primary, secondary] = await Promise.all([
-      tx.user.findUnique({ where: { id: primaryId }, select: { id: true, role: true, name: true, email: true, phone: true, image: true, telegramId: true, vkId: true } }),
-      tx.user.findUnique({ where: { id: secondaryId }, select: { id: true, role: true, name: true, email: true, phone: true, image: true, telegramId: true, vkId: true } }),
+      tx.user.findUnique({
+        where: { id: primaryId },
+        select: {
+          id: true,
+          role: true,
+          name: true,
+          email: true,
+          phone: true,
+          image: true,
+          telegramId: true,
+          vkId: true,
+          mergedIntoUserId: true,
+        },
+      }),
+      tx.user.findUnique({
+        where: { id: secondaryId },
+        select: {
+          id: true,
+          role: true,
+          name: true,
+          email: true,
+          phone: true,
+          image: true,
+          telegramId: true,
+          vkId: true,
+          mergedIntoUserId: true,
+        },
+      }),
     ]);
 
     if (!primary) throw new Error("Основной клиент не найден");
     if (!secondary) throw new Error("Второй клиент не найден");
     if (primary.role !== "USER") throw new Error("Основной аккаунт не является клиентом");
     if (secondary.role !== "USER") throw new Error("Второй аккаунт не является клиентом");
-
-    // 1. Transfer foreign keys
-    const [bookings, orders, accounts, auditLogs, feedbackItems, notificationLogs] =
-      await Promise.all([
-        tx.booking.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-        tx.order.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-        tx.account.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-        tx.auditLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-        tx.feedbackItem.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-        tx.notificationLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
-      ]);
-
-    // Transfer sessions
-    await tx.session.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
-
-    // Transfer NotificationPreference (unique per user — delete secondary's if primary has one)
-    const primaryPref = await tx.notificationPreference.findUnique({ where: { userId: primaryId } });
-    if (primaryPref) {
-      await tx.notificationPreference.deleteMany({ where: { userId: secondaryId } });
-    } else {
-      await tx.notificationPreference.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
+    if (primary.mergedIntoUserId) {
+      throw new Error("Основной клиент уже объединён в другой аккаунт");
+    }
+    if (secondary.mergedIntoUserId) {
+      throw new Error("Второй клиент уже объединён в другой аккаунт");
     }
 
-    // Transfer ModuleAssignments (skip duplicates)
+    // ── 1. Simple FK transfers (no unique constraints involving userId)
+    const [
+      bookings,
+      orders,
+      auditLogs,
+      feedbackItems,
+      notificationLogs,
+      sessions,
+      rentalChangeLogs,
+      telegramLinkTokens,
+      backupLogs,
+      reportedTasks,
+      taskComments,
+      taskEvents,
+    ] = await Promise.all([
+      tx.booking.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.order.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.auditLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.feedbackItem.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.notificationLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.session.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.rentalChangeLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.telegramLinkToken.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } }),
+      tx.backupLog.updateMany({ where: { performedById: secondaryId }, data: { performedById: primaryId } }),
+      tx.task.updateMany({ where: { reporterUserId: secondaryId }, data: { reporterUserId: primaryId } }),
+      tx.taskComment.updateMany({ where: { authorUserId: secondaryId }, data: { authorUserId: primaryId } }),
+      tx.taskEvent.updateMany({ where: { actorUserId: secondaryId }, data: { actorUserId: primaryId } }),
+    ]);
+
+    // ── 2. Account: @@unique([provider, providerAccountId]) — same provider on
+    // both sides means primary keeps its row, secondary's is dropped.
+    const primaryAccounts = await tx.account.findMany({
+      where: { userId: primaryId },
+      select: { provider: true, providerAccountId: true },
+    });
+    const primaryAccountKeys = new Set(
+      primaryAccounts.map((a) => `${a.provider}::${a.providerAccountId}`)
+    );
+    const secondaryAccounts = await tx.account.findMany({
+      where: { userId: secondaryId },
+      select: { id: true, provider: true, providerAccountId: true },
+    });
+    let accountsTransferred = 0;
+    for (const sa of secondaryAccounts) {
+      const key = `${sa.provider}::${sa.providerAccountId}`;
+      if (primaryAccountKeys.has(key)) {
+        await tx.account.delete({ where: { id: sa.id } });
+      } else {
+        await tx.account.update({ where: { id: sa.id }, data: { userId: primaryId } });
+        accountsTransferred++;
+      }
+    }
+
+    // ── 3. ModuleAssignment: @@unique([userId, moduleId])
     const [primaryAssignments, secondaryAssignments] = await Promise.all([
       tx.moduleAssignment.findMany({ where: { userId: primaryId }, select: { moduleId: true } }),
       tx.moduleAssignment.findMany({ where: { userId: secondaryId }, select: { id: true, moduleId: true } }),
     ]);
     const primaryModuleIds = new Set(primaryAssignments.map((a) => a.moduleId));
+    let moduleAssignmentsTransferred = 0;
     for (const sa of secondaryAssignments) {
       if (primaryModuleIds.has(sa.moduleId)) {
         await tx.moduleAssignment.delete({ where: { id: sa.id } });
       } else {
         await tx.moduleAssignment.update({ where: { id: sa.id }, data: { userId: primaryId } });
+        moduleAssignmentsTransferred++;
       }
     }
 
-    // Transfer RentalChangeLog
-    await tx.rentalChangeLog.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
+    // ── 4. AdminPermission: @@unique([userId, section])
+    const [primaryAdminPerms, secondaryAdminPerms] = await Promise.all([
+      tx.adminPermission.findMany({ where: { userId: primaryId }, select: { section: true } }),
+      tx.adminPermission.findMany({ where: { userId: secondaryId }, select: { id: true, section: true } }),
+    ]);
+    const primaryAdminSections = new Set(primaryAdminPerms.map((p) => p.section));
+    let adminPermissionsTransferred = 0;
+    for (const sp of secondaryAdminPerms) {
+      if (primaryAdminSections.has(sp.section)) {
+        await tx.adminPermission.delete({ where: { id: sp.id } });
+      } else {
+        await tx.adminPermission.update({ where: { id: sp.id }, data: { userId: primaryId } });
+        adminPermissionsTransferred++;
+      }
+    }
 
-    // 2. Enrich primary with secondary's data (fill nulls)
+    // ── 5. NotificationPreference: userId is @unique
+    const primaryNotifPref = await tx.notificationPreference.findUnique({
+      where: { userId: primaryId },
+      select: { id: true },
+    });
+    let notificationPreferencesTransferred = 0;
+    if (primaryNotifPref) {
+      await tx.notificationPreference.deleteMany({ where: { userId: secondaryId } });
+    } else {
+      const moved = await tx.notificationPreference.updateMany({
+        where: { userId: secondaryId },
+        data: { userId: primaryId },
+      });
+      notificationPreferencesTransferred = moved.count;
+    }
+
+    // ── 6. TaskAssignee: @@unique([taskId, userId])
+    const primaryTaskAssignments = await tx.taskAssignee.findMany({
+      where: { userId: primaryId },
+      select: { taskId: true },
+    });
+    const primaryAssignedTaskIds = new Set(primaryTaskAssignments.map((a) => a.taskId));
+    const secondaryTaskAssignments = await tx.taskAssignee.findMany({
+      where: { userId: secondaryId },
+      select: { id: true, taskId: true },
+    });
+    let taskAssignmentsTransferred = 0;
+    for (const sa of secondaryTaskAssignments) {
+      if (primaryAssignedTaskIds.has(sa.taskId)) {
+        await tx.taskAssignee.delete({ where: { id: sa.id } });
+      } else {
+        await tx.taskAssignee.update({ where: { id: sa.id }, data: { userId: primaryId } });
+        taskAssignmentsTransferred++;
+      }
+    }
+
+    // ── 7. TaskSubscription: @@unique([userId, scope, taskId, boardId, categoryId])
+    const primaryTaskSubs = await tx.taskSubscription.findMany({
+      where: { userId: primaryId },
+      select: { scope: true, taskId: true, boardId: true, categoryId: true },
+    });
+    const primarySubKey = (s: {
+      scope: string;
+      taskId: string | null;
+      boardId: string | null;
+      categoryId: string | null;
+    }) => `${s.scope}::${s.taskId ?? ""}::${s.boardId ?? ""}::${s.categoryId ?? ""}`;
+    const primarySubKeys = new Set(primaryTaskSubs.map(primarySubKey));
+    const secondaryTaskSubs = await tx.taskSubscription.findMany({
+      where: { userId: secondaryId },
+      select: { id: true, scope: true, taskId: true, boardId: true, categoryId: true },
+    });
+    let taskSubscriptionsTransferred = 0;
+    for (const ss of secondaryTaskSubs) {
+      if (primarySubKeys.has(primarySubKey(ss))) {
+        await tx.taskSubscription.delete({ where: { id: ss.id } });
+      } else {
+        await tx.taskSubscription.update({ where: { id: ss.id }, data: { userId: primaryId } });
+        taskSubscriptionsTransferred++;
+      }
+    }
+
+    // ── 8. SavedTaskView: no unique on userId
+    const savedTaskViews = await tx.savedTaskView.updateMany({
+      where: { userId: secondaryId },
+      data: { userId: primaryId },
+    });
+
+    // ── 9. UserNotificationChannel: @@unique([userId, kind, address])
+    const primaryChannels = await tx.userNotificationChannel.findMany({
+      where: { userId: primaryId },
+      select: { kind: true, address: true },
+    });
+    const primaryChannelKeys = new Set(primaryChannels.map((c) => `${c.kind}::${c.address}`));
+    const secondaryChannels = await tx.userNotificationChannel.findMany({
+      where: { userId: secondaryId },
+      select: { id: true, kind: true, address: true },
+    });
+    let notificationChannelsTransferred = 0;
+    for (const sc of secondaryChannels) {
+      if (primaryChannelKeys.has(`${sc.kind}::${sc.address}`)) {
+        // OutgoingNotification rows referencing this channelId will cascade
+        // delete behaviour is RESTRICT by default; clean them first.
+        await tx.outgoingNotification.deleteMany({ where: { channelId: sc.id } });
+        await tx.userNotificationChannel.delete({ where: { id: sc.id } });
+      } else {
+        await tx.userNotificationChannel.update({
+          where: { id: sc.id },
+          data: { userId: primaryId },
+        });
+        notificationChannelsTransferred++;
+      }
+    }
+
+    // ── 10. NotificationEventPreference: @@unique([userId, eventType])
+    const primaryEventPrefs = await tx.notificationEventPreference.findMany({
+      where: { userId: primaryId },
+      select: { eventType: true },
+    });
+    const primaryEventTypes = new Set(primaryEventPrefs.map((p) => p.eventType));
+    const secondaryEventPrefs = await tx.notificationEventPreference.findMany({
+      where: { userId: secondaryId },
+      select: { id: true, eventType: true },
+    });
+    let notificationEventPrefsTransferred = 0;
+    for (const sp of secondaryEventPrefs) {
+      if (primaryEventTypes.has(sp.eventType)) {
+        await tx.notificationEventPreference.delete({ where: { id: sp.id } });
+      } else {
+        await tx.notificationEventPreference.update({
+          where: { id: sp.id },
+          data: { userId: primaryId },
+        });
+        notificationEventPrefsTransferred++;
+      }
+    }
+
+    // ── 11. NotificationGlobalPreference: userId is @id (one per user)
+    const primaryGlobalPref = await tx.notificationGlobalPreference.findUnique({
+      where: { userId: primaryId },
+      select: { userId: true },
+    });
+    let notificationGlobalPrefTransferred = 0;
+    if (primaryGlobalPref) {
+      await tx.notificationGlobalPreference.deleteMany({ where: { userId: secondaryId } });
+    } else {
+      // userId is the PK — can't UPDATE, must copy then delete.
+      const sec = await tx.notificationGlobalPreference.findUnique({
+        where: { userId: secondaryId },
+      });
+      if (sec) {
+        await tx.notificationGlobalPreference.create({
+          data: {
+            userId: primaryId,
+            timezone: sec.timezone,
+            quietHoursFrom: sec.quietHoursFrom,
+            quietHoursTo: sec.quietHoursTo,
+            dndUntil: sec.dndUntil,
+          },
+        });
+        await tx.notificationGlobalPreference.delete({ where: { userId: secondaryId } });
+        notificationGlobalPrefTransferred = 1;
+      }
+    }
+
+    // ── 12. OutgoingNotification: userId is plain column (no @relation), but
+    // we still own the data semantically. Reassign the rows that survived
+    // step 9 (others were cleaned alongside their channel).
+    const outgoingNotifications = await tx.outgoingNotification.updateMany({
+      where: { userId: secondaryId },
+      data: { userId: primaryId },
+    });
+
+    // ── 13. CallLog: tracks `clientPhone`, no userId FK — nothing to do.
+    // Phone history follows the phone string, which moves with the merge
+    // (since secondary's phone is being nulled).
+    const callLogs = 0;
+
+    // ── 14. Enrich primary with secondary's data (fill nulls only — primary wins)
     const updates: Record<string, string> = {};
     if (!primary.name && secondary.name) updates.name = secondary.name;
     if (!primary.phone && secondary.phone) updates.phone = secondary.phone;
@@ -808,14 +1067,55 @@ export async function mergeClients(
       await tx.user.update({ where: { id: primaryId }, data: updates });
     }
 
-    // 3. Delete secondary user
-    await tx.user.delete({ where: { id: secondaryId } });
+    // ── 15. Free secondary's unique fields + tombstone in one update.
+    // After this UPDATE, anyone can register/login with secondary's old
+    // phone/email/telegram/vk and Prisma's @unique won't conflict.
+    await tx.user.update({
+      where: { id: secondaryId },
+      data: {
+        email: null,
+        phone: null,
+        telegramId: null,
+        vkId: null,
+        phoneNormalized: null,
+        emailNormalized: null,
+        mergedIntoUserId: primaryId,
+        mergedAt: new Date(),
+      },
+    });
 
-    // 4. Audit log
+    // ── 16. AuditLog (mutation log, per CLAUDE.md security rules)
+    const fkMoved = {
+      bookings: bookings.count,
+      orders: orders.count,
+      accounts: accountsTransferred,
+      auditLogs: auditLogs.count,
+      feedbackItems: feedbackItems.count,
+      notificationLogs: notificationLogs.count,
+      sessions: sessions.count,
+      moduleAssignments: moduleAssignmentsTransferred,
+      adminPermissions: adminPermissionsTransferred,
+      rentalChangeLogs: rentalChangeLogs.count,
+      notificationPreferences: notificationPreferencesTransferred,
+      telegramLinkTokens: telegramLinkTokens.count,
+      backupLogs: backupLogs.count,
+      callLogs,
+      reportedTasks: reportedTasks.count,
+      taskAssignments: taskAssignmentsTransferred,
+      taskComments: taskComments.count,
+      taskEvents: taskEvents.count,
+      taskSubscriptions: taskSubscriptionsTransferred,
+      savedTaskViews: savedTaskViews.count,
+      notificationChannels: notificationChannelsTransferred,
+      notificationEventPrefs: notificationEventPrefsTransferred,
+      notificationGlobalPref: notificationGlobalPrefTransferred,
+      outgoingNotifications: outgoingNotifications.count,
+    };
+
     await tx.auditLog.create({
       data: {
         userId: performedById,
-        action: "clients.merge",
+        action: "auth.merge.manual",
         entity: "User",
         entityId: primaryId,
         metadata: {
@@ -824,21 +1124,19 @@ export async function mergeClients(
           secondaryName: secondary.name,
           secondaryEmail: secondary.email,
           transferredFields: updates,
+          fkMoved,
+          source: "admin_ui",
         },
       },
     });
 
     return {
       primaryId,
-      merged: {
-        bookings: bookings.count,
-        orders: orders.count,
-        accounts: accounts.count,
-        auditLogs: auditLogs.count,
-        feedbackItems: feedbackItems.count,
-        notificationLogs: notificationLogs.count,
-      },
+      merged: fkMoved,
+      // `deletedUserId` kept for backwards compat with old route consumers;
+      // the user is tombstoned, not deleted.
       deletedUserId: secondaryId,
+      tombstonedUserId: secondaryId,
     };
   });
 }

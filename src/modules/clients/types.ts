@@ -115,8 +115,14 @@ export type MergePreview = {
   conflicts: string[];
 };
 
+/**
+ * Soft-merge result. Secondary user is NOT deleted — it's tombstoned
+ * via `mergedIntoUserId` + `mergedAt`, and unique fields are nulled so
+ * a fresh login can claim them. See ADR 2026-04-27 §6.
+ */
 export type MergeResult = {
   primaryId: string;
+  /** Per-table count of FK rows reassigned from secondary to primary. */
   merged: {
     bookings: number;
     orders: number;
@@ -124,6 +130,27 @@ export type MergeResult = {
     auditLogs: number;
     feedbackItems: number;
     notificationLogs: number;
+    sessions: number;
+    moduleAssignments: number;
+    adminPermissions: number;
+    rentalChangeLogs: number;
+    notificationPreferences: number;
+    telegramLinkTokens: number;
+    backupLogs: number;
+    callLogs: number;
+    // Phase 5.4 — tasks + channel-agnostic notifications
+    reportedTasks: number;
+    taskAssignments: number;
+    taskComments: number;
+    taskEvents: number;
+    taskSubscriptions: number;
+    savedTaskViews: number;
+    notificationChannels: number;
+    notificationEventPrefs: number;
+    notificationGlobalPref: number;
+    outgoingNotifications: number;
   };
+  /** Tombstoned (not deleted). Populated for backwards-compat with old callers. */
   deletedUserId: string;
+  tombstonedUserId: string;
 };
