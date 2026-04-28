@@ -655,6 +655,14 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 - Каждый модуль имеет свой `src/modules/{slug}/` с файлами: `service.ts`, `types.ts`, `validation.ts`
 - Менеджер модуля назначается через `ModuleAssignment`
 
+### Seed-данные
+
+- Новые справочные данные — только через `scripts/seeds/<domain>.ts` + регистрация в orchestrator `scripts/seed.ts` (см. `docs/adr/ADR-0001-unified-seed-pipeline.md`).
+- Идемпотентность обязательна: каждый сидер использует `upsert`/`findFirst+create`. Двойной запуск = тот же state, без дублей.
+- `update`-блок upsert обновляет ТОЛЬКО описательные/маршрутные поля. Нельзя перезаписывать `isActive`, `createdAt`, JSON-`config`, бизнес-цены или поля, которые менеджер редактирует через UI.
+- PII запрещён в сидерах под orchestrator (orchestrator коммитится в git и катится на каждый деплой). Реальные арендаторы/контракты — отдельным admin-only скриптом (`seed-rental.ts`).
+- Доменный файл — чистая функция `(prisma) → Promise<void>`. Без `prisma.$connect/$disconnect`, без `process.exit`. Эти заботы — в orchestrator.
+
 ### Scope guard (anti-scope-creep)
 
 Правила, которые применяются к Claude Code и всем агентам:
