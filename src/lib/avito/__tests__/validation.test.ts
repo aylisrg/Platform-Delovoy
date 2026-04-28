@@ -4,6 +4,7 @@ import {
   AvitoItemsQuerySchema,
   AvitoStatsQuerySchema,
   AvitoReplySchema,
+  AvitoReviewsQuerySchema,
 } from "../validation";
 
 describe("AvitoItemAssignSchema", () => {
@@ -47,5 +48,30 @@ describe("AvitoReplySchema", () => {
 
   it("rejects > 2000 chars", () => {
     expect(() => AvitoReplySchema.parse({ text: "a".repeat(2001) })).toThrow();
+  });
+});
+
+describe("AvitoReviewsQuerySchema", () => {
+  it("defaults limit to 50", () => {
+    expect(AvitoReviewsQuerySchema.parse({})).toEqual({ limit: 50 });
+  });
+
+  it("coerces string ratings to numbers and clamps to 1..5", () => {
+    expect(AvitoReviewsQuerySchema.parse({ minRating: "1", maxRating: "5" })).toMatchObject({
+      minRating: 1,
+      maxRating: 5,
+    });
+    expect(() => AvitoReviewsQuerySchema.parse({ minRating: "0" })).toThrow();
+    expect(() => AvitoReviewsQuerySchema.parse({ maxRating: "6" })).toThrow();
+  });
+
+  it("accepts moduleSlug=all|none and module slugs", () => {
+    expect(AvitoReviewsQuerySchema.parse({ moduleSlug: "all" }).moduleSlug).toBe("all");
+    expect(AvitoReviewsQuerySchema.parse({ moduleSlug: "none" }).moduleSlug).toBe("none");
+    expect(AvitoReviewsQuerySchema.parse({ moduleSlug: "ps-park" }).moduleSlug).toBe("ps-park");
+  });
+
+  it("rejects unknown moduleSlug", () => {
+    expect(() => AvitoReviewsQuerySchema.parse({ moduleSlug: "cafe" })).toThrow();
   });
 });
