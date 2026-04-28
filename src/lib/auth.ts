@@ -1,7 +1,6 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
-import Google from "next-auth/providers/google";
 import VK from "next-auth/providers/vk";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -10,56 +9,9 @@ import { authConfig } from "./auth.config";
 import { ADMIN_SECTION_SLUGS } from "./permissions";
 import { authorizeMagicLinkNonce } from "@/modules/auth/magic-link-authorize";
 
-/** Full shape of the Yandex Passport API response (login.yandex.ru/info) */
-export type YandexProfile = {
-  id: string;
-  login?: string;
-  display_name?: string;
-  real_name?: string;
-  first_name?: string;
-  last_name?: string;
-  sex?: "male" | "female";
-  birthday?: string;           // "YYYY-MM-DD" or "0000-DD-MM" when year unknown
-  default_email?: string;
-  default_avatar_id?: string;
-  is_avatar_empty?: boolean;
-  default_phone?: {
-    id: number;
-    number: string;            // E.164 format, e.g. "+79001234567"
-  };
-};
-
-// Custom Yandex OAuth provider
-function YandexProvider() {
-  return {
-    id: "yandex",
-    name: "Yandex",
-    type: "oauth" as const,
-    authorization: {
-      url: "https://oauth.yandex.ru/authorize",
-      // login:info covers: name, sex, birthday, avatar, default_phone
-      // login:email covers: email addresses
-      params: { scope: "login:email login:info login:avatar" },
-    },
-    token: "https://oauth.yandex.ru/token",
-    userinfo: "https://login.yandex.ru/info?format=json",
-    checks: ["state"],
-    profile(profile: YandexProfile) {
-      return {
-        id: profile.id,
-        email: profile.default_email,
-        name: profile.real_name || profile.display_name,
-        image: profile.is_avatar_empty
-          ? undefined
-          : `https://avatars.yandex.net/get-yapic/${profile.default_avatar_id}/islands-200`,
-      };
-    },
-    clientId: process.env.YANDEX_CLIENT_ID,
-    clientSecret: process.env.YANDEX_CLIENT_SECRET,
-  };
-}
-
-// Telegram login data verification
+// Telegram login data verification (used by legacy Login Widget Credentials
+// provider — kept as 30-day fallback per ADR §10. New deep-link flow lives
+// in src/modules/auth/telegram-deep-link.* and is delivered in Wave 2.)
 function verifyTelegramAuth(data: Record<string, string>): boolean {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) return false;
@@ -95,64 +47,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     async signIn({ user, account, profile }) {
-      // ── Yandex OAuth: account linking + save extra profile fields ──────────
-      if (account?.provider === "yandex" && user.email) {
-        const yandexProfile = profile as YandexProfile | undefined;
-
-        // Build update payload from Yandex profile fields
-        const extra: {
-          phone?: string;
-          birthday?: Date;
-          gender?: string;
-        } = {};
-
-        // Phone — only set if field is empty (don't overwrite manually entered phone)
-        const rawPhone = yandexProfile?.default_phone?.number;
-        if (rawPhone) extra.phone = rawPhone;
-
-        // Birthday — Yandex sends "YYYY-MM-DD"; skip if year is "0000" (unknown year)
-        const rawBirthday = yandexProfile?.birthday;
-        if (rawBirthday && !rawBirthday.startsWith("0000")) {
-          const parsed = new Date(rawBirthday);
-          if (!isNaN(parsed.getTime())) extra.birthday = parsed;
-        }
-
-        // Gender — "male" | "female"
-        if (yandexProfile?.sex) extra.gender = yandexProfile.sex;
-
-        // Upsert extra fields — don't overwrite phone if user already has one
-        if (Object.keys(extra).length > 0) {
-          try {
-            // Find user (may not exist yet on first sign-in — adapter creates it after signIn returns)
-            const existing = await prisma.user.findUnique({
-              where: { email: user.email },
-              select: { id: true, phone: true },
-            });
-
-            if (existing) {
-              // User already exists — update, but don't overwrite an existing phone
-              await prisma.user.update({
-                where: { id: existing.id },
-                data: {
-                  ...(extra.phone && !existing.phone ? { phone: extra.phone } : {}),
-                  ...(extra.birthday ? { birthday: extra.birthday } : {}),
-                  ...(extra.gender ? { gender: extra.gender } : {}),
-                },
-              });
-            } else {
-              // New user — PrismaAdapter will create them after signIn returns true.
-              // We'll update on the next jwt callback when the id is available.
-              // Store in user object so jwt callback can pick it up.
-              (user as unknown as Record<string, unknown>)._yandexExtra = extra;
-            }
-          } catch (err) {
-            // Never block sign-in due to profile enrichment failure
-            console.error("[Auth] Yandex profile enrichment failed:", err);
-          }
-        }
-      }
-
-      // Call base signIn callback if defined, otherwise allow
+      // NOTE: Yandex/Google OAuth providers were removed in Wave 1 of the
+      // auth refactor (ADR 2026-04-27, §8). New flows (Telegram deep-link,
+      // VK ID) come in Waves 2-3. Pre-existing Account rows with provider
+      // = "yandex"/"google" are intentionally NOT deleted — those users
+      // will simply re-login via Telegram/email and auto-merge will pick
+      // them up.
       if (authConfig.callbacks?.signIn) {
         return (authConfig.callbacks.signIn as (args: unknown) => Promise<boolean | string>)({ user, account, profile });
       }
@@ -165,33 +65,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         : token;
 
       if (!result) return token;
-
-      // On first login: save Yandex extra fields for new users
-      // (signIn callback couldn't update because the user didn't exist yet)
-      if (user && result.id) {
-        const yandexExtra = (user as unknown as Record<string, unknown>)._yandexExtra as
-          | { phone?: string; birthday?: Date; gender?: string }
-          | undefined;
-
-        if (yandexExtra && Object.keys(yandexExtra).length > 0) {
-          try {
-            const dbUser = await prisma.user.findUnique({
-              where: { id: result.id as string },
-              select: { phone: true },
-            });
-            await prisma.user.update({
-              where: { id: result.id as string },
-              data: {
-                ...(yandexExtra.phone && !dbUser?.phone ? { phone: yandexExtra.phone } : {}),
-                ...(yandexExtra.birthday ? { birthday: yandexExtra.birthday } : {}),
-                ...(yandexExtra.gender ? { gender: yandexExtra.gender } : {}),
-              },
-            });
-          } catch (err) {
-            console.error("[Auth] Yandex extra fields save failed (new user):", err);
-          }
-        }
-      }
 
       // On login or session update, fetch admin sections from DB
       if ((user || trigger === "update") && result.id) {
@@ -254,7 +127,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
-    // Telegram Login Widget
+    // Telegram Login Widget — DEPRECATED, scheduled for removal 30 days
+    // after the new Telegram bot deep-link flow ships (Wave 2). Kept here
+    // so existing front-ends / cached HTML keep working during the
+    // transition. Do NOT add new entry points to this provider.
+    // See: docs/adr/2026-04-27-auth-refactor-and-crm-v1.md §10
     Credentials({
       id: "telegram",
       name: "Telegram",
@@ -323,16 +200,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorize: authorizeMagicLinkNonce,
     }),
 
-    // Google OAuth
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }),
-
-    // Yandex OAuth
-    YandexProvider() as never,
-
-    // VK (Max) OAuth
+    // VK (Max) OAuth — Wave 3 will replace with custom VK ID v2 provider
+    // (ADR §2). For now, keep the stock provider so any pre-existing VK
+    // sessions keep working.
     VK({
       clientId: process.env.VK_CLIENT_ID,
       clientSecret: process.env.VK_CLIENT_SECRET,

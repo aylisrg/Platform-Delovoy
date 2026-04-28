@@ -20,6 +20,9 @@ const ALERT_COOLDOWN_SECONDS = 60 * 60;
 type ProviderStatus = {
   telegram: boolean;
   email: boolean;
+  // yandex/google were removed in Wave 1 of the auth refactor (ADR
+  // 2026-04-27 §8). Fields kept in the response shape for backwards
+  // compatibility with cached front-ends; always false.
   yandex: boolean;
   google: boolean;
   vk: boolean;
@@ -39,8 +42,8 @@ export async function GET() {
       process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME && process.env.TELEGRAM_BOT_TOKEN
     ),
     email: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
-    yandex: Boolean(process.env.YANDEX_CLIENT_ID && process.env.YANDEX_CLIENT_SECRET),
-    google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    yandex: false,
+    google: false,
     vk: Boolean(process.env.VK_CLIENT_ID && process.env.VK_CLIENT_SECRET),
   };
 

@@ -32,10 +32,8 @@ const PROVIDER_ENV_KEYS = [
   "TELEGRAM_BOT_TOKEN",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
-  "YANDEX_CLIENT_ID",
-  "YANDEX_CLIENT_SECRET",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
+  // Yandex/Google removed in Wave 1 of auth refactor (ADR 2026-04-27 §8) —
+  // their flags are hard-coded to false in the route.
   "VK_CLIENT_ID",
   "VK_CLIENT_SECRET",
 ];

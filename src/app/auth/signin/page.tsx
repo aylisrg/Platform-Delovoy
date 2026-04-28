@@ -176,12 +176,6 @@ function SignInInner() {
     }
   }, [email]);
 
-  const handleOAuthLogin = useCallback(async (provider: string) => {
-    setError("");
-    setLoading(true);
-    await signIn(provider, { callbackUrl: "/auth/redirect" });
-  }, []);
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-md">
@@ -209,17 +203,9 @@ function SignInInner() {
                 <div className="flex-1 h-px bg-zinc-700/50" />
               </div>
 
-              {/* Auth buttons */}
+              {/* Auth buttons — Yandex removed in Wave 1 of auth refactor.
+                   VK ID + new Telegram deep-link flow land in later waves. */}
               <div className="space-y-2.5">
-                <button
-                  onClick={() => handleOAuthLogin("yandex")}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  <YandexIcon />
-                  Войти через Яндекс
-                </button>
-
                 <button
                   onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
                   disabled={loading}
@@ -415,15 +401,6 @@ function MailIcon() {
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="4" width="20" height="16" rx="2" />
       <path d="M2 7l10 7 10-7" />
-    </svg>
-  );
-}
-
-function YandexIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#FC3F1D" />
-      <path d="M13.63 19.2h2.05V4.8h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38l-3.06 6h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V19.2z" fill="white" />
     </svg>
   );
 }

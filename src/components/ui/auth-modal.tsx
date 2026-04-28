@@ -92,12 +92,6 @@ export function AuthModal({
     [email, password, onClose]
   );
 
-  const handleOAuth = useCallback(async (provider: string) => {
-    setError("");
-    setLoading(true);
-    await signIn(provider, { callbackUrl: window.location.href });
-  }, []);
-
   if (!isOpen) return null;
 
   return (
@@ -151,10 +145,8 @@ export function AuthModal({
                 <div className="flex-1 h-px bg-black/[0.06]" />
               </div>
 
-              {/* Other methods */}
-              <div className="space-y-2">
-                <OAuthButton onClick={() => handleOAuth("yandex")} disabled={loading} icon={<YandexIcon />} label="Яндекс" />
-              </div>
+              {/* Other methods — Yandex removed in Wave 1 of auth refactor.
+                   VK ID will return as a custom provider in a later wave. */}
 
               {/* Secondary auth links */}
               <div className="flex justify-center gap-4 pt-1">
@@ -252,29 +244,6 @@ export function AuthModal({
 
 // --- Sub-components ---
 
-function OAuthButton({
-  onClick,
-  disabled,
-  icon,
-  label,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flex w-full items-center justify-center gap-3 rounded-xl border border-black/[0.08] bg-white px-4 py-3 text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-[#f5f5f7] disabled:opacity-50 font-[family-name:var(--font-inter)]"
-    >
-      {icon}
-      Войти через {label}
-    </button>
-  );
-}
-
 function TelegramLoginInModal() {
   const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
 
@@ -350,15 +319,6 @@ function TelegramIcon() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <rect width="24" height="24" rx="4" fill="#26A5E4" />
       <path d="M17.05 7.26l-1.83 9.43c-.14.62-.5.77-.99.48l-2.78-2.05-1.34 1.29c-.15.15-.27.27-.56.27l.2-2.83 5.15-4.65c.22-.2-.05-.31-.35-.12l-6.36 4.01-2.74-.85c-.59-.19-.61-.59.12-.88l10.72-4.13c.5-.19.94.12.76.88z" fill="white" />
-    </svg>
-  );
-}
-
-function YandexIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#FC3F1D" />
-      <path d="M13.63 19.2h2.05V4.8h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38l-3.06 6h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V19.2z" fill="white" />
     </svg>
   );
 }
