@@ -2,6 +2,7 @@
 
 import { signIn } from "next-auth/react";
 import { useState, useEffect, useCallback } from "react";
+import { TelegramSignInBlock } from "@/components/auth/telegram-polling";
 
 type AuthTab = "telegram" | "other" | "email";
 type EmailSubView = "form" | "magic-link-sent";
@@ -132,21 +133,10 @@ export function AuthModal({
         {/* Content */}
         <div className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
 
-          {/* Telegram — primary method, always visible */}
+          {/* Telegram — primary method, always visible (Wave 2 deep-link flow) */}
           {tab === "telegram" && (
             <div className="space-y-4">
-              {/* Telegram Login Widget */}
-              <TelegramLoginInModal />
-
-              {/* Divider */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-black/[0.06]" />
-                <span className="text-xs text-[#86868b] font-[family-name:var(--font-inter)]">или</span>
-                <div className="flex-1 h-px bg-black/[0.06]" />
-              </div>
-
-              {/* Other methods — Yandex removed in Wave 1 of auth refactor.
-                   VK ID will return as a custom provider in a later wave. */}
+              <TelegramSignInBlock callbackUrl={typeof window !== "undefined" ? window.location.href : "/"} />
 
               {/* Secondary auth links */}
               <div className="flex justify-center gap-4 pt-1">
@@ -242,67 +232,6 @@ export function AuthModal({
   );
 }
 
-// --- Sub-components ---
-
-function TelegramLoginInModal() {
-  const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
-
-  useEffect(() => {
-    if (!botName) return;
-
-    (window as unknown as Record<string, unknown>).onTelegramAuth = async (
-      user: Record<string, string>
-    ) => {
-      await signIn("telegram", {
-        ...user,
-        redirect: true,
-        callbackUrl: window.location.href,
-      });
-    };
-
-    const container = document.getElementById("telegram-login-modal");
-    if (!container) return;
-    container.innerHTML = "";
-
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", botName);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-request-access", "write");
-    script.async = true;
-    container.appendChild(script);
-
-    return () => {
-      delete (window as unknown as Record<string, unknown>).onTelegramAuth;
-    };
-  }, [botName]);
-
-  if (!botName) {
-    return (
-      <div className="flex items-center justify-center gap-2 rounded-xl bg-[#26A5E4]/10 border border-[#26A5E4]/20 px-4 py-4">
-        <TelegramIcon />
-        <span className="text-sm text-[#26A5E4] font-medium font-[family-name:var(--font-inter)]">
-          Telegram вход скоро будет доступен
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="flex items-center gap-2 text-[#26A5E4] mb-1">
-        <TelegramIcon />
-        <span className="text-sm font-medium font-[family-name:var(--font-inter)]">
-          Быстрый вход через Telegram
-        </span>
-      </div>
-      <div id="telegram-login-modal" className="flex justify-center" />
-    </div>
-  );
-}
-
 // --- Icons ---
 
 function MailIcon() {
@@ -314,12 +243,4 @@ function MailIcon() {
   );
 }
 
-function TelegramIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="4" fill="#26A5E4" />
-      <path d="M17.05 7.26l-1.83 9.43c-.14.62-.5.77-.99.48l-2.78-2.05-1.34 1.29c-.15.15-.27.27-.56.27l.2-2.83 5.15-4.65c.22-.2-.05-.31-.35-.12l-6.36 4.01-2.74-.85c-.59-.19-.61-.59.12-.88l10.72-4.13c.5-.19.94.12.76.88z" fill="white" />
-    </svg>
-  );
-}
 
