@@ -1,5 +1,9 @@
 name: Run Seed on Production
 
+# Manual emergency trigger. Calls the same unified seed pipeline as deploy.yml
+# (scripts/seed.ts → seedCore + seedTasks). Idempotent — safe to run any time.
+# Источник правды: docs/adr/ADR-0001-unified-seed-pipeline.md
+
 on:
   workflow_dispatch:
 
@@ -9,7 +13,7 @@ concurrency:
 
 jobs:
   seed:
-    name: Run seed script
+    name: Run unified seed pipeline
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -22,6 +26,6 @@ jobs:
           script: |
             set -e
             cd /opt/delovoy-park
-            echo "=== Running seed ==="
+            echo "=== Running unified seed pipeline ==="
             docker compose exec -T app npx tsx scripts/seed.ts
             echo "=== Done ==="
