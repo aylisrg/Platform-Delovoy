@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { log, logAudit } from "@/lib/logger";
-import { novofonStartCall, novofonCheckStatus, novofonSendSms } from "./novofon-client";
+import { novofonStartCall, novofonCheckStatus } from "./novofon-client";
 import type { TelephonyModuleConfig, CallLogWithManager, NovofonWebhookPayload } from "./types";
 import type { CallFilter } from "./validation";
 
@@ -254,80 +254,10 @@ export async function initiateDirectCall(
 }
 
 // === SMS ===
+// Удалено: у Novofon нет API исходящих SMS (после ребренда из Zadarma фичу убрали).
+// Если в будущем будет другой канал (WhatsApp/Telegram/реальный SMS-провайдер),
+// логировать в существующую таблицу SmsLog (она оставлена в БД для переиспользования).
 
-/**
- * Send an SMS to a phone number and log it in SmsLog.
- * Uses the main NOVOFON_API_KEY and NOVOFON_SMS_SENDER env vars.
- */
-export async function sendSms(
-  managerId: string,
-  phone: string,
-  message: string,
-  opts: { tenantId?: string } = {}
-) {
-  const apiKey = process.env.NOVOFON_API_KEY;
-  if (!apiKey) {
-    throw new TelephonyError(
-      "TELEPHONY_NOT_CONFIGURED",
-      "API ключ Novofon не настроен"
-    );
-  }
-
-  const smsLog = await prisma.smsLog.create({
-    data: {
-      tenantId: opts.tenantId ?? null,
-      clientPhone: phone,
-      message,
-      status: "SENT",
-      sentBy: managerId,
-    },
-  });
-
-  const result = await novofonSendSms(apiKey, {
-    number: phone,
-    message,
-    from: process.env.NOVOFON_SMS_SENDER ?? undefined,
-  });
-
-  const finalStatus = result.success ? "SENT" : "FAILED";
-  const updated = await prisma.smsLog.update({
-    where: { id: smsLog.id },
-    data: {
-      status: finalStatus,
-      externalId: result.sms_id ?? null,
-      errorMessage: result.error ?? null,
-    },
-  });
-
-  if (result.success) {
-    await log.info("telephony", "sms_sent", {
-      smsLogId: smsLog.id,
-      phone,
-      tenantId: opts.tenantId,
-    });
-    await logAudit(managerId, "sms.sent", "SmsLog", smsLog.id, {
-      phone,
-      tenantId: opts.tenantId,
-      messageLength: message.length,
-    });
-  } else {
-    await log.error("telephony", "sms_failed", {
-      smsLogId: smsLog.id,
-      phone,
-      error: result.error,
-    });
-  }
-
-  if (!result.success) {
-    throw new TelephonyError(
-      "NOVOFON_ERROR",
-      result.error ?? "Ошибка при отправке SMS",
-      503
-    );
-  }
-
-  return updated;
-}
 
 // === WEBHOOK (INBOUND / CALL EVENTS) ===
 
