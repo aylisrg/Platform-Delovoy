@@ -21,7 +21,12 @@ import {
 const POLL_INTERVAL_MS = 2000;
 
 export async function POST(request: NextRequest) {
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  // Wave 2 introduced TELEGRAM_BOT_USERNAME, but prod was provisioned in
+  // the widget era with NEXT_PUBLIC_TELEGRAM_BOT_NAME holding the same
+  // value. Accept either so existing deployments work without an env
+  // edit (matches the fallback already in /api/auth/providers-status).
+  const botUsername =
+    process.env.TELEGRAM_BOT_USERNAME || process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
   if (!botUsername || !process.env.TELEGRAM_BOT_TOKEN) {
     return apiError(
       "TELEGRAM_BOT_NOT_CONFIGURED",

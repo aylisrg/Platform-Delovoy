@@ -45,10 +45,23 @@ describe("POST /api/auth/telegram/start", () => {
   it("returns 503 when bot env is missing", async () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
     vi.stubEnv("TELEGRAM_BOT_USERNAME", "");
+    vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "");
     const res = await POST(makeReq() as never);
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.error.code).toBe("TELEGRAM_BOT_NOT_CONFIGURED");
+  });
+
+  it("falls back to legacy NEXT_PUBLIC_TELEGRAM_BOT_NAME when TELEGRAM_BOT_USERNAME is unset", async () => {
+    vi.stubEnv("TELEGRAM_BOT_USERNAME", "");
+    vi.stubEnv("NEXT_PUBLIC_TELEGRAM_BOT_NAME", "DelovoyPark_bot");
+    mockRedis.incr.mockResolvedValueOnce(1);
+    const res = await POST(makeReq() as never);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.deepLink).toBe(
+      `https://t.me/DelovoyPark_bot?start=auth_${body.data.token}`
+    );
   });
 
   it("returns token + deeplink + expiresAt + pollIntervalMs on happy path", async () => {
