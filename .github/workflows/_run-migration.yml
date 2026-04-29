@@ -2,8 +2,12 @@ name: Run DB Migration (one-shot)
 
 # One-shot workflow for applying the latest Prisma migration on production.
 # ⚠️ Два gate-а безопасности:
-#   1. Job `backup` — pre-migration pg_dump + S3 upload. Fail → миграция заблокирована.
+#   1. Job `backup` — pg_dump в /opt/backups на VPS. Fail → миграция заблокирована.
 #   2. Job `migrate` — `needs: backup`, т.е. физически не стартует без свежего дампа.
+#
+# Self-contained: backup команды inline, не зависит от scripts/ на VPS.
+# (Раньше зависело от scripts/pre-migration-backup.sh — он не был задеплоен,
+# что заблокировало catch-up миграцию 27.04.2026, см. #206.)
 #
 # Trigger: gh workflow run "Run DB Migration (one-shot)"
 
@@ -11,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       migration_tag:
-        description: "Tag для BackupLog (например v1.6.0 или hotfix-xyz)"
+        description: "Tag для backup (например v1.6.0 или hotfix-xyz)"
         required: false
         default: ""
 
@@ -21,18 +25,44 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Run pre-migration backup on VPS
+      - name: Run pre-migration backup on VPS (inline pg_dump)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            set -e
-            export MIGRATION_TAG="${{ github.event.inputs.migration_tag || github.sha }}"
-            cd /opt/delovoy-park
+            set -euo pipefail
+            MIGRATION_TAG="${{ github.event.inputs.migration_tag || github.sha }}"
+            TS=$(date -u +%Y%m%d-%H%M%S)
+            BACKUP_DIR=/opt/backups
+            BACKUP_FILE="${BACKUP_DIR}/pre-migration-${TS}-${MIGRATION_TAG}.sql.gz"
+
             echo "=== Pre-migration backup, tag=${MIGRATION_TAG} ==="
-            bash scripts/pre-migration-backup.sh "$MIGRATION_TAG"
+            mkdir -p "${BACKUP_DIR}"
+            cd /opt/delovoy-park
+
+            # Dump and gzip in a single pipe — fail loudly if either side errors.
+            if ! docker compose exec -T postgres pg_dump -U delovoy delovoy_park \
+                | gzip > "${BACKUP_FILE}"; then
+              echo "❌ pg_dump failed" >&2
+              rm -f "${BACKUP_FILE}"
+              exit 2
+            fi
+
+            # Sanity check: backup must exist and be non-trivial (>1KB rules out
+            # empty dumps from a misconfigured exec).
+            SIZE=$(stat -c%s "${BACKUP_FILE}" 2>/dev/null || stat -f%z "${BACKUP_FILE}")
+            if [ -z "${SIZE}" ] || [ "${SIZE}" -lt 1024 ]; then
+              echo "❌ Backup suspiciously small (${SIZE:-?} bytes)" >&2
+              rm -f "${BACKUP_FILE}"
+              exit 2
+            fi
+
+            echo "✅ Backup OK: ${BACKUP_FILE} ($(numfmt --to=iec ${SIZE} 2>/dev/null || echo "${SIZE}B"))"
+
+            # Retention: keep last 30 pre-migration dumps locally.
+            ls -1t "${BACKUP_DIR}"/pre-migration-*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
 
       - name: Notify pre-migration backup
         if: always()
