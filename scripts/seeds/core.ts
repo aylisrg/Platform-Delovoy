@@ -19,6 +19,21 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   const startedAt = new Date().toISOString();
   console.log(`[${startedAt}] 🌱 seedCore: started`);
 
+  // === SYSTEM user (anchor for FK references in AuditLog from anonymous flows) ===
+  // Required by /api/tasks/report (AC-013) and other public endpoints that need
+  // to write AuditLog rows without an authenticated session. AuditLog.userId
+  // has a non-nullable FK to User, so a real row with id="system" must exist.
+  // Idempotent upsert by primary key; role left as USER, name "System".
+  await prisma.user.upsert({
+    where: { id: "system" },
+    create: {
+      id: "system",
+      name: "System",
+      role: "USER",
+    },
+    update: {},
+  });
+
   // === SUPERADMIN (Telegram login) ===
   const superadminTelegramId =
     process.env.SUPERADMIN_TELEGRAM_ID ?? "694696";

@@ -12,9 +12,13 @@ describe("seedCore", () => {
   it("empty DB: creates expected reference rows", async () => {
     await seedCore(asPrisma(fake));
 
-    // 1 superadmin
-    expect(fake.user.__store.rows.length).toBe(1);
-    expect(fake.user.__store.rows[0]?.role).toBe("SUPERADMIN");
+    // 1 system user (id="system") + 1 superadmin = 2
+    expect(fake.user.__store.rows.length).toBe(2);
+    const system = fake.user.__store.rows.find((r) => r.id === "system");
+    expect(system?.role).toBe("USER");
+    expect(system?.name).toBe("System");
+    const superadmin = fake.user.__store.rows.find((r) => r.role === "SUPERADMIN");
+    expect(superadmin).toBeDefined();
 
     // 7 modules: cafe, ps-park, gazebos, parking, rental, inventory, management
     expect(fake.module.__store.rows.length).toBe(7);
@@ -130,8 +134,9 @@ describe("seedCore", () => {
 
     await seedCore(asPrisma(fake));
 
-    expect(fake.user.__store.rows.length).toBe(1);
-    const admin = fake.user.__store.rows[0];
+    // legacy admin (migrated) + system user = 2
+    expect(fake.user.__store.rows.length).toBe(2);
+    const admin = fake.user.__store.rows.find((r) => r.role === "SUPERADMIN");
     expect(admin?.email).toBeNull();
     expect(admin?.passwordHash).toBeNull();
     expect(admin?.telegramId).toBe("694696");
@@ -143,7 +148,7 @@ describe("seedCore", () => {
     process.env.SUPERADMIN_TELEGRAM_ID = "111222333";
     try {
       await seedCore(asPrisma(fake));
-      const admin = fake.user.__store.rows[0];
+      const admin = fake.user.__store.rows.find((r) => r.role === "SUPERADMIN");
       expect(admin?.telegramId).toBe("111222333");
     } finally {
       if (original === undefined) delete process.env.SUPERADMIN_TELEGRAM_ID;
