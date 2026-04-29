@@ -14,18 +14,6 @@ export const initiateDirectCallSchema = z.object({
   context: z.string().max(100).optional(),
 });
 
-/** Send SMS to a phone number */
-export const sendSmsSchema = z.object({
-  phone: z
-    .string()
-    .regex(/^\d{10,15}$/, "Телефон должен содержать 10–15 цифр без +"),
-  message: z
-    .string()
-    .min(1, "Сообщение не может быть пустым")
-    .max(1000, "Максимальная длина — 1000 символов"),
-  tenantId: z.string().optional(),
-});
-
 export const callFilterSchema = z.object({
   bookingId: z.string().optional(),
   moduleSlug: z.string().optional(),
@@ -58,6 +46,5 @@ export const novofonWebhookSchema = z
 
 export type InitiateCallInput = z.infer<typeof initiateCallSchema>;
 export type InitiateDirectCallInput = z.infer<typeof initiateDirectCallSchema>;
-export type SendSmsInput = z.infer<typeof sendSmsSchema>;
 export type CallFilter = z.infer<typeof callFilterSchema>;
 export type NovofonWebhookInput = z.infer<typeof novofonWebhookSchema>;
