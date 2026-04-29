@@ -13,11 +13,11 @@ import {
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
-import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
+import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreateBookingInput,
@@ -188,9 +188,11 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     itemsTotal = result.itemsTotal;
   }
 
-  const pricing = computeBookingPricing(
+  const pricing = computeGazeboPricing(
     start,
     end,
+    date,
+    resource.metadata,
     resource.pricePerHour ? Number(resource.pricePerHour) : null,
     itemsTotal
   );
@@ -287,9 +289,11 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     itemsTotal = result.itemsTotal;
   }
 
-  const adminPricing = computeBookingPricing(
+  const adminPricing = computeGazeboPricing(
     start,
     end,
+    date,
+    resource.metadata,
     resource.pricePerHour ? Number(resource.pricePerHour) : null,
     itemsTotal
   );
@@ -824,7 +828,13 @@ export async function getAvailability(
       });
     }
 
-    return { date, resource, slots };
+    const pricing = getResourcePricing(
+      resource.metadata,
+      resource.pricePerHour ? Number(resource.pricePerHour) : null,
+      date
+    );
+
+    return { date, resource, slots, pricing };
   });
 }
 

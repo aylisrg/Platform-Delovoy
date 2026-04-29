@@ -15,6 +15,16 @@ type TimeSlot = {
   isAvailable: boolean;
 };
 
+type ResourcePricing = {
+  weekdayHour: number;
+  weekdayDay: number;
+  weekendHour: number;
+  weekendDay: number;
+  hourRate: number;
+  dayRate: number;
+  isWeekend: boolean;
+};
+
 type ResourceAvailability = {
   date: string;
   resource: {
@@ -24,6 +34,7 @@ type ResourceAvailability = {
     capacity: number | null;
   };
   slots: TimeSlot[];
+  pricing: ResourcePricing | null;
 };
 
 type BookingStep = "date" | "slots" | "form" | "done";
@@ -119,12 +130,40 @@ export function BookingFlow() {
     return { startTime: sorted[0], endTime: lastSlot?.endTime ?? sorted[sorted.length - 1] };
   }
 
-  function getTotalPrice() {
+  function getPriceBreakdown() {
     const resource = getSelectedResource();
-    const bookingPrice = resource?.resource.pricePerHour
-      ? selectedSlots.length * Number(resource.resource.pricePerHour)
-      : 0;
-    return bookingPrice;
+    const hours = selectedSlots.length;
+    if (!resource || hours === 0) return null;
+    const pricing = resource.pricing;
+    if (pricing) {
+      const hourlyTotal = hours * pricing.hourRate;
+      const useDayRate = pricing.dayRate > 0 && pricing.dayRate < hourlyTotal;
+      const total = useDayRate ? pricing.dayRate : hourlyTotal;
+      return {
+        hours,
+        hourRate: pricing.hourRate,
+        dayRate: pricing.dayRate,
+        isWeekend: pricing.isWeekend,
+        hourlyTotal,
+        total,
+        appliedDayRate: useDayRate,
+        savings: useDayRate ? hourlyTotal - pricing.dayRate : 0,
+      };
+    }
+    // Fallback for resources without priceList
+    if (!resource.resource.pricePerHour) return null;
+    const rate = Number(resource.resource.pricePerHour);
+    const total = hours * rate;
+    return {
+      hours,
+      hourRate: rate,
+      dayRate: 0,
+      isWeekend: false,
+      hourlyTotal: total,
+      total,
+      appliedDayRate: false,
+      savings: 0,
+    };
   }
 
   async function submitBooking() {
@@ -176,7 +215,9 @@ export function BookingFlow() {
 
   const selectedResource = getSelectedResource();
   const timeRange = getTimeRange();
-  const totalPrice = getTotalPrice();
+  const breakdown = getPriceBreakdown();
+  const totalPrice = breakdown?.total ?? 0;
+  const fmtRub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 
   return (
     <>
@@ -280,14 +321,25 @@ export function BookingFlow() {
                           до {item.resource.capacity} чел.
                         </span>
                       )}
-                      {item.resource.pricePerHour && (
+                      {item.pricing ? (
+                        <span
+                          className="text-xs font-medium px-2.5 py-0.5 rounded-full font-[family-name:var(--font-inter)]"
+                          style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
+                          title={item.pricing.isWeekend ? "Тариф Пт-Вс" : "Тариф Пн-Чт"}
+                        >
+                          {item.pricing.hourRate.toLocaleString("ru-RU")} ₽/час
+                          <span className="text-[10px] opacity-70 ml-1">
+                            · {item.pricing.isWeekend ? "Пт–Вс" : "Пн–Чт"}
+                          </span>
+                        </span>
+                      ) : item.resource.pricePerHour ? (
                         <span
                           className="text-xs font-medium px-2.5 py-0.5 rounded-full font-[family-name:var(--font-inter)]"
                           style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
                         >
                           {Number(item.resource.pricePerHour)} ₽/час
                         </span>
-                      )}
+                      ) : null}
                       {!hasAvailable && (
                         <span className="text-[#86868b] text-xs font-[family-name:var(--font-inter)] bg-[#f5f5f7] px-2.5 py-0.5 rounded-full">
                           Всё занято
@@ -336,7 +388,15 @@ export function BookingFlow() {
                     {totalPrice > 0 && (
                       <>
                         <span className="text-[#86868b] mx-2">·</span>
-                        <span className="text-[#1d1d1f] font-semibold">{totalPrice} ₽</span>
+                        <span className="text-[#1d1d1f] font-semibold">{fmtRub(totalPrice)}</span>
+                        {breakdown?.appliedDayRate && (
+                          <span
+                            className="ml-2 text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded-full"
+                            style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
+                          >
+                            дневной тариф · −{fmtRub(breakdown.savings)}
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
@@ -369,10 +429,39 @@ export function BookingFlow() {
                     <span className="text-[#1d1d1f] font-medium">{val}</span>
                   </div>
                 ))}
-                {totalPrice > 0 && (
-                  <div className="flex justify-between text-sm font-[family-name:var(--font-inter)] pt-2 border-t border-black/[0.04] mt-2">
-                    <span className="text-[#86868b]">Аренда беседки</span>
-                    <span className="text-[#1d1d1f] font-medium">{totalPrice} ₽</span>
+                {breakdown && breakdown.total > 0 && (
+                  <div className="pt-2 border-t border-black/[0.04] mt-2 space-y-1.5 font-[family-name:var(--font-inter)] text-sm">
+                    {breakdown.appliedDayRate ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-[#86868b]">
+                            Дневной тариф{" "}
+                            <span className="text-[#86868b]/60 text-xs">
+                              ({breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})
+                            </span>
+                          </span>
+                          <span className="text-[#1d1d1f] font-medium">{fmtRub(breakdown.dayRate)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-[#86868b]/70 line-through">
+                            {breakdown.hours} ч × {fmtRub(breakdown.hourRate)}
+                          </span>
+                          <span style={{ color: ACCENT }} className="font-medium">
+                            экономия {fmtRub(breakdown.savings)}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between">
+                        <span className="text-[#86868b]">
+                          {breakdown.hours} ч × {fmtRub(breakdown.hourRate)}{" "}
+                          <span className="text-[#86868b]/60 text-xs">
+                            ({breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})
+                          </span>
+                        </span>
+                        <span className="text-[#1d1d1f] font-medium">{fmtRub(breakdown.total)}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

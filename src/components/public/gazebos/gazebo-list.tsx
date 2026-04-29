@@ -53,7 +53,7 @@ export function GazeboList({ resources }: Props) {
                 className="font-medium px-2.5 py-0.5 rounded-full text-xs"
                 style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
               >
-                {Number(resource.pricePerHour)} ₽/час
+                от {Number(resource.pricePerHour)} ₽/час
               </span>
             )}
           </div>
