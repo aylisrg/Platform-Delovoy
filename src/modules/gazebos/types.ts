@@ -76,6 +76,7 @@ export type DayAvailability = {
   date: string;
   resource: GazeboResource;
   slots: TimeSlot[];
+  pricing: import("./pricing").ResourcePricing | null;
 };
 
 // Timeline data for admin grid

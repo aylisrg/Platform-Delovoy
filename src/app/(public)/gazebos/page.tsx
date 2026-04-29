@@ -4,6 +4,7 @@ import { listResources } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
+import { PricingSection } from "@/components/public/gazebos/pricing-section";
 import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
@@ -181,6 +182,9 @@ export default async function GazebosPage() {
             <GazeboList resources={resources} />
           </div>
         </section>
+
+        {/* Pricing & extras */}
+        <PricingSection />
 
         {/* Booking flow */}
         <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">
