@@ -37,6 +37,24 @@ export {
   syncItemsRegistry,
 } from "./items";
 export { getAccountSnapshot, syncAccount, fetchSelfAccount, fetchBalance } from "./account";
+export {
+  fetchReviewsForItem,
+  syncReviewsForItem,
+  syncAllReviews,
+  NEGATIVE_RATING_THRESHOLD,
+} from "./reviews";
+export type { RawAvitoReview } from "./reviews";
+export { sendMessage, listChatsUnread, listMessages, parseInboundWebhook } from "./messenger";
+export {
+  verifyWebhookToken,
+  verifyAvitoWebhookToken,
+  constantTimeCompare,
+  constantTimeEquals,
+} from "./webhook-security";
+export {
+  routeInboundMessage,
+  AVITO_LEAD_REOPEN_WINDOW_DAYS,
+} from "./lead-routing";
 
 /**
  * Legacy: aggregate stats for a single item (backed by AVITO_ITEM_ID env or

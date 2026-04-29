@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { AvitoReplyForm } from "@/components/admin/avito-reply-form";
 
 type Task = {
   id: string;
@@ -12,6 +13,7 @@ type Task = {
   assignees: { userId: string; role: string; name: string | null; email: string | null }[];
   labels: string[];
   createdAt: string;
+  avito: { chatId: string; itemUrl: string | null } | null;
 };
 
 type Event = {
@@ -89,6 +91,14 @@ export default function TaskDetailClient({
           <section className="mb-6 whitespace-pre-wrap rounded-md border border-gray-200 bg-white p-4 text-sm">
             {task.description}
           </section>
+        )}
+
+        {task.avito && (
+          <AvitoReplyForm
+            publicId={task.publicId}
+            avitoChatId={task.avito.chatId}
+            itemUrl={task.avito.itemUrl}
+          />
         )}
 
         <section className="mb-6">

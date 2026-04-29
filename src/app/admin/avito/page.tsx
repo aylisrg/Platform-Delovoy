@@ -17,6 +17,7 @@ import { itemsToDto } from "@/app/api/avito/items/_dto";
 import { AvitoItemsTable } from "./_components/items-table";
 import { BalanceCard } from "./_components/balance-card";
 import { NotConfiguredCard } from "./_components/not-configured";
+import { RecentReviews, type RecentReviewItem } from "./_components/recent-reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,34 @@ export default async function AvitoDashboardPage() {
   }
 
   const itemsDto = itemsToDto(visibleItems, "7d");
+
+  // Reviews block: scope to the items user can see.
+  const visibleItemDbIds = visibleItems.map((it) => it.id);
+  const recentReviewsRaw = configured && visibleItemDbIds.length > 0
+    ? await prisma.avitoReview.findMany({
+        where: { avitoItemId: { in: visibleItemDbIds } },
+        orderBy: { reviewedAt: "desc" },
+        take: 10,
+      })
+    : [];
+  const reviewsAggregate = configured && visibleItemDbIds.length > 0
+    ? await prisma.avitoReview.aggregate({
+        where: { avitoItemId: { in: visibleItemDbIds } },
+        _avg: { rating: true },
+        _count: { _all: true },
+      })
+    : null;
+  const itemTitleById = new Map(visibleItems.map((it) => [it.id, { title: it.title, url: it.url }]));
+  const recentReviews: RecentReviewItem[] = recentReviewsRaw.map((r) => ({
+    id: r.id,
+    avitoReviewId: r.avitoReviewId,
+    rating: r.rating,
+    authorName: r.authorName,
+    body: r.body,
+    reviewedAt: r.reviewedAt.toISOString(),
+    itemTitle: itemTitleById.get(r.avitoItemId)?.title ?? null,
+    itemUrl: itemTitleById.get(r.avitoItemId)?.url ?? null,
+  }));
 
   // Module options for the assignment select (SUPERADMIN only).
   const moduleOptions = isSuper
@@ -86,6 +115,11 @@ export default async function AvitoDashboardPage() {
                 />
               </CardContent>
             </Card>
+            <RecentReviews
+              reviews={recentReviews}
+              avgRating={reviewsAggregate?._avg.rating ?? null}
+              total={reviewsAggregate?._count._all ?? 0}
+            />
           </>
         )}
       </div>

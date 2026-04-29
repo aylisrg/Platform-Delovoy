@@ -39,6 +39,20 @@ export default async function AdminTaskDetailPage({ params }: Props) {
     throw err;
   }
 
+  const externalContact = (task.externalContact ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const isAvito = externalContact?.source === "avito";
+  const avitoChatId =
+    isAvito && typeof externalContact?.avitoChatId === "string"
+      ? (externalContact.avitoChatId as string)
+      : null;
+  const avitoItemUrl =
+    isAvito && typeof externalContact?.itemUrl === "string"
+      ? (externalContact.itemUrl as string)
+      : null;
+
   return (
     <TaskDetailClient
       task={{
@@ -57,6 +71,7 @@ export default async function AdminTaskDetailPage({ params }: Props) {
         })),
         labels: task.labels,
         createdAt: task.createdAt.toISOString(),
+        avito: avitoChatId ? { chatId: avitoChatId, itemUrl: avitoItemUrl } : null,
       }}
       events={events.map((e) => ({
         id: e.id,
