@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.3.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.2.0...v2.3.0) (2026-04-29)
+
+
+### Features
+
+* **auth:** Wave 1 — schema + remove Yandex/Google + mergeClients soft-merge fix ([#204](https://github.com/aylisrg/Platform-Delovoy/issues/204)) ([172e963](https://github.com/aylisrg/Platform-Delovoy/commit/172e963686d0a030cae1efc50df3de66db109490))
+* **auth:** Wave 2 — Telegram bot deep-link login + auto-merge + auth telemetry ([#207](https://github.com/aylisrg/Platform-Delovoy/issues/207)) ([0662392](https://github.com/aylisrg/Platform-Delovoy/commit/06623921d0f3095cd09f47d99f133cbaf40c4804))
+* **tasks:** unified kanban + channel-agnostic notifications (V1) ([7b809ca](https://github.com/aylisrg/Platform-Delovoy/commit/7b809cab912b974e615c03bb026a0701f7de996e))
+
+
+### Bug Fixes
+
+* **landing:** restore Yandex map embed and add map to PS Park ([#205](https://github.com/aylisrg/Platform-Delovoy/issues/205)) ([fa06a27](https://github.com/aylisrg/Platform-Delovoy/commit/fa06a27e86264aa9d1fc47d36766b2b0607d2459))
+* **ps-park:** address reviewer findings — auto_complete audit + cancel metadata ([630e90e](https://github.com/aylisrg/Platform-Delovoy/commit/630e90e7ff27f18a8292749e3972355ae2133253))
+* **ps-park:** session complete/cancel + shift revenue + post-factum items ([fca2fa1](https://github.com/aylisrg/Platform-Delovoy/commit/fca2fa137a15f44286ae8e0135e6e82ff2a2d8b8))
+* **tasks:** address reviewer findings (round 1) ([987f526](https://github.com/aylisrg/Platform-Delovoy/commit/987f526cd511397d9857fd38713ac2293d4b823b))
+* **tasks:** hoist JSX out of try/catch in admin task page ([9316493](https://github.com/aylisrg/Platform-Delovoy/commit/9316493880a2c8c7ccb1cafca3f1fdadc4823e69))
+* **tasks:** mark /report page as dynamic to avoid build-time prisma call ([dc0ea40](https://github.com/aylisrg/Platform-Delovoy/commit/dc0ea403211d75e75e8afc5c131b752c73ba1a9d))
+
 ## [2.2.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.1.0...v2.2.0) (2026-04-27)
 
 
