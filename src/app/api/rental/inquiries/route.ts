@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { createInquiry, listInquiries, RentalError } from "@/modules/rental/service";
 import { createInquirySchema, inquiryFilterSchema } from "@/modules/rental/validation";
+import { trackServerGoal } from "@/lib/metrika-server";
 
 /**
  * POST /api/rental/inquiries — public, submit a rental inquiry (no auth).
@@ -20,6 +21,16 @@ export async function POST(request: NextRequest) {
     }
 
     const inquiry = await createInquiry(parsed.data);
+
+    // Server-side трекинг конверсии в Я.Метрику — дублирует клиентский reachGoal,
+    // который часто блокируется AdBlock/ITP. См. issue #225, fire-and-forget.
+    trackServerGoal({
+      request,
+      target: "office_inquiry_success",
+      // Заявка на офис — это lead, а не контракт. Цены ещё нет → передаём null.
+      price: null,
+    });
+
     return apiResponse(inquiry, undefined, 201);
   } catch (error) {
     if (error instanceof RentalError) {

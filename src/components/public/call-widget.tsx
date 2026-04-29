@@ -1,3 +1,7 @@
+"use client";
+
+import { reachGoal } from "@/lib/metrika";
+
 type CallWidgetProps = {
   phone: string;
   displayPhone: string;
@@ -64,6 +68,7 @@ export function CallWidget({
         <div className="flex flex-col items-center sm:items-end gap-1.5 shrink-0">
           <a
             href={`tel:${phone}`}
+            onClick={() => reachGoal("phone_click")}
             className={`inline-flex items-center gap-2 font-[family-name:var(--font-manrope)] font-semibold text-sm px-5 py-2.5 rounded-full transition-all ${
               isDark
                 ? "bg-violet-600/20 text-violet-300 border border-violet-500/30 hover:bg-violet-600/35 hover:border-violet-500/50"

@@ -5,6 +5,14 @@ import { logAudit } from "@/lib/logger";
 import { createBooking, PSBookingError } from "@/modules/ps-park/service";
 import { createPSBookingSchema } from "@/modules/ps-park/validation";
 import { InventoryError } from "@/modules/inventory/service";
+import { trackServerGoal } from "@/lib/metrika-server";
+
+/** Booking price живёт в metadata JSON, не в колонке. */
+function extractBookingPrice(metadata: unknown): number | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const price = (metadata as { totalPrice?: unknown }).totalPrice;
+  return typeof price === "number" && Number.isFinite(price) ? price : null;
+}
 
 /**
  * POST /api/ps-park/book — create a new booking
@@ -27,6 +35,14 @@ export async function POST(request: NextRequest) {
       date: parsed.data.date,
       startTime: parsed.data.startTime,
       endTime: parsed.data.endTime,
+    });
+
+    // Server-side трекинг в Я.Метрику — клиентский reachGoal блокируется AdBlock/ITP.
+    // См. issue #225. Fire-and-forget, не блокирует ответ.
+    trackServerGoal({
+      request,
+      target: "pspark_booking_success",
+      price: extractBookingPrice(booking.metadata),
     });
 
     return apiResponse(booking, undefined, 201);
