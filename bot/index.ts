@@ -20,6 +20,9 @@ import {
   registerAuthDeepLinkHandlers,
 } from "./handlers/auth-deeplink";
 import { registerTeamSettingsHandlers } from "./handlers/team-settings";
+import { buildWelcomeText, mainMenuKeyboard } from "./handlers/welcome";
+import { registerUnknownTextHandler } from "./handlers/unknown";
+import { logEvent } from "../src/lib/logger";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -92,21 +95,6 @@ export async function sendAlert(
 }
 
 const WEBAPP_URL = `${APP_URL}/webapp`;
-
-/**
- * Build the main menu keyboard.
- */
-function mainMenuKeyboard() {
-  return new InlineKeyboard()
-    .webApp("📱 Открыть приложение", WEBAPP_URL)
-    .row()
-    .text("🏕 Барбекю Парк", "menu:gazebos")
-    .text("🎮 Плей Парк", "menu:ps-park")
-    .row()
-    .text("📋 Мои брони", "menu:my-bookings")
-    .row()
-    .url("🌐 Открыть сайт", APP_URL);
-}
 
 /**
  * Start the bot in long-polling mode.
@@ -185,22 +173,11 @@ async function startBot() {
       return;
     }
 
-    // Default welcome
-    const userName = ctx.from?.first_name || "друг";
-    await ctx.reply(
-      `Привет, ${userName}! 👋\n\n` +
-        `Я бот бизнес-парка <b>«Деловой»</b> (Селятино).\n\n` +
-        `Через меня можно:\n` +
-        `🏕 Забронировать беседку в Барбекю Парке\n` +
-        `🎮 Забронировать стол в Плей Парке\n` +
-        `📋 Проверить свои бронирования\n\n` +
-        `📱 Нажмите <b>«Открыть приложение»</b> — полноценный интерфейс прямо в Telegram!\n\n` +
-        `Или выберите, что вас интересует:`,
-      {
-        parse_mode: "HTML",
-        reply_markup: mainMenuKeyboard(),
-      }
-    );
+    // Default welcome — personalized greeting for both new and returning users
+    await ctx.reply(buildWelcomeText(ctx.from?.first_name), {
+      parse_mode: "HTML",
+      reply_markup: mainMenuKeyboard(),
+    });
   });
 
   // /help
@@ -231,23 +208,10 @@ async function startBot() {
     );
   });
 
-  // Menu routing callbacks
-  bot.callbackQuery("menu:gazebos", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    // Will be handled by gazebo handler
-  });
-
-  bot.callbackQuery("menu:ps-park", async (ctx) => {
-    await ctx.answerCallbackQuery();
-  });
-
-  bot.callbackQuery("menu:cafe", async (ctx) => {
-    await ctx.answerCallbackQuery();
-  });
-
-  bot.callbackQuery("menu:my-bookings", async (ctx) => {
-    await ctx.answerCallbackQuery();
-  });
+  // NOTE: Per-module "menu:*" callbacks (menu:gazebos, menu:ps-park, menu:cafe,
+  // menu:my-bookings) are intentionally NOT registered here. Each domain handler
+  // below owns its own callback so the user actually lands on a list/menu
+  // instead of an empty answerCallbackQuery() ack.
 
   // Register module handlers
   registerGazeboHandlers(bot);
@@ -256,6 +220,10 @@ async function startBot() {
   registerMyBookingsHandler(bot);
   registerTeamSettingsHandlers(bot);
   registerAuthDeepLinkHandlers(bot);
+
+  // Catch-all for unknown text — MUST be registered LAST so it only fires
+  // when no command or domain handler matched the input.
+  registerUnknownTextHandler(bot, logEvent);
 
   // Error handler
   bot.catch((err) => {
