@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { reachGoal } from "@/lib/metrika";
 
 type Office = {
@@ -30,6 +30,15 @@ export function InquiryForm({
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const startTrackedRef = useRef(false);
+
+  // Помечаем начало воронки при первом взаимодействии — раньше цель `office_inquiry_start`
+  // была мёртвой (declared but never reached). См. analytics gap report.
+  const handleFieldFocus = useCallback(() => {
+    if (startTrackedRef.current) return;
+    startTrackedRef.current = true;
+    reachGoal("office_inquiry_start");
+  }, []);
 
   const availableOffices = offices.filter((o) => o.status === "AVAILABLE");
 
@@ -99,6 +108,7 @@ export function InquiryForm({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onFocus={handleFieldFocus}
               required
               placeholder="Ваше имя *"
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -107,6 +117,7 @@ export function InquiryForm({
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              onFocus={handleFieldFocus}
               required
               placeholder="Телефон *"
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
