@@ -25,18 +25,43 @@
  *   - jti uniqueness check in Redis.
  */
 import crypto from "crypto";
+import { SignJWT } from "jose";
 import { redis, redisAvailable } from "@/lib/redis";
+import {
+  JWT_AUDIENCE,
+  JWT_ISSUER,
+  JWT_TYPE,
+} from "@/modules/auth/telegram-token-jwt";
 
 export const TOKEN_PREFIX = "auth:tg:token:";
 export const JTI_PREFIX = "auth:tg:jti:";
 export const START_RL_PREFIX = "auth:tg:start:rl:";
 export const STATUS_RL_PREFIX = "auth:tg:status:rl:";
 
+// Bot→web reverse login (ADR 2026-04-30). Distinct namespace from
+// `auth:tg:token:` to make namespace-confusion attacks impossible — a
+// token minted by the bot endpoint cannot be consumed by the web→bot
+// status endpoint and vice versa.
+export const BOT_LOGIN_TOKEN_PREFIX = "auth:tg:bot-login:";
+export const BOT_LOGIN_RL_PREFIX = "auth:tg:botlogin:rl:";
+export const BOT_LOGIN_RL_GLOBAL_KEY = "auth:tg:botlogin:rl:global";
+
 export const TOKEN_TTL_SECONDS = 5 * 60; // 5 min
 export const CONFIRMED_TTL_SECONDS = 5 * 60; // give frontend time to poll
 export const CONSUMED_TTL_SECONDS = 30; // poll dedup window
 export const JTI_TTL_SECONDS = 60; // matches JWT exp + buffer
 export const ONE_TIME_CODE_TTL_SECONDS = 30;
+
+export const BOT_LOGIN_TTL_SECONDS = 5 * 60; // 5 min PENDING window
+export const BOT_LOGIN_CONSUMED_TTL_SECONDS = 60; // dedup window after consume
+
+// Per-telegramId rate limit for bot-login mint endpoint.
+export const BOT_LOGIN_RL_PER_TG_LIMIT = 10;
+export const BOT_LOGIN_RL_PER_TG_WINDOW_SEC = 60;
+// Global stampede fuse — defends against a leaked BOT_INTERNAL_SECRET
+// blast radius (ADR §6.1).
+export const BOT_LOGIN_RL_GLOBAL_LIMIT = 600;
+export const BOT_LOGIN_RL_GLOBAL_WINDOW_SEC = 60;
 
 export type TelegramTokenStatus = "PENDING" | "CONFIRMED" | "CONSUMED";
 
@@ -244,4 +269,234 @@ export async function reserveJti(jti: string): Promise<boolean> {
   if (!redisAvailable) return true; // fail-open in dev; auth.ts also has its own checks
   const result = await redis.set(JTI_PREFIX + jti, "1", "EX", JTI_TTL_SECONDS, "NX");
   return result === "OK";
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Bot → web reverse login (ADR 2026-04-30)
+// ─────────────────────────────────────────────────────────────────────
+
+export type BotLoginTokenStatus = "PENDING" | "CONSUMED";
+
+export type BotLoginTokenEntry = {
+  status: BotLoginTokenStatus;
+  createdAt: string;
+  userId: string;
+  /** SHA-256(telegramId).slice(0,16) — for audit correlation without PII */
+  telegramIdHash: string;
+  consumedAt?: string;
+};
+
+export type ConsumeBotLoginResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "not_found" | "already_used" };
+
+/**
+ * Hash a telegramId for AuditLog metadata. Short truncation keeps the
+ * value compact while preserving correlation across audit rows.
+ */
+export function hashTelegramId(telegramId: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(String(telegramId))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * Mint a one-time PENDING bot-login token for `userId` and persist it
+ * in Redis under a namespace-isolated key. TTL = 5 minutes.
+ *
+ * Namespace `auth:tg:bot-login:` is intentionally distinct from
+ * `auth:tg:token:` so a token minted here cannot be consumed by the
+ * web→bot status endpoint, and vice versa (ADR §4.1).
+ */
+export async function createBotLoginToken(args: {
+  userId: string;
+  telegramId: string;
+}): Promise<{ token: string; expiresAt: string }> {
+  if (!redisAvailable) {
+    throw new Error("REDIS_UNAVAILABLE");
+  }
+  const token = generateToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + BOT_LOGIN_TTL_SECONDS * 1000);
+
+  const entry: BotLoginTokenEntry = {
+    status: "PENDING",
+    createdAt: now.toISOString(),
+    userId: args.userId,
+    telegramIdHash: hashTelegramId(args.telegramId),
+  };
+
+  await redis.set(
+    BOT_LOGIN_TOKEN_PREFIX + token,
+    JSON.stringify(entry),
+    "EX",
+    BOT_LOGIN_TTL_SECONDS
+  );
+
+  return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * Read a bot-login token entry. Returns null on miss / corrupted JSON /
+ * Redis-down. Caller is responsible for distinguishing PENDING vs
+ * CONSUMED via `entry.status`.
+ */
+export async function readBotLoginToken(
+  token: string
+): Promise<BotLoginTokenEntry | null> {
+  if (!redisAvailable) return null;
+  const raw = await redis.get(BOT_LOGIN_TOKEN_PREFIX + token);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as BotLoginTokenEntry;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Atomically transition PENDING → CONSUMED.
+ *
+ * We use Redis WATCH/MULTI so two concurrent consume calls can't both
+ * succeed: the second one sees the CONSUMED entry inside the watched
+ * read and returns `already_used`. This is stronger than the
+ * non-atomic check used by `consumeConfirmedToken` (web→bot path),
+ * intentionally — bot→web tokens are clickable URLs that browsers and
+ * messengers may pre-fetch (link previews) and we must not double-mint
+ * a session.
+ *
+ * Possible outcomes:
+ *   { ok: true, userId }                     — first consume wins
+ *   { ok: false, reason: "not_found" }       — token expired / never existed
+ *   { ok: false, reason: "already_used" }    — was CONSUMED already / lost race
+ */
+export async function consumeBotLoginToken(
+  token: string
+): Promise<ConsumeBotLoginResult> {
+  if (!redisAvailable) {
+    return { ok: false, reason: "not_found" };
+  }
+  const key = BOT_LOGIN_TOKEN_PREFIX + token;
+
+  // Up to 3 WATCH retries before giving up — practically a non-issue
+  // for one-time tokens, but defends against transient WATCH aborts.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await redis.watch(key);
+    const raw = await redis.get(key);
+    if (!raw) {
+      await redis.unwatch();
+      return { ok: false, reason: "not_found" };
+    }
+
+    let entry: BotLoginTokenEntry;
+    try {
+      entry = JSON.parse(raw) as BotLoginTokenEntry;
+    } catch {
+      await redis.unwatch();
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (entry.status !== "PENDING") {
+      await redis.unwatch();
+      return { ok: false, reason: "already_used" };
+    }
+
+    const next: BotLoginTokenEntry = {
+      ...entry,
+      status: "CONSUMED",
+      consumedAt: new Date().toISOString(),
+    };
+
+    const result = await redis
+      .multi()
+      .set(key, JSON.stringify(next), "EX", BOT_LOGIN_CONSUMED_TTL_SECONDS)
+      .exec();
+
+    // exec() returns null when the WATCH was invalidated (concurrent
+    // write). Retry the read.
+    if (result === null) continue;
+
+    return { ok: true, userId: entry.userId };
+  }
+
+  // Lost the race repeatedly — treat as already-used (someone else
+  // surely won). Not "not_found" because the key existed.
+  return { ok: false, reason: "already_used" };
+}
+
+/**
+ * Per-telegramId + global sliding-window rate limit for the bot-login
+ * mint endpoint. Returns `allowed: false` if either limit is hit.
+ *
+ * Stampede-safe: both keys auto-expire after their window so a stuck
+ * counter clears itself within ≤60s.
+ */
+export async function checkBotLoginRateLimit(
+  telegramId: string
+): Promise<{ allowed: boolean; retryAfterSec: number; scope?: "tg" | "global" }> {
+  if (!redisAvailable) {
+    // Fail-closed: ADR §3.1 marks REDIS_UNAVAILABLE as 503 for this
+    // endpoint. We surface that via a sentinel; the caller maps it.
+    return { allowed: false, retryAfterSec: 0 };
+  }
+
+  const tgKey = BOT_LOGIN_RL_PREFIX + telegramId;
+  const tgCount = await redis.incr(tgKey);
+  if (tgCount === 1) {
+    await redis.expire(tgKey, BOT_LOGIN_RL_PER_TG_WINDOW_SEC);
+  }
+  if (tgCount > BOT_LOGIN_RL_PER_TG_LIMIT) {
+    const ttl = await redis.ttl(tgKey);
+    return {
+      allowed: false,
+      retryAfterSec: ttl > 0 ? ttl : BOT_LOGIN_RL_PER_TG_WINDOW_SEC,
+      scope: "tg",
+    };
+  }
+
+  const globalCount = await redis.incr(BOT_LOGIN_RL_GLOBAL_KEY);
+  if (globalCount === 1) {
+    await redis.expire(BOT_LOGIN_RL_GLOBAL_KEY, BOT_LOGIN_RL_GLOBAL_WINDOW_SEC);
+  }
+  if (globalCount > BOT_LOGIN_RL_GLOBAL_LIMIT) {
+    const ttl = await redis.ttl(BOT_LOGIN_RL_GLOBAL_KEY);
+    return {
+      allowed: false,
+      retryAfterSec: ttl > 0 ? ttl : BOT_LOGIN_RL_GLOBAL_WINDOW_SEC,
+      scope: "global",
+    };
+  }
+
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+/**
+ * Mint a 30-second one-time JWT for the `telegram-token` Credentials
+ * provider. Centralised so /api/auth/telegram/status (web→bot) and
+ * /auth/tg-callback (bot→web) share one implementation and one jti
+ * dedup contract.
+ *
+ * Returns null when NEXTAUTH_SECRET is not configured. Caller maps that
+ * to a 503 — we never want to mint an unsigned token.
+ */
+export async function mintOneTimeJwt(userId: string): Promise<string | null> {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) return null;
+  if (!userId || typeof userId !== "string") return null;
+
+  const jti = crypto.randomBytes(16).toString("hex");
+  return new SignJWT({
+    sub: userId,
+    type: JWT_TYPE,
+    jti,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(JWT_ISSUER)
+    .setAudience(JWT_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(`${ONE_TIME_CODE_TTL_SECONDS}s`)
+    .setJti(jti)
+    .sign(new TextEncoder().encode(secret));
 }
