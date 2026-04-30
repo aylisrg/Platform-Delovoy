@@ -55,6 +55,20 @@ describe("bot/index.ts wiring", () => {
   });
 
   it("uses the shared buildWelcomeText for the default /start branch", () => {
-    expect(indexSource).toMatch(/buildWelcomeText\(ctx\.from\?\.first_name\)/);
+    // Now passes `isReturning` as a 2nd arg so we match the call site loosely.
+    expect(indexSource).toMatch(/buildWelcomeText\(ctx\.from\?\.first_name/);
+  });
+
+  it("looks up the linked user before sending the welcome reply", () => {
+    expect(indexSource).toMatch(/prisma\.user\.findUnique/);
+    expect(indexSource).toMatch(/telegramId:\s*tgId/);
+  });
+
+  it("calls mintBotLoginUrl for linked users (auto-login flow)", () => {
+    expect(indexSource).toMatch(/mintBotLoginUrl\(tgId\)/);
+  });
+
+  it("passes the minted URL into the keyboard (with fallback)", () => {
+    expect(indexSource).toMatch(/mainMenuKeyboard\(loginUrl\s*\?\?\s*undefined\)/);
   });
 });

@@ -22,6 +22,8 @@ import {
 import { registerTeamSettingsHandlers } from "./handlers/team-settings";
 import { buildWelcomeText, mainMenuKeyboard } from "./handlers/welcome";
 import { registerUnknownTextHandler } from "./handlers/unknown";
+import { mintBotLoginUrl } from "./lib/bot-login";
+import { prisma } from "../src/lib/db";
 import { logEvent } from "../src/lib/logger";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
@@ -173,10 +175,31 @@ async function startBot() {
       return;
     }
 
-    // Default welcome — personalized greeting for both new and returning users
-    await ctx.reply(buildWelcomeText(ctx.from?.first_name), {
+    // Default welcome — personalized greeting for both new and returning users.
+    // If the user already has a linked web account (User.telegramId), mint a
+    // one-time bot→web login URL so a click lands them straight into a session.
+    // Any failure (404 / network / timeout) gracefully falls back to APP_URL.
+    const tgId = ctx.from?.id != null ? String(ctx.from.id) : null;
+    let loginUrl: string | null = null;
+    let isReturning = false;
+    if (tgId) {
+      try {
+        const linkedUser = await prisma.user.findUnique({
+          where: { telegramId: tgId },
+          select: { id: true },
+        });
+        if (linkedUser) {
+          loginUrl = await mintBotLoginUrl(tgId);
+          isReturning = true;
+        }
+      } catch (err) {
+        console.warn("[Bot] failed to resolve telegram user for auto-login:", err);
+      }
+    }
+
+    await ctx.reply(buildWelcomeText(ctx.from?.first_name, isReturning), {
       parse_mode: "HTML",
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: mainMenuKeyboard(loginUrl ?? undefined),
     });
   });
 
