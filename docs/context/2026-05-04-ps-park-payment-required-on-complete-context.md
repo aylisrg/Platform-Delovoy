@@ -31,7 +31,7 @@
 
 - [x] PO — PRD
 - [x] Architect — ADR
-- [ ] Developer — implementation
+- [x] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
 
@@ -85,7 +85,16 @@
 
 ## Developer — Заметки реализации
 
-(заполняется после Stage 3)
+- **Файлы изменены (5):**
+  - `src/lib/api-response.ts` — `apiError` 4-й параметр `metadata?: Record<string, unknown>`; `ApiErrorResponse.error.metadata?` опциональное поле. Backward-compatible.
+  - `src/modules/ps-park/service.ts` — расширен `PSBookingError` (3-й аргумент `metadata?`); вставлен gate в `updateBookingStatus` после `completedTotalBill = discountCalc.finalAmount` (после применения скидки, до `prisma.$transaction`). Условие: `actorRole !== "CRON" && completedTotalBill > 0 && (cashAmount ?? 0) + (cardAmount ?? 0) < completedTotalBill`. Throws `PSBookingError("PAYMENT_REQUIRED", ..., { shortfall, totalBill, paid })`.
+  - `src/app/api/ps-park/bookings/[id]/route.ts` — `unprocessableCodes` Set с `DISCOUNT_EXCEEDS_LIMIT` и `PAYMENT_REQUIRED` → 422; `apiError` теперь получает `error.metadata` четвёртым аргументом.
+  - `src/components/admin/ps-park/session-bill-modal.tsx` — новая prop `apiError?: string | null`; вычисляется `isUnderpaid = effectiveTotal > 0 && cash + card < effectiveTotal`; добавлен в `disabled`; inline-ошибка с `role="alert"` показывается перед actions.
+  - `src/components/admin/ps-park/complete-session-button.tsx` — передаёт `apiError={error}` в `SessionBillModal`; `onClose` сбрасывает и `bill`, и `error`.
+- **Тесты (`src/modules/ps-park/__tests__/service.test.ts`):** новый describe `updateBookingStatus PAYMENT_REQUIRED gate` с 7 кейсами T1, T2, T3-explicit, T4, T6, T7, T9 (T5 N/A — UI-уровень; T8 уже покрыт существующим). К глобальному prisma-mock добавлен `module: { findUnique: vi.fn() }` для теста T4 (`getMaxDiscountPercent` дёргает `prisma.module.findUnique`).
+- **Результаты:** `npm test` → 131 файл / **2083 pass / 0 fail**. `npx tsc --noEmit` → clean.
+- **Schema:** не менялась.
+- **Public API:** добавлен опциональный 4-й аргумент в `apiError(code, message, status, metadata?)`; новое поле `error.metadata?` в `ApiErrorResponse`. Расширен `PSBookingError` 3-м опц. аргументом. Все изменения backward-compatible — десятки существующих вызовов не трогаются.
 
 ## Reviewer — Вердикт
 

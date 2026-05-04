@@ -439,6 +439,22 @@ export async function updateBookingStatus(
       completedTotalBill = discountCalc.finalAmount;
     }
 
+    // PAYMENT_REQUIRED gate — see ADR 2026-05-04-ps-park-payment-required-on-complete.
+    // CRON safety-net excluded; totalBill === 0 (no tariff/items) and 100% discount
+    // (completedTotalBill collapses to 0 above) both pass through naturally.
+    if (actorRole !== "CRON" && completedTotalBill > 0) {
+      const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
+      if (paidByOperator < completedTotalBill) {
+        const shortfall =
+          Math.round((completedTotalBill - paidByOperator) * 100) / 100;
+        throw new PSBookingError(
+          "PAYMENT_REQUIRED",
+          `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
+          { shortfall, totalBill: completedTotalBill, paid: paidByOperator }
+        );
+      }
+    }
+
     const resolvedCash = cashAmount ?? completedTotalBill;
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
@@ -1791,9 +1807,11 @@ export async function hardDeleteBooking(id: string, performedById: string) {
 
 export class PSBookingError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  metadata?: Record<string, unknown>;
+  constructor(code: string, message: string, metadata?: Record<string, unknown>) {
     super(message);
     this.code = code;
     this.name = "PSBookingError";
+    if (metadata) this.metadata = metadata;
   }
 }
