@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientForm } from "./client-form";
+import { formatDate } from "@/lib/format";
 
 // F4 ADR — admin guests directory. Search + pagination + inline create form
 // (по образцу suppliers-list.tsx).
@@ -81,7 +82,7 @@ export function ClientsList({
 
   function fmtDate(iso: string | null) {
     if (!iso) return "—";
-    return new Date(iso).toLocaleDateString("ru-RU");
+    return formatDate(iso);
   }
 
   return (
