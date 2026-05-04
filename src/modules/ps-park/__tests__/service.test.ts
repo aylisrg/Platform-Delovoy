@@ -1413,3 +1413,237 @@ describe("autoCompleteExpiredSessions", () => {
     expect(meta.actor).toBe("CRON");
   });
 });
+
+// ===== F7: subscription debit + drilldown =====
+
+vi.mock("@/modules/subscriptions/service", async () => {
+  const actual = await vi.importActual<object>("@/modules/subscriptions/service");
+  return {
+    ...actual,
+    getActiveSubscriptionForUser: vi.fn(),
+  };
+});
+
+vi.mock("@/modules/subscriptions/debit", async () => {
+  const actual = await vi.importActual<object>("@/modules/subscriptions/debit");
+  return {
+    ...actual,
+    debitFromSession: vi.fn(),
+  };
+});
+
+import { getActiveSubscriptionForUser } from "@/modules/subscriptions/service";
+import { debitFromSession, SubscriptionDebitError } from "@/modules/subscriptions/debit";
+
+describe("updateBookingStatus subscription path (F7)", () => {
+  function setupCheckedInBookingForSub({
+    pricePerHour = 300,
+    userId = "guest-1",
+  }: { pricePerHour?: number; userId?: string | null } = {}) {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CHECKED_IN", userId }) as never
+    );
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(
+      mockTable({ pricePerHour }) as never
+    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      name: "Менеджер",
+      email: null,
+    } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      return (fn as (tx: typeof prisma) => Promise<unknown>)(prisma);
+    });
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+  }
+
+  // P1
+  it("happy path with valid subscriptionId — FT(0), debit called, AuditLog has paymentMethod=SUBSCRIPTION", async () => {
+    setupCheckedInBookingForSub();
+    vi.mocked(getActiveSubscriptionForUser).mockResolvedValue({
+      id: "sub-1",
+      remainingHours: { toString: () => "5" } as never,
+    } as never);
+    vi.mocked(debitFromSession).mockResolvedValue({
+      hoursDebited: 1,
+      remainingAfter: 4,
+      becameDepleted: false,
+    });
+
+    await updateBookingStatus(
+      "booking-1", "COMPLETED", "manager-1",
+      undefined, undefined, undefined, undefined, "MANAGER", "sub-1"
+    );
+
+    expect(debitFromSession).toHaveBeenCalled();
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 0,
+          cashAmount: 0,
+          cardAmount: 0,
+          metadata: expect.objectContaining({ paymentMethod: "SUBSCRIPTION" }),
+        }),
+      })
+    );
+  });
+
+  // P2
+  it("INVALID_PAYMENT_COMBINATION when subscriptionId + discountInput", async () => {
+    setupCheckedInBookingForSub();
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, 0, 0,
+        { discountPercent: 10, discountReason: "promo" },
+        "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_PAYMENT_COMBINATION",
+      metadata: { hasDiscount: true },
+    });
+  });
+
+  // P3 + P4
+  it("INVALID_PAYMENT_COMBINATION when subscriptionId + cash > 0", async () => {
+    setupCheckedInBookingForSub();
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, 100, 0, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_PAYMENT_COMBINATION",
+      metadata: { hasCash: true },
+    });
+  });
+
+  it("INVALID_PAYMENT_COMBINATION when subscriptionId + card > 0", async () => {
+    setupCheckedInBookingForSub();
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, 0, 100, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_PAYMENT_COMBINATION",
+      metadata: { hasCard: true },
+    });
+  });
+
+  // P5
+  it("INVALID_SUBSCRIPTION for guest booking (userId=null)", async () => {
+    setupCheckedInBookingForSub({ userId: null });
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_SUBSCRIPTION",
+    });
+  });
+
+  // P6
+  it("INVALID_SUBSCRIPTION when payload subscriptionId differs from active", async () => {
+    setupCheckedInBookingForSub();
+    vi.mocked(getActiveSubscriptionForUser).mockResolvedValue({
+      id: "sub-active",
+      remainingHours: { toString: () => "5" } as never,
+    } as never);
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "MANAGER", "sub-stale"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_SUBSCRIPTION",
+      metadata: { providedId: "sub-stale", currentActiveId: "sub-active" },
+    });
+  });
+
+  // P7
+  it("INVALID_SUBSCRIPTION when no active sub (lazy-expired in helper)", async () => {
+    setupCheckedInBookingForSub();
+    vi.mocked(getActiveSubscriptionForUser).mockResolvedValue(null);
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_SUBSCRIPTION",
+      metadata: { currentActiveId: null },
+    });
+  });
+
+  // P8
+  it("INSUFFICIENT_HOURS pre-check (defensive)", async () => {
+    setupCheckedInBookingForSub({ pricePerHour: 300 });
+    vi.mocked(getActiveSubscriptionForUser).mockResolvedValue({
+      id: "sub-1",
+      remainingHours: { toString: () => "0.5" } as never,
+    } as never);
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INSUFFICIENT_HOURS",
+      metadata: { subscriptionId: "sub-1" },
+    });
+  });
+
+  // P9
+  it("INSUFFICIENT_HOURS when debit race lost inside tx", async () => {
+    setupCheckedInBookingForSub();
+    vi.mocked(getActiveSubscriptionForUser).mockResolvedValue({
+      id: "sub-1",
+      remainingHours: { toString: () => "5" } as never,
+    } as never);
+    vi.mocked(debitFromSession).mockRejectedValue(
+      new SubscriptionDebitError("INSUFFICIENT_HOURS", "race lost", {
+        requested: 1,
+        remainingHours: "0",
+        currentStatus: "ACTIVE",
+      })
+    );
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "MANAGER", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INSUFFICIENT_HOURS",
+      metadata: { requested: 1 },
+    });
+  });
+
+  // P12
+  it("INVALID_PAYMENT_COMBINATION when actorRole=CRON + subscriptionId", async () => {
+    setupCheckedInBookingForSub();
+
+    await expect(
+      updateBookingStatus(
+        "booking-1", "COMPLETED", "manager-1",
+        undefined, undefined, undefined, undefined, "CRON", "sub-1"
+      )
+    ).rejects.toMatchObject({
+      code: "INVALID_PAYMENT_COMBINATION",
+      metadata: { actorRole: "CRON" },
+    });
+  });
+});

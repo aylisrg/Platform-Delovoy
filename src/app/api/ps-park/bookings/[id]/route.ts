@@ -52,7 +52,7 @@ export async function PATCH(
       return apiError("VALIDATION_ERROR", "Укажите статус", 422);
     }
 
-    const { reason, confirmPenalty, cashAmount, cardAmount } = body;
+    const { reason, confirmPenalty, cashAmount, cardAmount, subscriptionId } = body;
     let updated;
 
     // Users can only cancel their own bookings
@@ -81,10 +81,17 @@ export async function PATCH(
       }
 
       updated = await updateBookingStatus(
-        id, status, session.user.id, reason,
+        id,
+        status,
+        session.user.id,
+        reason,
         typeof cashAmount === "number" ? cashAmount : undefined,
         typeof cardAmount === "number" ? cardAmount : undefined,
-        discountInput
+        discountInput,
+        "MANAGER",
+        typeof subscriptionId === "string" && subscriptionId.length > 0
+          ? subscriptionId
+          : undefined
       );
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
@@ -125,6 +132,10 @@ export async function PATCH(
       const unprocessableCodes = new Set([
         "DISCOUNT_EXCEEDS_LIMIT",
         "PAYMENT_REQUIRED",
+        "INVALID_PAYMENT_COMBINATION",
+        "INVALID_SUBSCRIPTION",
+        "INSUFFICIENT_HOURS",
+        "INVALID_HOURS",
       ]);
       const status = conflictCodes.has(error.code)
         ? 409
