@@ -32,7 +32,7 @@
 - [x] PO — PRD
 - [x] Architect — ADR
 - [x] Developer — implementation
-- [ ] Reviewer — audit
+- [x] Reviewer — audit
 - [ ] QA — verify
 
 ---
@@ -98,7 +98,10 @@
 
 ## Reviewer — Вердикт
 
-(заполняется после Stage 4)
+- **Вердикт:** PASS
+- **Iteration:** 1
+- **Issues count:** 0
+- **Краткое резюме:** Реализация точно соответствует ADR Variant B и покрывает все 8 AC из PRD. Gate вставлен в правильной позиции (после скидки, до транзакции), все edge cases (CRON, totalBill=0, переплата, 100%-скидка) корректно обработаны. Security: RBAC не изменён, в metadata утечек нет, no raw SQL, no secrets. Тесты T1, T2 проверяют отсутствие побочных эффектов (updateMany + financialTransaction.create не вызываются); T9 даёт регресс-защиту CRON. Backward compatibility apiError/PSBookingError — корректна. Scope creep отсутствует.
 
 ## QA — Вердикт
 
