@@ -26,7 +26,7 @@ Backend-миграция и связь: добавить `Order.bookingId String
 ## Stages
 
 - [x] PO — PRD
-- [ ] Architect — ADR
+- [x] Architect — ADR
 - [ ] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
@@ -93,3 +93,66 @@ F5 — фундаментальная миграция данных. Кажды�
 
 - PRD: `docs/requirements/2026-05-04-cafe-order-booking-link-prd.md`
 - Контекст: `docs/context/2026-05-04-cafe-order-booking-link-context.md` (этот файл)
+- ADR: `docs/architecture/2026-05-04-cafe-order-booking-link-adr.md`
+
+---
+
+## Architect — Ключевые решения
+
+> Автор: System Architect (claude-opus-4-7)
+> Дата: 2026-05-04
+
+### 1. Двусторонняя relation `Order ↔ Booking` с явным именем
+
+`booking Booking? @relation("OrderBooking", fields: [bookingId], references: [id], onDelete: SetNull)` в `Order`, обратная `orders Order[] @relation("OrderBooking")` в `Booking`. Имя `OrderBooking` явно — защита от будущих конфликтов FK (если когда-нибудь добавится вторая связь Order↔Booking, например `paymentBookingId`). Стоимость двусторонней relation — нулевая, выгода для F7 (drill-down) — реальная: `prisma.booking.findUnique({ include: { orders: true } })` без ручных join.
+
+### 2. POST handler уже существует — НЕ дублируем
+
+PO искал в `src/app/api/cafe/orders/route.ts` (plural) — там только GET. POST живёт в `src/app/api/cafe/order/route.ts` (singular). Это исторический разнобой именования, **в F5 не трогаем** (вне scope). Расширяем существующий POST на `/api/cafe/order`. UI вызывает `POST /api/cafe/order`.
+
+### 3. Error mapping: `BOOKING_NOT_FOUND` → HTTP 404
+
+PO в PRD дал «404 (или 422?)». Решение — **404**. Семантика: «ресурс, на который ссылается запрос, не существует». 422 строго за валидацией формата (Zod). В handler нужен conditional mapping:
+```ts
+const status = error.code === "BOOKING_NOT_FOUND" ? 404 : 400;
+return apiError(error.code, error.message, status);
+```
+
+### 4. UI компонент — `CafeOrderButton` рядом с `AddItemsButton`
+
+Файл: `src/components/admin/ps-park/cafe-order-button.tsx`. НЕ в `src/components/admin/cafe/` — компонент специфичен для контекста PS-сессии (требует `bookingId` обязательно как prop). Кафе-админка использует свои workflow без `bookingId`. Логика — fetch меню → modal с qty-stepper → POST `/api/cafe/order`. Не переиспользуем публичную корзину (`/cafe`) — там localStorage, мобильная вёрстка, лишняя сложность для админского flow.
+
+### 5. Валидация `z.string().cuid()` подтверждена
+
+Защита от мусорных строк до удара в БД. В unit-тестах сервиса проблем нет (мокаем `prisma.booking.findUnique` напрямую, минуя Zod). В integration-тестах route handler — используем валидные CUID-подобные строки или генерируем через `cuid()`.
+
+### 6. Проверка существования Booking — `findUnique` без фильтра по `deletedAt`
+
+Согласно PO решениям №4 и №5: статус и soft-delete не блокируют привязку. `prisma.booking.findUnique({ where: { id: bookingId }, select: { id: true } })` — минимальный select для производительности. Проверка ДО запросов меню — экономит круг к БД при невалидном `bookingId`.
+
+### 7. RBAC: без изменений
+
+POST `/api/cafe/order` — авторизованный endpoint без модульных ограничений (USER создаёт свой заказ, MANAGER PS Park — для гостя сессии). `hasModuleAccess` НЕ требуется. Rate limiting на этот endpoint сейчас не настроен — добавление вне scope F5 (PO не запрашивал, регрессии не вводим).
+
+### 8. Audit log — добавить `bookingId` в metadata
+
+Существующий `logAudit(userId, "order.create", "Order", order.id, {...})` расширяем `bookingId: parsed.data.bookingId ?? null` для traceability. Это минимальное изменение, помогает в дальнейшем дебаге привязок.
+
+### 9. Миграция безопасна для prod
+
+`ALTER TABLE "Order" ADD COLUMN "bookingId" TEXT` (NULLable) + FK на пустую колонку = instant в Postgres. Никаких table scan, locks, downtime. Rollback: `git revert` + `prisma migrate resolve --rolled-back add_order_booking_id` (+ ручной DROP, если миграция уже в prod).
+
+### 10. Анти-scope подтверждение
+
+В ADR явно зафиксировано 8 пунктов «не делаем»: subscriptions, F7 UI, изменения меню/корзины, backfill, gazebos UI, Telegram-flow, rate limiting, валидация статуса/deletedAt. Если Developer сталкивается с искушением расширить scope — stop, открыть отдельный issue.
+
+## Чеклист Architect перед передачей Developer
+
+- [x] ADR написан и зафиксирован (`docs/architecture/2026-05-04-cafe-order-booking-link-adr.md`)
+- [x] Схема данных описана (Prisma diff: `Order.bookingId` + relation, обратная `Booking.orders`, индекс)
+- [x] API-контракты определены (POST `/api/cafe/order`, request/response, error codes, status mapping)
+- [x] Zod-схема размечена (`bookingId: z.string().cuid().optional()`)
+- [x] Миграция данных описана (имя, SQL, prod-safety, rollback)
+- [x] RBAC описан (USER/MANAGER/SUPERADMIN, без `hasModuleAccess`, без нового rate limit)
+- [x] Влияние на существующие модули оценено (cafe, ps-park, booking, notifications)
+- [x] Все 3 open questions PO закрыты решениями 1, 2/3, 4

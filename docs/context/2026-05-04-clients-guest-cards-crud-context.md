@@ -26,8 +26,8 @@
 
 ## Stages
 
-- [ ] PO — PRD
-- [ ] Architect — ADR
+- [x] PO — PRD
+- [x] Architect — ADR
 - [ ] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
@@ -99,3 +99,49 @@ Auto-upsert при создании брони — только `ps-park` (`crea
 3. **`ClientNote` — отдельная модель или строковое поле?** Для audit trail заметок (автор, время, текст) нужна отдельная модель. Для данного тикета достаточно строкового `User.notes`?
 
 4. **`GET /api/clients` — route handler существует?** Директория `src/app/api/clients/` отсутствует при проверке. Developer создаёт с нуля.
+
+---
+
+## Architect — Ключевые решения
+
+**Автор**: Architect Agent
+**Дата**: 2026-05-04
+**ADR**: `docs/architecture/2026-05-04-clients-guest-cards-crud-adr.md`
+
+### Закрытие Open Questions
+
+| # | Вопрос | Решение |
+|---|---|---|
+| Q1 | partial UNIQUE на `phoneNormalized` | **НЕ добавляем в этом тикете.** В production уже могут быть дубли — миграция упадёт. Защита — на app-уровне (см. Q4 ниже). UNIQUE + dedup-скрипт = отдельная op-задача, отдельный PR (Scope guard #3). |
+| Q2 | алгоритм `normalizePhone` | **Существует**: `src/lib/phone.ts`. Покрывает все форматы из требований (`+7`, `8`, `7`, 10-значные, мусорные символы). Канонизирует в `+7XXXXXXXXXX`. Переиспользуем без изменений. |
+| Q3 | `ClientNote` модель | **НЕ создаём.** Используем `User.notes` (String). Timeline заметок — future-PRD. Минимизируем миграции. |
+| Q4 | API `src/app/api/clients/` | **Создаём с нуля**: `route.ts` (GET/POST), `[id]/route.ts` (GET/PATCH). Без DELETE. |
+
+### Ключевые архитектурные решения
+
+1. **Без миграций Prisma.** Все нужные поля уже в `User`. Нет новых моделей. Нет UNIQUE constraint.
+2. **Race-condition в `upsertClientByPhone`** — стратегия optimistic find + create + post-create reconciliation через `MergeCandidate` (см. ADR §9). Без UNIQUE — без unique-violation. Победитель — старший по `createdAt asc`, дубли регистрируются для merge через `/admin/users/duplicates`.
+3. **`createClient` (ручное) → 409 при существующем active phone**, не upsert. Явная семантика create-only API. `upsertClientByPhone` — внутренний хелпер только для авто-привязки из Booking.
+4. **RBAC: `hasRole(user, "MANAGER")` напрямую**, БЕЗ добавления `clients` в `ADMIN_SECTIONS`. CRM — сквозная секция, доступна всем менеджерам без явного `AdminPermission`. ADMIN/SUPERADMIN получают доступ автоматически через иерархию.
+5. **Rate limit**: GET 120/мин, PATCH 60/мин, POST 30/мин per user (защита от массового создания).
+6. **Изменение в `ps-park/createAdminBooking`** — точечная замена строк 783–804: `findFirst({ phone })` → `upsertClientByPhone(normalized, { source: "ps_park_booking" })`. Upsert User вынесен ИЗ booking-транзакции (допустимая «сирота-карточка» при сбое booking).
+7. **`source` в upsert обновляется только если был null** — не перезаписываем существующий канал происхождения. `name` — аналогично (PO мог отредактировать).
+8. **Tags** — поле в Zod есть (на будущее), но **не в UI форме** (PO Решение 6).
+
+### Что НЕ делаем (anti-scope)
+
+- Partial UNIQUE миграция, dedup-скрипт по существующим дублям → op-задача.
+- Merge UI, изменения `mergeClients` → отдельный feature.
+- Tags-input UI, `ClientNote` модель → future-PRDs.
+- Upsert в `gazebos`/`cafe`/`checkInBooking` → PO Решение 7.
+- Изменения схемы `Booking`.
+- DELETE endpoint.
+
+### Чеклист передачи Developer
+
+- ADR: `docs/architecture/2026-05-04-clients-guest-cards-crud-adr.md`
+- Схема БД: без изменений
+- API-контракты: 4 endpoints (GET list, POST, GET detail, PATCH)
+- Zod-схемы: `createClientSchema`, `updateClientSchema`
+- Test plan: 6+ unit (service), 5+ unit (validation), 6+ integration (API), 3+ regression (ps-park)
+- Декомпозиция файлов — см. ADR §13
