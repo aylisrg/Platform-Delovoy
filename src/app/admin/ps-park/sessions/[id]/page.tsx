@@ -3,6 +3,11 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { hasRole, hasAdminSectionAccess } from "@/lib/permissions";
 import { getSessionDetail } from "@/modules/ps-park/service";
+import {
+  formatDate as formatDateUnified,
+  formatTime as formatTimeUnified,
+  formatDateTime,
+} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -32,14 +37,11 @@ const PAYMENT_COLOR: Record<string, string> = {
 };
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeUnified(iso);
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU");
+  return formatDateUnified(iso);
 }
 
 function formatMoney(n: number) {
@@ -169,7 +171,7 @@ export default async function SessionDetailPage({
               <div key={o.id} className="rounded-lg border border-zinc-100 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs text-zinc-500">
-                    {new Date(o.createdAt).toLocaleString("ru-RU")} · {o.status}
+                    {formatDateTime(o.createdAt)} · {o.status}
                   </span>
                   <span className="font-semibold tabular-nums">
                     {formatMoney(o.totalAmount)}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
 import { getSubscription } from "@/modules/subscriptions/service";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export default async function SubscriptionDetailPage({
             </Link>
           </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {sub.userPhone ?? "Телефон не указан"} · с {new Date(sub.validFrom).toLocaleDateString("ru-RU")} по {new Date(sub.validTo).toLocaleDateString("ru-RU")}
+            {sub.userPhone ?? "Телефон не указан"} · с {formatDate(sub.validFrom)} по {formatDate(sub.validTo)}
           </p>
         </div>
         <span
@@ -133,7 +134,7 @@ export default async function SubscriptionDetailPage({
                 {sub.transactions.map((t) => (
                   <tr key={t.id} className="border-b border-zinc-100">
                     <td className="px-3 py-2 text-zinc-500 text-xs">
-                      {new Date(t.createdAt).toLocaleString("ru-RU")}
+                      {formatDateTime(t.createdAt)}
                     </td>
                     <td className="px-3 py-2">{TX_TYPE_LABEL[t.type] ?? t.type}</td>
                     <td

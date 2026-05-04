@@ -35,7 +35,6 @@ import {
   listSubscriptions,
   getSubscription,
   getActiveSubscriptionForUser,
-  SubscriptionError,
 } from "@/modules/subscriptions/service";
 import { prisma } from "@/lib/db";
 

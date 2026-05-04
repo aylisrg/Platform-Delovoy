@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { SubscriptionSummary, ListSubscriptionsResult } from "@/modules/subscriptions/types";
 import { SubscriptionForm } from "./subscription-form";
+import { formatDate as formatDateUnified } from "@/lib/format";
 
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Активен",
@@ -20,7 +21,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU");
+  return formatDateUnified(iso);
 }
 
 export function SubscriptionsList() {
@@ -32,6 +33,7 @@ export function SubscriptionsList() {
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional loading-flag flip on filter change before debounce kicks in
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter) params.set("status", statusFilter);
