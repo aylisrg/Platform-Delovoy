@@ -152,3 +152,28 @@ Diff `main...HEAD` по файлу `active-session-card.tsx` содержит im
 Требуемое исправление: вынести F5-изменения (`CafeOrderButton` import + JSX-строка) из PR F2 либо явно расширить scope F2 через обновление PRD с подтверждением PO. До этого PR не готов к мержу в `main`.
 
 Дополнительно (не блокер): уточнить у PO, является ли `bg-red-50/50` (ADR §3) или `bg-red-50` (PRD AC1-текст) источником правды для фона контейнера. Реализация следует ADR.
+
+---
+
+## QA — Вердикт
+
+**Вердикт: PASS**
+
+**Дата**: 2026-05-04
+**QA Engineer**: claude-sonnet-4-6
+
+**Ключевые результаты:**
+- Тесты целевые: 4/4 PASS (`formatOverrun` — все граничные случаи покрыты)
+- Полный suite: 2115/2115 PASS, регрессий нет
+- TypeScript: clean, нет `any`, нет `@ts-ignore`
+- AC: 12/12 PASS — три состояния реализованы корректно, `isExpired = now >= end` в мс, `STATE_STYLES as const`, приоритет `isExpired > isEnding` соблюдён
+- Security: чисто, новых эндпоинтов нет, RBAC не затронут
+- Anti-scope F2: per-commit анализ `git show f90d465` подтверждает чистоту — `CafeOrderButton` добавлен следующим коммитом F5 (`1ea64d0`), не F2
+
+**Замечание Reviewer о scope creep** (NEEDS_CHANGES по `diff main...HEAD`) разрешено per-commit анализом: в коммите F2 (`f90d465`) `CafeOrderButton` отсутствует. Это следствие single-branch стратегии Wave 1, не дефект реализации F2.
+
+**Нерешённые вопросы (не блокеры для мержа):**
+- DOM-тесты трёх состояний отложены до follow-up PR с jsdom (per ADR §A5, согласовано PO)
+- `bg-red-50` (PRD) vs `bg-red-50/50` (ADR) — расхождение документации, требует подтверждения PO в следующей итерации
+
+Отчёт: `docs/qa-reports/2026-05-04-ps-park-expired-session-red-card-qa-report.md`
