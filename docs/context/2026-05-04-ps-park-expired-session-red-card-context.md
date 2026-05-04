@@ -18,7 +18,7 @@
 - [x] PO — PRD
 - [x] Architect — ADR
 - [x] Developer — implementation
-- [ ] Reviewer — audit
+- [x] Reviewer — audit
 - [ ] QA — verify
 
 ## Developer — Заметки реализации
@@ -131,3 +131,24 @@ Developer:
 ### Решение A6: RBAC / API / схема БД — не нужны
 
 F2 — изменение одного клиентского компонента. Новых endpoint'ов нет, доступ к странице `/admin/ps-park/sessions` уже под существующим `MANAGER + hasModuleAccess('ps-park')` guard. Rate-limit, Zod-валидация, миграции, аудит — неприменимы. Раздел «Security / RBAC» в ADR оставлен пустым осознанно.
+
+---
+
+## Reviewer — Вердикт
+
+**Вердикт: NEEDS_CHANGES**
+
+**Единственная блокирующая причина: scope creep в `active-session-card.tsx`.**
+
+Diff `main...HEAD` по файлу `active-session-card.tsx` содержит import и рендер `CafeOrderButton` (строки 6 и 161 в итоговом файле), добавленные коммитом F5 (`1ea64d0 feat(cafe): link Order to Booking via optional FK + admin UI button`). PRD F2 явно ограничивает scope тремя визуальными состояниями и запрещает изменение кнопок. `CafeOrderButton` — четвёртая новая кнопка, не предусмотренная PRD F2. CLAUDE.md §«Scope guard» п.3: «Каждый PR = ≤ одна фича».
+
+Сама логика F2 (исключая scope creep) реализована корректно:
+- `isExpired = now >= end` через миллисекунды, граничный момент покрыт.
+- `STATE_STYLES as const` объект с тремя ключами, Tailwind-классы совпадают с ADR §3.
+- Приоритет `isExpired > isEnding` зашит в `isEnding = !isExpired && ...`.
+- `formatOverrun` экспортирован как named, fallback-тесты (4 кейса) проходят, jsdom не добавлен без согласования PO.
+- Security: чисто, новых endpoint'ов нет, RBAC не затронут.
+
+Требуемое исправление: вынести F5-изменения (`CafeOrderButton` import + JSX-строка) из PR F2 либо явно расширить scope F2 через обновление PRD с подтверждением PO. До этого PR не готов к мержу в `main`.
+
+Дополнительно (не блокер): уточнить у PO, является ли `bg-red-50/50` (ADR §3) или `bg-red-50` (PRD AC1-текст) источником правды для фона контейнера. Реализация следует ADR.

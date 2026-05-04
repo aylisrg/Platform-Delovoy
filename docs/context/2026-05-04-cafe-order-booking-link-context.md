@@ -27,8 +27,8 @@ Backend-миграция и связь: добавить `Order.bookingId String
 
 - [x] PO — PRD
 - [x] Architect — ADR
-- [ ] Developer — implementation
-- [ ] Reviewer — audit
+- [x] Developer — implementation
+- [x] Reviewer — audit
 - [ ] QA — verify
 
 ---
@@ -156,3 +156,24 @@ POST `/api/cafe/order` — авторизованный endpoint без моду
 - [x] RBAC описан (USER/MANAGER/SUPERADMIN, без `hasModuleAccess`, без нового rate limit)
 - [x] Влияние на существующие модули оценено (cafe, ps-park, booking, notifications)
 - [x] Все 3 open questions PO закрыты решениями 1, 2/3, 4
+
+---
+
+## Reviewer — Вердикт
+
+> Автор: Code Reviewer (claude-sonnet-4-6)
+> Дата: 2026-05-04
+
+**PASS**
+
+Все 8 AC реализованы без отклонений. Scope строго соблюдён: F5-коммит трогает ровно 9 файлов, все изменения в `active-session-card.tsx` из F5 сводятся к двум строкам (import + рендер `CafeOrderButton`). 132 файла / 2102 теста — зелёные.
+
+Ключевые проверки:
+- Prisma schema: `Order.bookingId String?` + `@@index([bookingId])` + `onDelete: SetNull` + обратная relation `Booking.orders Order[] @relation("OrderBooking")` — полное соответствие ADR Вариант A.
+- Migration SQL: NULLable ADD COLUMN + INDEX + FK SET NULL — prod-safe, instant.
+- Service: `findUnique` без `deletedAt`/статус-фильтра (PO Решения №4, №5), cheap rejection ДО меню-запроса.
+- API: 404 для `BOOKING_NOT_FOUND`, 400 для прочих `OrderError`, 422 для Zod (через `apiValidationError`).
+- Security: нет утечек секретов, RBAC не ослаблен, нет injection, нет новых прямых зависимостей.
+- 4 unit-теста покрывают все ветки (без bookingId, с валидным, с несуществующим, с soft-deleted).
+
+Отчёт: `docs/qa-reports/2026-05-04-cafe-order-booking-link-review.md`
