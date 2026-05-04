@@ -16,7 +16,7 @@
 ## Stages
 
 - [x] PO — PRD
-- [ ] Architect — ADR
+- [x] Architect — ADR
 - [ ] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
@@ -82,3 +82,43 @@
 **Решение**: explicit assertions на наличие конкретных CSS-классов (`expect(card).toHaveClass('border-red-500')` и т.д.) через Testing Library. Snapshot-тесты не рекомендуются для компонентов с Tailwind — они хрупкие к косметическим изменениям классов, которые не влияют на поведение.
 
 **Тест-кейсы**: зелёное состояние, жёлтое состояние, красное состояние, граничный случай `endTime === now`, приоритет `isExpired` над `isEnding`.
+
+---
+
+## Architect — Ключевые решения
+
+### Решение A1: `isExpired` хранить в `useState`, не вычислять inline
+
+`useEffect → updateProgress()` обновляет два **новых** state-поля одновременно с существующими `remainingMinutes` и `progressPercent`:
+
+```ts
+const [isExpired, setIsExpired] = useState(false);
+const [overrunMinutes, setOverrunMinutes] = useState(0);
+```
+
+Альтернатива (inline `Date.now() >= endMs` при каждом рендере) отклонена: создаёт рассинхрон с `remainingMinutes` (он из state, обновляется раз в 30 сек), что в граничный момент даёт визуальный конфликт «контейнер красный, бейдж говорит "0 мин"» и делает тесты недетерминированными.
+
+### Решение A2: Тернарная каскадная классификация без `cn`/`clsx`
+
+В проекте нет `clsx`/`cn` — соседние компоненты в `src/components/admin/ps-park/` используют шаблонные литералы. Не вводим новую зависимость ради одного места. Каскадная тернарная (`isExpired ? red : isEnding ? amber : emerald`) выносится в локальные `const cardClass`, `const badgeClass`, `const progressBarClass` перед `return` — JSX остаётся плоским.
+
+### Решение A3: Сужение `isEnding` для приоритета `isExpired > isEnding`
+
+`isEnding = !isExpired && remainingMinutes <= 10 && remainingMinutes > 0`. Это закрывает PRD AC US-1 #8 (взаимоисключение трёх состояний). Старый текст бейджа `remainingMinutes > 0 ? "${X} мин" : "Время вышло"` удаляется — кейс `remainingMinutes === 0` теперь покрывается `isExpired` через `formatOverrun()`.
+
+### Решение A4: `formatOverrun` — локальная функция в файле, не общий хелпер
+
+Новый формат «Просрочено: +X мин / +Y ч Z мин» используется только здесь. Существующий IIFE строк 81–85 форматирует `durationMin` без префикса в формате «Yч Zмин» (без пробелов) — другая семантика, переиспользование сломает читаемость. Вынос в `@/lib/format` через параметризованный `formatDuration({ prefix, sep })` — over-engineering для одного места (нарушает «не переусложняй» из CLAUDE.md). Если позже появится третий формат — отдельный refactor-тикет. Функцию делаем `export function formatOverrun(min: number)` — для unit-тестируемости даже без jsdom.
+
+### Решение A5: Тесты — два уровня в зависимости от наличия jsdom-инфры
+
+В репозитории `vitest.config.ts` использует `environment: "node"`, нет `@testing-library/react`/`jsdom` в devDeps, нет ни одного теста React-компонента в `src/components/`. **F2 — потенциально первый компонентный тест в проекте.**
+
+Developer:
+1. Сначала проверить `vitest.config.ts` и `**/__tests__/*.test.tsx` — возможно, инфра уже добавлена соседним тикетом Wave 1.
+2. Если инфра есть — реализовать все 5 тест-кейсов из PRD.
+3. Если инфры нет — **остановиться, согласовать с PO добавление devDeps** отдельным мини-PR (Scope Guard CLAUDE.md: «нельзя расширять scope в обход PO»). В этом тикете покрыть только `formatOverrun` чистыми unit-тестами (named export). Остальные 4 кейса — после подтверждения инфраструктуры.
+
+### Решение A6: RBAC / API / схема БД — не нужны
+
+F2 — изменение одного клиентского компонента. Новых endpoint'ов нет, доступ к странице `/admin/ps-park/sessions` уже под существующим `MANAGER + hasModuleAccess('ps-park')` guard. Rate-limit, Zod-валидация, миграции, аудит — неприменимы. Раздел «Security / RBAC» в ADR оставлен пустым осознанно.
