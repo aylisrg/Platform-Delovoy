@@ -28,9 +28,47 @@
 
 - [x] PO — PRD
 - [x] Architect — ADR
-- [ ] Developer — implementation
+- [x] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
+
+## Developer — Заметки реализации
+
+**Schema**: не менялась (поля `birthday`, `tags`, `notes`, `phoneNormalized`, `source`, `mergedIntoUserId`, модель `MergeCandidate` уже были в `prisma/schema.prisma`).
+
+**Service `src/modules/clients/service.ts`**:
+- Добавлен класс `ClientError(code, message, metadata?)`.
+- `createClient(input, performedById)`: валидация phone через `normalizePhone()`; проверка дубля по `phoneNormalized` + `role=USER` + `mergedIntoUserId=null` → 409 `CLIENT_PHONE_DUPLICATE` с `existingClientId`; создание + AuditLog `client.create`.
+- `updateClient(id, input, performedById)`: точечный diff, обновление только изменённых полей, AuditLog `client.update` с `metadata.changes = { field: { from, to } }`. No-op при отсутствии изменений. 404 `CLIENT_NOT_FOUND` если merged/role≠USER.
+- `upsertClientByPhone(rawPhone, opts)`: optimistic find → fill name/source iff null → create → post-create scan → MergeCandidate при concurrent дубле; победитель — старший по createdAt (детерминированно).
+
+**Validation `src/modules/clients/validation.ts`**: `createClientSchema` (phone required + refine normalizePhone≠null), `updateClientSchema` (без phone — locked после create).
+
+**API**:
+- `GET /api/clients` — список с пагинацией; MANAGER+; `clientFilterSchema`.
+- `POST /api/clients` — создание; MANAGER+; mapping `CLIENT_PHONE_DUPLICATE→409`, `INVALID_PHONE→422`.
+- `GET /api/clients/:id` — детали (для refetch после PATCH).
+- `PATCH /api/clients/:id` — обновление; mapping `CLIENT_NOT_FOUND→404`. Phone в body игнорируется (Zod его не принимает).
+
+**RBAC**: `hasRole(session.user, "MANAGER")` напрямую на каждом endpoint и странице. `clients` НЕ добавлен в `ADMIN_SECTIONS` — это сквозная CRM-секция (ADR §8).
+
+**UI**:
+- `/admin/clients/page.tsx` (бывший redirect → новый список): server component, проверяет auth + role, fetches `listClients` + рендерит `<ClientsList />`.
+- `src/components/admin/clients/clients-list.tsx`: поиск с debounce 300ms, пагинация, таблица (имя/phone/email/брони/потрачено/последняя активность), inline `<ClientForm mode="create">`.
+- `src/components/admin/clients/client-form.tsx`: phone обязателен на create, locked на edit (мерч — отдельный механизм). Email/birthday/notes опциональны. Обработка 409 — баннер + ссылка на existing.
+
+**PS Park integration `src/modules/ps-park/service.ts`**:
+- `createAdminBooking` строки 783–798: блок `findFirst({ where: { phone } })` → `update name` → `create` заменён на единый `upsertClientByPhone(clientPhone, { name, source: "ps_park_booking" })`.
+- Источник дублей при разных форматах ("8 999..." vs "+7999...") устранён.
+- Импорт `upsertClientByPhone from "@/modules/clients/service"` добавлен.
+
+**Tests `src/modules/clients/__tests__/service.test.ts`**:
+- К глобальному prisma-mock добавлены `user.findFirst`, `user.create`, `user.update`, `auditLog.create`, `mergeCandidate.upsert`.
+- Новые describe: `createClient (F4)` (3 кейса), `updateClient (F4)` (3 кейса), `upsertClientByPhone (F4)` (5 кейсов: existing fill nulls / preserves manager-edited name / new no-race / new + race + MergeCandidate / INVALID_PHONE).
+
+**Результаты**: 132 файла / 2102 тестов pass. `npx tsc --noEmit` — clean.
+
+**Out of scope (как в ADR)**: partial UNIQUE на phoneNormalized (отдельная op-задача после dedup-скрипта); merge UI; ClientNote модель; tags-input в форме; GET/PATCH integration tests на API endpoints (тонкие обёртки, покрываются через unit service); upsert в `gazebos`/`cafe`/`checkInBooking`.
 
 ---
 

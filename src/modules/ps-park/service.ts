@@ -23,6 +23,7 @@ import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/mod
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
+import { upsertClientByPhone } from "@/modules/clients/service";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -780,22 +781,16 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  // Find or create client User record so they appear in the Clients section
+  // F4 ADR: dedupe guests by E.164 phone, not by raw string. The previous
+  // findFirst({ where: { phone: clientPhone } }) created duplicates whenever
+  // the manager typed "8 999 ..." vs "+79991234567" for the same person.
   let clientUserId: string;
   if (clientPhone) {
-    const existingUser = await prisma.user.findFirst({ where: { phone: clientPhone } });
-    if (existingUser) {
-      // Update name if it changed
-      if (existingUser.name !== clientName) {
-        await prisma.user.update({ where: { id: existingUser.id }, data: { name: clientName } });
-      }
-      clientUserId = existingUser.id;
-    } else {
-      const newUser = await prisma.user.create({
-        data: { name: clientName, phone: clientPhone, role: "USER" },
-      });
-      clientUserId = newUser.id;
-    }
+    const { id } = await upsertClientByPhone(clientPhone, {
+      name: clientName,
+      source: "ps_park_booking",
+    });
+    clientUserId = id;
   } else {
     const newUser = await prisma.user.create({
       data: { name: clientName, role: "USER" },
