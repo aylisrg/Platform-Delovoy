@@ -30,7 +30,7 @@
 ## Stages
 
 - [x] PO — PRD
-- [ ] Architect — ADR
+- [x] Architect — ADR
 - [ ] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
@@ -59,7 +59,29 @@
 
 ## Architect — Ключевые решения
 
-(заполняется после Stage 2)
+> Полный ADR: [`docs/architecture/2026-05-04-ps-park-payment-required-on-complete-adr.md`](../architecture/2026-05-04-ps-park-payment-required-on-complete-adr.md)
+
+- **Решение A1: guard живёт в `src/modules/ps-park/service.ts` (Вариант B), НЕ в state-machine.** Вставка ~15 строк между `service.ts:440` и `service.ts:442`, после применения скидки (`completedTotalBill = discountCalc.finalAmount`), до `prisma.$transaction`. State-machine остаётся pure-функцией без БД-доступа — `Resource.pricePerHour` и items snapshot не должны протекать в `TransitionContext`. Подтверждает PO Решение 1 + закрывает Open Question #3.
+
+- **Решение A2: HTTP 422 для `PAYMENT_REQUIRED` (НЕ 400).** Соответствует существующему mapping в `src/app/api/ps-park/bookings/[id]/route.ts:127` (`DISCOUNT_EXCEEDS_LIMIT` → 422). Семантика RFC 4918: «Unprocessable Entity» — синтаксис валиден, бизнес-инвариант не выполнен. Закрывает Open Question #2.
+
+- **Решение A3: контракт ошибки с structured `metadata`.** Тело ответа: `{ success: false, error: { code: "PAYMENT_REQUIRED", message: "Необходимо принять оплату: не хватает X ₽", metadata: { shortfall: number, totalBill: number, paid: number } } }`. Расширяем `apiError(...)` в `src/lib/api-response.ts` опциональным 4-м аргументом + расширяем `PSBookingError` опциональным 3-м аргументом `metadata`. Backward-compatible. UI получает `shortfall` как число, без regex-парсинга строки.
+
+- **Решение A4: `Module.config.maxDiscountPercent` остаётся как есть, гибкость через config (НЕ через role-check)** (Open Question #1). PO предлагал (b) «100% только SUPERADMIN». Architect выбирает компромисс: текущий код (`getMaxDiscountPercent` + Zod `max(100)`) уже поддерживает 100% при условии что админ выставил `Module.config.maxDiscountPercent=100` через UI `/admin/ps-park/settings`. Не добавляем `if (discountPercent === 100 && actorRole !== "SUPERADMIN") throw` — это сюрприз для UX и сложнее тестировать. Если оператор хочет ограничить менеджеров — оставит config 30%, и 100%-скидка станет физически невозможна. Изменение config — отдельная op-задача, НЕ в этом PR.
+
+- **Решение A5: `checkoutDiscountSchema` (Zod) НЕ меняем.** `cash + card >= totalBill` принципиально не валидируется в Zod — `totalBill` вычисляется на сервере из `Resource.pricePerHour + items + actualEndTime` и недоступен на этапе схемной валидации payload. Гарант — только сервисный слой. Закрывает Open Question #3 (вторая часть).
+
+- **Решение A6: UI defense in depth.** `session-bill-modal.tsx:373` — добавляем явный `isUnderpaid = effectiveTotal > 0 && (cash + card) < effectiveTotal` к условию disabled. `complete-session-button.tsx` — НЕ закрываем модалку при ошибке от API, передаём `apiError` через новую prop `apiError?: string | null` в SessionBillModal для inline-отображения. Никаких новых компонентов, никакого toast-фреймворка.
+
+- **Решение A7: тест CRON-ветки явно включён (T9 в test plan)** — Open Question #4. `actorRole="CRON"` + `cash=undefined, card=undefined` + `totalBill=300` → ожидать НЕТ `PAYMENT_REQUIRED`, `FinancialTransaction.totalAmount=300`, `auditLog.action="session.auto_complete"`. Регресс-защита от случайной поломки `autoCompleteExpiredSessions`.
+
+- **Решение A8: scope-guard зафиксирован.** Файлы изменений: `src/modules/ps-park/service.ts` (guard + расширение `PSBookingError`), `src/app/api/ps-park/bookings/[id]/route.ts` (расширение error mapping), `src/lib/api-response.ts` (опциональный `metadata` параметр), `src/components/admin/ps-park/session-bill-modal.tsx` (inline-ошибка), `src/components/admin/ps-park/complete-session-button.tsx` (не закрывать модалку при ошибке), `src/modules/ps-park/__tests__/service.test.ts` (T1–T9). НЕ трогаем: `state-machine.ts`, `validation.ts` (ps-park и booking), `prisma/schema.prisma`, gazebos, NextAuth, Redis, Telegram-бот.
+
+- **Test plan: 8 unit-тестов** (один на каждый AC из PRD: T1, T2, T3, T4, T6, T7, T8 — последний уже существует, обновить assertions; T5 — N/A, Zod-уровень) + 1 CRON regression test (T9). Все в `src/modules/ps-park/__tests__/service.test.ts`, моки уже настроены.
+
+- **RBAC: новых endpoint'ов нет.** Существующий `PATCH /api/ps-park/bookings/:id` уже защищён `auth() → requireAdminSection(session, "ps-park") → hasRole(session.user, "MANAGER")`. Новых ролей, разрешений, secrets, env-переменных НЕТ.
+
+- **Rollback-план:** `git revert <merge-commit>` — никаких миграций, изменения в 5–6 файлах, полностью обратимо одним коммитом.
 
 ## Developer — Заметки реализации
 
