@@ -68,6 +68,8 @@ model User {
   mergeCandidatesPrimary   MergeCandidate[] @relation("MergeCandidatePrimary")
   mergeCandidatesSecondary MergeCandidate[] @relation("MergeCandidateSecondary")
 
+  subscriptions Subscription[] @relation("UserSubscriptions")
+
   @@index([mergedIntoUserId])
   @@index([lastSeenAt])
   @@index([phoneNormalized])
@@ -1844,4 +1846,69 @@ model AvitoItemStatsSnapshot {
 
   @@unique([avitoItemId, period])
   @@index([syncedAt])
+}
+
+// === SUBSCRIPTIONS (PS Park, F6 — see ADR 2026-05-04-subscriptions-module-impl) ===
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  DEPLETED
+  CANCELLED
+}
+
+enum SubscriptionTransactionType {
+  CHARGE // F7 auto-debit on session completion
+  REFUND // F7 reverse on cancellation
+  MANUAL_TOPUP
+  MANUAL_DEDUCT
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  moduleSlug     String             @default("ps-park")
+  userId         String
+  user           User               @relation("UserSubscriptions", fields: [userId], references: [id])
+  totalHours     Decimal            @db.Decimal(10, 2)
+  remainingHours Decimal            @db.Decimal(10, 2)
+  validFrom      DateTime
+  validTo        DateTime
+  status         SubscriptionStatus @default(ACTIVE)
+  pricePaid      Decimal            @db.Decimal(10, 2)
+  notes          String?
+  cancelReason   String?
+  cancelledAt    DateTime?
+  cancelledById  String?
+  createdById    String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  transactions SubscriptionTransaction[]
+  // Partial UNIQUE — guarantee "one ACTIVE per userId" at DB level.
+  // Prisma can't express partial UNIQUE; see migration raw SQL:
+  //   CREATE UNIQUE INDEX subscription_user_active_unique
+  //     ON "Subscription" ("userId") WHERE "status" = 'ACTIVE'
+
+  @@index([userId, status])
+  @@index([status, validTo])
+  @@index([moduleSlug, createdAt])
+}
+
+model SubscriptionTransaction {
+  id              String                      @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription                @relation(fields: [subscriptionId], references: [id])
+  type            SubscriptionTransactionType
+  hoursDelta      Decimal                     @db.Decimal(10, 2)
+  balanceAfter    Decimal                     @db.Decimal(10, 2)
+  bookingId       String?
+  reason          String?
+  performedById   String
+  performedByName String
+  createdAt       DateTime                    @default(now())
+  // No updatedAt — immutable audit log (mirrors FinancialTransaction).
+
+  @@index([subscriptionId, createdAt])
+  @@index([type, createdAt])
+  @@index([bookingId])
 }
