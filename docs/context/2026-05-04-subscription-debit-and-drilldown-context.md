@@ -19,7 +19,7 @@
 ## Stages
 
 - [x] PO — PRD (`docs/requirements/2026-05-04-subscription-debit-and-drilldown-prd.md`)
-- [x] Architect — ADR (`docs/architecture/2026-05-04-subscription-debit-and-drilldown-adr.md`)
+- [ ] Architect — ADR
 - [ ] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
@@ -73,49 +73,3 @@
 Если сессия уже COMPLETED, возврат часов на абонемент не происходит автоматически.
 
 **Обоснование**: Workflow отмены COMPLETED сессии требует отдельного процесса с согласованием (разрешение суперадмина). Автоматический возврат без явного approval создаёт риск мошенничества. Фиксируем как «Won't have» для F7, будущий тикет описывает полный workflow рефанда.
-
----
-
-## Architect — Ключевые решения
-
-### A1: `debitFromSession` — отдельный файл `src/modules/subscriptions/debit.ts`
-
-Helper выделен в собственный файл (а не положен в `subscriptions/service.ts`), потому что (а) F6 service.ts уже содержит CRUD + lazy-status + adjust + cancel и плотный, (б) `debitFromSession` имеет сильно отличающийся контракт (`tx: Prisma.TransactionClient` извне, вызывается из ps-park, не имеет UI), (в) изолированный файл = изолированные тесты (`debit.test.ts` mock'ает только tx, не весь Prisma client).
-
-**Контракт**: `debitFromSession(tx, { subscriptionId, bookingId, hours, performedById, performedByName })` → `{ hoursDebited, remainingAfter, becameDepleted }`. Внутри: race-safe `updateMany WHERE id=? AND status=ACTIVE AND remainingHours >= ? { decrement }` + поствыборка для balanceAfter + auto-DEPLETED при нуле + ST insert (`type=CHARGE`) + AuditLog (`subscription.debit_session`). Throws `SubscriptionDebitError("INSUFFICIENT_HOURS")` если race потерян (count=0).
-
-### A2: Guard F1 расширяется добавлением `subscriptionCredit`, вычисляемым на сервере из `subscriptionId`
-
-Payload содержит ТОЛЬКО `subscriptionId?: string`. Сервер выполняет pre-flight: загружает sub через `getActiveSubscriptionForUser(booking.userId)` (lazy auto-EXPIRED/auto-DEPLETED работает), сверяет с переданным id (race-catch), проверяет `remainingHours >= billedHours` (defensive 422 INSUFFICIENT_HOURS). Если всё ок → `subscriptionCredit = completedTotalBill` (бинарный режим, Решение 4 PO). F1 guard превращается в `paid + subscriptionCredit >= totalBill` — единый аддитивный инвариант (Решение 5 PO).
-
-UI не может «обмануть» guard, потому что serverside загружает реальный `Subscription.remainingHours` и реальный `completedTotalBill` из `Resource.pricePerHour + items` — оба не trust'ятся из payload.
-
-### A3: Drill-down endpoint — новый `GET /api/ps-park/sessions/[id]`
-
-Не расширяем `bookings/[id]/route.ts` (уже 207 строк, и семантически `/sessions/:id` — read-only DTO-агрегатор для UI, отличный от operations над брони). DTO жёстко зафиксирован: `{ session, orders, payment }` с `payment.method ∈ { CASH | CARD | MIXED | SUBSCRIPTION | FREE }`. Service-layer helper `getSessionDetail(id)` переиспользуется и роутом, и server-component страницей `/admin/ps-park/sessions/[id]/page.tsx` — single source of truth для DTO.
-
-RBAC: `auth() + requireAdminSection(session, "ps-park")` — те же helpers, что и для существующих ps-park endpoints. Soft-deleted booking → 404. Гостевая бронь без userId — DTO без `client.userId` и без subscription block.
-
-### A4: Mutex — единое 422 `INVALID_PAYMENT_COMBINATION` при ЛЮБОЙ из несовместимостей
-
-`subscriptionId` несовместим с `discountInput` И с `cashAmount > 0` И с `cardAmount > 0`. Один error code (не три отдельных) упрощает UI handling и даёт оператору одно семантическое сообщение «выберите либо абонемент, либо деньги/скидку» вместо разбора трёх кодов. Metadata содержит `{ hasDiscount, hasCash, hasCard }` — для отладки и telemetry, если понадобятся.
-
-Guard работает ДО открытия `prisma.$transaction` — никаких частичных мутаций.
-
-### A5: Endpoint `/api/clients/:userId/subscriptions/active` — добавлен в скоуп F7
-
-PRD parent agent предложил «добавь как часть F6 dependencies». Архитектор НЕ добавляет post-hoc в F6 (F6 PR уже сдаётся), а вводит endpoint в F7. Реализация — тонкая обёртка над `getActiveSubscriptionForUser` (F6 helper), доступная под `requireAdminSection("ps-park")`. Используется `complete-session-button.tsx` для предзагрузки toggle state перед открытием `SessionBillModal`.
-
-### A6: `SubscriptionTransaction.type` для авто-debit = `CHARGE` (existing F6 enum)
-
-PRD AC-6 пишет `type=DEBIT_SESSION`, но F6 ADR §4.1 уже зафиксировал enum `SubscriptionTransactionType { CHARGE | REFUND | MANUAL_TOPUP | MANUAL_DEDUCT }` — `CHARGE` явно описан как «авто-списание из F7». Architect использует existing enum value, не вводит новый. AuditLog `action='subscription.debit_session'` остаётся как semantic для grep-ability в логах. Расхождение naming зафиксировано в §4.1 ADR clarification.
-
-### A7: Backward-compat для `updateBookingStatus` — 9-й опциональный параметр
-
-`subscriptionId?: string` добавляется как 9-й параметр после `actorRole` (8-й). Все существующие вызовы (cron auto-complete, route.ts:83-88) — без изменений. Defensive: при `actorRole === "CRON" && subscriptionId` → 422 INVALID_PAYMENT_COMBINATION (cron не имеет UI для выбора абонемента; защита от мисуса).
-
-### A8: Anti-scope явно
-
-В скоупе F7: 6 файлов на изменение + 8 на создание (см. ADR §8). Вне скоупа: schema.prisma (F6+F5 покрывают), shared payment-gate helper (YAGNI), refund/возврат часов, split-payment, notification гостю, изменения F6 service.ts (только потребляем helper).
-
----

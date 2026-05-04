@@ -141,18 +141,7 @@ export function BookingHistoryTable({ bookings, resourceMap }: Props) {
                   </div>
                 </td>
                 <td className="py-3" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-2">
-                    {isCompleted && (
-                      <a
-                        href={`/admin/ps-park/sessions/${b.id}`}
-                        className="text-xs text-blue-600 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Подробнее
-                      </a>
-                    )}
-                    <BookingActions bookingId={b.id} currentStatus={b.status as "COMPLETED" | "CANCELLED"} />
-                  </div>
+                  <BookingActions bookingId={b.id} currentStatus={b.status as "COMPLETED" | "CANCELLED"} />
                 </td>
               </tr>
             );

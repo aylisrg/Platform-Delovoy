@@ -504,7 +504,6 @@ GET    /api/rental/expiring       — договоры, истекающие в 
 | `profile` | ⚠️ только webapp | API контактов USER (`/api/profile/*`) |
 | `feedback` | ❌ scope creep | обращения пользователей |
 | `tasks` | ✅ Phase 5.4 | единый канбан задач и обращений арендаторов (web/email/TG/manual ввод) |
-| `subscriptions` | ✅ Phase 5.x (F6) | абонементы PS Park: предоплаченные часы на гостя, journal транзакций, partial UNIQUE one-active-per-user |
 | `inventory` | ❌ scope creep | складской учёт (SKU, receipts, audits, write-offs) |
 | `management` | ❌ scope creep | расходы, recurring задачи |
 | `telephony` | ❌ scope creep | Novofon SMS/звонки |
