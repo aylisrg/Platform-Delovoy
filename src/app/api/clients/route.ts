@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
+import { rateLimit } from "@/lib/rate-limit";
 import { listClients, createClient, ClientError } from "@/modules/clients/service";
 import {
   clientFilterSchema,
@@ -21,6 +22,9 @@ import {
  */
 export async function GET(request: NextRequest) {
   try {
+    const limited = await rateLimit(request, "authenticated");
+    if (limited) return limited;
+
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!hasRole(session.user, "MANAGER")) {
@@ -52,6 +56,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const limited = await rateLimit(request, "authenticated");
+    if (limited) return limited;
+
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!hasRole(session.user, "MANAGER")) {

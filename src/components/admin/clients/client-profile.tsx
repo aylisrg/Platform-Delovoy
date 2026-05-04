@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { MergeDialog } from "./merge-dialog";
+import { ClientForm } from "./client-form";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 type ModuleUsage = {
@@ -147,6 +148,7 @@ export function ClientProfile({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"timeline" | "bookings" | "orders" | "spending">("timeline");
   const [showMerge, setShowMerge] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -237,13 +239,40 @@ export function ClientProfile({ clientId }: { clientId: string }) {
             Клиент с {formatDate(client.createdAt)}
           </p>
         </div>
-        <button
-          onClick={() => setShowMerge(true)}
-          className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
-        >
-          Объединить
-        </button>
+        <div className="shrink-0 flex items-center gap-2">
+          <button
+            onClick={() => setShowEdit((v) => !v)}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+          >
+            {showEdit ? "Закрыть" : "Редактировать"}
+          </button>
+          <button
+            onClick={() => setShowMerge(true)}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+          >
+            Объединить
+          </button>
+        </div>
       </div>
+
+      {showEdit && (
+        <div className="mt-4">
+          <ClientForm
+            mode="edit"
+            initial={{
+              id: client.id,
+              phone: client.phone,
+              name: client.name,
+              email: client.email,
+            }}
+            onSuccess={() => {
+              setShowEdit(false);
+              router.refresh();
+            }}
+            onCancel={() => setShowEdit(false)}
+          />
+        </div>
+      )}
 
       {showMerge && (
         <MergeDialog

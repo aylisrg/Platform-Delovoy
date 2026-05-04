@@ -29,7 +29,7 @@
 - [x] PO — PRD
 - [x] Architect — ADR
 - [x] Developer — implementation
-- [ ] Reviewer — audit
+- [x] Reviewer — audit
 - [ ] QA — verify
 
 ## Developer — Заметки реализации
@@ -183,3 +183,25 @@ Auto-upsert при создании брони — только `ps-park` (`crea
 - Zod-схемы: `createClientSchema`, `updateClientSchema`
 - Test plan: 6+ unit (service), 5+ unit (validation), 6+ integration (API), 3+ regression (ps-park)
 - Декомпозиция файлов — см. ADR §13
+
+---
+
+## Reviewer — Вердикт
+
+**Автор**: Code Reviewer (claude-sonnet-4-6)
+**Дата**: 2026-05-04
+**Отчёт**: `docs/qa-reports/2026-05-04-clients-guest-cards-crud-review.md`
+
+### Вердикт: NEEDS_CHANGES
+
+**15/17 AC PASS. 3 блокирующих проблемы:**
+
+1. **AC-11/AC-12 не реализованы** (`src/components/admin/clients/client-profile.tsx`): кнопка «Редактировать» и `<ClientForm mode="edit">` отсутствуют. ADR §10.4 явно требовал их добавить. Пользователь не может редактировать карточку гостя из карточки.
+
+2. **Rate limiting отсутствует** (`src/app/api/clients/route.ts`, `[id]/route.ts`): все три endpoint'а работают без `rateLimit()`. ADR §6 требует 30/60/120 req/min. `POST /api/clients` без лимита — вектор DoS.
+
+3. **Тесты `createClientSchema` / `updateClientSchema` отсутствуют** (`src/modules/clients/__tests__/validation.test.ts`): файл тестирует только старые схемы. ADR §11 требовал 5+ кейсов для новых схем. Регрессионные тесты `createAdminBooking` в ps-park также отсутствуют.
+
+**Security**: RBAC корректен, secrets не утекают, injection не обнаружен. Rate limiting — security issue.
+
+**Что хорошо**: `upsertClientByPhone` с MergeCandidate точно по ADR, `updateClient` с точечным diff, разделение createClient/upsertClientByPhone по семантике, TypeScript чистый.

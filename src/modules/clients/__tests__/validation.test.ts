@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { clientFilterSchema, mergeClientsSchema, mergePreviewSchema } from "@/modules/clients/validation";
+import {
+  clientFilterSchema,
+  mergeClientsSchema,
+  mergePreviewSchema,
+  createClientSchema,
+  updateClientSchema,
+} from "@/modules/clients/validation";
 
 describe("clientFilterSchema", () => {
   it("accepts empty filter", () => {
@@ -141,5 +147,95 @@ describe("mergePreviewSchema", () => {
       secondaryId: "def456",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ===== F4 ADR — createClientSchema / updateClientSchema =====
+
+describe("createClientSchema (F4)", () => {
+  it("accepts +7 9XX format", () => {
+    const r = createClientSchema.safeParse({ phone: "+79991234567", name: "Анна" });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts 8 (999) 123-45-67 with separators", () => {
+    const r = createClientSchema.safeParse({ phone: "8 (999) 123-45-67" });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects when phone is missing", () => {
+    const r = createClientSchema.safeParse({ name: "Анна" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects malformed phone", () => {
+    const r = createClientSchema.safeParse({ phone: "not-a-phone" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects malformed e-mail", () => {
+    const r = createClientSchema.safeParse({
+      phone: "+79991234567",
+      email: "not-an-email",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects birthday in non-ISO format", () => {
+    const r = createClientSchema.safeParse({
+      phone: "+79991234567",
+      birthday: "01.01.2000",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts birthday in YYYY-MM-DD", () => {
+    const r = createClientSchema.safeParse({
+      phone: "+79991234567",
+      birthday: "1990-05-15",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects notes longer than 2000 chars", () => {
+    const r = createClientSchema.safeParse({
+      phone: "+79991234567",
+      notes: "x".repeat(2001),
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("updateClientSchema (F4)", () => {
+  it("accepts empty body (no-op patch)", () => {
+    const r = updateClientSchema.safeParse({});
+    expect(r.success).toBe(true);
+  });
+
+  it("ignores phone field — it's not part of the schema", () => {
+    // Zod by default strips unknown keys with safeParse; the resulting
+    // object should not contain `phone`.
+    const r = updateClientSchema.safeParse({ phone: "+79991234567", name: "X" });
+    expect(r.success).toBe(true);
+    // `phone` is silently dropped — safeParse returns parsed shape only.
+    if (r.success) {
+      expect((r.data as Record<string, unknown>).phone).toBeUndefined();
+      expect(r.data.name).toBe("X");
+    }
+  });
+
+  it("accepts notes:null (clearing the field)", () => {
+    const r = updateClientSchema.safeParse({ notes: null });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects malformed e-mail", () => {
+    const r = updateClientSchema.safeParse({ email: "x@" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects birthday in non-ISO format", () => {
+    const r = updateClientSchema.safeParse({ birthday: "1990/05/15" });
+    expect(r.success).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   getClientDetail,
   updateClient,
@@ -23,10 +24,13 @@ import { updateClientSchema } from "@/modules/clients/validation";
  * PATCH without a full page reload).
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const limited = await rateLimit(request, "authenticated");
+    if (limited) return limited;
+
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!hasRole(session.user, "MANAGER")) {
@@ -50,6 +54,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const limited = await rateLimit(request, "authenticated");
+    if (limited) return limited;
+
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
     if (!hasRole(session.user, "MANAGER")) {
