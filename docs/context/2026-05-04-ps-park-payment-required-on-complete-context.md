@@ -33,7 +33,7 @@
 - [x] Architect — ADR
 - [x] Developer — implementation
 - [x] Reviewer — audit
-- [ ] QA — verify
+- [x] QA — verify
 
 ---
 
@@ -105,4 +105,8 @@
 
 ## QA — Вердикт
 
-(заполняется после Stage 5)
+- **Вердикт:** PASS
+- **Iteration:** 1
+- **Тесты:** 2083 passed / 0 failed (131 файлов; 70 тестов в service.test.ts)
+- **Bugs:** 0
+- **Краткое резюме:** Все 8 AC из PRD подтверждены тестами T1–T9. Gate вставлен корректно (после скидки, до транзакции). CRON bypass (T9), totalBill=0 (T7), переплата (T6), 100%-скидка (T4) — все edge cases закрыты. TypeScript clean. Scope не расширен — изменены ровно 5 src-файлов + тесты. RBAC проверки сохранены без изменений. API контракт HTTP 422 + metadata.shortfall/totalBill/paid соответствует ADR. Расхождение в naming audit log (PRD: "session.complete.full_discount" vs код: "session.complete" + "booking.discount_applied") — задокументированное реализационное решение, не является багом.

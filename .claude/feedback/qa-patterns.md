@@ -33,3 +33,4 @@
 | 2026-04-12 | 2026-04-12-easter-eggs-memes-qa-report.md | 4 | rbac, api, typescript, tests |
 | 2026-04-12 | 2026-04-12-inventory-product-management-qa-report.md | 24 | rbac, api, typescript, tests |
 | 2026-04-25 | 2026-04-25-fix-login-public-profile-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-04 | 2026-05-04-ps-park-payment-required-on-complete-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
