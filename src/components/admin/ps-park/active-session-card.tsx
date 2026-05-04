@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { ActiveSession } from "@/modules/ps-park/types";
 import { AddItemsButton } from "./add-items-button";
+import { CafeOrderButton } from "./cafe-order-button";
 import { ExtendSessionButton } from "./extend-session-button";
 import { CompleteSessionButton } from "./complete-session-button";
 import { formatTime as formatTimeUnified } from "@/lib/format";
@@ -12,9 +13,42 @@ type ActiveSessionCardProps = {
   onUpdate: () => void;
 };
 
+// PS Park-specific overrun formatter. Not in @/lib/format because the prefix
+// "Просрочено: +" and "Y ч Z мин" spacing differ from the existing duration
+// formatter inline in this file (line ~80) — see ADR F2 §4.
+export function formatOverrun(min: number): string {
+  if (min < 60) return `Просрочено: +${min} мин`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `Просрочено: +${h} ч` : `Просрочено: +${h} ч ${m} мин`;
+}
+
+const STATE_STYLES = {
+  expired: {
+    container: "border-red-500 bg-red-50/50",
+    badge: "bg-red-100 text-red-700",
+    progress: "bg-red-400",
+    dot: "bg-red-500",
+  },
+  ending: {
+    container: "border-amber-400 bg-amber-50/50",
+    badge: "bg-amber-100 text-amber-700",
+    progress: "bg-amber-400",
+    dot: "bg-emerald-500",
+  },
+  ok: {
+    container: "border-emerald-300 bg-emerald-50/30",
+    badge: "bg-emerald-100 text-emerald-700",
+    progress: "bg-emerald-400",
+    dot: "bg-emerald-500",
+  },
+} as const;
+
 export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps) {
   const [remainingMinutes, setRemainingMinutes] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
+  const [isExpired, setIsExpired] = useState(false);
+  const [overrunMinutes, setOverrunMinutes] = useState(0);
 
   useEffect(() => {
     function updateProgress() {
@@ -26,6 +60,10 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
       const remaining = Math.max(0, total - elapsed);
       setRemainingMinutes(Math.round(remaining));
       setProgressPercent(Math.min(100, (elapsed / total) * 100));
+      // PRD F2 / PO Решение 1: boundary `now === endTime` → expired (>=).
+      const expired = now >= end;
+      setIsExpired(expired);
+      setOverrunMinutes(expired ? Math.round((now - end) / 60_000) : 0);
     }
 
     updateProgress();
@@ -33,7 +71,14 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
     return () => clearInterval(interval);
   }, [session.startTime, session.endTime]);
 
-  const isEnding = remainingMinutes <= 10;
+  // Three mutually-exclusive states; isExpired wins over isEnding.
+  const isEnding = !isExpired && remainingMinutes <= 10 && remainingMinutes > 0;
+  const state: "expired" | "ending" | "ok" = isExpired
+    ? "expired"
+    : isEnding
+      ? "ending"
+      : "ok";
+  const s = STATE_STYLES[state];
 
   function formatTime(iso: string) {
     return formatTimeUnified(iso);
@@ -41,28 +86,20 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
 
   return (
     <div
-      className={`rounded-xl border-2 p-4 min-w-[280px] max-w-[320px] shrink-0 transition-colors ${
-        isEnding
-          ? "border-amber-400 bg-amber-50/50"
-          : "border-emerald-300 bg-emerald-50/30"
-      }`}
+      className={`rounded-xl border-2 p-4 min-w-[280px] max-w-[320px] shrink-0 transition-colors ${s.container}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className={`inline-block h-2 w-2 rounded-full animate-pulse ${s.dot}`} />
           <span className="text-sm font-semibold text-zinc-900">
             {session.resourceName}
           </span>
         </div>
         <span
-          className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-            isEnding
-              ? "bg-amber-100 text-amber-700"
-              : "bg-emerald-100 text-emerald-700"
-          }`}
+          className={`text-xs font-medium px-2 py-0.5 rounded-full ${s.badge}`}
         >
-          {remainingMinutes > 0 ? `${remainingMinutes} мин` : "Время вышло"}
+          {isExpired ? formatOverrun(overrunMinutes) : `${remainingMinutes} мин`}
         </span>
       </div>
 
@@ -88,9 +125,7 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
       {/* Progress bar */}
       <div className="h-1.5 bg-zinc-200 rounded-full overflow-hidden mb-3">
         <div
-          className={`h-full rounded-full transition-all duration-1000 ${
-            isEnding ? "bg-amber-400" : "bg-emerald-400"
-          }`}
+          className={`h-full rounded-full transition-all duration-1000 ${s.progress}`}
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -123,6 +158,7 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
       {/* Actions */}
       <div className="flex items-center gap-2 flex-wrap">
         <AddItemsButton bookingId={session.bookingId} />
+        <CafeOrderButton bookingId={session.bookingId} onCreated={onUpdate} />
         <ExtendSessionButton bookingId={session.bookingId} onExtended={onUpdate} />
         <CompleteSessionButton bookingId={session.bookingId} onCompleted={onUpdate} />
       </div>

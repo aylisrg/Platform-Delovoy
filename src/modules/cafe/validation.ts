@@ -22,6 +22,7 @@ export const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1, "Заказ должен содержать хотя бы один товар"),
   deliveryTo: z.string().max(50).optional(),
   comment: z.string().max(500).optional(),
+  bookingId: z.string().cuid("bookingId должен быть валидным CUID").optional(),
 });
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;

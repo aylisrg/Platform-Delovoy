@@ -30,12 +30,14 @@ export async function POST(request: NextRequest) {
     await logAudit(session.user.id, "order.create", "Order", order.id, {
       itemCount: parsed.data.items.length,
       deliveryTo: parsed.data.deliveryTo,
+      bookingId: parsed.data.bookingId ?? null,
     });
 
     return apiResponse(order, undefined, 201);
   } catch (error) {
     if (error instanceof OrderError) {
-      return apiError(error.code, error.message);
+      const status = error.code === "BOOKING_NOT_FOUND" ? 404 : 400;
+      return apiError(error.code, error.message, status);
     }
     return apiServerError();
   }

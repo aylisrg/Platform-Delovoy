@@ -72,7 +72,19 @@ export async function updateMenuItem(id: string, input: UpdateMenuItemInput) {
 // === ORDERS ===
 
 export async function createOrder(userId: string, input: CreateOrderInput) {
-  const { items, deliveryTo } = input;
+  const { items, deliveryTo, bookingId } = input;
+
+  // F5 ADR: validate Booking existence before menu lookup (cheap rejection).
+  // No status / deletedAt filter — PO Решения №4 (статус) и №5 (soft-delete).
+  if (bookingId) {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true },
+    });
+    if (!booking) {
+      throw new OrderError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+    }
+  }
 
   // Fetch menu items to calculate prices
   const menuItemIds = items.map((i) => i.menuItemId);
@@ -105,6 +117,7 @@ export async function createOrder(userId: string, input: CreateOrderInput) {
       userId,
       totalAmount,
       deliveryTo,
+      ...(bookingId && { bookingId }),
       status: "NEW",
       items: {
         create: orderItems,

@@ -90,10 +90,11 @@ export function CompleteSessionButton({ bookingId, onCompleted }: Props) {
         <SessionBillModal
           bill={bill}
           isOpen={!!bill}
-          onClose={() => setBill(null)}
+          onClose={() => { setBill(null); setError(null); }}
           onConfirm={handleConfirm}
           confirming={confirming}
           maxDiscountPercent={maxDiscount}
+          apiError={error}
         />
       )}
     </>

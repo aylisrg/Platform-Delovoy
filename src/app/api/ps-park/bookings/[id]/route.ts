@@ -122,12 +122,16 @@ export async function PATCH(
         "ALREADY_COMPLETED",
         "ALREADY_CANCELLED",
       ]);
+      const unprocessableCodes = new Set([
+        "DISCOUNT_EXCEEDS_LIMIT",
+        "PAYMENT_REQUIRED",
+      ]);
       const status = conflictCodes.has(error.code)
         ? 409
-        : error.code === "DISCOUNT_EXCEEDS_LIMIT"
+        : unprocessableCodes.has(error.code)
           ? 422
           : 400;
-      return apiError(error.code, error.message, status);
+      return apiError(error.code, error.message, status, error.metadata);
     }
     return apiServerError();
   }

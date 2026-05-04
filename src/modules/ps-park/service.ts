@@ -23,6 +23,7 @@ import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/mod
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
+import { upsertClientByPhone } from "@/modules/clients/service";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -439,6 +440,22 @@ export async function updateBookingStatus(
       completedTotalBill = discountCalc.finalAmount;
     }
 
+    // PAYMENT_REQUIRED gate — see ADR 2026-05-04-ps-park-payment-required-on-complete.
+    // CRON safety-net excluded; totalBill === 0 (no tariff/items) and 100% discount
+    // (completedTotalBill collapses to 0 above) both pass through naturally.
+    if (actorRole !== "CRON" && completedTotalBill > 0) {
+      const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
+      if (paidByOperator < completedTotalBill) {
+        const shortfall =
+          Math.round((completedTotalBill - paidByOperator) * 100) / 100;
+        throw new PSBookingError(
+          "PAYMENT_REQUIRED",
+          `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
+          { shortfall, totalBill: completedTotalBill, paid: paidByOperator }
+        );
+      }
+    }
+
     const resolvedCash = cashAmount ?? completedTotalBill;
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
@@ -764,22 +781,16 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  // Find or create client User record so they appear in the Clients section
+  // F4 ADR: dedupe guests by E.164 phone, not by raw string. The previous
+  // findFirst({ where: { phone: clientPhone } }) created duplicates whenever
+  // the manager typed "8 999 ..." vs "+79991234567" for the same person.
   let clientUserId: string;
   if (clientPhone) {
-    const existingUser = await prisma.user.findFirst({ where: { phone: clientPhone } });
-    if (existingUser) {
-      // Update name if it changed
-      if (existingUser.name !== clientName) {
-        await prisma.user.update({ where: { id: existingUser.id }, data: { name: clientName } });
-      }
-      clientUserId = existingUser.id;
-    } else {
-      const newUser = await prisma.user.create({
-        data: { name: clientName, phone: clientPhone, role: "USER" },
-      });
-      clientUserId = newUser.id;
-    }
+    const { id } = await upsertClientByPhone(clientPhone, {
+      name: clientName,
+      source: "ps_park_booking",
+    });
+    clientUserId = id;
   } else {
     const newUser = await prisma.user.create({
       data: { name: clientName, role: "USER" },
@@ -1791,9 +1802,11 @@ export async function hardDeleteBooking(id: string, performedById: string) {
 
 export class PSBookingError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  metadata?: Record<string, unknown>;
+  constructor(code: string, message: string, metadata?: Record<string, unknown>) {
     super(message);
     this.code = code;
     this.name = "PSBookingError";
+    if (metadata) this.metadata = metadata;
   }
 }

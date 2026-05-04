@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { normalizePhone } from "@/lib/phone";
 import type {
   ClientSummary,
   ClientDetail,
@@ -11,7 +12,23 @@ import type {
   MergePreview,
   MergeResult,
 } from "./types";
-import type { ClientFilterInput } from "./validation";
+import type {
+  ClientFilterInput,
+  CreateClientInput,
+  UpdateClientInput,
+} from "./validation";
+
+// F4 ADR — domain error for client CRUD. Mirrors PSBookingError / OrderError.
+export class ClientError extends Error {
+  code: string;
+  metadata?: Record<string, unknown>;
+  constructor(code: string, message: string, metadata?: Record<string, unknown>) {
+    super(message);
+    this.code = code;
+    this.name = "ClientError";
+    if (metadata) this.metadata = metadata;
+  }
+}
 
 const MODULE_NAMES: Record<string, string> = {
   gazebos: "Барбекю Парк",
@@ -290,6 +307,8 @@ export async function getClientDetail(
       image: true,
       telegramId: true,
       vkId: true,
+      birthday: true,
+      notes: true,
       createdAt: true,
       accounts: {
         select: { provider: true },
@@ -517,6 +536,8 @@ export async function getClientDetail(
     image: user.image,
     telegramId: user.telegramId,
     vkId: user.vkId,
+    birthday: user.birthday ? user.birthday.toISOString().slice(0, 10) : null,
+    notes: user.notes,
     createdAt: user.createdAt.toISOString(),
     modulesUsed,
     totalSpent: Math.round(totalSpent * 100) / 100,
@@ -665,6 +686,214 @@ export async function getClientStats(): Promise<ClientStats> {
     topSpenders,
     moduleBreakdown,
   };
+}
+
+// === Client CRUD (F4 ADR 2026-05-04-clients-guest-cards-crud) ===
+
+/**
+ * Create a new guest card. 409 (CLIENT_PHONE_DUPLICATE) if an active User with
+ * the same normalized phone already exists — surfaces existing id so the UI
+ * can navigate to it instead of silently re-using.
+ */
+export async function createClient(
+  input: CreateClientInput,
+  performedById: string
+): Promise<{ id: string }> {
+  const normalized = normalizePhone(input.phone);
+  if (!normalized) {
+    throw new ClientError("INVALID_PHONE", "Некорректный формат телефона");
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: { phoneNormalized: normalized, role: "USER", mergedIntoUserId: null },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new ClientError(
+      "CLIENT_PHONE_DUPLICATE",
+      "Гость с таким телефоном уже существует",
+      { existingClientId: existing.id }
+    );
+  }
+
+  const created = await prisma.user.create({
+    data: {
+      role: "USER",
+      phone: input.phone,
+      phoneNormalized: normalized,
+      name: input.name ?? null,
+      email: input.email ?? null,
+      birthday: input.birthday ? new Date(input.birthday) : null,
+      notes: input.notes ?? null,
+      tags: input.tags ?? [],
+      source: "manual",
+    },
+    select: { id: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: performedById,
+      action: "client.create",
+      entity: "User",
+      entityId: created.id,
+      metadata: {
+        phoneNormalized: normalized,
+        source: "manual",
+        createdBy: performedById,
+      },
+    },
+  });
+
+  return { id: created.id };
+}
+
+/**
+ * Update editable client fields. Phone is intentionally NOT in input —
+ * smena phone-а — это операция merge, отдельный механизм.
+ */
+export async function updateClient(
+  id: string,
+  input: UpdateClientInput,
+  performedById: string
+): Promise<void> {
+  const existing = await prisma.user.findFirst({
+    where: { id, role: "USER", mergedIntoUserId: null },
+    select: { name: true, email: true, birthday: true, notes: true, tags: true },
+  });
+  if (!existing) {
+    throw new ClientError("CLIENT_NOT_FOUND", "Гость не найден");
+  }
+
+  const data: Record<string, unknown> = {};
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+
+  if (input.name !== undefined && input.name !== existing.name) {
+    data.name = input.name;
+    changes.name = { from: existing.name, to: input.name };
+  }
+  if (input.email !== undefined && input.email !== existing.email) {
+    data.email = input.email;
+    changes.email = { from: existing.email, to: input.email };
+  }
+  if (input.birthday !== undefined) {
+    const newBirthday = input.birthday ? new Date(input.birthday) : null;
+    const existingIso = existing.birthday
+      ? existing.birthday.toISOString().slice(0, 10)
+      : null;
+    if (input.birthday !== existingIso) {
+      data.birthday = newBirthday;
+      changes.birthday = { from: existingIso, to: input.birthday };
+    }
+  }
+  if (input.notes !== undefined && input.notes !== existing.notes) {
+    data.notes = input.notes;
+    changes.notes = { from: existing.notes, to: input.notes };
+  }
+  if (input.tags !== undefined) {
+    const sameTags =
+      existing.tags.length === input.tags.length &&
+      existing.tags.every((t, i) => t === input.tags![i]);
+    if (!sameTags) {
+      data.tags = input.tags;
+      changes.tags = { from: existing.tags, to: input.tags };
+    }
+  }
+
+  if (Object.keys(data).length === 0) return;
+
+  await prisma.user.update({ where: { id }, data });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: performedById,
+      action: "client.update",
+      entity: "User",
+      entityId: id,
+      metadata: { changes } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+    },
+  });
+}
+
+/**
+ * Idempotent helper used by createAdminBooking (PS Park) so guests typed in
+ * by managers are deduplicated by E.164 phone instead of the raw string.
+ *
+ * Race-condition handling without a partial UNIQUE on phoneNormalized
+ * (Architect Q1 — see ADR §9):
+ *   1. Optimistic findFirst
+ *   2. If exists, fill name/source iff null (don't clobber edits)
+ *   3. Otherwise create — but immediately re-scan and, if a concurrent
+ *      writer also created a row, register a MergeCandidate and return the
+ *      oldest by createdAt so both racers see the same id.
+ */
+export async function upsertClientByPhone(
+  rawPhone: string,
+  opts: { name?: string | null; source: string }
+): Promise<{ id: string; created: boolean }> {
+  const normalized = normalizePhone(rawPhone);
+  if (!normalized) {
+    throw new ClientError("INVALID_PHONE", "Некорректный формат телефона");
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: { phoneNormalized: normalized, role: "USER", mergedIntoUserId: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, source: true },
+  });
+  if (existing) {
+    const patch: { name?: string; source?: string } = {};
+    if (!existing.name && opts.name) patch.name = opts.name;
+    if (!existing.source) patch.source = opts.source;
+    if (Object.keys(patch).length > 0) {
+      await prisma.user.update({ where: { id: existing.id }, data: patch });
+    }
+    return { id: existing.id, created: false };
+  }
+
+  const created = await prisma.user.create({
+    data: {
+      role: "USER",
+      phone: rawPhone,
+      phoneNormalized: normalized,
+      name: opts.name ?? null,
+      source: opts.source,
+    },
+    select: { id: true },
+  });
+
+  // Post-create reconciliation: detect concurrent insert and register the
+  // duplicate as a MergeCandidate. The oldest row (by createdAt) wins.
+  const all = await prisma.user.findMany({
+    where: { phoneNormalized: normalized, role: "USER", mergedIntoUserId: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (all.length > 1) {
+    const winner = all[0]!;
+    for (const dup of all.slice(1)) {
+      if (dup.id === winner.id) continue;
+      await prisma.mergeCandidate.upsert({
+        where: {
+          primaryUserId_candidateUserId: {
+            primaryUserId: winner.id,
+            candidateUserId: dup.id,
+          },
+        },
+        update: {},
+        create: {
+          primaryUserId: winner.id,
+          candidateUserId: dup.id,
+          matchedFields: ["phoneNormalized"],
+          matchScore: 1.0,
+          status: "PENDING",
+        },
+      });
+    }
+    return { id: winner.id, created: winner.id === created.id };
+  }
+
+  return { id: created.id, created: true };
 }
 
 // === Client Merge ===

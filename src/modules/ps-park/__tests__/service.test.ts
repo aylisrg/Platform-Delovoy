@@ -47,6 +47,9 @@ vi.mock("@/lib/db", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    module: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -277,6 +280,194 @@ describe("updateBookingStatus", () => {
     await expect(updateBookingStatus("nonexistent", "CONFIRMED")).rejects.toMatchObject({
       code: "BOOKING_NOT_FOUND",
     });
+  });
+});
+
+// ===== updateBookingStatus PAYMENT_REQUIRED gate (F1 ADR 2026-05-04) =====
+
+describe("updateBookingStatus PAYMENT_REQUIRED gate", () => {
+  function setupCheckedInBooking({ pricePerHour = 300 } = {}) {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CHECKED_IN" }) as never
+    );
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(
+      mockTable({ pricePerHour }) as never
+    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      name: "Менеджер",
+      email: null,
+    } as never);
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      return (fn as (tx: typeof prisma) => Promise<unknown>)(prisma);
+    });
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+  }
+
+  // T1 (AC-1): cash=0, card=0, no discount → PAYMENT_REQUIRED
+  it("throws PAYMENT_REQUIRED when cash=0, card=0, no discount, totalBill=300", async () => {
+    setupCheckedInBooking({ pricePerHour: 300 });
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 0, 0)
+    ).rejects.toMatchObject({
+      code: "PAYMENT_REQUIRED",
+      metadata: { shortfall: 300, totalBill: 300, paid: 0 },
+    });
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+    expect(prisma.financialTransaction.create).not.toHaveBeenCalled();
+  });
+
+  // T2 (AC-2): partial payment → PAYMENT_REQUIRED with exact shortfall
+  it("throws PAYMENT_REQUIRED on partial payment (cash=300, card=0, totalBill=500)", async () => {
+    setupCheckedInBooking({ pricePerHour: 500 });
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 300, 0)
+    ).rejects.toMatchObject({
+      code: "PAYMENT_REQUIRED",
+      metadata: { shortfall: 200, totalBill: 500, paid: 300 },
+    });
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+  });
+
+  // T3 (AC-3): cash + card === totalBill → success, FT created
+  it("succeeds when cash + card === totalBill (cash=300, card=200, totalBill=500)", async () => {
+    setupCheckedInBooking({ pricePerHour: 500 });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      300,
+      200
+    );
+
+    expect(prisma.booking.updateMany).toHaveBeenCalled();
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 500,
+          cashAmount: 300,
+          cardAmount: 200,
+        }),
+      })
+    );
+  });
+
+  // T4 (AC-4): 100% discount with reason → cash=0, card=0 OK
+  it("succeeds with 100% discount and discountReason='permanent_client', no payment required", async () => {
+    setupCheckedInBooking({ pricePerHour: 500 });
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { maxDiscountPercent: 100 },
+    } as never);
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      0,
+      { discountPercent: 100, discountReason: "permanent_client" }
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 0,
+          cashAmount: 0,
+          cardAmount: 0,
+        }),
+      })
+    );
+    // session.complete + booking.discount_applied → 2 audit log writes
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  // T6 (AC-6): overpayment is allowed (manager hands cash change)
+  it("succeeds when cardAmount exceeds totalBill (overpayment, cash=0, card=600, totalBill=500)", async () => {
+    setupCheckedInBooking({ pricePerHour: 500 });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      600
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cashAmount: 0,
+          cardAmount: 600,
+        }),
+      })
+    );
+  });
+
+  // T7 (AC-7): totalBill === 0 (no tariff, no items) → no payment required
+  it("succeeds when totalBill === 0 (no pricePerHour, no items)", async () => {
+    setupCheckedInBooking({ pricePerHour: 0 });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      0
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 0,
+          cashAmount: 0,
+          cardAmount: 0,
+        }),
+      })
+    );
+  });
+
+  // T9 (CRON regression): auto-complete bypasses PAYMENT_REQUIRED gate
+  it("CRON auto-complete bypasses PAYMENT_REQUIRED gate even when cash=undefined and totalBill>0", async () => {
+    setupCheckedInBooking({ pricePerHour: 300 });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "CRON"
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 300,
+          cashAmount: 300,
+        }),
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "session.auto_complete",
+          metadata: expect.objectContaining({ actor: "CRON" }),
+        }),
+      })
+    );
   });
 });
 

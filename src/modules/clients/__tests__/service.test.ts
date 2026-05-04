@@ -5,7 +5,10 @@ vi.mock("@/lib/db", () => ({
     user: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       count: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
     booking: {
       findMany: vi.fn(),
@@ -15,6 +18,12 @@ vi.mock("@/lib/db", () => ({
     },
     resource: {
       findMany: vi.fn(),
+    },
+    auditLog: {
+      create: vi.fn(),
+    },
+    mergeCandidate: {
+      upsert: vi.fn(),
     },
     // mergeClients tests inject their own implementation per-test.
     $transaction: vi.fn(),
@@ -27,6 +36,10 @@ import {
   getClientStats,
   calculateBookingCost,
   mergeClients,
+  createClient,
+  updateClient,
+  upsertClientByPhone,
+  ClientError,
 } from "@/modules/clients/service";
 import { prisma } from "@/lib/db";
 
@@ -778,5 +791,216 @@ describe("mergeClients", () => {
       ],
     });
     await expect(mergeClients("primary", "secondary", "admin-1")).rejects.toThrow(/не является клиентом/);
+  });
+});
+
+// ===== F4 ADR — createClient / updateClient / upsertClientByPhone =====
+
+describe("createClient (F4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates a guest with normalized phone, source=manual, AuditLog write", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: "new-1" } as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    const result = await createClient(
+      { phone: "8 (999) 123-45-67", name: "Анна" },
+      "manager-1"
+    );
+
+    expect(result).toEqual({ id: "new-1" });
+    expect(prisma.user.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        role: "USER",
+        phoneNormalized: "+79991234567",
+        source: "manual",
+      }),
+      select: { id: true },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "client.create",
+          metadata: expect.objectContaining({ phoneNormalized: "+79991234567" }),
+        }),
+      })
+    );
+  });
+
+  it("throws CLIENT_PHONE_DUPLICATE with existingClientId when phone already taken", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: "existing-99" } as never);
+
+    await expect(
+      createClient({ phone: "+79991234567", name: "Аня" }, "manager-1")
+    ).rejects.toMatchObject({
+      code: "CLIENT_PHONE_DUPLICATE",
+      metadata: { existingClientId: "existing-99" },
+    });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it("throws INVALID_PHONE for non-RU phone formats", async () => {
+    await expect(
+      createClient({ phone: "not-a-phone" }, "manager-1")
+    ).rejects.toMatchObject({ code: "INVALID_PHONE" });
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateClient (F4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("updates only changed fields and writes AuditLog with diff", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({
+      name: "Старое имя",
+      email: null,
+      birthday: null,
+      notes: null,
+      tags: [],
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+
+    await updateClient(
+      "client-1",
+      { name: "Новое имя", email: "a@b.ru", notes: null },
+      "manager-1"
+    );
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "client-1" },
+      data: { name: "Новое имя", email: "a@b.ru" },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "client.update",
+          metadata: expect.objectContaining({
+            changes: expect.objectContaining({
+              name: { from: "Старое имя", to: "Новое имя" },
+              email: { from: null, to: "a@b.ru" },
+            }),
+          }),
+        }),
+      })
+    );
+  });
+
+  it("no-op when nothing changed (no update, no audit)", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({
+      name: "Имя",
+      email: null,
+      birthday: null,
+      notes: null,
+      tags: [],
+    } as never);
+
+    await updateClient("client-1", { name: "Имя" }, "manager-1");
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("throws CLIENT_NOT_FOUND when target is missing or merged", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+
+    await expect(
+      updateClient("missing", { name: "X" }, "manager-1")
+    ).rejects.toMatchObject({ code: "CLIENT_NOT_FOUND" });
+  });
+});
+
+describe("upsertClientByPhone (F4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns existing id when phoneNormalized already present, fills name only if null", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({
+      id: "user-1",
+      name: null,
+      source: null,
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    const result = await upsertClientByPhone("89991234567", {
+      name: "Олег",
+      source: "ps_park_booking",
+    });
+
+    expect(result).toEqual({ id: "user-1", created: false });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { name: "Олег", source: "ps_park_booking" },
+    });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it("does NOT overwrite manager-edited name on existing client", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue({
+      id: "user-2",
+      name: "Иван Иванов",
+      source: "ps_park_booking",
+    } as never);
+
+    const result = await upsertClientByPhone("+79991234567", {
+      name: "Ваня",
+      source: "ps_park_booking",
+    });
+
+    expect(result).toEqual({ id: "user-2", created: false });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it("creates new client when phone not found, no MergeCandidate when no race", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: "new-3" } as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "new-3" }] as never);
+
+    const result = await upsertClientByPhone("89991234567", {
+      name: "Гость",
+      source: "ps_park_booking",
+    });
+
+    expect(result).toEqual({ id: "new-3", created: true });
+    expect(prisma.mergeCandidate.upsert).not.toHaveBeenCalled();
+  });
+
+  it("registers MergeCandidate when post-create scan finds a concurrent duplicate", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: "new-4" } as never);
+    // Concurrent writer also created a row — older one wins.
+    vi.mocked(prisma.user.findMany).mockResolvedValue([
+      { id: "winner-old" },
+      { id: "new-4" },
+    ] as never);
+    vi.mocked(prisma.mergeCandidate.upsert).mockResolvedValue({} as never);
+
+    const result = await upsertClientByPhone("+79991234567", {
+      name: "Race",
+      source: "ps_park_booking",
+    });
+
+    expect(result).toEqual({ id: "winner-old", created: false });
+    expect(prisma.mergeCandidate.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          primaryUserId: "winner-old",
+          candidateUserId: "new-4",
+          matchedFields: ["phoneNormalized"],
+        }),
+      })
+    );
+  });
+
+  it("throws ClientError(INVALID_PHONE) on garbage input", async () => {
+    await expect(
+      upsertClientByPhone("not-a-phone", { source: "ps_park_booking" })
+    ).rejects.toBeInstanceOf(ClientError);
   });
 });

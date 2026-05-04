@@ -17,6 +17,7 @@ type ApiErrorResponse = {
   error: {
     code: string;
     message: string;
+    metadata?: Record<string, unknown>;
   };
 };
 
@@ -33,12 +34,13 @@ export function apiResponse<T>(
 export function apiError(
   code: string,
   message: string,
-  status = 400
+  status = 400,
+  metadata?: Record<string, unknown>
 ): NextResponse<ApiErrorResponse> {
   return NextResponse.json(
     {
       success: false,
-      error: { code, message },
+      error: metadata ? { code, message, metadata } : { code, message },
     },
     { status }
   );
