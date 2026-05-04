@@ -306,7 +306,7 @@ export function GazeboBillModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={confirming || !isBalanced || !discountValid || isUnderpaid}
+            disabled={confirming || !discountValid || isUnderpaid}
             className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
             {confirming ? "Завершение..." : "Завершить бронь"}

@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "./booking-actions";
 import type { BookingStatus } from "@prisma/client";
-import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
 
 const statusLabel: Record<string, string> = {
   PENDING: "Ожидает",
@@ -30,6 +30,7 @@ export type GazeboMobileBookingRow = {
   // Guest bookings have no linked User row.
   user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
+  metadata?: unknown;
 };
 
 type Props = {
@@ -93,7 +94,16 @@ export function GazeboBookingListMobile({ bookings, resourceMap, emphasizePendin
             )}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <BookingActions bookingId={b.id} currentStatus={b.status} />
+              <BookingActions
+                bookingId={b.id}
+                currentStatus={b.status}
+                totalPrice={Number((b.metadata as { totalPrice?: string | number } | undefined)?.totalPrice ?? 0)}
+                resourceName={gazeboName}
+                clientName={name}
+                date={toISODate(b.date)}
+                startTime={formatTime(b.startTime)}
+                endTime={formatTime(b.endTime)}
+              />
             </div>
           </li>
         );

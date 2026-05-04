@@ -92,3 +92,16 @@ gazebos оперирует «бронированиями», PS Park — «се�
 5. `src/components/admin/gazebos/gazebo-bill-modal.tsx` — **новый файл**.
 
 Без миграций, без новых endpoints, без npm-зависимостей.
+
+---
+
+## Reviewer — Вердикт
+
+**Вердикт**: NEEDS_CHANGES  
+**Отчёт**: `docs/qa-reports/2026-05-04-gazebos-payment-required-on-complete-review.md`
+
+Сервисный слой, route handler, тесты T1–T9 и `gazebo-bill-modal.tsx` — полностью соответствуют PRD и ADR. Security чист. Все 9 AC реализованы корректно на серверной стороне.
+
+**Блокер**: В обоих существующих callers `BookingActions` (`page.tsx:151`, `booking-list-mobile.tsx:96`) не передаются `totalPrice` и display-пропы. Модалка будет открываться с `totalBill = 0`, что делает функциональность payment gate недоступной через UI (хотя серверный gate остаётся активным). Developer должен передать необходимые данные в существующие call-sites.
+
+**Minor**: `isBalanced` в кнопке disable также блокирует переплату, которую T8 декларирует как допустимую — расхождение между тестом и реализацией UI требует уточнения.

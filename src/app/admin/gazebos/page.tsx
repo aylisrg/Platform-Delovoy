@@ -148,7 +148,16 @@ export default async function GazebosSchedulePage() {
                           </Badge>
                         </td>
                         <td className="py-3">
-                          <GazeboBookingActions bookingId={b.id} currentStatus={b.status as BookingStatus} />
+                          <GazeboBookingActions
+                            bookingId={b.id}
+                            currentStatus={b.status as BookingStatus}
+                            totalPrice={Number((b.metadata as { totalPrice?: string | number })?.totalPrice ?? 0)}
+                            resourceName={gazeboName}
+                            clientName={name}
+                            date={toISODate(b.date)}
+                            startTime={formatTime(b.startTime)}
+                            endTime={formatTime(b.endTime)}
+                          />
                         </td>
                       </tr>
                     );
