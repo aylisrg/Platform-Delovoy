@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { ActiveSession } from "@/modules/ps-park/types";
 import { AddItemsButton } from "./add-items-button";
+import { CafeOrderButton } from "./cafe-order-button";
 import { ExtendSessionButton } from "./extend-session-button";
 import { CompleteSessionButton } from "./complete-session-button";
 import { formatTime as formatTimeUnified } from "@/lib/format";
@@ -157,6 +158,7 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
       {/* Actions */}
       <div className="flex items-center gap-2 flex-wrap">
         <AddItemsButton bookingId={session.bookingId} />
+        <CafeOrderButton bookingId={session.bookingId} onCreated={onUpdate} />
         <ExtendSessionButton bookingId={session.bookingId} onExtended={onUpdate} />
         <CompleteSessionButton bookingId={session.bookingId} onCompleted={onUpdate} />
       </div>

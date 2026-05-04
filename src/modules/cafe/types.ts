@@ -27,6 +27,7 @@ export type CreateOrderInput = {
   items: OrderItemInput[];
   deliveryTo?: string; // номер офиса
   comment?: string;
+  bookingId?: string; // optional link to Booking (PS Park session, gazebo) — F5 ADR
 };
 
 export type CafeOrder = Pick<

@@ -202,6 +202,7 @@ model Booking {
 
   deletedAt DateTime?
   callLogs  CallLog[]
+  orders    Order[]   @relation("OrderBooking")
 
   @@index([moduleSlug, date])
   @@index([userId])
@@ -301,6 +302,8 @@ model Order {
   moduleSlug  String
   userId      String
   user        User        @relation(fields: [userId], references: [id])
+  bookingId   String?
+  booking     Booking?    @relation("OrderBooking", fields: [bookingId], references: [id], onDelete: SetNull)
   status      OrderStatus @default(NEW)
   totalAmount Decimal
   deliveryTo  String?
@@ -311,6 +314,7 @@ model Order {
 
   @@index([userId])
   @@index([moduleSlug, status])
+  @@index([bookingId])
 }
 
 enum OrderStatus {
