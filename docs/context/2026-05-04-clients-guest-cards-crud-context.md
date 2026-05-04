@@ -205,3 +205,33 @@ Auto-upsert при создании брони — только `ps-park` (`crea
 **Security**: RBAC корректен, secrets не утекают, injection не обнаружен. Rate limiting — security issue.
 
 **Что хорошо**: `upsertClientByPhone` с MergeCandidate точно по ADR, `updateClient` с точечным diff, разделение createClient/upsertClientByPhone по семантике, TypeScript чистый.
+
+---
+
+## Reviewer — Вердикт (iteration 2)
+
+**Автор**: Code Reviewer (claude-sonnet-4-6)
+**Дата**: 2026-05-04
+**Коммит**: `c33a1fa` `fix(clients): address F4 reviewer NEEDS_CHANGES`
+**Отчёт**: `docs/qa-reports/2026-05-04-clients-guest-cards-crud-review-iter2.md`
+
+### Вердикт: NEEDS_CHANGES
+
+**Все 3 блокера iteration 1 устранены частично или полностью. Обнаружен новый дефект AC-11.**
+
+**Исправлено:**
+- Кнопка «Редактировать» добавлена в `client-profile.tsx`, `<ClientForm mode="edit">` рендерится, `router.refresh()` после PATCH — AC-11/AC-12 закрыты **формально**.
+- Rate limiting добавлен на все 4 handlers (`rateLimit(request, "authenticated")`, 120/min). Security-вектор DoS ослаблен.
+- Validation тесты: 13 кейсов добавлены (8 + 5), ADR §11 min 5+ — выполнено.
+- Тесты: 2115/2115 зелёные, tsc clean.
+
+**Оставшийся дефект (блокер):**
+
+`src/components/admin/clients/client-profile.tsx` передаёт в `<ClientForm mode="edit" initial={...}>` только `{id, phone, name, email}`. `ClientForm.initial` принимает `birthday` и `notes`, но `getClientDetail` (в `src/modules/clients/service.ts`, Prisma select строки 300–340) не выбирает эти поля — они отсутствуют в `ClientDetail` / `ClientSummary`. Следствие: форма редактирования открывается с пустыми полями "день рождения" и "заметки", даже если значения сохранены в БД. AC-11 прямо требует "форму редактирования с **текущими значениями** полей: имя, телефон, email, **день рождения, заметки**" — требование не выполнено.
+
+**Расхождение по rate limit с ADR:** POST использует `"authenticated"` (120/min) вместо предписанных ADR §6 30/min. Security улучшена (было 0 → 120), но ADR не выполнен точно. Расхождение задокументировано в commit message как осознанный trade-off. Принимается как Medium (не блокер).
+
+**Что исправить (iteration 3):**
+
+1. `src/modules/clients/service.ts` → `getClientDetail`: добавить `birthday: true, notes: true` в Prisma select (строки 302–309). Обновить тип `ClientDetail` в `src/modules/clients/types.ts`: добавить `birthday: string | null; notes: string | null`.
+2. `src/components/admin/clients/client-profile.tsx`: передать `birthday` и `notes` в `initial` — `initial={{ id: client.id, phone: client.phone, name: client.name, email: client.email, birthday: client.birthday, notes: client.notes }}`.

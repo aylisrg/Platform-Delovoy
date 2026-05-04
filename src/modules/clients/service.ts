@@ -307,6 +307,8 @@ export async function getClientDetail(
       image: true,
       telegramId: true,
       vkId: true,
+      birthday: true,
+      notes: true,
       createdAt: true,
       accounts: {
         select: { provider: true },
@@ -534,6 +536,8 @@ export async function getClientDetail(
     image: user.image,
     telegramId: user.telegramId,
     vkId: user.vkId,
+    birthday: user.birthday ? user.birthday.toISOString().slice(0, 10) : null,
+    notes: user.notes,
     createdAt: user.createdAt.toISOString(),
     modulesUsed,
     totalSpent: Math.round(totalSpent * 100) / 100,

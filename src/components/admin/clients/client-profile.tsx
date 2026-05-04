@@ -64,6 +64,8 @@ type ClientDetail = {
   image: string | null;
   telegramId: string | null;
   vkId: string | null;
+  birthday: string | null;
+  notes: string | null;
   createdAt: string;
   modulesUsed: ModuleUsage[];
   totalSpent: number;
@@ -264,6 +266,8 @@ export function ClientProfile({ clientId }: { clientId: string }) {
               phone: client.phone,
               name: client.name,
               email: client.email,
+              birthday: client.birthday,
+              notes: client.notes,
             }}
             onSuccess={() => {
               setShowEdit(false);
