@@ -9,6 +9,20 @@ on:
     types: [completed]
     branches: [main]
 
+  # Fallback trigger: if workflow_run doesn't fire (release-please rewrites
+  # main HEAD, paths-ignore on CI, race with concurrency group, etc.), the
+  # plain push trigger guarantees we still deploy. The build-and-push job's
+  # "retag from sha image" step finds the CI-pushed image when present
+  # (~30s); the "Build and push (fallback)" step rebuilds from GHA cache
+  # otherwise (~3-5 min). Concurrency group on commit SHA prevents double
+  # deploys when both triggers fire.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+
   # Manual trigger for hotfixes, emergency re-deploys, or targeted rollouts.
   # Fast path retags an existing sha-<SHA> image from GHCR — no rebuild.
   # Skip flags trade safety for speed; use them only when you know what you're doing.
@@ -32,7 +46,9 @@ on:
         default: false
 
 concurrency:
-  group: deploy-production
+  # Group by commit SHA so push + workflow_run for the same commit don't both
+  # deploy. workflow_dispatch (manual) is allowed in parallel for hotfixes.
+  group: deploy-production-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false  # Never cancel a deploy in progress
 
 env:
@@ -40,10 +56,12 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
-  # Gate: only run when triggered by a successful CI run (or manually).
+  # Gate: only run when triggered by a successful CI run, manual dispatch,
+  # or a push to main (fallback when workflow_run doesn't fire).
   build-and-push:
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     name: Tag Production Image
     runs-on: ubuntu-latest
