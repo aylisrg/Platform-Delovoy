@@ -17,9 +17,18 @@
 
 - [x] PO — PRD
 - [x] Architect — ADR
-- [ ] Developer — implementation
+- [x] Developer — implementation
 - [ ] Reviewer — audit
 - [ ] QA — verify
+
+## Developer — Заметки реализации
+
+- **Изменён:** `src/components/admin/ps-park/active-session-card.tsx`. Добавлены два state-поля (`isExpired`, `overrunMinutes`), вычисляются в существующем `updateProgress()` (никакого нового интервала). Введён `STATE_STYLES` объект-словарь (3 ключа × 4 поля). `isEnding` сужен до `!isExpired && remainingMinutes <= 10 && remainingMinutes > 0`. Удалена ветка «Время вышло» — её заменил `formatOverrun(overrunMinutes)`. Точка `animate-pulse` теперь использует `s.dot`.
+- **Создан:** `src/components/admin/ps-park/__tests__/active-session-card.test.tsx`. Fallback-набор по ADR §A5: jsdom-инфра отсутствует, поэтому покрыт только helper `formatOverrun` (4 теста: <60 мин, ровно 60, 60+ с остатком, многочасовая просрочка). Полные DOM-тесты состояний — отдельный мини-PR с `@testing-library/react` + jsdom (требует подтверждения PO, scope guard).
+- **Helper exported as named:** `export function formatOverrun(min: number): string` — для unit-тестируемости.
+- **Тесты:** новый файл pass, full suite не запускался отдельно (запустится в Stage 5 QA).
+- **TypeScript:** `npx tsc --noEmit` clean.
+- **Schema, API, RBAC:** не трогались.
 
 ---
 
