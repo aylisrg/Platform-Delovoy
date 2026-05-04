@@ -35,3 +35,4 @@
 | 2026-04-25 | 2026-04-25-fix-login-public-profile-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
 | 2026-05-04 | 2026-05-04-ps-park-payment-required-on-complete-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
 | 2026-05-04 | 2026-05-04-clients-guest-cards-crud-qa-report.md | 1 | rbac, api, tests |
+| 2026-05-04 | 2026-05-04-gazebos-payment-required-on-complete-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |

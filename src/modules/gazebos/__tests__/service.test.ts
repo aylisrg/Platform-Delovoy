@@ -29,7 +29,18 @@ vi.mock("@/lib/db", () => ({
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
       count: vi.fn(),
+    },
+    user: {
+      findUnique: vi.fn(),
+    },
+    financialTransaction: {
+      create: vi.fn(),
+    },
+    auditLog: {
+      create: vi.fn(),
     },
     module: {
       findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30 } }),
@@ -39,9 +50,10 @@ vi.mock("@/lib/db", () => ({
       const { prisma: p } = await import("@/lib/db");
       const tx = {
         booking: p.booking,
-        user: { findUnique: vi.fn().mockResolvedValue({ name: "Тест Менеджер", email: "test@test.com" }) },
+        user: p.user,
         resource: { findUnique: vi.fn().mockResolvedValue({ name: "Беседка №1" }) },
-        auditLog: { create: vi.fn() },
+        auditLog: p.auditLog,
+        financialTransaction: p.financialTransaction,
         inventoryTransaction: { create: vi.fn() },
         inventorySku: { update: vi.fn(), findUnique: vi.fn().mockResolvedValue({ stockQuantity: 100, isActive: true }) },
       };
@@ -269,19 +281,38 @@ describe("updateBookingStatus", () => {
     );
   });
 
-  it("transitions CONFIRMED → COMPLETED", async () => {
+  it("transitions CONFIRMED → COMPLETED with zero totalBill (no metadata.totalPrice)", async () => {
+    // No metadata.totalPrice → totalBill === 0 → payment gate passes without cash/card.
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
       mockBooking({ status: "CONFIRMED" }) as never
     );
-    vi.mocked(prisma.booking.update).mockResolvedValue(
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(
       mockBooking({ status: "COMPLETED" }) as never
     );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      name: "Менеджер",
+      email: null,
+    } as never);
 
-    await updateBookingStatus("booking-1", "COMPLETED");
-    // COMPLETED goes through $transaction
+    await updateBookingStatus("booking-1", "COMPLETED", "manager-1");
     expect(prisma.$transaction).toHaveBeenCalled();
-    expect(prisma.booking.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "COMPLETED" }) })
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "booking-1",
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        }),
+        data: expect.objectContaining({ status: "COMPLETED" }),
+      })
+    );
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          moduleSlug: "gazebos",
+          totalAmount: 0,
+        }),
+      })
     );
   });
 
@@ -311,6 +342,227 @@ describe("updateBookingStatus", () => {
     await expect(updateBookingStatus("nonexistent", "CONFIRMED")).rejects.toMatchObject({
       code: "BOOKING_NOT_FOUND",
     });
+  });
+});
+
+// ===== updateBookingStatus PAYMENT_REQUIRED gate (F3 ADR 2026-05-04) =====
+
+describe("updateBookingStatus PAYMENT_REQUIRED gate", () => {
+  function setupPayableBooking({ totalPrice = "1500.00" } = {}) {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        metadata: { totalPrice },
+      }) as never
+    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      name: "Менеджер",
+      email: null,
+    } as never);
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.booking.findUniqueOrThrow).mockResolvedValue(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+    vi.mocked(prisma.financialTransaction.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+  }
+
+  // T1 (AC-1): cash=0, card=0, totalBill=1500 → PAYMENT_REQUIRED
+  it("throws PAYMENT_REQUIRED when cash=0, card=0, totalBill=1500", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 0, 0)
+    ).rejects.toMatchObject({
+      code: "PAYMENT_REQUIRED",
+      metadata: { shortfall: 1500, totalBill: 1500, paid: 0 },
+    });
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+    expect(prisma.financialTransaction.create).not.toHaveBeenCalled();
+  });
+
+  // T2 (AC-2): partial → PAYMENT_REQUIRED with shortfall
+  it("throws PAYMENT_REQUIRED on partial payment (cash=1000, card=0, totalBill=1500)", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 1000, 0)
+    ).rejects.toMatchObject({
+      code: "PAYMENT_REQUIRED",
+      metadata: { shortfall: 500, totalBill: 1500, paid: 1000 },
+    });
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+  });
+
+  // T3 (AC-3): cash + card === totalBill → success, FT created
+  it("succeeds when cash + card === totalBill (cash=1000, card=500, totalBill=1500)", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      1000,
+      500
+    );
+
+    expect(prisma.booking.updateMany).toHaveBeenCalled();
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          moduleSlug: "gazebos",
+          type: "SESSION_PAYMENT",
+          totalAmount: 1500,
+          cashAmount: 1000,
+          cardAmount: 500,
+        }),
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "booking.complete" }),
+      })
+    );
+  });
+
+  // T4 (AC-4): 100% discount with reason → cash=0, card=0 OK
+  it("succeeds with 100% discount and discountReason='permanent_client', no payment required", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { maxDiscountPercent: 100 },
+    } as never);
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      0,
+      { discountPercent: 100, discountReason: "permanent_client" }
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 0,
+          cashAmount: 0,
+          cardAmount: 0,
+        }),
+      })
+    );
+    // booking.complete + booking.discount_applied → 2 audit log writes
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  // T5 (AC-5): totalBill === 0 (no priceList, no totalPrice in metadata) → succeeds
+  it("succeeds when totalBill === 0 (no priceList, no pricePerHour)", async () => {
+    setupPayableBooking({ totalPrice: "0.00" });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      0
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 0,
+          cashAmount: 0,
+          cardAmount: 0,
+        }),
+      })
+    );
+  });
+
+  // T6 (AC-6): race condition → ALREADY_COMPLETED (after gate passes)
+  it("throws ALREADY_COMPLETED when concurrent writer already completed (updateMany count=0)", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 0 } as never);
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 1500, 0)
+    ).rejects.toMatchObject({
+      code: "ALREADY_COMPLETED",
+    });
+  });
+
+  // T7: snapshot totalPrice is used, NOT recomputed from pricePerHour × hours
+  it("uses metadata.totalPrice snapshot (NOT pricePerHour × hours)", async () => {
+    // metadata.totalPrice=1800 (day rate), pricePerHour=500 × 4h = 2000.
+    // Gate must use 1800, not 2000 — snapshot is source of truth.
+    setupPayableBooking({ totalPrice: "1800.00" });
+
+    await expect(
+      updateBookingStatus("booking-1", "COMPLETED", "manager-1", undefined, 1800, 0)
+    ).resolves.toBeDefined();
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ totalAmount: 1800 }),
+      })
+    );
+  });
+
+  // T8: overpayment is allowed (cash change handed by manager)
+  it("succeeds when cardAmount exceeds totalBill (overpayment)", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      0,
+      2000
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cashAmount: 0,
+          cardAmount: 2000,
+        }),
+      })
+    );
+  });
+
+  // T9 (CRON regression): not used today in gazebos but guarded for future
+  it("CRON auto-complete bypasses PAYMENT_REQUIRED gate even when totalBill > 0", async () => {
+    setupPayableBooking({ totalPrice: "1500.00" });
+
+    await updateBookingStatus(
+      "booking-1",
+      "COMPLETED",
+      "manager-1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "CRON"
+    );
+
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          totalAmount: 1500,
+          cashAmount: 1500,
+        }),
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "booking.auto_complete",
+          metadata: expect.objectContaining({ actor: "CRON" }),
+        }),
+      })
+    );
   });
 });
 
