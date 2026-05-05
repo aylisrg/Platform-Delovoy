@@ -11,7 +11,7 @@ import { getActiveSubscriptionForUser } from "@/modules/subscriptions/service";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ userId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const limited = await rateLimit(request, "authenticated");
@@ -22,7 +22,7 @@ export async function GET(
     const denied = await requireAdminSection(session, "ps-park");
     if (denied) return denied;
 
-    const { userId } = await params;
+    const { id: userId } = await params;
     const sub = await getActiveSubscriptionForUser(userId);
     if (!sub) return apiResponse(null);
     return apiResponse({
