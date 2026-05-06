@@ -23,6 +23,10 @@ type Props = {
   initialClients: ClientRow[];
   initialTotal: number;
   pageSize?: number;
+  // F8: when set, the list is scoped to a single module (ps-park / gazebos).
+  // The "+ Add guest" inline form is hidden — guests are created from the
+  // global /admin/clients (or auto-upserted via createAdminBooking).
+  moduleSlug?: string;
 };
 
 const PAGE_SIZE = 50;
@@ -31,6 +35,7 @@ export function ClientsList({
   initialClients,
   initialTotal,
   pageSize = PAGE_SIZE,
+  moduleSlug,
 }: Props) {
   const router = useRouter();
   const [clients, setClients] = useState<ClientRow[]>(initialClients);
@@ -54,6 +59,7 @@ export function ClientsList({
       setLoading(true);
       const params = new URLSearchParams();
       if (debounced) params.set("search", debounced);
+      if (moduleSlug) params.set("moduleSlug", moduleSlug);
       params.set("limit", String(pageSize));
       params.set("offset", String((page - 1) * pageSize));
       try {
@@ -72,7 +78,7 @@ export function ClientsList({
     return () => {
       cancelled = true;
     };
-  }, [debounced, page, pageSize]);
+  }, [debounced, page, pageSize, moduleSlug]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -98,16 +104,18 @@ export function ClientsList({
           placeholder="Поиск: имя, телефон, e-mail"
           className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
         />
-        <button
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700"
-        >
-          {showForm ? "Закрыть" : "+ Создать гостя"}
-        </button>
+        {!moduleSlug && (
+          <button
+            type="button"
+            onClick={() => setShowForm((v) => !v)}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700"
+          >
+            {showForm ? "Закрыть" : "+ Создать гостя"}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {showForm && !moduleSlug && (
         <ClientForm
           mode="create"
           onCancel={() => setShowForm(false)}

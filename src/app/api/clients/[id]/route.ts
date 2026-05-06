@@ -14,6 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import {
   getClientDetail,
   updateClient,
+  canViewClient,
   ClientError,
 } from "@/modules/clients/service";
 import { updateClientSchema } from "@/modules/clients/validation";
@@ -38,6 +39,11 @@ export async function GET(
     }
 
     const { id } = await params;
+    // F8 RBAC: same per-module access check as the page guard so the API
+    // route can't be used to bypass UI restrictions.
+    const allowed = await canViewClient(session.user.id, id);
+    if (!allowed) return apiNotFound("Гость не найден");
+
     const client = await getClientDetail(id);
     if (!client) return apiNotFound("Гость не найден");
     return apiResponse(client);
@@ -64,6 +70,11 @@ export async function PATCH(
     }
 
     const { id } = await params;
+    // F8 RBAC: same per-module access check on edit — a gazebos-only
+    // manager must not be able to PATCH guests who only used PS Park.
+    const allowed = await canViewClient(session.user.id, id);
+    if (!allowed) return apiNotFound("Гость не найден");
+
     const body = await request.json();
     const parsed = updateClientSchema.safeParse(body);
     if (!parsed.success) {

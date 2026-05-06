@@ -8,7 +8,11 @@ import {
   apiValidationError,
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
-import { hasRole } from "@/lib/permissions";
+import {
+  hasRole,
+  hasAdminSectionAccess,
+  getUserAdminSections,
+} from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { listClients, createClient, ClientError } from "@/modules/clients/service";
 import {
@@ -37,7 +41,44 @@ export async function GET(request: NextRequest) {
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    const { clients, total } = await listClients(parsed.data);
+    // F8 RBAC: a manager without explicit `clients` grant must be filtered
+    // to *one of their own* module sections. If they didn't request a
+    // moduleSlug, server-side restrict to whatever modules they have admin
+    // access to. If they requested a moduleSlug they don't have access
+    // to — 403. SUPERADMIN/`clients`-grant users see everything.
+    const hasGlobalGrant = await hasAdminSectionAccess(session.user.id, "clients");
+    let effectiveFilter = parsed.data;
+    if (!hasGlobalGrant) {
+      const sections = await getUserAdminSections(session.user.id);
+      const accessibleModuleSections = sections.filter((s) =>
+        ["gazebos", "ps-park", "cafe"].includes(s)
+      );
+      if (accessibleModuleSections.length === 0) {
+        return apiForbidden("Нет доступа к гостям");
+      }
+      if (parsed.data.moduleSlug) {
+        if (!accessibleModuleSections.includes(parsed.data.moduleSlug)) {
+          return apiForbidden("Нет доступа к этому модулю");
+        }
+        effectiveFilter = parsed.data;
+      } else if (accessibleModuleSections.length === 1) {
+        // Auto-narrow: single-module manager sees only their own. The
+        // section list was already filtered to clientFilterSchema's enum,
+        // so this cast is safe.
+        effectiveFilter = {
+          ...parsed.data,
+          moduleSlug: accessibleModuleSections[0] as "gazebos" | "ps-park" | "cafe",
+        };
+      } else {
+        // Multi-module manager without clients grant: union not supported
+        // by listClients today — require them to pick one explicitly.
+        return apiValidationError(
+          "Укажите параметр moduleSlug — у вас доступ к нескольким модулям"
+        );
+      }
+    }
+
+    const { clients, total } = await listClients(effectiveFilter);
     return apiResponse(
       { clients, total },
       {
