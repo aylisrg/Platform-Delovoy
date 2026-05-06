@@ -5,6 +5,7 @@ const TABS = [
   { label: "Расписание", href: "/admin/gazebos" },
   { label: "Ресурсы", href: "/admin/gazebos/resources" },
   { label: "Бронирования", href: "/admin/gazebos/bookings" },
+  { label: "Гости", href: "/admin/gazebos/clients" },
   { label: "Аналитика", href: "/admin/gazebos/analytics" },
   { label: "Реклама", href: "/admin/gazebos/marketing" },
   { label: "Настройки", href: "/admin/gazebos/settings" },
