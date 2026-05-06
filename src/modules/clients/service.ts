@@ -39,6 +39,60 @@ const MODULE_NAMES: Record<string, string> = {
 const BOOKING_MODULES = ["gazebos", "ps-park"] as const;
 const ORDER_MODULES = ["cafe"] as const;
 
+/**
+ * F8 RBAC — guard for "manager can only see guests of their own modules".
+ *
+ * Returns `true` iff the viewer is allowed to see the given client's full
+ * profile. Rules:
+ *   - Anyone with the explicit `clients` admin section grant (incl. SUPERADMIN
+ *     auto-grant) sees every guest.
+ *   - A module-only manager (e.g. `ps-park` granted, no `clients`) only sees
+ *     guests who actually used at least one module they have access to —
+ *     either a booking with `moduleSlug ∈ accessible` or an order in the
+ *     same set.
+ *   - Anyone else (USER, manager with no module grants, guest sessions) — false.
+ *
+ * Use this from BOTH the page-level guard (server component) AND the API
+ * route handler — UI guard alone is bypassable via direct GET on the JSON
+ * endpoint.
+ */
+export async function canViewClient(
+  viewerUserId: string,
+  clientUserId: string
+): Promise<boolean> {
+  const { getUserAdminSections } = await import("@/lib/permissions");
+  const sections = await getUserAdminSections(viewerUserId);
+  if (sections.length === 0) return false;
+  if (sections.includes("clients")) return true;
+
+  // Filter to module sections that actually have bookings/orders linked.
+  const moduleSections = sections.filter(
+    (s) =>
+      (BOOKING_MODULES as readonly string[]).includes(s) ||
+      (ORDER_MODULES as readonly string[]).includes(s)
+  );
+  if (moduleSections.length === 0) return false;
+
+  const [bookingMatch, orderMatch] = await Promise.all([
+    prisma.booking.findFirst({
+      where: {
+        userId: clientUserId,
+        moduleSlug: { in: moduleSections },
+        deletedAt: null,
+      },
+      select: { id: true },
+    }),
+    prisma.order.findFirst({
+      where: {
+        userId: clientUserId,
+        moduleSlug: { in: moduleSections },
+      },
+      select: { id: true },
+    }),
+  ]);
+  return Boolean(bookingMatch || orderMatch);
+}
+
 function getAuthProviders(user: {
   telegramId: string | null;
   email: string | null;

@@ -12,9 +12,11 @@ vi.mock("@/lib/db", () => ({
     },
     booking: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
     },
     order: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
     },
     resource: {
       findMany: vi.fn(),
@@ -30,6 +32,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+vi.mock("@/lib/permissions", () => ({
+  getUserAdminSections: vi.fn(),
+  hasAdminSectionAccess: vi.fn(),
+}));
+
 import {
   listClients,
   getClientDetail,
@@ -39,9 +46,11 @@ import {
   createClient,
   updateClient,
   upsertClientByPhone,
+  canViewClient,
   ClientError,
 } from "@/modules/clients/service";
 import { prisma } from "@/lib/db";
+import { getUserAdminSections } from "@/lib/permissions";
 
 const mockDate = (str: string) => new Date(str);
 
@@ -1002,5 +1011,86 @@ describe("upsertClientByPhone (F4)", () => {
     await expect(
       upsertClientByPhone("not-a-phone", { source: "ps_park_booking" })
     ).rejects.toBeInstanceOf(ClientError);
+  });
+});
+
+// ===== F8 RBAC — canViewClient =====
+
+describe("canViewClient (F8 RBAC)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns false when viewer has no admin sections at all", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue([]);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(false);
+    expect(prisma.booking.findFirst).not.toHaveBeenCalled();
+    expect(prisma.order.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("returns true when viewer has the explicit `clients` section grant", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue(["clients"]);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(true);
+    // Short-circuit: must NOT hit the DB for booking/order.
+    expect(prisma.booking.findFirst).not.toHaveBeenCalled();
+    expect(prisma.order.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("returns true when ps-park manager and client has at least one ps-park booking", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue(["ps-park"]);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue({ id: "b-1" } as never);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(null);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(true);
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "client-1",
+          moduleSlug: { in: ["ps-park"] },
+          deletedAt: null,
+        }),
+      })
+    );
+  });
+
+  it("returns false when ps-park manager and client only used gazebos", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue(["ps-park"]);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(null);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(false);
+  });
+
+  it("returns true via cafe order match when viewer is cafe manager", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue(["cafe"]);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue({ id: "o-1" } as never);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(true);
+  });
+
+  it("returns false for non-module sections like dashboard/users", async () => {
+    // dashboard / users / monitoring etc are admin features but not module
+    // accesses — they shouldn't grant guest visibility on their own.
+    vi.mocked(getUserAdminSections).mockResolvedValue(["dashboard", "users"]);
+    const ok = await canViewClient("viewer-1", "client-1");
+    expect(ok).toBe(false);
+    expect(prisma.booking.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("ignores soft-deleted bookings", async () => {
+    vi.mocked(getUserAdminSections).mockResolvedValue(["ps-park"]);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(null);
+    await canViewClient("viewer-1", "client-1");
+    // Verify query passes deletedAt: null filter so soft-deleted bookings
+    // don't accidentally grant access after the user was "removed".
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
   });
 });

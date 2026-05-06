@@ -5,23 +5,22 @@ import { listClients } from "@/modules/clients/service";
 import { auth } from "@/lib/auth";
 import { hasAdminSectionAccess } from "@/lib/permissions";
 
-// F4 ADR — replaces previous redirect stub. The /admin/users?tab=clients
-// view is gone; this is now the canonical guests directory.
-//
-// F8 RBAC: only users with explicit `clients` section grant see the global
-// directory. Module-only managers go to /admin/ps-park/clients or
-// /admin/gazebos/clients instead.
+// F8: per-module guests view. A manager who has access to `ps-park` (module
+// section grant or SUPERADMIN) sees only guests who have at least one
+// PS Park booking. Editing a guest's card from here still requires the
+// same `canViewClient` check on the detail page.
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
 
-export default async function ClientsListPage() {
+export default async function PsParkClientsListPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/auth/signin");
-  const allowed = await hasAdminSectionAccess(session.user.id, "clients");
+  const allowed = await hasAdminSectionAccess(session.user.id, "ps-park");
   if (!allowed) redirect("/admin");
 
   const { clients, total } = await listClients({
+    moduleSlug: "ps-park",
     limit: PAGE_SIZE,
     offset: 0,
     sortBy: "lastActivity",
@@ -30,7 +29,7 @@ export default async function ClientsListPage() {
 
   return (
     <>
-      <AdminHeader title="Гости (CRM)" />
+      <AdminHeader title="Гости Плей Парка" />
       <div className="p-8">
         <ClientsList
           initialClients={clients.map((c) => ({
@@ -45,6 +44,7 @@ export default async function ClientsListPage() {
           }))}
           initialTotal={total}
           pageSize={PAGE_SIZE}
+          moduleSlug="ps-park"
         />
       </div>
     </>
