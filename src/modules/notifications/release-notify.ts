@@ -10,7 +10,10 @@ export interface ReleaseInfo {
 
 /**
  * Send a release notification via Telegram to all SUPERADMIN/MANAGER users
- * who have opted in (notificationPreference.notifyReleases = true).
+ * who have NOT opted out (notificationPreference.notifyReleases = true).
+ *
+ * Default for the column is `true` — managers/admins are subscribed automatically
+ * and can opt out via /settings in the bot or the admin UI.
  *
  * Called by the CI/CD deploy pipeline after a successful production deploy.
  */
@@ -82,7 +85,9 @@ export async function getReleaseSubscribers(): Promise<
 
   return users.map((u) => ({
     id: u.id,
-    notifyReleases: u.notificationPreference?.notifyReleases ?? false,
+    // When no preference row exists yet, fall back to the column default (true).
+    // The row is created lazily on first toggle via setReleaseNotifyPreference.
+    notifyReleases: u.notificationPreference?.notifyReleases ?? true,
   }));
 }
 
@@ -97,6 +102,25 @@ export async function setReleaseNotifyPreference(
     where: { userId },
     create: { userId, notifyReleases: enabled },
     update: { notifyReleases: enabled },
+  });
+}
+
+/**
+ * Ensure a user (typically newly minted MANAGER/SUPERADMIN) has a
+ * NotificationPreference row with `notifyReleases = true`.
+ *
+ * The release-notify query filters via the `notificationPreference` relation,
+ * so users without a preference row would silently miss release notifications
+ * even though the column default is `true`. Calling this on user creation
+ * and role promotion guarantees the row exists.
+ *
+ * Idempotent: never overwrites an existing preference (respects manual opt-out).
+ */
+export async function ensureManagerNotifyDefaults(userId: string): Promise<void> {
+  await prisma.notificationPreference.upsert({
+    where: { userId },
+    create: { userId, notifyReleases: true },
+    update: {}, // do not clobber an existing preference
   });
 }
 
