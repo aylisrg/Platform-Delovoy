@@ -181,11 +181,12 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          BOT_INTERNAL_SECRET: ${{ secrets.BOT_INTERNAL_SECRET }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET
           script: |
             set -e
             cd /opt/delovoy-park
@@ -210,6 +211,7 @@ jobs:
             upsert_env SMTP_USER                  "$SMTP_USER"
             upsert_env SMTP_PASS                  "$SMTP_PASS"
             upsert_env SMTP_FROM                  "$SMTP_FROM"
+            upsert_env BOT_INTERNAL_SECRET        "$BOT_INTERNAL_SECRET"
 
             echo "Secrets synced to .env"
 
