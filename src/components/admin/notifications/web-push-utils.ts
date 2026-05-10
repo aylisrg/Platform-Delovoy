@@ -134,7 +134,9 @@ export async function performSubscribe(deps: {
   }
 
   // Регистрация SW (idempotent — браузер вернёт существующую если уже).
-  const registration = await deps.serviceWorker.register("/sw.js", { scope: "/" });
+  // scope: "/admin" — принцип минимальных привилегий (ADR §Безопасность).
+  // SW не контролирует B2C-страницы.
+  const registration = await deps.serviceWorker.register("/sw.js", { scope: "/admin" });
 
   // Получение VAPID ключа.
   const publicKey = await deps.api.getVapidPublicKey();

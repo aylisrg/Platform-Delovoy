@@ -127,7 +127,7 @@ describe("performSubscribe", () => {
 
     expect(result.endpoint).toBe("https://fcm.googleapis.com/fcm/send/abc123");
     expect(m.requestPermission).toHaveBeenCalledOnce();
-    expect((m.serviceWorker.register as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("/sw.js", { scope: "/" });
+    expect((m.serviceWorker.register as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("/sw.js", { scope: "/admin" });
     expect(m.api.getVapidPublicKey).toHaveBeenCalledOnce();
     expect(m.pushManagerSubscribe).toHaveBeenCalledOnce();
     expect(m.api.postSubscribe).toHaveBeenCalledWith({
