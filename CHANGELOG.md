@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.4.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.3.0...v2.4.0) (2026-05-10)
+
+
+### Features
+
+* **auth:** bot-to-web one-time login token (backend) ([#228](https://github.com/aylisrg/Platform-Delovoy/issues/228)) ([5f6574d](https://github.com/aylisrg/Platform-Delovoy/commit/5f6574dca11cda09bd7e7170b901de4535f313ae))
+* **bot:** bot-to-web one-time login url for returning users ([#229](https://github.com/aylisrg/Platform-Delovoy/issues/229)) ([9dd09a1](https://github.com/aylisrg/Platform-Delovoy/commit/9dd09a125d869eb13b92304ea1300728dcae87e9))
+* **clients:** F8 — per-module guests views + RBAC isolation ([#244](https://github.com/aylisrg/Platform-Delovoy/issues/244)) ([6eb471b](https://github.com/aylisrg/Platform-Delovoy/commit/6eb471b884b5b415d7941566983683cfa94b0b36))
+
+
+### Bug Fixes
+
+* **admin:** expose /admin/clients in sidebar nav ([#238](https://github.com/aylisrg/Platform-Delovoy/issues/238)) ([e1d8672](https://github.com/aylisrg/Platform-Delovoy/commit/e1d8672dc4038ce03c692ba22eb49fd68d28a35b))
+* **admin:** expose per-module guests + subscriptions tabs ([#245](https://github.com/aylisrg/Platform-Delovoy/issues/245)) ([e9e365f](https://github.com/aylisrg/Platform-Delovoy/commit/e9e365fd17c0fcb262ecef72296e6dd98f9e9e94))
+* **analytics:** чиним 400-ошибки Метрики в /admin/analytics ([#246](https://github.com/aylisrg/Platform-Delovoy/issues/246)) ([9a28015](https://github.com/aylisrg/Platform-Delovoy/commit/9a28015650f19fff26009248f6db98b4f62235d4))
+* **ci:** unblock production deploy via push-to-main fallback trigger ([#239](https://github.com/aylisrg/Platform-Delovoy/issues/239)) ([8e13eeb](https://github.com/aylisrg/Platform-Delovoy/commit/8e13eeb67a0eedfa80e892e4cde111ae9305bfc1))
+
 ## [2.3.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.2.0...v2.3.0) (2026-04-29)
 
 
