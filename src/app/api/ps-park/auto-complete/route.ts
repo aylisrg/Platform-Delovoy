@@ -14,6 +14,17 @@ import { prisma } from "@/lib/db";
  * as "skipped".
  */
 export async function POST(request: NextRequest) {
+  // Disabled by policy: администратор закрывает сессии руками (чек + сверка счёта).
+  // Endpoint оставлен с флагом на случай будущего возврата к авто-завершению.
+  // Default: OFF. См. обсуждение от 2026-05-10.
+  if (process.env.PS_PARK_AUTO_COMPLETE_ENABLED !== "true") {
+    return apiError(
+      "DISABLED",
+      "PS Park auto-complete отключён политикой: сессии закрываются администратором вручную",
+      403
+    );
+  }
+
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return apiError("SERVICE_UNAVAILABLE", "CRON_SECRET is not configured", 503);
