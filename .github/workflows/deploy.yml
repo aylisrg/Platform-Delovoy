@@ -183,11 +183,13 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           BOT_INTERNAL_SECRET: ${{ secrets.BOT_INTERNAL_SECRET }}
           RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID
           script: |
             set -e
             cd /opt/delovoy-park
@@ -214,6 +216,8 @@ jobs:
             upsert_env SMTP_FROM                  "$SMTP_FROM"
             upsert_env BOT_INTERNAL_SECRET        "$BOT_INTERNAL_SECRET"
             upsert_env RELEASE_NOTIFY_SECRET      "$RELEASE_NOTIFY_SECRET"
+            upsert_env TELEGRAM_BOT_TOKEN         "$TELEGRAM_BOT_TOKEN"
+            upsert_env TELEGRAM_ADMIN_CHAT_ID     "$TELEGRAM_ADMIN_CHAT_ID"
 
             echo "Secrets synced to .env"
 
@@ -272,6 +276,20 @@ jobs:
               docker compose exec -T app npx tsx scripts/set-public-phone.ts \
                 && echo "✅ Phone config applied" \
                 || echo "⚠️ set-public-phone.ts failed — check manually"
+
+              echo "=== Bot rolling deploy ==="
+              # Бот = отдельный сервис, тот же image. --no-deps чтобы не трогать
+              # postgres/redis. `up -d` пересоздаст контейнер: старый получит
+              # SIGTERM до старта нового, окно overlap минимально (Telegram
+              # 409 Conflict если оба live одновременно).
+              docker compose up -d --no-deps bot
+              sleep 5
+              if ! docker compose ps bot --format '{{.State}}' | grep -q running; then
+                echo "❌ ERROR: bot failed to start"
+                docker compose logs --tail 50 bot || true
+                exit 1
+              fi
+              echo "✅ Bot is running"
               exit 0
             fi
 
