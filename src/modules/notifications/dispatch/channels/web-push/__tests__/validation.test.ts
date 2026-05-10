@@ -91,4 +91,18 @@ describe("webPushUnsubscribeSchema", () => {
       webPushUnsubscribeSchema.safeParse({ endpoint: "abc" }).success,
     ).toBe(false);
   });
+
+  it("rejects non-allowlisted endpoint host (SSRF allowlist consistent with subscribe)", () => {
+    const r = webPushUnsubscribeSchema.safeParse({
+      endpoint: "https://evil.example.com/push/abc",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects http endpoint even on allowlisted host", () => {
+    const r = webPushUnsubscribeSchema.safeParse({
+      endpoint: "http://fcm.googleapis.com/fcm/send/abc",
+    });
+    expect(r.success).toBe(false);
+  });
 });

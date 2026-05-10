@@ -46,7 +46,13 @@ export const webPushSubscribeSchema = z.object({
 export type WebPushSubscribeInput = z.infer<typeof webPushSubscribeSchema>;
 
 export const webPushUnsubscribeSchema = z.object({
-  endpoint: z.string().url().max(2000),
+  endpoint: z
+    .string()
+    .url()
+    .max(2000)
+    .refine(isAllowedPushEndpoint, {
+      message: "endpoint host not allowed",
+    }),
 });
 
 export type WebPushUnsubscribeInput = z.infer<typeof webPushUnsubscribeSchema>;

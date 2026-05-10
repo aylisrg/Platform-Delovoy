@@ -123,4 +123,40 @@ describe("DELETE /api/notifications/web-push/subscribe", () => {
     expect(res.status).toBe(422);
     expect(unsubscribeUserMock).not.toHaveBeenCalled();
   });
+
+  it("422 when endpoint host not in SSRF allowlist", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "MANAGER" } });
+
+    const res = await DELETE(
+      makeReq({ endpoint: "https://evil.example.com/push/abc" }),
+    );
+
+    expect(res.status).toBe(422);
+    expect(unsubscribeUserMock).not.toHaveBeenCalled();
+  });
+
+  it("403 when USER role", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await DELETE(makeReq({ endpoint: FCM_ENDPOINT }));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error.code).toBe("FORBIDDEN");
+    expect(unsubscribeUserMock).not.toHaveBeenCalled();
+    expect(auditLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("uses web-push-subscribe rate-limit tier keyed per-user", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-77", role: "MANAGER" } });
+    unsubscribeUserMock.mockResolvedValue({ alreadyInactive: false });
+
+    await DELETE(makeReq({ endpoint: FCM_ENDPOINT }));
+
+    expect(rateLimitMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "web-push-subscribe",
+      "user-77",
+    );
+  });
 });

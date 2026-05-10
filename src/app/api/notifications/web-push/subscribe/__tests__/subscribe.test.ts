@@ -109,6 +109,91 @@ describe("POST /api/notifications/web-push/subscribe", () => {
     expect(subscribeUserMock).not.toHaveBeenCalled();
   });
 
+  it("503 when web push disabled — even without auth (flag check is BEFORE auth)", async () => {
+    process.env.WEB_PUSH_ENABLED = "false";
+    authMock.mockResolvedValue(null);
+
+    const res = await POST(
+      makeReq({
+        endpoint: FCM_ENDPOINT,
+        keys: { p256dh: "p", auth: "a" },
+      }),
+    );
+
+    expect(res.status).toBe(503);
+    expect(authMock).not.toHaveBeenCalled();
+    expect(subscribeUserMock).not.toHaveBeenCalled();
+  });
+
+  it("403 when USER role — Web Push not available for USER", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await POST(
+      makeReq({
+        endpoint: FCM_ENDPOINT,
+        keys: { p256dh: "p", auth: "a" },
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error.code).toBe("FORBIDDEN");
+    expect(subscribeUserMock).not.toHaveBeenCalled();
+    expect(auditLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("uses web-push-subscribe rate-limit tier keyed per-user (10/min)", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-42", role: "MANAGER" } });
+    subscribeUserMock.mockResolvedValue({
+      id: "sub-1",
+      userId: "user-42",
+      endpoint: FCM_ENDPOINT,
+      p256dh: "x",
+      auth: "y",
+      userAgent: null,
+      isActive: true,
+      userNotificationChannelId: "unc-1",
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastFailureReason: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await POST(
+      makeReq({
+        endpoint: FCM_ENDPOINT,
+        keys: { p256dh: "p", auth: "a" },
+      }),
+    );
+
+    expect(rateLimitMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "web-push-subscribe",
+      "user-42",
+    );
+  });
+
+  it("returns 429 when rate limit exceeded", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "MANAGER" } });
+    rateLimitMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: false, error: { code: "RATE_LIMIT_EXCEEDED", message: "x" } }),
+        { status: 429 },
+      ),
+    );
+
+    const res = await POST(
+      makeReq({
+        endpoint: FCM_ENDPOINT,
+        keys: { p256dh: "p", auth: "a" },
+      }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(subscribeUserMock).not.toHaveBeenCalled();
+  });
+
   it("happy path: creates subscription, writes AuditLog, doesn't leak p256dh/auth", async () => {
     authMock.mockResolvedValue({ user: { id: "user-1", role: "MANAGER" } });
     subscribeUserMock.mockResolvedValue({

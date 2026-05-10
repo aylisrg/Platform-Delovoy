@@ -24,10 +24,11 @@ import {
 /**
  * POST /api/notifications/web-push/subscribe
  *
- * RBAC: любой авторизованный пользователь (SUPERADMIN/ADMIN/MANAGER/USER).
- *   USER в практике сюда не попадает — UI кнопки скрыт от него,
- *   но эндпоинт сам по себе не утечка: он привязывает подписку к
- *   `session.user.id`, а не к произвольному userId.
+ * RBAC: SUPERADMIN/ADMIN/MANAGER (USER → 403). Web Push notifications
+ *   таргетируют только админов/менеджеров (см. PRD §Push), USER их не получает.
+ *
+ * Rate limit: 10/мин/user (защита от Service Worker re-registration loop —
+ *   см. ADR §API-контракты).
  *
  * Body: { endpoint, keys: { p256dh, auth }, userAgent? }
  * Endpoint валидируется allowlist'ом push-сервисов (защита от SSRF).
@@ -37,6 +38,7 @@ import {
  */
 export async function POST(request: NextRequest) {
   // Под флагом WEB_PUSH_ENABLED — иначе нет смысла принимать подписки.
+  // Проверяется ДО auth, чтобы не открывать существование эндпоинта.
   if (!isWebPushEnabled()) {
     return apiError("WEB_PUSH_DISABLED", "Web Push недоступен", 503);
   }
@@ -44,7 +46,19 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
-  const limited = await rateLimit(request, "authenticated");
+  if (session.user.role === "USER") {
+    return apiError(
+      "FORBIDDEN",
+      "Web Push notifications are not available for USER role",
+      403,
+    );
+  }
+
+  const limited = await rateLimit(
+    request,
+    "web-push-subscribe",
+    session.user.id,
+  );
   if (limited) return limited;
 
   const body = await request.json().catch(() => null);
@@ -94,8 +108,10 @@ export async function POST(request: NextRequest) {
 /**
  * DELETE /api/notifications/web-push/subscribe
  *
- * RBAC: авторизованный пользователь (любой role). Может отписать только
+ * RBAC: SUPERADMIN/ADMIN/MANAGER (USER → 403). Может отписать только
  * СВОЮ подписку — проверка владельца внутри `unsubscribeUser`.
+ *
+ * Rate limit: 10/мин/user (см. POST).
  *
  * Body: { endpoint }
  * Идемпотентно: если подписка не найдена / уже неактивна / принадлежит
@@ -106,7 +122,19 @@ export async function DELETE(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
-  const limited = await rateLimit(request, "authenticated");
+  if (session.user.role === "USER") {
+    return apiError(
+      "FORBIDDEN",
+      "Web Push notifications are not available for USER role",
+      403,
+    );
+  }
+
+  const limited = await rateLimit(
+    request,
+    "web-push-subscribe",
+    session.user.id,
+  );
   if (limited) return limited;
 
   // endpoint можно передать в body или в query — поддерживаем оба.
