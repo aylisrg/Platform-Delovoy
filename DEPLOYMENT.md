@@ -33,6 +33,7 @@
                                                   │   ↓          │
                                                   │ Docker       │
                                                   │  ├ app       │
+                                                  │  ├ bot       │
                                                   │  ├ postgres  │
                                                   │  └ redis     │
                                                   └──────────────┘
@@ -40,6 +41,26 @@
                                                          ▼
                                                   delovoy-park.ru
 ```
+
+### Сервис `bot` — Telegram-бот @DelovoyPark_bot
+
+Бот запускается как **отдельный Docker-сервис** в том же compose-стеке, использует тот же image что и `app`, но запускается командой `npx tsx bot/index.ts` вместо Next.js (через `entrypoint: []` + `command: [...]`).
+
+Почему отдельный сервис, а не воркер внутри Next.js:
+- Long polling Telegram getUpdates конфликтует с multi-worker моделью Next.js (409 Conflict при двух процессах с одним токеном).
+- Изолированный lifecycle: рестарт бота не трогает HTTP-приложение и наоборот.
+- Отдельные лимиты ресурсов (256 MB).
+
+Ручной шаг **только при первом мерже этого PR** (последующие деплои сами поднимают `bot` через rolling-restart):
+```bash
+ssh deploy@<VPS>
+cd /opt/delovoy-park
+docker compose pull
+docker compose up -d   # без --no-deps, чтобы создать новый сервис bot
+docker compose logs -f bot   # убедиться что бот стартанул
+```
+
+Секреты `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ADMIN_CHAT_ID` синхронизируются в `/opt/delovoy-park/.env` шагом `Sync secrets to server .env` workflow `deploy.yml`.
 
 ---
 

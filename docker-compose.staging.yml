@@ -96,6 +96,43 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Telegram bot для staging. Использует ОТДЕЛЬНЫЙ TELEGRAM_STAGING_BOT_TOKEN
+  # (см. safety check в bot/index.ts) — иначе два инстанса с прод-токеном
+  # дадут 409 Conflict от Telegram getUpdates. Если токен не задан, бот
+  # сам корректно завершится (см. IS_STAGING guard).
+  bot:
+    image: ghcr.io/aylisrg/platform-delovoy:staging
+    container_name: delovoy-staging-bot
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park_staging"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "staging"
+      NEXT_PUBLIC_ENV: "staging"
+      NEXT_PUBLIC_APP_URL: "https://staging.delovoy-park.ru"
+      TELEGRAM_STAGING_BOT_TOKEN: "${TELEGRAM_STAGING_BOT_TOKEN}"
+      TELEGRAM_STAGING_CHAT_ID: "${TELEGRAM_STAGING_CHAT_ID}"
+    networks:
+      - staging_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: []
+    command: ["npx", "tsx", "bot/index.ts"]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
 networks:
   staging_net:
     name: delovoy-staging-net

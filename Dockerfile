@@ -58,6 +58,13 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy seed script
 COPY --from=builder /app/scripts ./scripts
 
+# Copy bot sources + shared TS so the same image can run the Telegram bot
+# via `npx tsx bot/index.ts` (see docker-compose `bot` service). bot/* imports
+# from ../src/lib/* through the @/ TS path alias, so we need src + tsconfig.
+COPY --from=builder /app/bot ./bot
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh && \
     chown -R nextjs:nodejs /app

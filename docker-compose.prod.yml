@@ -85,6 +85,39 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Telegram bot (@DelovoyPark_bot) — separate process, same image.
+  # entrypoint: [] overrides the inherited docker-entrypoint.sh (миграции +
+  # Next.js — боту не нужно). Долгий polling через grammY.
+  # restart: unless-stopped — НЕ always: при ручном `docker stop` не уйти в loop,
+  # иначе два инстанса с одним токеном дадут 409 Conflict от Telegram.
+  bot:
+    image: ghcr.io/aylisrg/platform-delovoy:latest
+    container_name: delovoy-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "production"
+      NEXT_PUBLIC_APP_URL: "https://delovoy-park.ru"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: []
+    command: ["npx", "tsx", "bot/index.ts"]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 volumes:
   postgres_data:
   redis_data:

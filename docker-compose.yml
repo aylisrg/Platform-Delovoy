@@ -83,6 +83,38 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Telegram bot (@DelovoyPark_bot). Same image as `app`, but running
+  # `npx tsx bot/index.ts` instead of Next.js. Не публикует портов.
+  bot:
+    image: ghcr.io/aylisrg/platform-delovoy:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delovoy-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "production"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: []
+    command: ["npx", "tsx", "bot/index.ts"]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
   backup:
     image: postgres:16-alpine
     container_name: delovoy-backup
