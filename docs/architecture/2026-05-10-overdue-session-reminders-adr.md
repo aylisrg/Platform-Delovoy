@@ -237,13 +237,14 @@ Backward compatibility: ничего не удаляется, только add. 
 
 ### `DELETE /api/notifications/web-push/subscribe`
 
-- **RBAC:** SUPERADMIN или MANAGER (только своя подписка).
-- **Rate limit:** 30 / мин / user.
-- **Request body (Zod):** `{ endpoint: z.string().url() }`.
+- **RBAC:** SUPERADMIN или MANAGER (только своя подписка). USER → 403.
+- **Rate limit:** 10 / мин / user (см. POST — общий tier `web-push-subscribe`).
+- **Request body (Zod):** `{ endpoint: z.string().url() }` + SSRF allowlist (`isAllowedPushEndpoint`) — для согласованности с POST и защиты от логических атак.
 - **Логика:** транзакционно: `WebPushSubscription` `isActive=false`, `UserNotificationChannel` `isActive=false`. Физически не удаляем — для аудита.
-- **AuditLog:** `action: "web_push.unsubscribed"`.
-- **Response 200:** `{ ok: true }`.
-- Если endpoint не принадлежит `session.user.id` → 404 (а не 403, чтобы не утечь, что подписка существует у другого).
+- **AuditLog:** `action: "web_push.unsubscribed"` — пишется только если подписка реально деактивирована.
+- **Response — всегда 200 (idempotent):**
+  - happy path → `{ ok: true, alreadyInactive: false }`
+  - подписка не найдена / уже неактивна / принадлежит другому юзеру → `{ ok: true, alreadyInactive: true }` (не утечка факта существования чужой подписки; идиоматично для DELETE — повторный вызов = тот же ответ).
 
 ### `POST /api/cron/overdue-session-reminders`
 
@@ -557,7 +558,7 @@ vi.mock('@/lib/db');
 
 5. **API route handlers** (happy + 1 error path):
    - `POST /api/notifications/web-push/subscribe` — happy, USER → 403, invalid endpoint → 422.
-   - `DELETE` — happy, чужая подписка → 404.
+   - `DELETE` — happy, чужая/несуществующая подписка → 200 `{ alreadyInactive: true }`, USER → 403.
    - `GET /api/cron/overdue-session-reminders` — happy, wrong token → 401.
    - `GET /api/notifications/web-push/vapid-public-key` — happy, без env → 503.
 

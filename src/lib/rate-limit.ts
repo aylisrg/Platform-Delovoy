@@ -12,15 +12,23 @@ type RateLimitConfig = {
 const CONFIGS = {
   public: { limit: 60, windowSeconds: 60 } as RateLimitConfig,
   authenticated: { limit: 120, windowSeconds: 60 } as RateLimitConfig,
+  // Web Push subscribe/unsubscribe — защита от Service Worker re-registration
+  // loop, который мог бы заспамить эндпоинт. См. ADR §API-контракты.
+  "web-push-subscribe": { limit: 10, windowSeconds: 60 } as RateLimitConfig,
 } as const;
 
 /**
  * Sliding window rate limiter using Redis.
  * Returns null if within limit, or an error response if exceeded.
+ *
+ * @param request - The incoming Next.js request (used for IP-based keying when no userId).
+ * @param type - The rate limit tier from `CONFIGS`.
+ * @param userId - Optional user id; if provided, rate limit is keyed per-user instead of per-IP.
  */
 export async function rateLimit(
   request: NextRequest,
-  type: keyof typeof CONFIGS = "public"
+  type: keyof typeof CONFIGS = "public",
+  userId?: string
 ) {
   // Skip rate limiting entirely when Redis is unavailable
   if (!redisAvailable) {
@@ -28,8 +36,10 @@ export async function rateLimit(
   }
 
   const config = CONFIGS[type];
-  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
-  const key = `rate-limit:${type}:${ip}`;
+  const subject = userId
+    ? `user:${userId}`
+    : `ip:${request.headers.get("x-forwarded-for") ?? "unknown"}`;
+  const key = `rate-limit:${type}:${subject}`;
   const now = Date.now();
   const windowStart = now - config.windowSeconds * 1000;
 
