@@ -6,11 +6,17 @@ const {
   updateMock,
   updateUNCMock,
   transactionMock,
+  upsertMock,
+  upsertUNCMock,
+  aggregateUNCMock,
 } = vi.hoisted(() => ({
   findUniqueMock: vi.fn(),
   updateMock: vi.fn(),
   updateUNCMock: vi.fn(),
   transactionMock: vi.fn(),
+  upsertMock: vi.fn(),
+  upsertUNCMock: vi.fn(),
+  aggregateUNCMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -18,9 +24,12 @@ vi.mock("@/lib/db", () => ({
     webPushSubscription: {
       findUnique: (...args: unknown[]) => findUniqueMock(...args),
       update: (...args: unknown[]) => updateMock(...args),
+      upsert: (...args: unknown[]) => upsertMock(...args),
     },
     userNotificationChannel: {
       update: (...args: unknown[]) => updateUNCMock(...args),
+      upsert: (...args: unknown[]) => upsertUNCMock(...args),
+      aggregate: (...args: unknown[]) => aggregateUNCMock(...args),
     },
     $transaction: (...args: unknown[]) => transactionMock(...args),
   },
@@ -30,6 +39,9 @@ import {
   deactivateSubscriptionByEndpoint,
   recordSuccessfulDelivery,
   toPublicWebPushSubscription,
+  subscribeUser,
+  unsubscribeUser,
+  WebPushSubscriptionConflictError,
 } from "../service";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123";
@@ -40,11 +52,18 @@ describe("web-push service", () => {
     updateMock.mockReset();
     updateUNCMock.mockReset();
     transactionMock.mockReset();
+    upsertMock.mockReset();
+    upsertUNCMock.mockReset();
+    aggregateUNCMock.mockReset();
     transactionMock.mockImplementation(async (cb: unknown) => {
       if (typeof cb === "function") {
         return (cb as (tx: unknown) => Promise<unknown>)({
-          webPushSubscription: { update: updateMock },
-          userNotificationChannel: { update: updateUNCMock },
+          webPushSubscription: { update: updateMock, upsert: upsertMock },
+          userNotificationChannel: {
+            update: updateUNCMock,
+            upsert: upsertUNCMock,
+            aggregate: aggregateUNCMock,
+          },
         });
       }
       return undefined;
@@ -131,6 +150,185 @@ describe("web-push service", () => {
       updateMock.mockRejectedValue(new Error("Record not found"));
 
       await expect(recordSuccessfulDelivery(ENDPOINT)).resolves.toBeUndefined();
+    });
+  });
+
+  describe("subscribeUser", () => {
+    const VALID_INPUT = {
+      endpoint: ENDPOINT,
+      keys: { p256dh: "p256dh-key", auth: "auth-secret" },
+      userAgent: "Chrome 120",
+    };
+
+    it("creates UNC with priority=100 + WebPushSubscription when first subscription", async () => {
+      findUniqueMock.mockResolvedValue(null); // не существует
+      aggregateUNCMock.mockResolvedValue({ _max: { priority: null } });
+      upsertUNCMock.mockResolvedValue({ id: "unc-new" });
+      upsertMock.mockResolvedValue({
+        id: "sub-new",
+        userId: "user-1",
+        endpoint: ENDPOINT,
+        p256dh: "p256dh-key",
+        auth: "auth-secret",
+        userAgent: "Chrome 120",
+        isActive: true,
+        userNotificationChannelId: "unc-new",
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastFailureReason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const result = await subscribeUser("user-1", VALID_INPUT);
+
+      expect(result.id).toBe("sub-new");
+      expect(upsertUNCMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            userId: "user-1",
+            kind: "PUSH",
+            address: ENDPOINT,
+            priority: 100,
+            isActive: true,
+          }),
+        }),
+      );
+      expect(upsertMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { endpoint: ENDPOINT },
+          create: expect.objectContaining({
+            userId: "user-1",
+            endpoint: ENDPOINT,
+            p256dh: "p256dh-key",
+            auth: "auth-secret",
+            isActive: true,
+          }),
+        }),
+      );
+    });
+
+    it("uses priority = max+1 when user already has PUSH channels", async () => {
+      findUniqueMock.mockResolvedValue(null);
+      aggregateUNCMock.mockResolvedValue({ _max: { priority: 102 } });
+      upsertUNCMock.mockResolvedValue({ id: "unc-3" });
+      upsertMock.mockResolvedValue({
+        id: "sub-3",
+        userId: "user-1",
+        endpoint: ENDPOINT,
+        p256dh: "p256dh-key",
+        auth: "auth-secret",
+        userAgent: "Chrome 120",
+        isActive: true,
+        userNotificationChannelId: "unc-3",
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastFailureReason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await subscribeUser("user-1", VALID_INPUT);
+
+      expect(upsertUNCMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ priority: 103 }),
+        }),
+      );
+    });
+
+    it("reactivates existing inactive subscription of the same user", async () => {
+      findUniqueMock.mockResolvedValue({ userId: "user-1" });
+      aggregateUNCMock.mockResolvedValue({ _max: { priority: 100 } });
+      upsertUNCMock.mockResolvedValue({ id: "unc-existing" });
+      upsertMock.mockResolvedValue({
+        id: "sub-existing",
+        userId: "user-1",
+        endpoint: ENDPOINT,
+        p256dh: "p256dh-key",
+        auth: "auth-secret",
+        userAgent: "Chrome 120",
+        isActive: true,
+        userNotificationChannelId: "unc-existing",
+        lastSuccessAt: null,
+        lastFailureAt: new Date(),
+        lastFailureReason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await subscribeUser("user-1", VALID_INPUT);
+
+      expect(upsertMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            isActive: true,
+            p256dh: "p256dh-key",
+            auth: "auth-secret",
+            lastFailureReason: null,
+          }),
+        }),
+      );
+    });
+
+    it("throws WebPushSubscriptionConflictError when endpoint owned by another user", async () => {
+      findUniqueMock.mockResolvedValue({ userId: "user-OTHER" });
+
+      await expect(subscribeUser("user-1", VALID_INPUT)).rejects.toBeInstanceOf(
+        WebPushSubscriptionConflictError,
+      );
+      expect(transactionMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("unsubscribeUser", () => {
+    it("happy path: deactivates subscription and returns alreadyInactive=false", async () => {
+      // 1st findUnique: ownership check (active, owned)
+      findUniqueMock.mockResolvedValueOnce({ userId: "user-1", isActive: true });
+      // 2nd findUnique: inside deactivateSubscriptionByEndpoint
+      findUniqueMock.mockResolvedValueOnce({
+        id: "sub-1",
+        userNotificationChannelId: "unc-1",
+      });
+
+      const result = await unsubscribeUser("user-1", ENDPOINT);
+
+      expect(result).toEqual({ alreadyInactive: false });
+      expect(transactionMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("idempotent: returns alreadyInactive=true when subscription not found", async () => {
+      findUniqueMock.mockResolvedValueOnce(null);
+
+      const result = await unsubscribeUser("user-1", ENDPOINT);
+
+      expect(result).toEqual({ alreadyInactive: true });
+      expect(transactionMock).not.toHaveBeenCalled();
+    });
+
+    it("idempotent: returns alreadyInactive=true when subscription belongs to another user", async () => {
+      // Не утечка: для чужой подписки тоже отвечаем alreadyInactive=true.
+      findUniqueMock.mockResolvedValueOnce({
+        userId: "user-OTHER",
+        isActive: true,
+      });
+
+      const result = await unsubscribeUser("user-1", ENDPOINT);
+
+      expect(result).toEqual({ alreadyInactive: true });
+      expect(transactionMock).not.toHaveBeenCalled();
+    });
+
+    it("idempotent: returns alreadyInactive=true when subscription already inactive", async () => {
+      findUniqueMock.mockResolvedValueOnce({
+        userId: "user-1",
+        isActive: false,
+      });
+
+      const result = await unsubscribeUser("user-1", ENDPOINT);
+
+      expect(result).toEqual({ alreadyInactive: true });
+      expect(transactionMock).not.toHaveBeenCalled();
     });
   });
 
