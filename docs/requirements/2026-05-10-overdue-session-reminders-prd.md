@@ -139,7 +139,7 @@ PWA manifest добавляется для поддержки Web Push на iOS 
 **Acceptance Criteria:**
 
 - [ ] AC-4.1: Реализован класс `WebPushChannel` по интерфейсу `INotificationChannel` (`kind = "PUSH"`), расположен в `src/modules/notifications/dispatch/channels/web-push/`.
-- [ ] AC-4.2: `WebPushChannel.isAvailable()` возвращает `true`, если в env настроены `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT_EMAIL`.
+- [ ] AC-4.2: `WebPushChannel.isAvailable()` возвращает `true`, если в env настроены `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (legacy alias `VAPID_CONTACT_EMAIL` поддерживается для обратной совместимости — реализация принимает обе переменные, `VAPID_SUBJECT` имеет приоритет).
 - [ ] AC-4.3: `WebPushChannel.send(address, payload)` отправляет Web Push по endpoint из `address`, используя библиотеку `web-push`. `address` — это JSON-сериализация `PushSubscription` (endpoint + keys).
 - [ ] AC-4.4: При успешной отправке возвращает `{ ok: true }`. При ошибке `410 Gone` (подписка устарела) — помечает `WebPushSubscription.isActive = false` и возвращает `{ ok: false, retryable: false }`. При сетевой ошибке — `{ ok: false, retryable: true }`.
 - [ ] AC-4.5: `PushChannel` stub из `stubs.ts` заменяется реальной реализацией, зарегистрированной в `ChannelRegistry`.
@@ -283,7 +283,7 @@ WebPushSubscription {
 |---|---|---|
 | `VAPID_PUBLIC_KEY` | VAPID public key для Web Push | да (для Web Push) |
 | `VAPID_PRIVATE_KEY` | VAPID private key для Web Push | да (для Web Push) |
-| `VAPID_CONTACT_EMAIL` | Email отправителя в VAPID заголовке | да (для Web Push) |
+| `VAPID_SUBJECT` | Subject в VAPID заголовке (`mailto:admin@delovoy-park.ru` или https-URL). Legacy alias `VAPID_CONTACT_EMAIL` поддерживается для обратной совместимости; `VAPID_SUBJECT` имеет приоритет. | да (для Web Push) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Тот же ключ для клиентской подписки | да (для Web Push) |
 
 Если VAPID ключи не настроены, `WebPushChannel.isAvailable()` возвращает `false`, Dispatcher автоматически переходит на следующий канал. Остальные каналы продолжают работать.

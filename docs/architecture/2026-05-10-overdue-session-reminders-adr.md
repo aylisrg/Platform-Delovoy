@@ -274,8 +274,7 @@ web-push/
 ├── index.ts          // export class WebPushChannel implements INotificationChannel
 ├── vapid.ts          // setVapidDetails(), readVapidConfigFromEnv(), isConfigured()
 ├── service.ts        // subscribe(userId, dto), unsubscribe(userId, endpoint), deactivateExpired(endpoint)
-├── validation.ts     // Zod схемы webPushSubscribeSchema, webPushUnsubscribeSchema
-├── endpoint-allowlist.ts // ALLOWED_PUSH_HOSTS = ['fcm.googleapis.com', ...]
+├── validation.ts     // Zod схемы webPushSubscribeSchema, webPushUnsubscribeSchema + SSRF allowlist встроен рядом с Zod-схемами (ALLOWED_PUSH_HOSTS — refine() прямо в schema)
 └── __tests__/
     ├── channel.test.ts
     ├── service.test.ts
@@ -508,7 +507,7 @@ Retry policy для retryable:
 
 ## Зависимости
 
-Новый npm-пакет: **`web-push`** (https://github.com/web-push-libs/web-push). Лицензия MIT, поддерживается, ~5M downloads/week, нет уязвимостей CVE на 2026-05-10. Версия точная (без `^`).
+Новый npm-пакет: **`web-push`** (https://github.com/web-push-libs/web-push). Лицензия **MPL-2.0** — допущена через явное исключение в `agents/SECURITY.md` (раздел «Supply Chain → Исключения по лицензиям»), решение владельца от 2026-05-10. MPL-2.0 — file-level copyleft, библиотеку используем без модификаций, copyleft-обязательства не активируются. Поддерживается, ~5M downloads/week, нет уязвимостей CVE на 2026-05-10. Версия точная (без `^`).
 
 Альтернатива — реализовать VAPID JWT и Push API encryption руками. Не оправдано (4–5 RFC, ECDH, AES-128-GCM, HKDF).
 
