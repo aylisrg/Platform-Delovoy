@@ -64,6 +64,7 @@ model User {
   notificationChannels   UserNotificationChannel[]     @relation("UNCUser")
   notificationEventPrefs NotificationEventPreference[] @relation("NEPUser")
   notificationGlobalPref NotificationGlobalPreference? @relation("NGPUser")
+  webPushSubscriptions   WebPushSubscription[]         @relation("WPSUser")
 
   mergeCandidatesPrimary   MergeCandidate[] @relation("MergeCandidatePrimary")
   mergeCandidatesSecondary MergeCandidate[] @relation("MergeCandidateSecondary")
@@ -1640,11 +1641,38 @@ model UserNotificationChannel {
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
 
-  outgoing OutgoingNotification[]
+  outgoing            OutgoingNotification[]
+  webPushSubscription WebPushSubscription?   @relation("UNCPush")
 
   @@unique([userId, kind, address])
   @@index([userId, isActive, priority])
   @@index([kind])
+}
+
+/// Sidecar 1:1 для UserNotificationChannel(kind=PUSH) — хранит ECDH-ключи
+/// и метаданные браузерной подписки. address в UNC = endpoint URL,
+/// криптоключи (p256dh, auth) живут здесь, не в JSON.
+model WebPushSubscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("WPSUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  // 1:1 с UserNotificationChannel(kind=PUSH). Optional — позволяет вручную снести UNC и потом sub.
+  userNotificationChannelId String?                  @unique
+  userNotificationChannel   UserNotificationChannel? @relation("UNCPush", fields: [userNotificationChannelId], references: [id], onDelete: SetNull)
+
+  endpoint          String    @unique // стабильный URL push-сервиса (FCM/APNs/Mozilla)
+  p256dh            String // base64url ECDH public key подписки
+  auth              String // base64url auth secret
+  userAgent         String?   @db.Text // диагностика (Chrome 120 / Safari iOS 17)
+  isActive          Boolean   @default(true)
+  lastSuccessAt     DateTime?
+  lastFailureAt     DateTime?
+  lastFailureReason String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([userId, isActive])
 }
 
 model NotificationEventPreference {

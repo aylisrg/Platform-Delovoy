@@ -10,6 +10,8 @@ import {
   PushChannel,
   VkChannel,
 } from "./stubs";
+import { WebPushChannel } from "./web-push";
+import { isWebPushEnabled } from "./web-push/vapid";
 
 let bootstrapped = false;
 
@@ -27,7 +29,14 @@ export function bootstrapChannels(): void {
   ChannelRegistry.register(MaxChannel);
   ChannelRegistry.register(IMessageChannel);
   ChannelRegistry.register(SmsChannel);
-  ChannelRegistry.register(PushChannel);
+  // Web Push: реальный канал заменяет PUSH-stub только при WEB_PUSH_ENABLED=true
+  // и валидном VAPID-конфиге. Иначе остаётся stub (isAvailable=false → no-op).
+  // По умолчанию OFF — безопасный no-op деплой.
+  if (isWebPushEnabled()) {
+    ChannelRegistry.register(new WebPushChannel());
+  } else {
+    ChannelRegistry.register(PushChannel);
+  }
   ChannelRegistry.register(VkChannel);
   bootstrapped = true;
 }
