@@ -119,6 +119,11 @@ export async function POST(request: NextRequest) {
  * чтобы не утечь факт существования чужой подписки.
  */
 export async function DELETE(request: NextRequest) {
+  // Feature flag check ДО auth — симметрично с POST.
+  if (!isWebPushEnabled()) {
+    return apiError("WEB_PUSH_DISABLED", "Web Push недоступен", 503);
+  }
+
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
