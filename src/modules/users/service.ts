@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { setUserAdminSections } from "@/lib/permissions";
+import { ensureManagerNotifyDefaults } from "@/modules/notifications/release-notify";
 import type { CreateUserInput, UpdateUserInput } from "./validation";
 
 const SALT_ROUNDS = 10;
@@ -46,6 +47,11 @@ export async function createUser(input: CreateUserInput) {
   // Auto-assign "dashboard" permission for new managers so they can access admin panel
   if (input.role === "MANAGER") {
     await setUserAdminSections(user.id, ["dashboard"]);
+  }
+
+  // Subscribe new admins/managers to release notifications by default.
+  if (input.role === "MANAGER" || input.role === "SUPERADMIN") {
+    await ensureManagerNotifyDefaults(user.id);
   }
 
   return user;
@@ -148,6 +154,16 @@ export async function updateUser(id: string, input: UpdateUserInput, currentUser
       create: { userId: id, section: "dashboard" },
       update: {},
     });
+  }
+
+  // When promoting a non-admin to MANAGER/SUPERADMIN, subscribe them to release
+  // notifications by default (idempotent — never clobbers an existing opt-out).
+  if (
+    (input.role === "MANAGER" || input.role === "SUPERADMIN") &&
+    user.role !== "MANAGER" &&
+    user.role !== "SUPERADMIN"
+  ) {
+    await ensureManagerNotifyDefaults(id);
   }
 
   // Audit log for role changes

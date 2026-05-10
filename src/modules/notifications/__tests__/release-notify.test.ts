@@ -25,6 +25,7 @@ import {
   sendReleaseNotification,
   setReleaseNotifyPreference,
   getReleaseSubscribers,
+  ensureManagerNotifyDefaults,
 } from "../release-notify";
 
 const mockFindMany = vi.mocked(prisma.user.findMany);
@@ -148,14 +149,14 @@ describe("setReleaseNotifyPreference", () => {
 });
 
 describe("getReleaseSubscribers", () => {
-  it("returns notifyReleases=false when no preference exists", async () => {
+  it("returns notifyReleases=true when no preference row exists (matches column default)", async () => {
     mockFindMany.mockResolvedValue([
       { id: "u1", notificationPreference: null },
     ] as never);
 
     const result = await getReleaseSubscribers();
 
-    expect(result).toEqual([{ id: "u1", notifyReleases: false }]);
+    expect(result).toEqual([{ id: "u1", notifyReleases: true }]);
   });
 
   it("returns actual preference value when preference exists", async () => {
@@ -170,5 +171,52 @@ describe("getReleaseSubscribers", () => {
       { id: "u1", notifyReleases: true },
       { id: "u2", notifyReleases: false },
     ]);
+  });
+});
+
+describe("ensureManagerNotifyDefaults", () => {
+  it("creates a NotificationPreference row with notifyReleases=true when none exists", async () => {
+    mockUpsert.mockResolvedValue({} as never);
+
+    await ensureManagerNotifyDefaults("user-42");
+
+    expect(mockUpsert).toHaveBeenCalledWith({
+      where: { userId: "user-42" },
+      create: { userId: "user-42", notifyReleases: true },
+      update: {},
+    });
+  });
+
+  it("never overwrites an existing preference (update is empty)", async () => {
+    mockUpsert.mockResolvedValue({} as never);
+
+    await ensureManagerNotifyDefaults("user-42");
+
+    const call = mockUpsert.mock.calls[0][0];
+    expect(call.update).toEqual({});
+  });
+});
+
+describe("default-on subscription flow", () => {
+  it("a newly created MANAGER with notifyReleases=true is included in sendReleaseNotification", async () => {
+    // Simulates the post-create state: ensureManagerNotifyDefaults() ran,
+    // so the user has a preference row with notifyReleases=true and gets the message.
+    mockFindMany.mockResolvedValue([
+      { id: "new-manager", telegramId: "555" },
+    ] as never);
+    mockTelegramSend.mockResolvedValue({ success: true });
+
+    const result = await sendReleaseNotification(baseRelease);
+
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          role: { in: ["SUPERADMIN", "MANAGER"] },
+          notificationPreference: { notifyReleases: true },
+        }),
+      })
+    );
+    expect(mockTelegramSend).toHaveBeenCalledWith("555", expect.any(String));
+    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
   });
 });

@@ -31,6 +31,12 @@ vi.mock("@/lib/permissions", () => ({
   setUserAdminSections: (...args: unknown[]) => mockSetUserAdminSections(...args),
 }));
 
+const mockEnsureManagerNotifyDefaults = vi.fn();
+vi.mock("@/modules/notifications/release-notify", () => ({
+  ensureManagerNotifyDefaults: (...args: unknown[]) =>
+    mockEnsureManagerNotifyDefaults(...args),
+}));
+
 import { createUser, listUsers, getUser, updateUser, deleteUser } from "@/modules/users/service";
 import { prisma } from "@/lib/db";
 
@@ -107,6 +113,36 @@ describe("createUser", () => {
     expect(mockSetUserAdminSections).toHaveBeenCalledWith("mgr-1", ["dashboard"]);
   });
 
+  it("subscribes new MANAGER to release notifications by default", async () => {
+    const manager = mockUser({ id: "mgr-1", role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue(manager as never);
+
+    await createUser({
+      email: "manager@example.com",
+      password: "password123",
+      name: "Manager",
+      role: "MANAGER",
+    });
+
+    expect(mockEnsureManagerNotifyDefaults).toHaveBeenCalledWith("mgr-1");
+  });
+
+  it("subscribes new SUPERADMIN to release notifications by default", async () => {
+    const admin = mockUser({ id: "adm-1", role: "SUPERADMIN" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue(admin as never);
+
+    await createUser({
+      email: "admin@example.com",
+      password: "password123",
+      name: "Admin",
+      role: "SUPERADMIN",
+    });
+
+    expect(mockEnsureManagerNotifyDefaults).toHaveBeenCalledWith("adm-1");
+  });
+
   it("does not assign permissions when creating a USER", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.user.create).mockResolvedValue(mockUser() as never);
@@ -119,6 +155,7 @@ describe("createUser", () => {
     });
 
     expect(mockSetUserAdminSections).not.toHaveBeenCalled();
+    expect(mockEnsureManagerNotifyDefaults).not.toHaveBeenCalled();
   });
 
   it("throws USER_EXISTS if email already taken", async () => {
@@ -262,6 +299,29 @@ describe("updateUser", () => {
       create: { userId: "user-1", section: "dashboard" },
       update: {},
     });
+  });
+
+  it("subscribes to release notifications when promoting USER → MANAGER", async () => {
+    const user = mockUser({ role: "USER" });
+    const updated = mockUser({ role: "MANAGER" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+    vi.mocked(prisma.adminPermission.upsert).mockResolvedValue({} as never);
+
+    await updateUser("user-1", { role: "MANAGER" }, "admin-1");
+
+    expect(mockEnsureManagerNotifyDefaults).toHaveBeenCalledWith("user-1");
+  });
+
+  it("does NOT touch release notify when promoting MANAGER → SUPERADMIN (already subscribed)", async () => {
+    const user = mockUser({ role: "MANAGER" });
+    const updated = mockUser({ role: "SUPERADMIN" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(user as never);
+    vi.mocked(prisma.user.update).mockResolvedValue(updated as never);
+
+    await updateUser("user-1", { role: "SUPERADMIN" }, "admin-1");
+
+    expect(mockEnsureManagerNotifyDefaults).not.toHaveBeenCalled();
   });
 
   it("adds dashboard without clearing existing permissions when promoting to MANAGER", async () => {
