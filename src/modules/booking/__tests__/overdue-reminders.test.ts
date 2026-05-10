@@ -14,6 +14,9 @@ vi.mock("@/lib/db", () => ({
     user: {
       findMany: vi.fn(),
     },
+    resource: {
+      findUnique: vi.fn(),
+    },
     auditLog: {
       create: vi.fn(),
     },
@@ -43,6 +46,7 @@ const mockedPrisma = {
   bookingFindMany: prisma.booking.findMany as unknown as ReturnType<typeof vi.fn>,
   moduleAssignment: prisma.moduleAssignment.findMany as unknown as ReturnType<typeof vi.fn>,
   user: prisma.user.findMany as unknown as ReturnType<typeof vi.fn>,
+  resource: prisma.resource.findUnique as unknown as ReturnType<typeof vi.fn>,
   auditLog: prisma.auditLog.create as unknown as ReturnType<typeof vi.fn>,
   systemEvent: prisma.systemEvent.create as unknown as ReturnType<typeof vi.fn>,
 };
@@ -90,6 +94,7 @@ beforeEach(() => {
   mockedPrisma.bookingFindMany.mockResolvedValue([]);
   mockedPrisma.moduleAssignment.mockResolvedValue([]);
   mockedPrisma.user.mockResolvedValue([]);
+  mockedPrisma.resource.mockResolvedValue(null);
   mockedPrisma.auditLog.mockResolvedValue({});
   mockedPrisma.systemEvent.mockResolvedValue({});
   mockedDispatch.mockResolvedValue({
@@ -188,6 +193,33 @@ describe("scanAndDispatchOverdue", () => {
         }),
       })
     );
+  });
+
+  it("payload includes resource name (AC-1.5) and manager names on escalation (AC-3.2)", async () => {
+    mockedPrisma.bookingFindMany
+      .mockResolvedValueOnce([
+        bookingStub({ id: "b9", endTime: minutesAgo(35), resourceId: "table-3" }),
+      ])
+      .mockResolvedValueOnce([]);
+    mockedPrisma.moduleAssignment.mockResolvedValue([{ userId: "mgr-1" }]);
+    mockedPrisma.resource.mockResolvedValue({ name: "Стол №3" });
+    // Two user.findMany calls — getSuperadmins returns ids, getUserNames returns names.
+    mockedPrisma.user
+      .mockResolvedValueOnce([{ id: "super-1" }])
+      .mockResolvedValueOnce([{ name: "Иван Петров" }]);
+
+    await scanAndDispatchOverdue(NOW);
+
+    const payloads = mockedDispatch.mock.calls.map((c) => c[0].payload);
+    expect(payloads.length).toBeGreaterThan(0);
+    for (const p of payloads) {
+      expect(p.title).toContain("Стол №3");
+      expect(p.body).toContain("Менеджер: Иван Петров");
+      expect((p.metadata as { resourceName?: string }).resourceName).toBe("Стол №3");
+      expect((p.metadata as { managerNames?: string[] }).managerNames).toEqual([
+        "Иван Петров",
+      ]);
+    }
   });
 
   it("counts dedup as 'deduped' when dispatcher reports duplicate", async () => {

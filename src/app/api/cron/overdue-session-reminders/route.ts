@@ -19,16 +19,10 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  // Feature flag — until WEB_PUSH_ENABLED=true and operators have subscribed,
-  // we don't want a periodic cron generating dispatch attempts.
-  if (process.env.WEB_PUSH_ENABLED !== "true") {
-    return apiError(
-      "WEB_PUSH_DISABLED",
-      "Web Push channel is disabled — overdue cron is gated on WEB_PUSH_ENABLED",
-      503
-    );
-  }
-
+  // Cron работает независимо от WEB_PUSH_ENABLED:
+  // NotificationDispatcher выбирает канал per-user (Telegram → Web Push → Email).
+  // Если у менеджера привязан Telegram — он получит напоминание даже когда
+  // Web Push выключен. См. PR-4 review feedback (PRD: «Primary: Telegram-бот»).
   const cronSecret = process.env.CRON_SECRET ?? "";
   if (!cronSecret) {
     return apiError(

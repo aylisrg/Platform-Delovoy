@@ -38,13 +38,11 @@ beforeEach(() => {
 });
 
 describe("GET /api/cron/overdue-session-reminders", () => {
-  it("returns 503 when WEB_PUSH_ENABLED is not 'true'", async () => {
+  it("works regardless of WEB_PUSH_ENABLED — dispatcher handles channel selection per-user", async () => {
     process.env.WEB_PUSH_ENABLED = "false";
     const res = await GET(makeReq("test-cron-secret"));
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error.code).toBe("WEB_PUSH_DISABLED");
-    expect(mockedScan).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mockedScan).toHaveBeenCalledOnce();
   });
 
   it("returns 503 when CRON_SECRET is not configured", async () => {

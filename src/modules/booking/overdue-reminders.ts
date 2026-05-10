@@ -158,17 +158,28 @@ function pickEventType(
   return null;
 }
 
-function buildPayload(booking: OverdueBooking, slot: "first" | "repeat" | "escalated"): NotificationPayload {
+function buildPayload(
+  booking: OverdueBooking,
+  slot: "first" | "repeat" | "escalated",
+  resourceName: string | null,
+  managerNames: string[],
+): NotificationPayload {
   const moduleLabel = booking.moduleSlug === "ps-park" ? "PS Park" : "Беседка";
+  const resourceLabel = resourceName ? `${moduleLabel} «${resourceName}»` : moduleLabel;
   const titlePrefix =
     slot === "escalated"
       ? "Эскалация"
       : slot === "repeat"
         ? "Повторное напоминание"
         : "Просрочена сессия";
+  // PRD AC-3.2: при эскалации SUPERADMIN получает имя менеджера(ов) модуля.
+  const managerSuffix =
+    slot === "escalated" && managerNames.length > 0
+      ? ` Менеджер: ${managerNames.join(", ")}.`
+      : "";
   return {
-    title: `${titlePrefix}: ${moduleLabel}`,
-    body: `Сессия ${booking.bookingId.slice(0, 8)} просрочена на ${booking.ageMinutes} мин — закройте или продлите.`,
+    title: `${titlePrefix}: ${resourceLabel}`,
+    body: `Сессия ${booking.bookingId.slice(0, 8)} просрочена на ${booking.ageMinutes} мин — закройте или продлите.${managerSuffix}`,
     actions: [
       {
         label: "Открыть",
@@ -178,10 +189,31 @@ function buildPayload(booking: OverdueBooking, slot: "first" | "repeat" | "escal
     metadata: {
       bookingId: booking.bookingId,
       moduleSlug: booking.moduleSlug,
+      resourceId: booking.resourceId,
+      resourceName,
       ageMinutes: booking.ageMinutes,
       tag: `overdue:${booking.bookingId}`,
+      ...(slot === "escalated" && { managerNames }),
     },
   };
+}
+
+async function getResourceName(resourceId: string | null): Promise<string | null> {
+  if (!resourceId) return null;
+  const row = await prisma.resource.findUnique({
+    where: { id: resourceId },
+    select: { name: true },
+  });
+  return row?.name ?? null;
+}
+
+async function getUserNames(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n): n is string => !!n);
 }
 
 async function getModuleManagers(moduleSlug: OverdueModuleSlug): Promise<string[]> {
@@ -230,12 +262,16 @@ async function processBooking(
     };
   }
   const eventType = EVENT_TYPES[slot];
-  const payload = buildPayload(booking, slot);
 
   const managerIds = await getModuleManagers(booking.moduleSlug);
   const recipients =
     slot === "escalated" ? [...managerIds, ...(await getSuperadmins())] : managerIds;
   const uniqueRecipients = Array.from(new Set(recipients));
+
+  // Enrich payload — resource name (AC-1.5) и manager names при эскалации (AC-3.2).
+  const resourceName = await getResourceName(booking.resourceId);
+  const managerNames = slot === "escalated" ? await getUserNames(managerIds) : [];
+  const payload = buildPayload(booking, slot, resourceName, managerNames);
 
   if (uniqueRecipients.length === 0) {
     await prisma.systemEvent.create({

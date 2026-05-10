@@ -36,7 +36,7 @@ Status codes:
 | 200 | Scan succeeded |
 | 401 | `Authorization: Bearer …` missing or wrong |
 | 429 | Rate limiter tripped (defence against accidental crontab misfire) |
-| 503 | `WEB_PUSH_ENABLED != true` or `CRON_SECRET` unset |
+| 503 | `CRON_SECRET` unset |
 | 500 | Unexpected error in scanner |
 
 ## Schedule
@@ -62,8 +62,10 @@ BASH_ENV=/etc/default/delovoy-cron
 
 - `CRON_SECRET` — same secret used by sibling cron endpoints
   (`rental-payment-reminders`, `no-show`).
-- `WEB_PUSH_ENABLED=true` — feature flag. Until set to `true` the
-  endpoint returns `503 WEB_PUSH_DISABLED` and the cron is a no-op.
+- `WEB_PUSH_ENABLED=true` — **gates только канал Web Push**, не cron.
+  Cron работает независимо: dispatcher per-user выбирает канал
+  (Telegram → Web Push → Email). Менеджеры с привязанным `telegramId`
+  получат уведомление даже когда Web Push выключен.
 - Per-module overrides of the 5/15/30-minute thresholds: write to
   `Module.config.overdueThresholds` (JSONB) for slug `ps-park` /
   `gazebos`. Schema enforced at read-time by Zod — invalid overrides
@@ -78,21 +80,20 @@ UPDATE "Module"
  WHERE slug = 'ps-park';
 ```
 
-## Enabling Web Push (one-off ops action)
+## Enabling Web Push as a delivery channel (one-off ops action)
 
-`WEB_PUSH_ENABLED=true` is **not** flipped by code. Procedure:
+Cron уже работает через Telegram. Чтобы добавить Web Push как fallback-канал:
 
 1. Generate VAPID keys once: `npx web-push generate-vapid-keys --json`.
 2. Put `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
    `NEXT_PUBLIC_VAPID_PUBLIC_KEY` into the production env file.
-3. Have at least one MANAGER / SUPERADMIN subscribe via the in-app
+3. Set `WEB_PUSH_ENABLED=true`, restart the app.
+4. Have at least one MANAGER / SUPERADMIN subscribe via the in-app
    "Включить уведомления" button (PR 3) and verify a `WebPushSubscription`
    row appears.
-4. Set `WEB_PUSH_ENABLED=true`, restart the app.
-5. Add the cron entry above. Confirm via Telegram alerts / `AuditLog`.
 
-Until step 4 the cron returns 503 — by design, so a half-configured
-deploy never produces ghost dispatches.
+Cron сам не зависит от этих шагов — он отправляет напоминания через
+доступные каналы менеджеров (минимум — Telegram, если привязан).
 
 ## Verifying that it works
 
@@ -131,7 +132,7 @@ deploy never produces ghost dispatches.
 
 | Symptom | Likely cause |
 |---|---|
-| Endpoint returns 503 even with the right secret | `WEB_PUSH_ENABLED != "true"` in app env |
+| Endpoint returns 503 with `SERVICE_UNAVAILABLE` | `CRON_SECRET` not set in the app env |
 | Endpoint returns 401 for known-good token | trailing newline in `CRON_SECRET` env, or the secret was rotated only in the cron host |
 | `scanned > 0` but `dispatched = 0`, no SystemEvents | All targets de-duped (5-min dedup window). Run again after a slot transition (5/15/30 min). |
 | `skippedNoChannel > 0` rising | Manager has no active `UserNotificationChannel`. Have them subscribe via the admin UI. |
