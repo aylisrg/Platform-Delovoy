@@ -108,7 +108,92 @@ describe("MetrikaClient", () => {
     // Verify the filter was passed
     const lastCallUrl = mockFetch.mock.calls[1][0] as string;
     expect(lastCallUrl).toContain("filters=");
-    expect(decodeURIComponent(lastCallUrl)).toContain("lastSourceEngine=='ya_direct'");
+    expect(decodeURIComponent(lastCallUrl)).toContain("lastAdvEngine=='ya_direct'");
+  });
+
+  it("batches getGoalConversions when >10 goals (Metrika 20-metrics limit)", async () => {
+    const goals = Array.from({ length: 17 }, (_, i) => ({
+      id: 100 + i,
+      name: `Цель ${i}`,
+      type: "action",
+    }));
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ goals }),
+      })
+      // First batch: 10 goals → 20 metric values
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          totals: Array.from({ length: 20 }, (_, i) => i + 1),
+          data: [],
+          query: { metrics: [] },
+        }),
+      })
+      // Second batch: 7 goals → 14 metric values
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          totals: Array.from({ length: 14 }, (_, i) => 100 + i),
+          data: [],
+          query: { metrics: [] },
+        }),
+      });
+
+    const result = await client.getGoalConversions("2026-04-01", "2026-04-15");
+    expect(result).toHaveLength(17);
+    // Each batch URL must have ≤20 metrics (no 4015 error)
+    const batchUrls = mockFetch.mock.calls.slice(1).map((c) => c[0] as string);
+    for (const url of batchUrls) {
+      const m = decodeURIComponent(url).match(/metrics=([^&]+)/)?.[1] ?? "";
+      expect(m.split(",").length).toBeLessThanOrEqual(20);
+    }
+    // Sanity on first goal
+    expect(result[0]).toMatchObject({ goalId: 100, reaches: 1, conversionRate: 2 });
+    // First goal of second batch (goal 110): totals[0]=100 (reaches), totals[1]=1.01 (conversionRate, /100)
+    expect(result[10].goalId).toBe(110);
+    expect(result[10].reaches).toBe(100);
+  });
+
+  it("batches getAdSourceMetrics when >19 goals", async () => {
+    const goals = Array.from({ length: 25 }, (_, i) => ({
+      id: 200 + i,
+      name: `Цель ${i}`,
+      type: "action",
+    }));
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ goals }) })
+      // First call: visits + 19 goals = 20 metrics
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          totals: [555, ...Array.from({ length: 19 }, () => 1)],
+          data: [],
+          query: { metrics: [] },
+        }),
+      })
+      // Second call: remaining 6 goals
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          totals: Array.from({ length: 6 }, () => 2),
+          data: [],
+          query: { metrics: [] },
+        }),
+      });
+
+    const result = await client.getAdSourceMetrics("2026-04-01", "2026-04-15");
+    expect(result.visits).toBe(555);
+    expect(result.goalReaches.size).toBe(25);
+    expect(result.goalReaches.get(200)).toBe(1);
+    expect(result.goalReaches.get(224)).toBe(2);
+
+    const batchUrls = mockFetch.mock.calls.slice(1).map((c) => c[0] as string);
+    for (const url of batchUrls) {
+      const m = decodeURIComponent(url).match(/metrics=([^&]+)/)?.[1] ?? "";
+      expect(m.split(",").length).toBeLessThanOrEqual(20);
+    }
   });
 
   it("throws on API error", async () => {
