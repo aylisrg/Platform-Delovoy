@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.5.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.4.0...v2.5.0) (2026-05-10)
+
+
+### Features
+
+* **notifications:** default release notifications to ON for managers/admins ([#249](https://github.com/aylisrg/Platform-Delovoy/issues/249)) ([c36297f](https://github.com/aylisrg/Platform-Delovoy/commit/c36297fbd0b7ae47064103922d9666b8188cb78e))
+* **notifications:** web push channel skeleton (PR 1/4 overdue reminders) ([#250](https://github.com/aylisrg/Platform-Delovoy/issues/250)) ([2d7703c](https://github.com/aylisrg/Platform-Delovoy/commit/2d7703ce59a991933ee2222d1487cbb8af73d8e9))
+* **notifications:** web push PWA + UI opt-in (PR 3/4 overdue reminders) ([#254](https://github.com/aylisrg/Platform-Delovoy/issues/254)) ([753b212](https://github.com/aylisrg/Platform-Delovoy/commit/753b21202852b1e781e52c5772ff5158247cd71c))
+* **notifications:** web-push API routes (PR 2/4 overdue reminders) ([#252](https://github.com/aylisrg/Platform-Delovoy/issues/252)) ([97d6e6b](https://github.com/aylisrg/Platform-Delovoy/commit/97d6e6b15d7d93c523b0d53914752bb23233e005))
+
+
+### Bug Fixes
+
+* **deploy:** run @DelovoyPark_bot as separate docker service [CRITICAL] ([#255](https://github.com/aylisrg/Platform-Delovoy/issues/255)) ([2d8a39e](https://github.com/aylisrg/Platform-Delovoy/commit/2d8a39e3f4472d1ada207265ef757ccdd48aa7ac))
+* **ps-park:** disable auto-complete endpoint by policy ([#248](https://github.com/aylisrg/Platform-Delovoy/issues/248)) ([8c16296](https://github.com/aylisrg/Platform-Delovoy/commit/8c16296f1b43641c3301fe30e5c73245969e781d))
+
 ## [2.4.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.3.0...v2.4.0) (2026-05-10)
 
 
