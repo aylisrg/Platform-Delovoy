@@ -19,6 +19,9 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    booking: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -118,6 +121,86 @@ describe("createOrder", () => {
     expect(prisma.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ totalAmount: 300 }),
+      })
+    );
+  });
+
+  // ===== F5 ADR — Order.bookingId link =====
+
+  it("creates order without bookingId — does not query Booking", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
+      mockMenuItem({ id: "item-1", price: 500 }),
+    ] as never);
+    vi.mocked(prisma.order.create).mockResolvedValue(mockOrder() as never);
+
+    await createOrder("user-1", { items: [{ menuItemId: "item-1", quantity: 1 }] });
+
+    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
+    expect(prisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({ bookingId: expect.anything() }),
+      })
+    );
+  });
+
+  it("creates order with valid bookingId — verifies booking existence and links", async () => {
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({ id: "booking-1" } as never);
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
+      mockMenuItem({ id: "item-1", price: 500 }),
+    ] as never);
+    vi.mocked(prisma.order.create).mockResolvedValue(
+      mockOrder({ bookingId: "booking-1" }) as never
+    );
+
+    await createOrder("user-1", {
+      items: [{ menuItemId: "item-1", quantity: 1 }],
+      bookingId: "booking-1",
+    });
+
+    expect(prisma.booking.findUnique).toHaveBeenCalledWith({
+      where: { id: "booking-1" },
+      select: { id: true },
+    });
+    expect(prisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ bookingId: "booking-1" }),
+      })
+    );
+  });
+
+  it("throws BOOKING_NOT_FOUND when bookingId references nonexistent Booking", async () => {
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue(null);
+
+    await expect(
+      createOrder("user-1", {
+        items: [{ menuItemId: "item-1", quantity: 1 }],
+        bookingId: "missing-booking",
+      })
+    ).rejects.toMatchObject({ code: "BOOKING_NOT_FOUND" });
+
+    // Cheap rejection: menu lookup and order.create must NOT be called.
+    expect(prisma.menuItem.findMany).not.toHaveBeenCalled();
+    expect(prisma.order.create).not.toHaveBeenCalled();
+  });
+
+  it("allows linking to a soft-deleted Booking (PO Решение №5)", async () => {
+    // findUnique without deletedAt filter still returns the row.
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({ id: "booking-deleted" } as never);
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
+      mockMenuItem({ id: "item-1", price: 500 }),
+    ] as never);
+    vi.mocked(prisma.order.create).mockResolvedValue(
+      mockOrder({ bookingId: "booking-deleted" }) as never
+    );
+
+    await createOrder("user-1", {
+      items: [{ menuItemId: "item-1", quantity: 1 }],
+      bookingId: "booking-deleted",
+    });
+
+    expect(prisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ bookingId: "booking-deleted" }),
       })
     );
   });

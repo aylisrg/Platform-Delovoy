@@ -5,6 +5,8 @@ const TABS = [
   { label: "Расписание", href: "/admin/ps-park" },
   { label: "Ресурсы", href: "/admin/ps-park/resources" },
   { label: "Бронирования", href: "/admin/ps-park/bookings" },
+  { label: "Гости", href: "/admin/ps-park/clients" },
+  { label: "Абонементы", href: "/admin/ps-park/subscriptions" },
   { label: "Аналитика", href: "/admin/ps-park/analytics" },
   { label: "Настройки", href: "/admin/ps-park/settings" },
 ];

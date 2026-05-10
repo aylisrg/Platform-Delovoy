@@ -23,6 +23,7 @@ type SessionBillModalProps = {
   onConfirm: (split: PaymentSplit) => void;
   confirming: boolean;
   maxDiscountPercent?: number;
+  apiError?: string | null;
 };
 
 function formatMoney(n: number) {
@@ -44,6 +45,7 @@ export function SessionBillModal({
   onConfirm,
   confirming,
   maxDiscountPercent = 30,
+  apiError = null,
 }: SessionBillModalProps) {
   const originalTotal = bill.totalBill;
 
@@ -64,6 +66,10 @@ export function SessionBillModal({
   const card = parseFloat(cardRaw) || 0;
   const remainder = Math.round((effectiveTotal - cash - card) * 100) / 100;
   const isBalanced = Math.abs(remainder) < 0.01;
+  // Defense in depth: server enforces PAYMENT_REQUIRED in updateBookingStatus.
+  // UI mirrors the same invariant to keep the button disabled before the
+  // request even goes out (cheaper than a 422 round-trip).
+  const isUnderpaid = effectiveTotal > 0 && cash + card < effectiveTotal;
 
   // When the underlying bill amount changes (item added/removed by another flow,
   // or discount applied), reset the cash/card split to default. Intentional
@@ -358,6 +364,13 @@ export function SessionBillModal({
           </div>
         </div>
 
+        {/* API error from previous submit attempt (e.g. PAYMENT_REQUIRED). */}
+        {apiError && (
+          <p className="px-6 pb-3 text-sm text-red-600" role="alert">
+            {apiError}
+          </p>
+        )}
+
         {/* Actions */}
         <div className="flex gap-3 px-6 pb-5">
           <button
@@ -370,7 +383,7 @@ export function SessionBillModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={confirming || !isBalanced || !discountValid}
+            disabled={confirming || !isBalanced || !discountValid || isUnderpaid}
             className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
             {confirming ? "Завершение..." : "Завершить сессию"}

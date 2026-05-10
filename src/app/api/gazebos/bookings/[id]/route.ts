@@ -52,7 +52,7 @@ export async function PATCH(
       return apiError("VALIDATION_ERROR", "Укажите статус", 422);
     }
 
-    const { reason, confirmPenalty } = body;
+    const { reason, confirmPenalty, cashAmount, cardAmount } = body;
     let updated;
 
     // Users can only cancel their own bookings
@@ -81,7 +81,15 @@ export async function PATCH(
         discountInput = parsed.data;
       }
 
-      updated = await updateBookingStatus(id, status, session.user.id, reason, discountInput);
+      updated = await updateBookingStatus(
+        id,
+        status,
+        session.user.id,
+        reason,
+        typeof cashAmount === "number" ? cashAmount : undefined,
+        typeof cardAmount === "number" ? cardAmount : undefined,
+        discountInput
+      );
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
@@ -107,8 +115,21 @@ export async function PATCH(
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof BookingError) {
-      const status = error.code === "DISCOUNT_EXCEEDS_LIMIT" ? 422 : 400;
-      return apiError(error.code, error.message, status);
+      const conflictCodes = new Set([
+        "INVALID_STATUS_TRANSITION",
+        "ALREADY_COMPLETED",
+        "ALREADY_CANCELLED",
+      ]);
+      const unprocessableCodes = new Set([
+        "DISCOUNT_EXCEEDS_LIMIT",
+        "PAYMENT_REQUIRED",
+      ]);
+      const status = conflictCodes.has(error.code)
+        ? 409
+        : unprocessableCodes.has(error.code)
+          ? 422
+          : 400;
+      return apiError(error.code, error.message, status, error.metadata);
     }
     return apiServerError();
   }

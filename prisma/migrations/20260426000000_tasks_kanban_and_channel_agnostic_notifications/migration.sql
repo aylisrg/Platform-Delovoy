@@ -1,5 +1,3 @@
-Loaded Prisma config from prisma.config.ts.
-
 -- CreateEnum
 CREATE TYPE "TaskSource" AS ENUM ('MANUAL', 'TELEGRAM', 'EMAIL', 'WEB', 'API');
 

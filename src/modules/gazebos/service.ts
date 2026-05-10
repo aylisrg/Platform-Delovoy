@@ -365,7 +365,10 @@ export async function updateBookingStatus(
   status: BookingStatus,
   managerId?: string,
   cancelReason?: string,
-  discountInput?: CheckoutDiscountInput
+  cashAmount?: number,
+  cardAmount?: number,
+  discountInput?: CheckoutDiscountInput,
+  actorRole: import("@/modules/booking/state-machine").ActorRole = "MANAGER"
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -379,7 +382,7 @@ export async function updateBookingStatus(
     assertValidTransition({
       currentStatus: booking.status,
       targetStatus: status,
-      actorRole: "MANAGER",
+      actorRole,
       now: new Date(),
       startTime: booking.startTime,
       noShowThresholdMinutes: 30,
@@ -467,7 +470,7 @@ export async function updateBookingStatus(
       return b;
     });
   } else if (status === "COMPLETED") {
-    // === CHECKOUT with optional discount ===
+    // === CHECKOUT with optional discount + payment gate ===
     const existingMeta = (booking.metadata as BookingMetadata | null) ?? {};
     let discountData: BookingDiscount | undefined;
 
@@ -495,6 +498,40 @@ export async function updateBookingStatus(
       };
     }
 
+    // totalBill: post-discount snapshot of metadata.totalPrice.
+    // gazebos pricing is fixed-at-booking, not pay-as-you-go like PS Park.
+    const originalTotal = Number(existingMeta.totalPrice ?? 0);
+    const completedTotalBill = discountData
+      ? Number(discountData.finalAmount)
+      : originalTotal;
+
+    // PAYMENT_REQUIRED gate — see ADR 2026-05-04-gazebos-payment-required-on-complete.
+    // CRON not used in gazebos today, but the actorRole branch keeps the door
+    // closed to a future cron auto-completion regression.
+    if (actorRole !== "CRON" && completedTotalBill > 0) {
+      const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
+      if (paidByOperator < completedTotalBill) {
+        const shortfall =
+          Math.round((completedTotalBill - paidByOperator) * 100) / 100;
+        throw new BookingError(
+          "PAYMENT_REQUIRED",
+          `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
+          { shortfall, totalBill: completedTotalBill, paid: paidByOperator }
+        );
+      }
+    }
+
+    const resolvedCash = cashAmount ?? completedTotalBill;
+    const resolvedCard = cardAmount ?? 0;
+
+    const managerUser = managerId
+      ? await prisma.user.findUnique({
+          where: { id: managerId },
+          select: { name: true, email: true },
+        })
+      : null;
+    const managerName = managerUser?.name ?? managerUser?.email ?? "Менеджер";
+
     const updatedMetadata = {
       ...existingMeta,
       ...(discountData && {
@@ -504,22 +541,73 @@ export async function updateBookingStatus(
     };
 
     updated = await prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({
-        where: { id },
+      // Idempotent COMPLETE — same race-guard pattern as PS Park (F1).
+      const res = await tx.booking.updateMany({
+        where: { id, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
         data: {
           status,
           ...(managerId && { managerId }),
           ...(googleEventId !== booking.googleEventId && { googleEventId }),
           metadata: updatedMetadata as unknown as import("@prisma/client").Prisma.InputJsonValue,
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+        },
+      });
+      if (res.count === 0) {
+        throw new BookingError("ALREADY_COMPLETED", "Бронирование уже завершено");
+      }
+      const b = await tx.booking.findUniqueOrThrow({ where: { id } });
+
+      // Financial ledger — immutable revenue record (totalAmount = post-discount).
+      await tx.financialTransaction.create({
+        data: {
+          moduleSlug: MODULE_SLUG,
+          type: "SESSION_PAYMENT",
+          bookingId: id,
+          totalAmount: completedTotalBill,
+          cashAmount: resolvedCash,
+          cardAmount: resolvedCard,
+          performedById,
+          performedByName: managerName,
+          description: `Беседка: ${resource?.name ?? "—"} · ${booking.clientName ?? "—"}`,
+          metadata: {
+            resourceName: resource?.name ?? "—",
+            clientName: booking.clientName ?? "—",
+            date: booking.date.toISOString().split("T")[0],
+            startTime: booking.startTime.toISOString(),
+            endTime: booking.endTime.toISOString(),
+            originalTotal,
+            ...(discountData && {
+              discountPercent: discountData.percent,
+              discountAmount: Number(discountData.amount),
+              finalAmount: Number(discountData.finalAmount),
+            }),
+          } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+
+      const completionAction =
+        actorRole === "CRON" ? "booking.auto_complete" : "booking.complete";
+      await tx.auditLog.create({
+        data: {
+          userId: performedById,
+          action: completionAction,
+          entity: "Booking",
+          entityId: id,
+          metadata: {
+            bookingId: id,
+            moduleSlug: MODULE_SLUG,
+            resourceName: resource?.name ?? "—",
+            clientName: booking.clientName ?? "—",
+            totalAmount: completedTotalBill,
+            cashAmount: resolvedCash,
+            cardAmount: resolvedCard,
+            ...(actorRole === "CRON" && { actor: "CRON" }),
+          },
         },
       });
 
       if (discountData) {
-        const managerUser = await tx.user.findUnique({
-          where: { id: performedById },
-          select: { name: true, email: true },
-        });
-
         await tx.auditLog.create({
           data: {
             userId: performedById,
@@ -528,7 +616,7 @@ export async function updateBookingStatus(
             entityId: id,
             metadata: {
               managerId: performedById,
-              managerName: managerUser?.name ?? managerUser?.email ?? "Менеджер",
+              managerName,
               bookingId: id,
               moduleSlug: MODULE_SLUG,
               resourceName: resource?.name ?? "--",
@@ -1051,9 +1139,11 @@ function parseDatetime(date: string, time: string): Date {
 
 export class BookingError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  metadata?: Record<string, unknown>;
+  constructor(code: string, message: string, metadata?: Record<string, unknown>) {
     super(message);
     this.code = code;
     this.name = "BookingError";
+    if (metadata) this.metadata = metadata;
   }
 }

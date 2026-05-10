@@ -23,6 +23,12 @@ import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/mod
 import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
+import { upsertClientByPhone } from "@/modules/clients/service";
+import { getActiveSubscriptionForUser } from "@/modules/subscriptions/service";
+import {
+  debitFromSession,
+  SubscriptionDebitError,
+} from "@/modules/subscriptions/debit";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -230,7 +236,8 @@ export async function updateBookingStatus(
   cashAmount?: number,
   cardAmount?: number,
   discountInput?: CheckoutDiscountInput,
-  actorRole: import("@/modules/booking/state-machine").ActorRole = "MANAGER"
+  actorRole: import("@/modules/booking/state-machine").ActorRole = "MANAGER",
+  subscriptionId?: string
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id, moduleSlug: MODULE_SLUG },
@@ -439,7 +446,88 @@ export async function updateBookingStatus(
       completedTotalBill = discountCalc.finalAmount;
     }
 
-    const resolvedCash = cashAmount ?? completedTotalBill;
+    // === SUBSCRIPTION PRE-FLIGHT (F7 — see ADR 2026-05-04-subscription-debit-and-drilldown) ===
+    // All checks here are READ-ONLY; the actual debit happens inside the tx
+    // below via debitFromSession() to keep COMPLETED + FT + ST + AuditLog atomic.
+    let subscriptionCredit = 0;
+    let activeSubscription: Awaited<
+      ReturnType<typeof getActiveSubscriptionForUser>
+    > = null;
+
+    if (subscriptionId) {
+      const hasDiscount = !!(discountInput && discountInput.discountPercent > 0);
+      const hasCash = (cashAmount ?? 0) > 0;
+      const hasCard = (cardAmount ?? 0) > 0;
+      if (hasDiscount || hasCash || hasCard) {
+        throw new PSBookingError(
+          "INVALID_PAYMENT_COMBINATION",
+          "Оплата абонементом несовместима со скидкой и с наличной/безналичной оплатой",
+          { hasDiscount, hasCash, hasCard }
+        );
+      }
+      if (actorRole === "CRON") {
+        throw new PSBookingError(
+          "INVALID_PAYMENT_COMBINATION",
+          "CRON auto-complete не использует абонемент",
+          { actorRole }
+        );
+      }
+      if (!booking.userId) {
+        throw new PSBookingError(
+          "INVALID_SUBSCRIPTION",
+          "Абонемент недоступен для гостевой брони (нет привязанного пользователя)",
+          { bookingId: id }
+        );
+      }
+      activeSubscription = await getActiveSubscriptionForUser(booking.userId);
+      if (!activeSubscription || activeSubscription.id !== subscriptionId) {
+        throw new PSBookingError(
+          "INVALID_SUBSCRIPTION",
+          "Активный абонемент изменился. Откройте окно завершения заново",
+          {
+            providedId: subscriptionId,
+            currentActiveId: activeSubscription?.id ?? null,
+          }
+        );
+      }
+      if (Number(activeSubscription.remainingHours) < completedBilledHours) {
+        throw new PSBookingError(
+          "INSUFFICIENT_HOURS",
+          `На абонементе недостаточно часов (нужно ${completedBilledHours}, осталось ${activeSubscription.remainingHours})`,
+          {
+            required: completedBilledHours,
+            remainingHours: activeSubscription.remainingHours.toString(),
+            subscriptionId,
+          }
+        );
+      }
+      subscriptionCredit = completedTotalBill;
+    }
+
+    // PAYMENT_REQUIRED gate — see ADR 2026-05-04-ps-park-payment-required-on-complete.
+    // CRON safety-net excluded; totalBill === 0 (no tariff/items) and 100% discount
+    // (completedTotalBill collapses to 0 above) both pass through naturally.
+    // F7: subscriptionCredit is added to paid when subscriptionId is in play.
+    if (actorRole !== "CRON" && completedTotalBill > 0) {
+      const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
+      const totalCovered = paidByOperator + subscriptionCredit;
+      if (totalCovered < completedTotalBill) {
+        const shortfall =
+          Math.round((completedTotalBill - totalCovered) * 100) / 100;
+        throw new PSBookingError(
+          "PAYMENT_REQUIRED",
+          `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
+          {
+            shortfall,
+            totalBill: completedTotalBill,
+            paid: paidByOperator,
+            subscriptionCredit,
+          }
+        );
+      }
+    }
+
+    const resolvedCash = cashAmount ?? (subscriptionId ? 0 : completedTotalBill);
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
       ? await prisma.user.findUnique({ where: { id: managerId }, select: { name: true, email: true } })
@@ -471,19 +559,54 @@ export async function updateBookingStatus(
       }
       const b = await tx.booking.findUniqueOrThrow({ where: { id } });
 
+      // F7: subscription debit inside the same tx — must precede FT.create
+      // so race-loss rolls back the booking flip too.
+      let subscriptionDebit:
+        | { hoursDebited: number; remainingAfter: number; becameDepleted: boolean }
+        | undefined;
+      if (subscriptionId && activeSubscription) {
+        try {
+          subscriptionDebit = await debitFromSession(tx, {
+            subscriptionId,
+            bookingId: id,
+            hours: completedBilledHours,
+            performedById,
+            performedByName: managerName,
+          });
+        } catch (err: unknown) {
+          if (err instanceof SubscriptionDebitError) {
+            throw new PSBookingError(err.code, err.message, err.metadata);
+          }
+          throw err;
+        }
+      }
+
+      // F7: when paid via subscription, FT records 0 (the debit IS the payment).
+      const ftTotal = subscriptionId ? 0 : completedTotalBill;
+      const ftCash = subscriptionId ? 0 : resolvedCash;
+      const ftCard = subscriptionId ? 0 : resolvedCard;
+
       // Financial ledger — immutable record (totalAmount = after discount)
       await tx.financialTransaction.create({
         data: {
           moduleSlug: MODULE_SLUG,
           type: "SESSION_PAYMENT",
           bookingId: id,
-          totalAmount: completedTotalBill,
-          cashAmount: resolvedCash,
-          cardAmount: resolvedCard,
+          totalAmount: ftTotal,
+          cashAmount: ftCash,
+          cardAmount: ftCard,
           performedById: performedById,
           performedByName: managerName,
           description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
-          metadata: billSnapshot ? (billSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue) : undefined,
+          metadata: {
+            ...(billSnapshot ? (billSnapshot as Record<string, unknown>) : {}),
+            ...(subscriptionId && {
+              paymentMethod: "SUBSCRIPTION",
+              subscriptionId,
+              subscriptionHoursDebited: subscriptionDebit?.hoursDebited,
+              originalBillBeforeSubscription: completedTotalBill,
+            }),
+          } as unknown as import("@prisma/client").Prisma.InputJsonValue,
         },
       });
 
@@ -503,13 +626,20 @@ export async function updateBookingStatus(
             moduleSlug: MODULE_SLUG,
             resourceName: resource?.name ?? "—",
             clientName: booking.clientName ?? "—",
-            totalAmount: completedTotalBill,
-            cashAmount: resolvedCash,
-            cardAmount: resolvedCard,
+            totalAmount: ftTotal,
+            cashAmount: ftCash,
+            cardAmount: ftCard,
             billedHours: completedBilledHours,
             pricePerHour: completedPricePerHour,
             itemsTotal: completedItemsTotal,
             ...(actorRole === "CRON" && { actor: "CRON" }),
+            ...(subscriptionId && {
+              paymentMethod: "SUBSCRIPTION",
+              subscriptionId,
+              subscriptionHoursDebited: subscriptionDebit?.hoursDebited,
+              subscriptionRemainingAfter: subscriptionDebit?.remainingAfter,
+              subscriptionBecameDepleted: subscriptionDebit?.becameDepleted,
+            }),
           },
         },
       });
@@ -764,22 +894,16 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
-  // Find or create client User record so they appear in the Clients section
+  // F4 ADR: dedupe guests by E.164 phone, not by raw string. The previous
+  // findFirst({ where: { phone: clientPhone } }) created duplicates whenever
+  // the manager typed "8 999 ..." vs "+79991234567" for the same person.
   let clientUserId: string;
   if (clientPhone) {
-    const existingUser = await prisma.user.findFirst({ where: { phone: clientPhone } });
-    if (existingUser) {
-      // Update name if it changed
-      if (existingUser.name !== clientName) {
-        await prisma.user.update({ where: { id: existingUser.id }, data: { name: clientName } });
-      }
-      clientUserId = existingUser.id;
-    } else {
-      const newUser = await prisma.user.create({
-        data: { name: clientName, phone: clientPhone, role: "USER" },
-      });
-      clientUserId = newUser.id;
-    }
+    const { id } = await upsertClientByPhone(clientPhone, {
+      name: clientName,
+      source: "ps_park_booking",
+    });
+    clientUserId = id;
   } else {
     const newUser = await prisma.user.create({
       data: { name: clientName, role: "USER" },
@@ -1791,9 +1915,195 @@ export async function hardDeleteBooking(id: string, performedById: string) {
 
 export class PSBookingError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  metadata?: Record<string, unknown>;
+  constructor(code: string, message: string, metadata?: Record<string, unknown>) {
     super(message);
     this.code = code;
     this.name = "PSBookingError";
+    if (metadata) this.metadata = metadata;
   }
+}
+
+// === F7: Session drill-down (PRD AC-8..AC-13) ===
+
+export type SessionDetailPaymentMethod =
+  | "CASH"
+  | "CARD"
+  | "MIXED"
+  | "SUBSCRIPTION"
+  | "FREE";
+
+export type SessionDetailDTO = {
+  session: {
+    id: string;
+    status: BookingStatus;
+    date: string;
+    startTime: string;
+    endTime: string;
+    billedHours: number;
+    durationMin: number;
+    totalBill: number;
+    resource: {
+      id: string;
+      name: string;
+      pricePerHour: number;
+    } | null;
+    client: {
+      userId: string | null;
+      name: string | null;
+      phone: string | null;
+      email: string | null;
+    };
+  };
+  orders: Array<{
+    id: string;
+    status: string;
+    totalAmount: number;
+    createdAt: string;
+    items: Array<{
+      name: string;
+      quantity: number;
+      price: number;
+      subtotal: number;
+    }>;
+  }>;
+  payment: {
+    method: SessionDetailPaymentMethod;
+    totalAmount: number;
+    cashAmount: number;
+    cardAmount: number;
+    discount: {
+      percent: number;
+      amount: number;
+      reason: string;
+    } | null;
+    subscription: {
+      subscriptionId: string;
+      hoursDebited: number;
+      balanceAfter: number;
+      transactionId: string;
+    } | null;
+    financialTransactionId: string | null;
+  };
+};
+
+export async function getSessionDetail(id: string): Promise<SessionDetailDTO | null> {
+  const booking = await prisma.booking.findFirst({
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
+  });
+  if (!booking) return null;
+
+  const [user, resource, orders, financialTx, subTx] = await Promise.all([
+    booking.userId
+      ? prisma.user.findUnique({
+          where: { id: booking.userId },
+          select: { id: true, name: true, phone: true, email: true },
+        })
+      : Promise.resolve(null),
+    prisma.resource.findUnique({
+      where: { id: booking.resourceId },
+      select: { id: true, name: true, pricePerHour: true },
+    }),
+    prisma.order.findMany({
+      where: { bookingId: id },
+      include: { items: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.financialTransaction.findFirst({
+      where: { bookingId: id, type: "SESSION_PAYMENT" },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.subscriptionTransaction.findFirst({
+      where: { bookingId: id, type: "CHARGE" },
+    }),
+  ]);
+
+  const menuItemIds = Array.from(
+    new Set(orders.flatMap((o) => o.items.map((i) => i.menuItemId)))
+  );
+  const menuItems = menuItemIds.length
+    ? await prisma.menuItem.findMany({
+        where: { id: { in: menuItemIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const menuItemNames = new Map(menuItems.map((m) => [m.id, m.name]));
+
+  const meta = booking.metadata as Record<string, unknown> | null;
+  const billMeta = (meta?.bill as Record<string, unknown> | undefined) ?? {};
+  const discountMeta = meta?.discount as Record<string, unknown> | undefined;
+
+  const billedHoursVal = Number(billMeta.billedHours ?? 0);
+  const durationMinVal = Number(billMeta.durationMin ?? 0);
+  const totalBillVal = Number(billMeta.totalBill ?? 0);
+
+  const cash = Number(booking.cashAmount ?? 0);
+  const card = Number(booking.cardAmount ?? 0);
+
+  let method: SessionDetailPaymentMethod;
+  if (subTx) method = "SUBSCRIPTION";
+  else if (cash > 0 && card > 0) method = "MIXED";
+  else if (cash > 0) method = "CASH";
+  else if (card > 0) method = "CARD";
+  else method = "FREE";
+
+  return {
+    session: {
+      id: booking.id,
+      status: booking.status,
+      date: booking.date.toISOString().split("T")[0],
+      startTime: booking.startTime.toISOString(),
+      endTime: booking.endTime.toISOString(),
+      billedHours: billedHoursVal,
+      durationMin: durationMinVal,
+      totalBill: totalBillVal,
+      resource: resource
+        ? {
+            id: resource.id,
+            name: resource.name,
+            pricePerHour: Number(resource.pricePerHour ?? 0),
+          }
+        : null,
+      client: {
+        userId: user?.id ?? null,
+        name: user?.name ?? booking.clientName ?? null,
+        phone: user?.phone ?? booking.clientPhone ?? null,
+        email: user?.email ?? null,
+      },
+    },
+    orders: orders.map((o) => ({
+      id: o.id,
+      status: o.status as string,
+      totalAmount: Number(o.totalAmount),
+      createdAt: o.createdAt.toISOString(),
+      items: o.items.map((it) => ({
+        name: menuItemNames.get(it.menuItemId) ?? "—",
+        quantity: it.quantity,
+        price: Number(it.price),
+        subtotal: Number(it.price) * it.quantity,
+      })),
+    })),
+    payment: {
+      method,
+      totalAmount: financialTx ? Number(financialTx.totalAmount) : 0,
+      cashAmount: cash,
+      cardAmount: card,
+      discount: discountMeta
+        ? {
+            percent: Number(discountMeta.percent ?? 0),
+            amount: Number(discountMeta.amount ?? 0),
+            reason: String(discountMeta.reason ?? ""),
+          }
+        : null,
+      subscription: subTx
+        ? {
+            subscriptionId: subTx.subscriptionId,
+            hoursDebited: Math.abs(Number(subTx.hoursDelta)),
+            balanceAfter: Number(subTx.balanceAfter),
+            transactionId: subTx.id,
+          }
+        : null,
+      financialTransactionId: financialTx?.id ?? null,
+    },
+  };
 }

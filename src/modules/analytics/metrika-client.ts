@@ -23,11 +23,17 @@ const REQUEST_TIMEOUT = 10_000;
 // и должны попадать в сводку, как и в кабинете Метрики.
 const COMPOSITE_GOAL_TYPES = new Set(["step"]);
 
-// Фильтр для метрик Метрики, выделяющий только трафик из Яндекс.Директа
-// (`lastSourceEngine` указывает на конкретный движок: `ya_direct`).
-// Для общей рекламы (Google Ads и т.п.) используется `lastTrafficSource=='ad'`,
-// но для сверки с кабинетом Директа нужен именно `ya_direct`.
-const AD_SOURCE_FILTER = "ym:s:lastSourceEngine=='ya_direct'";
+// Фильтр для метрик Метрики, выделяющий только трафик из Яндекс.Директа.
+// Использовать нужно `lastAdvEngine` — именно он хранит движок рекламы и
+// принимает значение `ya_direct`. Старое `lastSourceEngine=='ya_direct'`
+// отдаёт 400 (error code 4009: dimension does not support the value).
+const AD_SOURCE_FILTER = "ym:s:lastAdvEngine=='ya_direct'";
+
+// Метрика API ограничивает запрос 20 метриками за раз (error code 4015).
+// На каждую цель уходит 2 метрики (reaches + conversionRate), значит максимум
+// 10 целей за запрос для getGoalConversions, и 19 — для getAdSourceMetrics
+// (где также шлётся `ym:s:visits`). Берём с запасом.
+const METRIKA_METRICS_LIMIT = 20;
 
 type MetrikaStatResponse = {
   data: Array<{ metrics: number[]; dimensions?: Array<{ name: string }> }>;
@@ -90,26 +96,37 @@ export class MetrikaClient {
     const goals = await this.getGoals();
     if (goals.length === 0) return [];
 
-    const metricsArr = goals.flatMap((g) => [
-      `ym:s:goal${g.id}reaches`,
-      `ym:s:goal${g.id}conversionRate`,
-    ]);
+    // 2 метрики на цель — батч максимум 10 целей за запрос.
+    const chunkSize = Math.floor(METRIKA_METRICS_LIMIT / 2);
+    const result: RawGoalConversion[] = [];
 
-    const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
-      ids: this.counterId,
-      metrics: metricsArr.join(","),
-      date1: dateFrom,
-      date2: dateTo,
-    });
+    for (let i = 0; i < goals.length; i += chunkSize) {
+      const chunk = goals.slice(i, i + chunkSize);
+      const metricsArr = chunk.flatMap((g) => [
+        `ym:s:goal${g.id}reaches`,
+        `ym:s:goal${g.id}conversionRate`,
+      ]);
 
-    const totals = data.totals ?? [];
-    return goals.map((goal, i) => ({
-      goalId: goal.id,
-      goalName: goal.name,
-      goalType: goal.type,
-      reaches: Math.round(totals[i * 2] ?? 0),
-      conversionRate: Math.round((totals[i * 2 + 1] ?? 0) * 100) / 100,
-    }));
+      const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
+        ids: this.counterId,
+        metrics: metricsArr.join(","),
+        date1: dateFrom,
+        date2: dateTo,
+      });
+
+      const totals = data.totals ?? [];
+      chunk.forEach((goal, j) => {
+        result.push({
+          goalId: goal.id,
+          goalName: goal.name,
+          goalType: goal.type,
+          reaches: Math.round(totals[j * 2] ?? 0),
+          conversionRate: Math.round((totals[j * 2 + 1] ?? 0) * 100) / 100,
+        });
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -119,27 +136,48 @@ export class MetrikaClient {
    */
   async getAdSourceMetrics(dateFrom: string, dateTo: string): Promise<AdSourceMetrics> {
     const goals = await this.getGoals();
-    const goalMetrics = goals.map((g) => `ym:s:goal${g.id}reaches`);
+    const goalReaches = new Map<number, number>();
 
-    const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
+    // Первый запрос: visits + первые (LIMIT-1) целей.
+    // Последующие батчи: только метрики reach по целям.
+    const firstChunkSize = METRIKA_METRICS_LIMIT - 1;
+    const firstChunk = goals.slice(0, firstChunkSize);
+    const restChunkSize = METRIKA_METRICS_LIMIT;
+
+    const firstMetrics = [
+      "ym:s:visits",
+      ...firstChunk.map((g) => `ym:s:goal${g.id}reaches`),
+    ];
+    const firstData = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
       ids: this.counterId,
-      metrics: ["ym:s:visits", ...goalMetrics].join(","),
+      metrics: firstMetrics.join(","),
       filters: AD_SOURCE_FILTER,
       date1: dateFrom,
       date2: dateTo,
     });
-
-    const totals = data.totals ?? [];
-    const goalReaches = new Map<number, number>();
-    goals.forEach((goal, i) => {
-      // +1 потому что totals[0] — это visits
-      goalReaches.set(goal.id, Math.round(totals[i + 1] ?? 0));
+    const firstTotals = firstData.totals ?? [];
+    const visits = Math.round(firstTotals[0] ?? 0);
+    firstChunk.forEach((goal, i) => {
+      goalReaches.set(goal.id, Math.round(firstTotals[i + 1] ?? 0));
     });
 
-    return {
-      visits: Math.round(totals[0] ?? 0),
-      goalReaches,
-    };
+    for (let i = firstChunkSize; i < goals.length; i += restChunkSize) {
+      const chunk = goals.slice(i, i + restChunkSize);
+      const metrics = chunk.map((g) => `ym:s:goal${g.id}reaches`);
+      const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
+        ids: this.counterId,
+        metrics: metrics.join(","),
+        filters: AD_SOURCE_FILTER,
+        date1: dateFrom,
+        date2: dateTo,
+      });
+      const totals = data.totals ?? [];
+      chunk.forEach((goal, j) => {
+        goalReaches.set(goal.id, Math.round(totals[j] ?? 0));
+      });
+    }
+
+    return { visits, goalReaches };
   }
 
   async getTrafficSources(dateFrom: string, dateTo: string): Promise<TrafficSource[]> {

@@ -67,6 +67,10 @@ export type ClientDetail = ClientSummary & {
   orders: ClientOrder[];
   activityTimeline: ActivityEvent[];
   spendingByMonth: MonthlySpending[];
+  // Editable card fields (F4 ADR — needed so the edit form can prefill
+  // birthday and notes; ClientSummary keeps a leaner shape for lists).
+  birthday: string | null;
+  notes: string | null;
 };
 
 export type ClientFilter = {
