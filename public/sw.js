@@ -62,7 +62,17 @@ self.addEventListener("push", (event) => {
  */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || "/admin/dashboard";
+  // Defence-in-depth: даже если push payload (контролируемый сервером) был
+  // подделан через утечку VAPID-ключа — открываем только same-origin URL.
+  const rawUrl = (event.notification.data && event.notification.data.url) || "/admin/dashboard";
+  const targetUrl = (() => {
+    try {
+      const u = new URL(rawUrl, self.location.origin);
+      return u.origin === self.location.origin ? u.href : "/admin/dashboard";
+    } catch {
+      return "/admin/dashboard";
+    }
+  })();
 
   event.waitUntil(
     self.clients
