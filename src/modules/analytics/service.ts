@@ -1,6 +1,7 @@
 import { redis, redisAvailable } from "@/lib/redis";
 import { toISODate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { MetrikaClient, type RawGoalConversion, type AdSourceMetrics } from "./metrika-client";
 import { DirectClient } from "./direct-client";
 import type {
@@ -221,14 +222,18 @@ export async function setPrimaryGoalId(goalId: number | null): Promise<void> {
     select: { config: true },
   });
   const base = (existing?.config as Record<string, unknown>) ?? {};
-  const newConfig = goalId === null
-    ? Object.fromEntries(Object.entries(base).filter(([k]) => k !== "primaryGoalId"))
-    : { ...base, primaryGoalId: goalId };
+  const newConfig: Record<string, unknown> = { ...base };
+  if (goalId === null) {
+    delete newConfig.primaryGoalId;
+  } else {
+    newConfig.primaryGoalId = goalId;
+  }
+  const configJson = newConfig as Prisma.InputJsonValue;
 
   await prisma.module.upsert({
     where: { slug: "analytics" },
-    update: { config: newConfig },
-    create: { slug: "analytics", name: "Analytics", isActive: true, config: newConfig },
+    update: { config: configJson },
+    create: { slug: "analytics", name: "Analytics", isActive: true, config: configJson },
   });
 }
 
