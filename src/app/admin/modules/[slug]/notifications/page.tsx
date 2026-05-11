@@ -21,11 +21,7 @@ export default async function ModuleNotificationsPage({
 
   return (
     <>
-      <AdminHeader
-        title="Получатели уведомлений"
-        description={`Модуль: ${slug}`}
-        backHref={`/admin/${slug}`}
-      />
+      <AdminHeader title={`Получатели уведомлений — ${slug}`} />
       <div className="p-8 max-w-2xl">
         <p className="text-sm text-zinc-500 mb-6">
           Выберите пользователей, которые будут получать Telegram-уведомления при
