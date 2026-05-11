@@ -1,5 +1,7 @@
 import { redis, redisAvailable } from "@/lib/redis";
 import { toISODate } from "@/lib/format";
+import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { MetrikaClient, type RawGoalConversion, type AdSourceMetrics } from "./metrika-client";
 import { DirectClient } from "./direct-client";
 import type {
@@ -200,6 +202,41 @@ async function safeAdSourceMetrics(
   }
 }
 
+async function getPrimaryGoalId(): Promise<number | null> {
+  try {
+    const mod = await prisma.module.findUnique({
+      where: { slug: "analytics" },
+      select: { config: true },
+    });
+    const config = mod?.config as Record<string, unknown> | null;
+    const id = config?.primaryGoalId;
+    return typeof id === "number" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setPrimaryGoalId(goalId: number | null): Promise<void> {
+  const existing = await prisma.module.findUnique({
+    where: { slug: "analytics" },
+    select: { config: true },
+  });
+  const base = (existing?.config as Record<string, unknown>) ?? {};
+  const newConfig: Record<string, unknown> = { ...base };
+  if (goalId === null) {
+    delete newConfig.primaryGoalId;
+  } else {
+    newConfig.primaryGoalId = goalId;
+  }
+  const configJson = newConfig as Prisma.InputJsonValue;
+
+  await prisma.module.upsert({
+    where: { slug: "analytics" },
+    update: { config: configJson },
+    create: { slug: "analytics", name: "Analytics", isActive: true, config: configJson },
+  });
+}
+
 export async function getOverview(
   dateRange: DateRange,
   forceRefresh: boolean
@@ -220,7 +257,7 @@ export async function getOverview(
         }
       })();
 
-      const [traffic, trafficSources, rawGoals, adMetrics, rawCampaigns, balance] =
+      const [traffic, trafficSources, rawGoals, adMetrics, rawCampaigns, balance, primaryGoalId] =
         await Promise.all([
           metrika.getTrafficSummary(dateRange.dateFrom, dateRange.dateTo),
           metrika
@@ -230,11 +267,15 @@ export async function getOverview(
           safeAdSourceMetrics(metrika, dateRange.dateFrom, dateRange.dateTo),
           directFetch,
           fetchBalance(forceRefresh),
+          getPrimaryGoalId(),
         ]);
 
       const { campaigns, totals } = enrichCampaigns(rawCampaigns);
       const goals = enrichGoals(rawGoals, adMetrics, totals.cost);
       const totalConversions = goals.reduce((sum, g) => sum + g.reaches, 0);
+      const primaryGoalConversions = primaryGoalId != null
+        ? (goals.find((g) => g.goalId === primaryGoalId)?.reaches ?? null)
+        : null;
       const adSourceConversions = adMetrics
         ? Array.from(adMetrics.goalReaches.values()).reduce((s, n) => s + n, 0)
         : 0;
@@ -274,6 +315,8 @@ export async function getOverview(
               ? { name: worst.campaignName, ctr: worst.ctr }
               : null,
           costIncludesVat: COST_INCLUDES_VAT,
+          primaryGoalId,
+          primaryGoalConversions,
         },
       };
     },

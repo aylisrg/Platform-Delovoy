@@ -97,6 +97,10 @@ export type OverviewData = {
     worstCampaignByCtr: { name: string; ctr: number } | null;
     /** Включён ли НДС в "cost" (по умолчанию YES в нашем отчёте). */
     costIncludesVat: boolean;
+    /** ID главной цели Метрики, выбранной для тайла «Конверсия сайта». NULL = не выбрана. */
+    primaryGoalId: number | null;
+    /** Достижения главной цели за период. NULL если цель не выбрана или не найдена в данных. */
+    primaryGoalConversions: number | null;
   };
   cachedAt: string;
 };

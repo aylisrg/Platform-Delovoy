@@ -185,11 +185,12 @@ jobs:
           RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID
           script: |
             set -e
             cd /opt/delovoy-park
@@ -218,11 +219,12 @@ jobs:
             upsert_env RELEASE_NOTIFY_SECRET      "$RELEASE_NOTIFY_SECRET"
             upsert_env TELEGRAM_BOT_TOKEN         "$TELEGRAM_BOT_TOKEN"
             upsert_env TELEGRAM_ADMIN_CHAT_ID     "$TELEGRAM_ADMIN_CHAT_ID"
+            upsert_env TELEGRAM_OWNER_CHAT_ID     "$TELEGRAM_OWNER_CHAT_ID"
 
             echo "Secrets synced to .env"
 
       - name: Sync docker-compose.prod.yml to server
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
