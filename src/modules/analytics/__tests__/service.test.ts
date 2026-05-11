@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockMetrika, mockDirect } = vi.hoisted(() => ({
+const { mockMetrika, mockDirect, mockPrisma } = vi.hoisted(() => ({
   mockMetrika: {
     getTrafficSummary: vi.fn(),
     getTrafficSources: vi.fn(),
@@ -11,12 +11,20 @@ const { mockMetrika, mockDirect } = vi.hoisted(() => ({
     getCampaignStats: vi.fn(),
     getAccountBalance: vi.fn(),
   },
+  mockPrisma: {
+    module: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
+  },
 }));
 
 vi.mock("@/lib/redis", () => ({
   redis: { get: vi.fn(), setex: vi.fn(), del: vi.fn() },
   redisAvailable: false,
 }));
+
+vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 vi.mock("../metrika-client", () => ({
   MetrikaClient: class {
@@ -91,6 +99,9 @@ describe("getOverview - cost attribution by ad source", () => {
     process.env.YANDEX_METRIKA_COUNTER_ID = "12345";
     delete process.env.YANDEX_DIRECT_BALANCE_MANUAL;
     vi.clearAllMocks();
+
+    // Default: no primary goal configured
+    mockPrisma.module.findUnique.mockResolvedValue(null);
 
     mockMetrika.getTrafficSummary.mockResolvedValue({
       visits: 1000,
@@ -369,6 +380,70 @@ describe("getOverview - cost attribution by ad source", () => {
 
     expect(result.summary.costIncludesVat).toBe(true);
   });
+
+  it("primaryGoalConversions is null when no primaryGoalId configured", async () => {
+    mockDirect.getCampaignStats.mockResolvedValue([]);
+    mockMetrika.getGoalConversions.mockResolvedValue([
+      { goalId: 1, goalName: "Бронирование", goalType: "action", reaches: 30, conversionRate: 3 },
+      { goalId: 2, goalName: "Звонок", goalType: "phone", reaches: 20, conversionRate: 2 },
+    ]);
+    mockPrisma.module.findUnique.mockResolvedValue(null); // no config
+
+    const result = await getOverview(
+      { dateFrom: "2026-04-01", dateTo: "2026-04-15" },
+      false
+    );
+
+    expect(result.summary.primaryGoalId).toBeNull();
+    expect(result.summary.primaryGoalConversions).toBeNull();
+    // totalConversions still correct (sum for context)
+    expect(result.summary.totalConversions).toBe(50);
+  });
+
+  it("primaryGoalConversions returns reaches of configured primary goal only — never >100% of visits", async () => {
+    mockDirect.getCampaignStats.mockResolvedValue([]);
+    // Multiple goals with combined reaches > visits (simulates 200% bug scenario)
+    mockMetrika.getGoalConversions.mockResolvedValue([
+      { goalId: 10, goalName: "Бронирование", goalType: "action", reaches: 80, conversionRate: 8 },
+      { goalId: 20, goalName: "Звонок", goalType: "phone", reaches: 70, conversionRate: 7 },
+      { goalId: 30, goalName: "WhatsApp", goalType: "messenger", reaches: 60, conversionRate: 6 },
+    ]);
+    // primaryGoalId = 10 stored in DB
+    mockPrisma.module.findUnique.mockResolvedValue({
+      config: { primaryGoalId: 10 },
+    });
+
+    const result = await getOverview(
+      { dateFrom: "2026-04-01", dateTo: "2026-04-15" },
+      false
+    );
+
+    // visits = 1000 (from beforeEach mockMetrika.getTrafficSummary)
+    expect(result.summary.primaryGoalId).toBe(10);
+    expect(result.summary.primaryGoalConversions).toBe(80);
+    // conversion rate = 80/1000 = 8% — never exceeds 100%
+    expect((result.summary.primaryGoalConversions! / result.traffic.visits) * 100).toBeLessThanOrEqual(100);
+    // totalConversions still sums all for other uses
+    expect(result.summary.totalConversions).toBe(210);
+  });
+
+  it("primaryGoalConversions is null when primaryGoalId set but goal not in data", async () => {
+    mockDirect.getCampaignStats.mockResolvedValue([]);
+    mockMetrika.getGoalConversions.mockResolvedValue([
+      { goalId: 1, goalName: "Бронирование", goalType: "action", reaches: 5, conversionRate: 0.5 },
+    ]);
+    mockPrisma.module.findUnique.mockResolvedValue({
+      config: { primaryGoalId: 999 }, // goal not in returned data
+    });
+
+    const result = await getOverview(
+      { dateFrom: "2026-04-01", dateTo: "2026-04-15" },
+      false
+    );
+
+    expect(result.summary.primaryGoalId).toBe(999);
+    expect(result.summary.primaryGoalConversions).toBeNull();
+  });
 });
 
 describe("getCampaigns", () => {
@@ -376,6 +451,7 @@ describe("getCampaigns", () => {
     process.env.YANDEX_OAUTH_TOKEN = "test-token";
     process.env.YANDEX_DIRECT_CLIENT_LOGIN = "test-login";
     vi.clearAllMocks();
+    mockPrisma.module.findUnique.mockResolvedValue(null);
   });
 
   it("sorts campaigns by cost descending and computes shares", async () => {
@@ -421,6 +497,7 @@ describe("getConversions", () => {
     process.env.YANDEX_OAUTH_TOKEN = "test-token";
     process.env.YANDEX_DIRECT_CLIENT_LOGIN = "test-login";
     vi.clearAllMocks();
+    mockPrisma.module.findUnique.mockResolvedValue(null);
 
     mockMetrika.getTrafficSummary.mockResolvedValue({
       visits: 1000,

@@ -82,6 +82,8 @@ export default function AnalyticsPage() {
   const [conversions, setConversions] = useState<ConversionsData | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("cost");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
 
   const fetchData = useCallback(async (p: Period, force = false) => {
     setLoading(true);
@@ -112,10 +114,34 @@ export default function AnalyticsPage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/admin/telegram")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success) setTgConfigured(!!d.data.adminChatId);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     fetchData(period);
   }, [period, fetchData]);
 
   const handleRefresh = () => fetchData(period, true);
+
+  const handleSetPrimaryGoal = useCallback(async (goalId: number | null) => {
+    setSavingGoal(true);
+    try {
+      await fetch("/api/analytics/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryGoalId: goalId }),
+      });
+      fetchData(period, true);
+    } finally {
+      setSavingGoal(false);
+    }
+  }, [fetchData, period]);
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -205,6 +231,22 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {/* Telegram warning */}
+      {tgConfigured === false && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 flex items-start gap-3">
+          <span className="shrink-0 mt-0.5">⚠️</span>
+          <span>
+            <strong>Уведомления в Telegram не настроены.</strong> Новые бронирования и заявки не будут приходить в группу администраторов.{" "}
+            <a
+              href="/admin/monitoring?tab=system"
+              className="underline font-medium hover:text-amber-900"
+            >
+              Настроить →
+            </a>
+          </span>
+        </div>
+      )}
+
       {/* Loading skeleton */}
       {loading && !overview && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -283,15 +325,22 @@ export default function AnalyticsPage() {
             <Stat
               label="Конверсия сайта"
               value={
+                overview.summary.primaryGoalConversions != null &&
                 overview.traffic.visits > 0
                   ? formatPct(
-                      (overview.summary.totalConversions /
+                      (overview.summary.primaryGoalConversions /
                         overview.traffic.visits) *
                         100
                     )
                   : "—"
               }
-              sub={`${overview.summary.totalConversions} достижений целей · все источники`}
+              sub={
+                overview.summary.primaryGoalConversions != null
+                  ? `${overview.summary.primaryGoalConversions} достижений · главная цель`
+                  : overview.summary.primaryGoalId == null
+                  ? "Выберите главную цель ниже"
+                  : "Цель не найдена в данных периода"
+              }
             />
           </div>
 
@@ -354,12 +403,38 @@ export default function AnalyticsPage() {
             </Section>
           )}
 
-          {/* === Goals breakdown === */}
+          {/* === Goals breakdown + primary goal selector === */}
           {overview.conversions.length > 0 && (
             <Section
               title="Конверсии по целям"
               subtitle="«Из рекламы» — только трафик с lastSourceEngine = ya_direct"
             >
+              {/* Primary goal selector */}
+              <div className="mb-4 flex items-center gap-3 px-1">
+                <label className="text-sm font-medium text-zinc-700 shrink-0">
+                  Главная цель (тайл «Конверсия сайта»):
+                </label>
+                <select
+                  value={overview.summary.primaryGoalId ?? ""}
+                  onChange={(e) =>
+                    handleSetPrimaryGoal(
+                      e.target.value === "" ? null : Number(e.target.value)
+                    )
+                  }
+                  disabled={savingGoal}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 bg-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="">— не выбрана —</option>
+                  {overview.conversions.map((g) => (
+                    <option key={g.goalId} value={g.goalId}>
+                      {g.goalName} ({g.reaches} достиж.)
+                    </option>
+                  ))}
+                </select>
+                {savingGoal && (
+                  <span className="text-xs text-zinc-400">Сохранение…</span>
+                )}
+              </div>
               <GoalsTable
                 goals={overview.conversions}
                 currency={balanceCurrency}
