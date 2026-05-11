@@ -9,7 +9,7 @@ describe("seedTasks", () => {
     fake = createFakePrisma();
   });
 
-  it("empty DB: creates 1 module + 1 board + 6 columns + 9 categories", async () => {
+  it("empty DB: creates 1 module + 1 board + 6 columns + 10 categories", async () => {
     await seedTasks(asPrisma(fake));
 
     expect(fake.module.__store.rows.length).toBe(1);
@@ -25,7 +25,7 @@ describe("seedTasks", () => {
       .sort((a, b) => Number(a) - Number(b));
     expect(sortOrders).toEqual([0, 1, 2, 3, 4, 5]);
 
-    expect(fake.taskCategory.__store.rows.length).toBe(9);
+    expect(fake.taskCategory.__store.rows.length).toBe(10);
     const catSlugs = fake.taskCategory.__store.rows.map((r) => r.slug).sort();
     expect(catSlugs).toEqual([
       "cafe",
@@ -35,6 +35,7 @@ describe("seedTasks", () => {
       "parking",
       "ps-park",
       "rental",
+      "rental-inquiry",
       "security",
       "uncategorized",
     ]);

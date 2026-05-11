@@ -89,7 +89,6 @@ export const authConfig: NextAuthConfig = {
         pathname === "/api/tasks/offices";
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
-        pathname.startsWith("/api/waitlist") ||
         pathname.startsWith("/api/bot/") ||
         // Guest checkout: booking endpoints accept unauthenticated POSTs when
         // the body carries guestName + guestPhone. The handler enforces the rule.
