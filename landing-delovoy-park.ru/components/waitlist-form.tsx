@@ -12,10 +12,10 @@ export function WaitlistForm() {
     setStatus("loading");
 
     try {
-      const res = await fetch("/api/waitlist", {
+      const res = await fetch("/api/rental/inquiries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone }),
+        body: JSON.stringify({ name, phone, message: "Лист ожидания (нет свободных офисов)" }),
       });
 
       if (res.ok) {

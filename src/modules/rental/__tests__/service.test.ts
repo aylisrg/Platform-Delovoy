@@ -4,6 +4,10 @@ vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
 }));
 
+vi.mock("@/modules/tasks/service", () => ({
+  createTask: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     office: {
@@ -36,6 +40,9 @@ vi.mock("@/lib/db", () => ({
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+    },
+    taskCategory: {
+      findMany: vi.fn(),
     },
     rentalDeal: {
       findMany: vi.fn(),
@@ -83,9 +90,11 @@ import {
   deleteDeal,
   reorderDeals,
   searchOffices,
+  createInquiry,
   RentalError,
 } from "@/modules/rental/service";
 import { prisma } from "@/lib/db";
+import { createTask } from "@/modules/tasks/service";
 
 const mockOffice = (overrides = {}) => ({
   id: "office-1",
@@ -954,5 +963,83 @@ describe("searchOffices", () => {
       contains: "301",
       mode: "insensitive",
     });
+  });
+});
+
+// === INQUIRY ===
+
+describe("createInquiry", () => {
+  const mockInquiry = {
+    id: "inquiry-1",
+    name: "Иван",
+    phone: "79161234567",
+    email: null,
+    companyName: null,
+    message: null,
+    officeId: null,
+    status: "NEW" as const,
+    isRead: false,
+    adminNotes: null,
+    convertedToId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    office: null,
+  };
+  const mockDeal = { id: "deal-1" };
+  const mockTask = { id: "task-1", publicId: "ABC-001" };
+
+  beforeEach(() => {
+    vi.mocked(prisma.rentalInquiry.create).mockResolvedValue(mockInquiry as never);
+    vi.mocked(prisma.rentalDeal.create).mockResolvedValue(mockDeal as never);
+    vi.mocked(prisma.taskCategory.findMany).mockResolvedValue([
+      { id: "cat-1", slug: "rental-inquiry", isArchived: false },
+    ] as never);
+    vi.mocked(createTask).mockResolvedValue(mockTask as never);
+  });
+
+  it("creates RentalInquiry and RentalDeal", async () => {
+    await createInquiry({ name: "Иван", phone: "79161234567" });
+
+    expect(prisma.rentalInquiry.create).toHaveBeenCalledOnce();
+    expect(prisma.rentalDeal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stage: "NEW_LEAD" }) })
+    );
+  });
+
+  it("creates a kanban Task with source=WEB and externalContact", async () => {
+    await createInquiry({ name: "Иван", phone: "79161234567" });
+
+    expect(createTask).toHaveBeenCalledOnce();
+    const call = vi.mocked(createTask).mock.calls[0][0];
+    expect(call.data.source).toBe("WEB");
+    expect(call.data.title).toContain("Иван");
+    expect((call.data.externalContact as { phone: string }).phone).toBe("79161234567");
+    expect(call.actorUserId).toBeNull();
+  });
+
+  it("uses rental-inquiry category when available", async () => {
+    await createInquiry({ name: "Иван", phone: "79161234567" });
+
+    const call = vi.mocked(createTask).mock.calls[0][0];
+    expect(call.data.categoryId).toBe("cat-1");
+  });
+
+  it("falls back to rental category if rental-inquiry not found", async () => {
+    vi.mocked(prisma.taskCategory.findMany).mockResolvedValue([
+      { id: "cat-2", slug: "rental", isArchived: false },
+    ] as never);
+
+    await createInquiry({ name: "Иван", phone: "79161234567" });
+
+    const call = vi.mocked(createTask).mock.calls[0][0];
+    expect(call.data.categoryId).toBe("cat-2");
+  });
+
+  it("does not throw if createTask fails", async () => {
+    vi.mocked(createTask).mockRejectedValue(new Error("DB error"));
+
+    await expect(
+      createInquiry({ name: "Иван", phone: "79161234567" })
+    ).resolves.toEqual(mockInquiry);
   });
 });

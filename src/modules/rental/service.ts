@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { ContractStatus, OfficeStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { createTask } from "@/modules/tasks/service";
 import {
   generatePaymentsForContract,
   regeneratePendingPayments,
@@ -1007,6 +1008,46 @@ export async function createInquiry(input: CreateInquiryInput) {
       stage: "NEW_LEAD",
     },
   });
+
+  // Create Task in kanban so the lead appears in "Новые" column
+  try {
+    const allCategories = await prisma.taskCategory.findMany({
+      where: { isArchived: false },
+      select: { id: true, slug: true },
+    });
+    const categoryId =
+      allCategories.find((c) => c.slug === "rental-inquiry")?.id ??
+      allCategories.find((c) => c.slug === "rental")?.id ??
+      allCategories.find((c) => c.slug === "uncategorized")?.id ??
+      null;
+
+    const descParts: string[] = [`📞 ${input.phone}`];
+    if (input.email) descParts.push(`✉️ ${input.email}`);
+    if (input.companyName) descParts.push(`🏢 ${input.companyName}`);
+    if (officeNumbers.length > 0) descParts.push(`🏠 Офис(ы): ${officeNumbers.join(", ")}`);
+    if (finalMessage) descParts.push(`\n${finalMessage}`);
+
+    await createTask({
+      data: {
+        title: `Заявка с лендинга — ${input.name}`,
+        description: descParts.join("\n"),
+        categoryId: categoryId ?? undefined,
+        source: "WEB",
+        reporterUserId: null,
+        externalContact: {
+          name: input.name,
+          phone: input.phone,
+          ...(input.email && { email: input.email }),
+          ...(input.companyName && { officeNumber: officeNumbers[0] }),
+        },
+        officeId: resolvedOfficeIds[0] || null,
+      },
+      actorUserId: null,
+      actorRole: null,
+    });
+  } catch (err) {
+    console.error("[Rental] createInquiry: failed to create kanban task", err);
+  }
 
   return inquiry;
 }

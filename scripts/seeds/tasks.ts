@@ -113,11 +113,18 @@ export async function seedTasks(prisma: PrismaClient): Promise<void> {
   //   - name НЕ перезаписывается (менеджер может переименовать через PATCH endpoint).
   const categories: CategoryDefinition[] = [
     {
+      slug: "rental-inquiry",
+      name: "Заявки на офис",
+      color: "#0284C7",
+      keywords: ["лист ожидания", "заявка на офис", "аренда офис"],
+      sortOrder: 1,
+    },
+    {
       slug: "rental",
       name: "Аренда",
       color: "#0EA5E9",
       keywords: ["аренда", "офис", "договор", "оплата"],
-      sortOrder: 1,
+      sortOrder: 2,
     },
     {
       slug: "cafe",

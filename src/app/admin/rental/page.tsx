@@ -211,6 +211,12 @@ export default async function RentalManagerPage() {
                   </span>
                 )}
               </Link>
+              <Link
+                href="/admin/modules/rental/notifications"
+                className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-300"
+              >
+                Получатели уведомлений
+              </Link>
             </>
           )}
         </div>
