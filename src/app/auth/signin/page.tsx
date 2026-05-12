@@ -27,6 +27,7 @@ function SignInInner() {
   // actually misconfigured — runtime check, not build-time, so changing
   // env on prod takes effect without a Docker rebuild.
   const [telegramEnabled, setTelegramEnabled] = useState(true);
+  const [vkEnabled, setVkEnabled] = useState(false);
 
   const redirectAfterLogin = useCallback(async () => {
     const sessionRes = await fetch("/api/auth/session");
@@ -46,8 +47,13 @@ function SignInInner() {
     fetch("/api/auth/providers-status")
       .then((r) => r.json())
       .then((body) => {
-        if (body?.success && body.data && typeof body.data.telegram === "boolean") {
-          setTelegramEnabled(body.data.telegram);
+        if (body?.success && body.data) {
+          if (typeof body.data.telegram === "boolean") {
+            setTelegramEnabled(body.data.telegram);
+          }
+          if (typeof body.data.vk === "boolean") {
+            setVkEnabled(body.data.vk);
+          }
         }
       })
       .catch(() => {
@@ -169,6 +175,16 @@ function SignInInner() {
                     </summary>
 
                     <div className="mt-3 space-y-2.5">
+                      {vkEnabled && (
+                        <button
+                          onClick={() => signIn("vk-id", { callbackUrl: "/auth/redirect" })}
+                          disabled={loading}
+                          className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                        >
+                          <VkIconSmall />
+                          Войти через VK
+                        </button>
+                      )}
                       <button
                         onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
                         disabled={loading}
@@ -181,15 +197,27 @@ function SignInInner() {
                   </details>
                 </>
               ) : (
-                /* Telegram not configured — email becomes primary */
-                <button
-                  onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-3 rounded-xl bg-blue-600 px-4 py-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-                >
-                  <MailIconSmall />
-                  Войти по Email
-                </button>
+                /* Telegram not configured — VK or email becomes primary */
+                <div className="space-y-2.5">
+                  {vkEnabled && (
+                    <button
+                      onClick={() => signIn("vk-id", { callbackUrl: "/auth/redirect" })}
+                      disabled={loading}
+                      className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#0077FF] px-4 py-4 text-sm font-medium text-white transition-colors hover:bg-[#0066DD] disabled:opacity-50"
+                    >
+                      <VkIconSmall />
+                      Войти через VK
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setView("email"); setEmailSubView("form"); setError(""); }}
+                    disabled={loading}
+                    className={`flex w-full items-center justify-center gap-3 rounded-xl px-4 py-4 text-sm font-medium text-white transition-colors disabled:opacity-50 ${vkEnabled ? "border border-zinc-700 bg-zinc-800 hover:bg-zinc-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                  >
+                    <MailIconSmall />
+                    Войти по Email
+                  </button>
+                </div>
               )}
 
               {error && <p className="text-center text-sm text-red-400">{error}</p>}
@@ -387,6 +415,18 @@ function MailIconSmall() {
       <rect width="24" height="24" rx="4" fill="#3b82f6" />
       <rect x="4" y="6" width="16" height="12" rx="1.5" stroke="white" strokeWidth="1.5" fill="none" />
       <path d="M4 8l8 5 8-5" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+function VkIconSmall() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="4" fill="#0077FF" />
+      <path
+        d="M12.6 16.5H11.3C11.3 16.5 8 16.6 5.1 13.6C2 10.4 2.2 7.5 2.2 7.5H5.5C5.5 7.5 5.6 9.7 7.5 11.7C7.9 12.1 8.3 12.4 8.6 12.7V7.5H11.7V11.9C12.2 11.7 12.8 11.1 13.3 10C13.8 9 13.9 7.5 13.9 7.5H17C17 7.5 16.9 9.4 15.9 11C15.5 11.7 14.9 12.4 14.2 12.9L17.8 16.5H14.3L12.1 14.2L12.6 16.5Z"
+        fill="white"
+      />
     </svg>
   );
 }

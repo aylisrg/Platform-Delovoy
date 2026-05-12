@@ -34,4 +34,3 @@ export const MaxChannel = new StubChannel("MAX");
 export const IMessageChannel = new StubChannel("IMESSAGE");
 export const SmsChannel = new StubChannel("SMS");
 export const PushChannel = new StubChannel("PUSH");
-export const VkChannel = new StubChannel("VK");

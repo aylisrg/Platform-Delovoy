@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => ({
 import { prisma } from "@/lib/db";
 import {
   getRecipientUserIds,
+  getExplicitRecipientUserIds,
   setRecipientUserIds,
   listEligibleRecipients,
 } from "@/modules/notifications/recipients";
@@ -51,6 +52,27 @@ describe("getRecipientUserIds", () => {
     const ids = await getRecipientUserIds("rental");
 
     expect(ids.filter((id) => id === "sa-1")).toHaveLength(1);
+  });
+});
+
+describe("getExplicitRecipientUserIds", () => {
+  it("returns empty array when module has no config", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
+
+    const ids = await getExplicitRecipientUserIds("rental-inquiry");
+
+    expect(ids).toEqual([]);
+  });
+
+  it("returns only explicitly listed recipients without SUPERADMIN merge", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { notificationRecipients: ["mgr-1"] },
+    } as never);
+
+    const ids = await getExplicitRecipientUserIds("rental-inquiry");
+
+    expect(ids).toEqual(["mgr-1"]);
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 });
 

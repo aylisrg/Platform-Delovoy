@@ -1,7 +1,6 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
-import VK from "next-auth/providers/vk";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "./db";
@@ -11,6 +10,9 @@ import { authorizeMagicLinkNonce } from "@/modules/auth/magic-link-authorize";
 import { verifyTelegramTokenJwt } from "@/modules/auth/telegram-token-jwt";
 import { reserveJti } from "@/modules/auth/telegram-deep-link";
 import { logAuthEvent } from "@/lib/audit";
+import { VkIdProvider } from "@/lib/auth-providers/vk-id";
+import { handleVkIdSignIn } from "@/modules/auth/vk-id-authorize";
+import type { VkIdProfile } from "@/lib/auth-providers/vk-id";
 
 // Telegram login data verification (used by legacy Login Widget Credentials
 // provider — kept as 30-day fallback per ADR §10. New deep-link flow lives
@@ -56,6 +58,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // = "yandex"/"google" are intentionally NOT deleted — those users
       // will simply re-login via Telegram/email and auto-merge will pick
       // them up.
+
+      // VK ID v2 — update User.vkId, phone, source and run auto-merge.
+      // PrismaAdapter creates the User and Account rows; we fill in the
+      // VK-specific columns and channel record here.
+      if (account?.provider === "vk-id" && user?.id && profile) {
+        try {
+          await handleVkIdSignIn(user.id, profile as unknown as VkIdProfile);
+        } catch (err) {
+          // Non-fatal: vkId update failure must not block login.
+          console.error("[Auth] VK ID post-signIn error:", err);
+        }
+      }
+
       if (authConfig.callbacks?.signIn) {
         return (authConfig.callbacks.signIn as (args: unknown) => Promise<boolean | string>)({ user, account, profile });
       }
@@ -307,10 +322,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
 
-    // VK (Max) OAuth — Wave 3 will replace with custom VK ID v2 provider
-    // (ADR §2). For now, keep the stock provider so any pre-existing VK
-    // sessions keep working.
-    VK({
+    // VK ID v2 OAuth with PKCE (Wave 3 — ADR §2).
+    // Custom provider replaces the stock next-auth/providers/vk because
+    // VK ID v2 uses id.vk.com (not oauth.vk.com) and requires PKCE.
+    VkIdProvider({
       clientId: process.env.VK_CLIENT_ID,
       clientSecret: process.env.VK_CLIENT_SECRET,
     }),

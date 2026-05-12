@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
 import { ContactsCard } from "@/components/public/profile/contacts-card";
+import { VkCommunityBanner } from "@/components/auth/vk-community-banner";
 import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 import { formatDate, formatTime } from "@/lib/format";
 
@@ -82,6 +83,14 @@ export default async function DashboardPage() {
 
   const userId = session.user.id;
 
+  const vkCommunityId = process.env.VK_COMMUNITY_ID ?? null;
+  const hasVkChannel = vkCommunityId
+    ? await prisma.userNotificationChannel.findFirst({
+        where: { userId, kind: "VK" },
+        select: { id: true },
+      }).then(Boolean)
+    : false;
+
   const [bookings, orders, feedbackItems] = await Promise.all([
     prisma.booking.findMany({
       where: { userId },
@@ -117,6 +126,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
+      {hasVkChannel && vkCommunityId && (
+        <VkCommunityBanner communityId={vkCommunityId} />
+      )}
       <Navbar />
 
       <header className="bg-white border-b border-zinc-200 pt-14">

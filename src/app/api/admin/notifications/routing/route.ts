@@ -37,6 +37,12 @@ const ROUTING_CATEGORIES = [
     icon: "🏢",
   },
   {
+    key: "rental-inquiry",
+    label: "Заявки на офис (лендинг)",
+    description: "Новые заявки с формы аренды офиса — отдельный канал",
+    icon: "📨",
+  },
+  {
     key: "inventory",
     label: "Склад",
     description: "Приёмки, списания, низкие остатки",
