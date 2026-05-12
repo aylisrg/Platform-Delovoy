@@ -186,21 +186,31 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
 
 /**
  * Send notification to module admins.
- * Fans out to per-module recipients via the dispatch layer when configured;
- * falls back to the legacy single-chat-ID path when the recipients list is empty.
+ *
+ * Three paths (checked in order):
+ * 1. Group-only mode — no explicit per-user recipients + module has its own
+ *    chat configured → send directly to that chat, skip SUPERADMIN DM fanout.
+ * 2. Explicit per-user recipients — dispatch to each via the dispatch layer
+ *    (queued, async delivery through UserNotificationChannel).
+ * 3. Legacy direct send — no explicit recipients configured → send directly
+ *    to module chatId or global TELEGRAM_ADMIN_CHAT_ID env fallback.
+ *
+ * The dispatch layer (path 2) is ONLY used for explicitly configured recipients
+ * because it requires UserNotificationChannel entries to exist. Falling through
+ * to path 3 ensures SUPERADMIN always gets notifications via the legacy chatId
+ * even when no channels are configured in the DB.
  */
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
     const message = renderAdminMessage(event.moduleSlug, event.type, event.data);
     if (!message) return;
 
-    // Group-only mode: no explicit recipients + module has its own chat configured.
-    // Skips SUPERADMIN DM fanout — message goes exclusively to the group chat.
     const [explicitIds, moduleConfig] = await Promise.all([
       getExplicitRecipientUserIds(event.moduleSlug),
       getModuleBotConfig(event.moduleSlug),
     ]);
 
+    // Path 1 — group-only mode
     if (explicitIds.length === 0 && moduleConfig.telegramAdminChatId) {
       const result = await telegramAdapter.send(moduleConfig.telegramAdminChatId, message, {
         botToken: moduleConfig.telegramBotToken,
@@ -219,14 +229,12 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
       return;
     }
 
-    const recipientIds = await getRecipientUserIds(event.moduleSlug);
-
-    if (recipientIds.length > 0) {
-      // Modern dispatch fanout — one OutgoingNotification per recipient
+    // Path 2 — explicit per-user recipients via dispatch layer
+    if (explicitIds.length > 0) {
       const eventLabel = event.type.replace(".", " ");
       const payload = { title: `[${event.moduleSlug}] ${eventLabel}`, body: message };
       await Promise.allSettled(
-        recipientIds.map((userId) =>
+        explicitIds.map((userId) =>
           dispatch({
             userId,
             eventType: event.type,
@@ -239,7 +247,7 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
       return;
     }
 
-    // Legacy fallback: single global chat ID
+    // Path 3 — legacy direct send to chat ID
     const chatId = moduleConfig.telegramAdminChatId || (await getGlobalAdminChatId());
     if (!chatId) {
       console.warn(`[Notifications] No admin chat configured for module: ${event.moduleSlug}`);
