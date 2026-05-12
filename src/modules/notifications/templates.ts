@@ -71,6 +71,10 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
     "inquiry.created": (d) =>
       `<b>Новая заявка на аренду!</b>\n\nИмя: ${d.name}\nТелефон: ${d.phone}\nEmail: ${d.email}\nКомпания: ${d.companyName}\nОфис: ${d.officeNumber}\n\nСообщение: ${d.message}`,
   },
+  "rental-inquiry": {
+    "inquiry.created": (d) =>
+      `<b>🏢 Новая заявка на офис!</b>\n\nИмя: ${d.name}\nТелефон: ${d.phone}\nEmail: ${d.email}\nКомпания: ${d.companyName}\nОфис: ${d.officeNumber}\n\nСообщение: ${d.message}`,
+  },
 };
 
 /**

@@ -61,7 +61,7 @@ describe("GET /api/admin/notifications/routing", () => {
     const body = await res.json();
 
     expect(body.success).toBe(true);
-    expect(body.data.rules).toHaveLength(7); // 7 categories
+    expect(body.data.rules).toHaveLength(8); // 8 categories (incl. rental-inquiry)
     expect(body.data.global.chatId).toBe("-100999");
 
     const gazebosRule = body.data.rules.find((r: { key: string }) => r.key === "gazebos");

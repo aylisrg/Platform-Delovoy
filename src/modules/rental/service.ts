@@ -984,7 +984,7 @@ export async function createInquiry(input: CreateInquiryInput) {
 
   enqueueNotification({
     type: "inquiry.created",
-    moduleSlug: "rental",
+    moduleSlug: "rental-inquiry",
     entityId: inquiry.id,
     data: {
       name: input.name,
@@ -999,7 +999,7 @@ export async function createInquiry(input: CreateInquiryInput) {
   // Also notify admin about new deal in pipeline
   enqueueNotification({
     type: "deal.created",
-    moduleSlug: "rental",
+    moduleSlug: "rental-inquiry",
     entityId: deal.id,
     data: {
       contactName: input.name,

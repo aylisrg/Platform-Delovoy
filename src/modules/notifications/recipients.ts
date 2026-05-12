@@ -34,6 +34,21 @@ export async function getRecipientUserIds(moduleSlug: string): Promise<string[]>
 }
 
 /**
+ * Returns only the explicitly configured recipient userIds from
+ * Module.config.notificationRecipients — without auto-merging SUPERADMINs.
+ * Used to detect "group-only mode": when this list is empty and a group chatId
+ * is configured, notifications go exclusively to the group chat.
+ */
+export async function getExplicitRecipientUserIds(moduleSlug: string): Promise<string[]> {
+  const mod = await prisma.module.findUnique({
+    where: { slug: moduleSlug },
+    select: { config: true },
+  });
+  const config = mod?.config as Record<string, unknown> | null;
+  return (config?.notificationRecipients as string[] | undefined) ?? [];
+}
+
+/**
  * Persists the selected recipient userIds into Module.config.notificationRecipients.
  * Only ADMIN / MANAGER users with the required module access are accepted.
  * SUPERADMIN entries are silently ignored (they always receive notifications).

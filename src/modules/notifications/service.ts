@@ -6,7 +6,7 @@ import { renderClientMessage, renderAdminMessage } from "./templates";
 import { renderEmailTemplate } from "./email-templates";
 import { resolveChannelForUser, getAdapter } from "./channels/index";
 import { telegramAdapter } from "./channels/telegram";
-import { getRecipientUserIds } from "./recipients";
+import { getRecipientUserIds, getExplicitRecipientUserIds } from "./recipients";
 import { dispatch } from "./dispatch/dispatcher";
 
 const USER_SELECT = {
@@ -194,6 +194,31 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     const message = renderAdminMessage(event.moduleSlug, event.type, event.data);
     if (!message) return;
 
+    // Group-only mode: no explicit recipients + module has its own chat configured.
+    // Skips SUPERADMIN DM fanout — message goes exclusively to the group chat.
+    const [explicitIds, moduleConfig] = await Promise.all([
+      getExplicitRecipientUserIds(event.moduleSlug),
+      getModuleBotConfig(event.moduleSlug),
+    ]);
+
+    if (explicitIds.length === 0 && moduleConfig.telegramAdminChatId) {
+      const result = await telegramAdapter.send(moduleConfig.telegramAdminChatId, message, {
+        botToken: moduleConfig.telegramBotToken,
+      });
+      await logNotification({
+        userId: null,
+        channel: "TELEGRAM",
+        eventType: event.type,
+        moduleSlug: event.moduleSlug,
+        entityId: event.entityId,
+        recipient: moduleConfig.telegramAdminChatId,
+        message,
+        status: result.success ? "SENT" : "FAILED",
+        error: result.error,
+      });
+      return;
+    }
+
     const recipientIds = await getRecipientUserIds(event.moduleSlug);
 
     if (recipientIds.length > 0) {
@@ -215,15 +240,15 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     }
 
     // Legacy fallback: single global chat ID
-    const config = await getModuleBotConfig(event.moduleSlug);
-    const chatId = config.telegramAdminChatId || (await getGlobalAdminChatId());
+    const chatId = moduleConfig.telegramAdminChatId || (await getGlobalAdminChatId());
     if (!chatId) {
       console.warn(`[Notifications] No admin chat configured for module: ${event.moduleSlug}`);
       return;
     }
 
-    const botToken = config.telegramBotToken;
-    const result = await telegramAdapter.send(chatId, message, { botToken });
+    const result = await telegramAdapter.send(chatId, message, {
+      botToken: moduleConfig.telegramBotToken,
+    });
 
     await logNotification({
       userId: null,

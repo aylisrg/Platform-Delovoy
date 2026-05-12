@@ -95,6 +95,7 @@ import {
 } from "@/modules/rental/service";
 import { prisma } from "@/lib/db";
 import { createTask } from "@/modules/tasks/service";
+import { enqueueNotification } from "@/modules/notifications/queue";
 
 const mockOffice = (overrides = {}) => ({
   id: "office-1",
@@ -1041,5 +1042,12 @@ describe("createInquiry", () => {
     await expect(
       createInquiry({ name: "Иван", phone: "79161234567" })
     ).resolves.toEqual(mockInquiry);
+  });
+
+  it("fires enqueueNotification with moduleSlug rental-inquiry", async () => {
+    await createInquiry({ name: "Иван", phone: "79161234567" });
+
+    const calls = vi.mocked(enqueueNotification).mock.calls;
+    expect(calls.every((c) => c[0].moduleSlug === "rental-inquiry")).toBe(true);
   });
 });
