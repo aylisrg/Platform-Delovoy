@@ -323,11 +323,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
 
     // VK ID v2 OAuth with PKCE (Wave 3 — ADR §2).
-    // Custom provider replaces the stock next-auth/providers/vk because
-    // VK ID v2 uses id.vk.com (not oauth.vk.com) and requires PKCE.
-    VkIdProvider({
-      clientId: process.env.VK_CLIENT_ID,
-      clientSecret: process.env.VK_CLIENT_SECRET,
-    }),
+    // Only registered when both env vars are set — NextAuth v5 throws a
+    // Configuration error at runtime if an OAuth provider has no clientId,
+    // which breaks ALL auth flows (not just VK). Guard here so the provider
+    // is a no-op when VK keys are absent.
+    ...(process.env.VK_CLIENT_ID && process.env.VK_CLIENT_SECRET
+      ? [VkIdProvider({
+          clientId: process.env.VK_CLIENT_ID,
+          clientSecret: process.env.VK_CLIENT_SECRET,
+        })]
+      : []),
   ],
 });
