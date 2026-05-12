@@ -47,6 +47,7 @@ export function BookingFlow() {
   const [step, setStep] = useState<BookingStep>("date");
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
+  const [minBookingHours, setMinBookingHours] = useState(4);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
@@ -76,7 +77,8 @@ export function BookingFlow() {
       const res = await fetch(`/api/gazebos/availability?date=${date}`);
       const data = await res.json();
       if (data.success) {
-        setAvailability(data.data);
+        setAvailability(data.data.resources ?? data.data);
+        setMinBookingHours(data.data.minBookingHours ?? 4);
         setStep("slots");
       } else {
         setError(data.error?.message ?? "Ошибка загрузки");
@@ -247,9 +249,14 @@ export function BookingFlow() {
           {/* Step 1: Date */}
           {step === "date" && (
             <div className="space-y-5">
-              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)]">
-                Выберите дату для бронирования
-              </p>
+              <div>
+                <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)]">
+                  Выберите дату для бронирования
+                </p>
+                <p className="text-[#86868b] text-xs sm:text-sm font-[family-name:var(--font-inter)] mt-1">
+                  Минимальное бронирование — {minBookingHours} часа подряд
+                </p>
+              </div>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label
@@ -284,7 +291,7 @@ export function BookingFlow() {
           {/* Step 2: Slots */}
           {step === "slots" && (
             <div className="space-y-5">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)]">
                   {formatDate(date)}
                 </p>
@@ -294,6 +301,9 @@ export function BookingFlow() {
                 >
                   изменить
                 </button>
+                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full font-[family-name:var(--font-inter)] bg-amber-50 text-amber-700 border border-amber-200">
+                  Минимум {minBookingHours} ч.
+                </span>
               </div>
 
               {availability.map((item) => {
@@ -355,7 +365,7 @@ export function BookingFlow() {
                             key={slot.startTime}
                             disabled={!slot.isAvailable}
                             onClick={() => toggleSlot(item.resource.id, slot.startTime)}
-                            className={`rounded-lg px-3 py-2 text-sm font-medium transition-all font-[family-name:var(--font-inter)] ${
+                            className={`rounded-lg px-3.5 py-2.5 min-h-[44px] text-sm font-medium transition-all font-[family-name:var(--font-inter)] ${
                               isSlotSelected
                                 ? "bg-[#16A34A] text-white shadow-lg shadow-[#16A34A]/20"
                                 : slot.isAvailable
@@ -375,17 +385,22 @@ export function BookingFlow() {
               {/* Selection summary */}
               {selectedResourceId && selectedSlots.length > 0 && timeRange && (
                 <div
-                  className="rounded-2xl p-4 border flex flex-wrap items-center justify-between gap-3 bg-[#16A34A]/[0.04] border-[#16A34A]/20"
+                  className={`rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+                    selectedSlots.length >= minBookingHours
+                      ? "bg-[#16A34A]/[0.04] border-[#16A34A]/20"
+                      : "bg-amber-50/60 border-amber-200"
+                  }`}
                 >
                   <div className="text-sm font-[family-name:var(--font-inter)]">
                     <span className="text-[#1d1d1f] font-medium">
                       {selectedResource?.resource.name}
                     </span>
                     <span className="text-[#86868b] mx-2">·</span>
-                    <span className="text-[#86868b]">
-                      {timeRange.startTime}–{timeRange.endTime} ({selectedSlots.length} ч.)
+                    <span className={selectedSlots.length < minBookingHours ? "text-amber-600 font-medium" : "text-[#86868b]"}>
+                      {timeRange.startTime}–{timeRange.endTime}{" "}
+                      ({selectedSlots.length} из {minBookingHours} ч.)
                     </span>
-                    {totalPrice > 0 && (
+                    {totalPrice > 0 && selectedSlots.length >= minBookingHours && (
                       <>
                         <span className="text-[#86868b] mx-2">·</span>
                         <span className="text-[#1d1d1f] font-semibold">{fmtRub(totalPrice)}</span>
@@ -402,12 +417,15 @@ export function BookingFlow() {
                   </div>
                   <button
                     onClick={() => setStep("form")}
-                    className="text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)]"
+                    disabled={selectedSlots.length < minBookingHours}
+                    className="w-full sm:w-auto text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all font-[family-name:var(--font-inter)] disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
-                      backgroundColor: ACCENT,
+                      backgroundColor: selectedSlots.length >= minBookingHours ? ACCENT : "#9ca3af",
                     }}
                   >
-                    Продолжить →
+                    {selectedSlots.length < minBookingHours
+                      ? `Ещё ${minBookingHours - selectedSlots.length} ч.`
+                      : "Продолжить →"}
                   </button>
                 </div>
               )}

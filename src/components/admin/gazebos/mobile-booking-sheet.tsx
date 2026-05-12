@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import {
-  DURATION_CHIPS_MIN,
   billedHours,
   durationLabel,
   endTimeFromDuration,
@@ -12,6 +11,9 @@ import {
   parseHHMM,
   selectedChip,
 } from "@/lib/booking-time";
+
+// Gazebo minimum is 4 hours — chips start at 240 min
+const GAZEBO_DURATION_CHIPS_MIN = [240, 300, 360, 420, 480];
 
 export type GazeboMobileBookingSheetProps = {
   open: boolean;
@@ -40,12 +42,12 @@ export function GazeboMobileBookingSheet({
 
   const availableChips = useMemo(() => {
     const cap = maxDurationMin(startTime, maxEndTime);
-    return DURATION_CHIPS_MIN.filter((d) => d <= cap);
+    return GAZEBO_DURATION_CHIPS_MIN.filter((d) => d <= cap);
   }, [startTime, maxEndTime]);
 
-  const defaultChip = availableChips.includes(60)
-    ? 60
-    : availableChips[0] ?? 30;
+  const defaultChip = availableChips.includes(240)
+    ? 240
+    : availableChips[0] ?? 240;
 
   const [durationMin, setDurationMin] = useState<number>(defaultChip);
   const [clientName, setClientName] = useState("");
@@ -129,6 +131,7 @@ export function GazeboMobileBookingSheet({
         <div>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">
             Длительность
+            <span className="ml-2 normal-case text-amber-600 font-normal">мин. 4 ч.</span>
           </label>
           <div className="flex flex-wrap gap-2">
             {availableChips.map((d) => (

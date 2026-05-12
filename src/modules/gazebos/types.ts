@@ -79,6 +79,11 @@ export type DayAvailability = {
   pricing: import("./pricing").ResourcePricing | null;
 };
 
+export type AvailabilityResponse = {
+  resources: DayAvailability[];
+  minBookingHours: number;
+};
+
 // Timeline data for admin grid
 export type TimelineData = {
   date: string;

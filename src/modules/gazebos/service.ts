@@ -38,6 +38,22 @@ const MODULE_SLUG = "gazebos";
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
+const DEFAULT_MIN_BOOKING_HOURS = 4;
+
+function pluralHours(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "час";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "часа";
+  return "часов";
+}
+
+export async function getMinBookingHours(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.minBookingHours;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_MIN_BOOKING_HOURS;
+}
 
 // === RESOURCES ===
 
@@ -162,6 +178,16 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
+  // Enforce minimum booking duration
+  const minHours = await getMinBookingHours();
+  const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
+  if (durationHours < minHours) {
+    throw new BookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
+  }
+
   // Check for conflicting bookings
   const conflict = await prisma.booking.findFirst({
     where: {
@@ -264,6 +290,16 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
 
   if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
+  }
+
+  // Enforce minimum booking duration
+  const minHoursAdmin = await getMinBookingHours();
+  const durationHoursAdmin = (end.getTime() - start.getTime()) / 3_600_000;
+  if (durationHoursAdmin < minHoursAdmin) {
+    throw new BookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHoursAdmin} ${pluralHours(minHoursAdmin)}`
+    );
   }
 
   const conflict = await prisma.booking.findFirst({
@@ -872,15 +908,18 @@ export async function markNoShow(
 export async function getAvailability(
   date: string,
   resourceId?: string
-): Promise<DayAvailability[]> {
-  const resources = resourceId
-    ? await prisma.resource.findMany({
-        where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
-      })
-    : await prisma.resource.findMany({
-        where: { moduleSlug: MODULE_SLUG, isActive: true },
-        orderBy: { name: "asc" },
-      });
+): Promise<import("./types").AvailabilityResponse> {
+  const [minBookingHours, resources] = await Promise.all([
+    getMinBookingHours(),
+    resourceId
+      ? prisma.resource.findMany({
+          where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
+        })
+      : prisma.resource.findMany({
+          where: { moduleSlug: MODULE_SLUG, isActive: true },
+          orderBy: { name: "asc" },
+        }),
+  ]);
 
   const bookingDate = new Date(date);
 
@@ -893,7 +932,7 @@ export async function getAvailability(
     },
   });
 
-  return resources.map((resource) => {
+  const resourcesData: DayAvailability[] = resources.map((resource) => {
     const resourceBookings = existingBookings.filter(
       (b) => b.resourceId === resource.id
     );
@@ -924,6 +963,8 @@ export async function getAvailability(
 
     return { date, resource, slots, pricing };
   });
+
+  return { resources: resourcesData, minBookingHours };
 }
 
 // === TIMELINE ===

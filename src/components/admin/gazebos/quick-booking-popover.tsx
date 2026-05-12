@@ -32,11 +32,22 @@ function durationHours(startHHMM: string, endHHMM: string): number {
   return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
 }
 
+const MIN_BOOKING_HOURS = 4;
+
 function addOneHour(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
   const next = h + 1;
   if (next >= 23) return CLOSE_TIME;
   return `${String(next).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function addHours(hhmm: string, hours: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const totalMinutes = h * 60 + m + hours * 60;
+  const nh = Math.floor(totalMinutes / 60);
+  const nm = totalMinutes % 60;
+  if (nh >= 23) return CLOSE_TIME;
+  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
 }
 
 export function GazeboQuickBookingPopover({
@@ -51,7 +62,9 @@ export function GazeboQuickBookingPopover({
 }: GazeboQuickBookingPopoverProps) {
   const router = useRouter();
 
-  const defaultEnd = addOneHour(startTime) <= maxEndTime ? addOneHour(startTime) : maxEndTime;
+  const defaultEnd = addHours(startTime, MIN_BOOKING_HOURS) <= maxEndTime
+    ? addHours(startTime, MIN_BOOKING_HOURS)
+    : maxEndTime;
 
   const [startInput, setStartInput] = useState(startTime);
   const [endInput, setEndInput] = useState(defaultEnd);
@@ -64,12 +77,13 @@ export function GazeboQuickBookingPopover({
   const hours = durationHours(startInput, endInput);
   const totalPrice = pricePerHour && hours > 0 ? Math.round(hours * pricePerHour) : null;
   const duration = durationLabel(startInput, endInput);
-  const isValid = startInput < endInput && endInput <= maxEndTime;
+  const minEnd = addHours(startInput, MIN_BOOKING_HOURS);
+  const isValid = startInput < endInput && endInput <= maxEndTime && durationHours(startInput, endInput) >= MIN_BOOKING_HOURS;
 
   useEffect(() => {
-    if (endInput <= startInput) {
-      const next = addOneHour(startInput);
-      setEndInput(next <= maxEndTime ? next : maxEndTime);
+    if (endInput <= startInput || durationHours(startInput, endInput) < MIN_BOOKING_HOURS) {
+      const minEndTime = addHours(startInput, MIN_BOOKING_HOURS);
+      setEndInput(minEndTime <= maxEndTime ? minEndTime : maxEndTime);
     }
   }, [startInput, endInput, maxEndTime]);
 
@@ -140,7 +154,7 @@ export function GazeboQuickBookingPopover({
             <input
               type="time"
               value={endInput}
-              min={startInput}
+              min={minEnd}
               max={maxEndTime}
               onChange={(e) => setEndInput(e.target.value)}
               className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 ${
@@ -163,9 +177,11 @@ export function GazeboQuickBookingPopover({
           </div>
         )}
 
-        {!isValid && startInput >= endInput && (
+        {startInput >= endInput ? (
           <p className="text-xs text-red-500 mb-2">Начало должно быть раньше конца</p>
-        )}
+        ) : !isValid && durationHours(startInput, endInput) < MIN_BOOKING_HOURS ? (
+          <p className="text-xs text-amber-600 mb-2">Минимум {MIN_BOOKING_HOURS} ч.</p>
+        ) : null}
 
         {error && (
           <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
