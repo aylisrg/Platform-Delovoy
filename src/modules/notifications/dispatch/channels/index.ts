@@ -8,8 +8,8 @@ import {
   IMessageChannel,
   SmsChannel,
   PushChannel,
-  VkChannel,
 } from "./stubs";
+import { VkChannel } from "./vk";
 import { WebPushChannel } from "./web-push";
 import { isWebPushEnabled } from "./web-push/vapid";
 
@@ -37,7 +37,7 @@ export function bootstrapChannels(): void {
   } else {
     ChannelRegistry.register(PushChannel);
   }
-  ChannelRegistry.register(VkChannel);
+  ChannelRegistry.register(new VkChannel());
   bootstrapped = true;
 }
 
