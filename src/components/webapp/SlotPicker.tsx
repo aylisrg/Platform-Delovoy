@@ -105,15 +105,16 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
     }
   };
 
-  // Available end times (after start)
+  // Available end times (must be >= start + minHours)
   const endSlots = useMemo(() => {
     if (!startSlot) return [];
-    const [startH] = startSlot.split(":").map(Number);
+    const [startH, startM] = startSlot.split(":").map(Number);
+    const minEndMinutes = startH * 60 + startM + minHours * 60;
     return slots.filter((s) => {
-      const [h] = s.time.split(":").map(Number);
-      return h > startH;
+      const [h, m] = s.time.split(":").map(Number);
+      return h * 60 + m >= minEndMinutes;
     });
-  }, [startSlot, slots]);
+  }, [startSlot, slots, minHours]);
 
   return (
     <div className="tg-page-enter">
@@ -149,6 +150,13 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
             </button>
           );
         })}
+      </div>
+
+      {/* Minimum booking hint */}
+      <div className="px-4 pt-2">
+        <p className="text-sm" style={{ color: "var(--tg-hint)" }}>
+          Минимальное бронирование — {minHours} ч.
+        </p>
       </div>
 
       {/* Start time slots */}

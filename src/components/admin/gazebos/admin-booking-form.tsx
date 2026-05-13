@@ -31,6 +31,7 @@ export function AdminBookingForm() {
   // Date & availability
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [availability, setAvailability] = useState<ResourceAvailability[]>([]);
+  const [minBookingHours, setMinBookingHours] = useState(4);
   const [loading, setLoading] = useState(false);
   const [showSlots, setShowSlots] = useState(false);
 
@@ -65,7 +66,8 @@ export function AdminBookingForm() {
       const res = await fetch(`/api/gazebos/availability?date=${date}`);
       const data = await res.json();
       if (data.success) {
-        setAvailability(data.data);
+        setAvailability(data.data.resources ?? data.data);
+        setMinBookingHours(data.data.minBookingHours ?? 4);
         setShowSlots(true);
         setSelectedResourceId(null);
         setSelectedSlots([]);
@@ -214,6 +216,11 @@ export function AdminBookingForm() {
             </div>
 
             {/* Slots */}
+            {showSlots && (
+              <p className="text-xs text-amber-600 font-medium">
+                Минимум {minBookingHours} ч. подряд
+              </p>
+            )}
             {showSlots && availability.map((item) => (
               <div
                 key={item.resource.id}
@@ -259,11 +266,19 @@ export function AdminBookingForm() {
 
             {/* Summary */}
             {timeRange && selectedResource && (
-              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm">
+              <div className={`rounded-lg p-3 text-sm border ${
+                selectedSlots.length >= minBookingHours
+                  ? "bg-blue-50 border-blue-200"
+                  : "bg-amber-50 border-amber-200"
+              }`}>
                 <span className="font-medium">{selectedResource.resource.name}</span>
                 {" · "}
-                {timeRange.startTime}–{timeRange.endTime} ({selectedSlots.length} ч.)
-                {totalPrice > 0 && <> · <span className="font-semibold">{totalPrice} ₽</span></>}
+                <span className={selectedSlots.length < minBookingHours ? "text-amber-700 font-medium" : ""}>
+                  {timeRange.startTime}–{timeRange.endTime} ({selectedSlots.length} из {minBookingHours} ч.)
+                </span>
+                {totalPrice > 0 && selectedSlots.length >= minBookingHours && (
+                  <> · <span className="font-semibold">{totalPrice} ₽</span></>
+                )}
               </div>
             )}
 
@@ -338,7 +353,7 @@ export function AdminBookingForm() {
 
             <Button
               type="submit"
-              disabled={submitting || !selectedResourceId || selectedSlots.length === 0 || !clientName || !clientPhone}
+              disabled={submitting || !selectedResourceId || selectedSlots.length < minBookingHours || !clientName || !clientPhone}
             >
               {submitting ? "Создание..." : "Создать бронирование"}
             </Button>

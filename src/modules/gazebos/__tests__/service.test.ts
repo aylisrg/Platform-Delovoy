@@ -43,7 +43,7 @@ vi.mock("@/lib/db", () => ({
       create: vi.fn(),
     },
     module: {
-      findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30 } }),
+      findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30, minBookingHours: 4 } }),
     },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       // Delegate tx calls to the top-level prisma mocks so existing assertions work
@@ -107,7 +107,7 @@ const validBookingInput = {
   resourceId: "resource-1",
   date: FUTURE_DATE,
   startTime: "10:00",
-  endTime: "11:00",
+  endTime: "14:00", // 4 hours — meets minimum
 };
 
 beforeEach(() => {
@@ -161,6 +161,24 @@ describe("createBooking", () => {
     await expect(
       createBooking("user-1", { ...validBookingInput, date: PAST_DATE })
     ).rejects.toMatchObject({ code: "DATE_IN_PAST" });
+  });
+
+  it("throws DURATION_BELOW_MIN when booking is shorter than minBookingHours", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(
+      createBooking("user-1", { ...validBookingInput, startTime: "10:00", endTime: "13:00" }) // 3h < 4h
+    ).rejects.toMatchObject({ code: "DURATION_BELOW_MIN" });
+  });
+
+  it("accepts booking exactly at minBookingHours (4h)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await expect(
+      createBooking("user-1", { ...validBookingInput, startTime: "10:00", endTime: "14:00" })
+    ).resolves.toBeDefined();
   });
 
   it("throws BOOKING_CONFLICT when time slot is already taken", async () => {
@@ -632,8 +650,17 @@ describe("getAvailability", () => {
 
     const result = await getAvailability(FUTURE_DATE);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].slots).toHaveLength(15); // hours 8,9,10,...,22 = 15 slots
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].slots).toHaveLength(15); // hours 8,9,10,...,22 = 15 slots
+  });
+
+  it("includes minBookingHours in response", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+
+    const result = await getAvailability(FUTURE_DATE);
+
+    expect(result.minBookingHours).toBe(4);
   });
 
   it("marks all slots as available when no bookings exist", async () => {
@@ -642,7 +669,7 @@ describe("getAvailability", () => {
 
     const result = await getAvailability(FUTURE_DATE);
 
-    expect(result[0].slots.every((s) => s.isAvailable)).toBe(true);
+    expect(result.resources[0].slots.every((s) => s.isAvailable)).toBe(true);
   });
 
   it("marks slot as unavailable when a booking overlaps", async () => {
@@ -656,7 +683,7 @@ describe("getAvailability", () => {
     ] as never);
 
     const result = await getAvailability(FUTURE_DATE);
-    const slot10 = result[0].slots.find((s) => s.startTime === "10:00");
+    const slot10 = result.resources[0].slots.find((s) => s.startTime === "10:00");
 
     expect(slot10?.isAvailable).toBe(false);
   });
@@ -666,7 +693,7 @@ describe("getAvailability", () => {
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);
-    const slots = result[0].slots;
+    const slots = result.resources[0].slots;
 
     expect(slots[0].startTime).toBe("08:00");
     expect(slots[0].endTime).toBe("09:00");
@@ -694,7 +721,7 @@ const validAdminInput = {
   resourceId: "resource-1",
   date: FUTURE_DATE,
   startTime: "10:00",
-  endTime: "12:00",
+  endTime: "14:00", // 4 hours — meets minimum
   clientName: "Иванов Иван",
   clientPhone: "+7 999 123-45-67",
 };
@@ -721,6 +748,14 @@ describe("createAdminBooking", () => {
         }),
       })
     );
+  });
+
+  it("throws DURATION_BELOW_MIN when admin booking is shorter than minBookingHours", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(
+      createAdminBooking("admin-1", { ...validAdminInput, startTime: "10:00", endTime: "12:00" }) // 2h < 4h
+    ).rejects.toMatchObject({ code: "DURATION_BELOW_MIN" });
   });
 
   it("should call Google Calendar when resource has googleCalendarId", async () => {

@@ -23,7 +23,7 @@ export async function GET() {
     return apiResponse(moduleRecord.config ?? {
       openHour: 8,
       closeHour: 23,
-      minBookingHours: 1,
+      minBookingHours: 4,
       maxBookingHours: 8,
     });
   } catch {

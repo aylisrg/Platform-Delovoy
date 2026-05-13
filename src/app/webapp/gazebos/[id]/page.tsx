@@ -174,7 +174,7 @@ export default function GazeboBookingPage() {
         <SlotPicker
           fetchSlots={fetchSlots}
           onSelect={handleSlotSelect}
-          minHours={1}
+          minHours={4}
         />
       </div>
 
