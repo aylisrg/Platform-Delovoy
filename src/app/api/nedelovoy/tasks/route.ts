@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const skip = (parsed.data.page - 1) * parsed.data.limit;
 
     const where = {
-      moduleSlug: "nedelovoy",
+      parkSlug: "nedelovoy",
       ...(parsed.data.status ? { status: parsed.data.status } : {}),
       ...(parsed.data.assignedToId ? { assignedToId: parsed.data.assignedToId } : {}),
     };
