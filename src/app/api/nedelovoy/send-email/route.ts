@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     const result = await sendManualEmail({
       ...parsed.data,
       sentById: userId,
+      parkSlug: "nedelovoy",
     });
 
     await logAudit(userId, "email.sent", "Tenant", parsed.data.tenantId, {

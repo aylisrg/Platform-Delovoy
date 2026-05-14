@@ -90,6 +90,7 @@ export type ManualSendInput = {
   customBodyHtml?: string;
   variables?: Record<string, string>;
   sentById: string;
+  parkSlug?: string;
 };
 
 export type ManualSendResult = {
@@ -150,11 +151,11 @@ export async function sendManualEmail(input: ManualSendInput): Promise<ManualSen
     );
   }
 
-  const settings = await getOrCreateSettings();
+  const settings = await getOrCreateSettings(input.parkSlug ?? "delovoy");
 
   let template: EmailTemplate | null = null;
   if (input.templateKey) {
-    const parkSlug = (input as { parkSlug?: string }).parkSlug ?? "delovoy";
+    const parkSlug = input.parkSlug ?? "delovoy";
     template = await prisma.emailTemplate.findUnique({
       where: { parkSlug_key: { parkSlug, key: input.templateKey } },
     });

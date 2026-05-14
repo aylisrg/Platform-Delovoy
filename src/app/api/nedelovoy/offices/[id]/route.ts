@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { id } = await params;
     const office = await getOffice(id);
-    if (!office) return apiNotFound("Помещение не найдено");
+    if (!office || office.parkSlug !== "nedelovoy") return apiNotFound("Помещение не найдено");
     return apiResponse(office);
   } catch {
     return apiServerError();
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const before = await getOffice(id);
-    if (!before) return apiNotFound("Помещение не найдено");
+    if (!before || before.parkSlug !== "nedelovoy") return apiNotFound("Помещение не найдено");
 
     const office = await updateOffice(id, parsed.data);
 
@@ -74,6 +74,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     if (denied) return denied;
 
     const { id } = await params;
+    const office = await getOffice(id);
+    if (!office || office.parkSlug !== "nedelovoy") return apiNotFound("Помещение не найдено");
+
     await deleteOffice(id);
 
     await logAudit(session!.user.id, "office.delete", "Office", id);

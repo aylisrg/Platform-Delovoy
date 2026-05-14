@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { id } = await params;
     const contract = await getContract(id);
-    if (!contract) return apiNotFound("Договор не найден");
+    if (!contract || contract.parkSlug !== "nedelovoy") return apiNotFound("Договор не найден");
     return apiResponse(contract);
   } catch {
     return apiServerError();
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const before = await getContract(id);
-    if (!before) return apiNotFound("Договор не найден");
+    if (!before || before.parkSlug !== "nedelovoy") return apiNotFound("Договор не найден");
 
     const contract = await updateContract(id, parsed.data);
 

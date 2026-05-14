@@ -22,6 +22,7 @@ export async function GET(
 
     const { id } = await params;
     const deal = await getDeal(id);
+    if (deal.parkSlug !== "nedelovoy") return apiError("NOT_FOUND", "Сделка не найдена", 404);
     return apiResponse(deal);
   } catch (error) {
     if (error instanceof RentalError) {
@@ -47,6 +48,9 @@ export async function PATCH(
       return apiValidationError(parsed.error.issues[0].message);
     }
 
+    const existing = await getDeal(id);
+    if (existing.parkSlug !== "nedelovoy") return apiError("NOT_FOUND", "Сделка не найдена", 404);
+
     const deal = await updateDeal(id, parsed.data);
     await logAudit(session!.user.id, "deal.update", "RentalDeal", id, parsed.data);
 
@@ -69,6 +73,9 @@ export async function DELETE(
     if (denied) return denied;
 
     const { id } = await params;
+    const deal = await getDeal(id);
+    if (deal.parkSlug !== "nedelovoy") return apiError("NOT_FOUND", "Сделка не найдена", 404);
+
     await deleteDeal(id);
     await logAudit(session!.user.id, "deal.delete", "RentalDeal", id);
 
