@@ -39,10 +39,10 @@ export async function PATCH(request: NextRequest) {
     const parsed = updateRentalSettingsSchema.safeParse(body);
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
-    const before = await getOrCreateSettings();
+    const before = await getOrCreateSettings("delovoy");
 
     const updated = await prisma.rentalNotificationSettings.update({
-      where: { id: "singleton" },
+      where: { parkSlug: "delovoy" },
       data: {
         ...parsed.data,
         updatedById: session.user.id,
@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest) {
       session.user.id,
       "rental_notification_settings.updated",
       "RentalNotificationSettings",
-      "singleton",
+      updated.id,
       { before, after: updated }
     );
     return apiResponse(updated);

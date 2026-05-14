@@ -28,7 +28,7 @@ export async function GET(
     if (denied) return denied;
 
     const { key } = await params;
-    const tpl = await prisma.emailTemplate.findUnique({ where: { key } });
+    const tpl = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug: "delovoy", key } } });
     if (!tpl) return apiNotFound("Шаблон не найден");
     return apiResponse(tpl);
   } catch {
@@ -53,11 +53,11 @@ export async function PATCH(
     const parsed = updateEmailTemplateSchema.safeParse(body);
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
-    const existing = await prisma.emailTemplate.findUnique({ where: { key } });
+    const existing = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug: "delovoy", key } } });
     if (!existing) return apiNotFound("Шаблон не найден");
 
     const updated = await prisma.emailTemplate.update({
-      where: { key },
+      where: { parkSlug_key: { parkSlug: "delovoy", key } },
       data: {
         ...(parsed.data.name !== undefined && { name: parsed.data.name }),
         ...(parsed.data.subject !== undefined && { subject: parsed.data.subject }),
@@ -96,7 +96,7 @@ export async function DELETE(
         403
       );
     }
-    const tpl = await prisma.emailTemplate.findUnique({ where: { key } });
+    const tpl = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug: "delovoy", key } } });
     if (!tpl) return apiNotFound("Шаблон не найден");
     if (tpl.isSystem) {
       return apiError(
@@ -106,7 +106,7 @@ export async function DELETE(
       );
     }
 
-    await prisma.emailTemplate.delete({ where: { key } });
+    await prisma.emailTemplate.delete({ where: { parkSlug_key: { parkSlug: "delovoy", key } } });
     await logAudit(session.user.id, "email_template.deleted", "EmailTemplate", tpl.id, {
       key,
     });

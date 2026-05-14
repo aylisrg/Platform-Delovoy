@@ -226,7 +226,8 @@ export async function escalateOverdue(
         await prisma.managerTask.create({
           data: {
             type: "OVERDUE_PAYMENT",
-            moduleSlug: "rental",
+            moduleSlug: payment.contract.parkSlug ?? "rental",
+            parkSlug: payment.contract.parkSlug ?? "delovoy",
             status: "OPEN",
             title,
             description,

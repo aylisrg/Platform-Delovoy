@@ -138,6 +138,28 @@ describe("hasModuleAccess", () => {
     const result = await hasModuleAccess("manager-id", "ps-park");
     expect(result).toBe(false);
   });
+
+  it("returns false for SUPERADMIN accessing strict module without assignment", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue(null);
+    const result = await hasModuleAccess("admin-id", "nedelovoy");
+    expect(result).toBe(false);
+    expect(prisma.moduleAssignment.findFirst).toHaveBeenCalled();
+  });
+
+  it("returns true for SUPERADMIN with explicit grant on strict module", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.moduleAssignment.findFirst).mockResolvedValue({ id: "assign-1" } as never);
+    const result = await hasModuleAccess("admin-id", "nedelovoy");
+    expect(result).toBe(true);
+  });
+
+  it("returns true for SUPERADMIN accessing non-strict module without assignment", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    const result = await hasModuleAccess("admin-id", "rental");
+    expect(result).toBe(true);
+    expect(prisma.moduleAssignment.findFirst).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================
@@ -150,13 +172,14 @@ describe("getUserModules", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns all active module slugs for SUPERADMIN", async () => {
+  it("returns all active non-strict module slugs for SUPERADMIN without strict grants", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
     vi.mocked(prisma.module.findMany).mockResolvedValue([
       { slug: "cafe" },
       { slug: "gazebos" },
       { slug: "ps-park" },
     ] as never);
+    vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([] as never);
     const result = await getUserModules("admin-id");
     expect(result).toEqual(["cafe", "gazebos", "ps-park"]);
   });
@@ -212,6 +235,25 @@ describe("hasAdminSectionAccess", () => {
     const result = await hasAdminSectionAccess("manager-id", "architect");
     expect(result).toBe(false);
   });
+
+  it("returns false for SUPERADMIN accessing strict section without AdminPermission", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue(null);
+    const result = await hasAdminSectionAccess("admin-id", "nedelovoy");
+    expect(result).toBe(false);
+    expect(prisma.adminPermission.findUnique).toHaveBeenCalled();
+  });
+
+  it("returns true for SUPERADMIN with explicit AdminPermission on strict section", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({
+      id: "perm-1",
+      userId: "admin-id",
+      section: "nedelovoy",
+    } as never);
+    const result = await hasAdminSectionAccess("admin-id", "nedelovoy");
+    expect(result).toBe(true);
+  });
 });
 
 // ============================================================
@@ -230,10 +272,25 @@ describe("getUserAdminSections", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns all section slugs for SUPERADMIN", async () => {
+  it("returns all non-strict section slugs for SUPERADMIN without explicit grants", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findMany).mockResolvedValue([] as never);
     const result = await getUserAdminSections("admin-id");
-    expect(result).toEqual(ADMIN_SECTION_SLUGS);
+    // Non-strict sections only — strict ones (nedelovoy) require explicit grant
+    const nonStrict = ADMIN_SECTION_SLUGS.filter((s) => !["nedelovoy"].includes(s));
+    expect(result).toEqual(nonStrict);
+  });
+
+  it("returns non-strict + explicitly granted strict sections for SUPERADMIN", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findMany).mockResolvedValue([
+      { section: "nedelovoy" },
+    ] as never);
+    const result = await getUserAdminSections("admin-id");
+    expect(result).toContain("nedelovoy");
+    // Should also contain regular sections
+    expect(result).toContain("dashboard");
+    expect(result).toContain("rental");
   });
 
   it("returns only granted sections for MANAGER", async () => {

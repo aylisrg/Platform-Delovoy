@@ -46,7 +46,7 @@ export default async function RentalManagerPage() {
     },
   });
   const settings = await prisma.rentalNotificationSettings.findUnique({
-    where: { id: "singleton" },
+    where: { parkSlug: "delovoy" },
   });
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

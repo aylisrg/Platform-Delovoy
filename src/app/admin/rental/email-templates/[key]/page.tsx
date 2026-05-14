@@ -18,7 +18,7 @@ export default async function RentalEmailTemplatePage({
 
   const { key } = await params;
   const decodedKey = decodeURIComponent(key);
-  const tpl = await prisma.emailTemplate.findUnique({ where: { key: decodedKey } });
+  const tpl = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug: "delovoy", key: decodedKey } } });
   if (!tpl) notFound();
 
   return (

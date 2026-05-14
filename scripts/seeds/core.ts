@@ -117,6 +117,16 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
       name: "Управленка",
       description: "Управленческий учёт расходов",
     },
+    {
+      slug: "nedelovoy",
+      name: "НеДеловой",
+      description: "Управление бизнес-парком НеДеловой: офисы, арендаторы, договоры",
+    },
+    {
+      slug: "sauna",
+      name: "Бани",
+      description: "Бронирование бань (в разработке)",
+    },
   ];
 
   for (const mod of modules) {
@@ -316,7 +326,8 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   for (const office of offices) {
     await prisma.office.upsert({
       where: {
-        building_floor_number: {
+        parkSlug_building_floor_number: {
+          parkSlug: "delovoy",
           building: office.building,
           floor: office.floor,
           number: office.number,
@@ -324,7 +335,7 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
       },
       // Не перезаписываем area/pricePerMonth/status — это бизнес-данные.
       update: {},
-      create: office,
+      create: { ...office, parkSlug: "delovoy" },
     });
   }
   console.log(`  ✓ Offices: ${offices.length}`);

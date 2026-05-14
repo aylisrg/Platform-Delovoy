@@ -106,7 +106,9 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `cafe` | ✅ | Menu CRUD, orders (hidden from public nav — intentional) |
 | `parking` | ✅ | Parking info page |
 | `booking` | ✅ | Shared booking core |
-| `rental` | ✅ | Office rental B2B |
+| `rental` | ✅ | Office rental B2B (park: Деловой) — park-aware, parkSlug discriminator |
+| `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
+| `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
 | `clients` | ✅ | Tenant CRM |
 | `analytics` | ✅ | Aggregate metrics, balance/conversions |
 | `users` | ✅ | Admin user management |

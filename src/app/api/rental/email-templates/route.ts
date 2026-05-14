@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
     const exists = await prisma.emailTemplate.findUnique({
-      where: { key: parsed.data.key },
+      where: { parkSlug_key: { parkSlug: "delovoy", key: parsed.data.key } },
     });
     if (exists) {
       return apiError("TEMPLATE_EXISTS", "Шаблон с таким ключом уже существует", 409);

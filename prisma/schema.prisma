@@ -358,6 +358,22 @@ model MenuItem {
   @@index([inventorySkuId])
 }
 
+// === PARKS (бизнес-парки) ===
+
+model Park {
+  id           String   @id @default(cuid())
+  slug         String   @unique // "delovoy" | "nedelovoy"
+  name         String
+  description  String?
+  isActive     Boolean  @default(true)
+  contactPhone String?
+  contactEmail String?
+  legalAddress String?
+  config       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // === B2B: RENTAL ===
 
 enum TenantType {
@@ -397,6 +413,7 @@ model Tenant {
 
 model Office {
   id            String       @id @default(cuid())
+  parkSlug      String       @default("delovoy")
   number        String
   floor         Int
   building      Int          @default(1)
@@ -418,7 +435,8 @@ model Office {
   feedbackItems FeedbackItem[]
   tasks         Task[]
 
-  @@unique([building, floor, number])
+  @@unique([parkSlug, building, floor, number])
+  @@index([parkSlug])
   @@index([building])
   @@index([status])
 }
@@ -432,6 +450,7 @@ enum OfficeStatus {
 
 model RentalContract {
   id                String         @id @default(cuid())
+  parkSlug          String         @default("delovoy")
   tenantId          String
   tenant            Tenant         @relation(fields: [tenantId], references: [id])
   officeId          String
@@ -453,6 +472,7 @@ model RentalContract {
 
   payments RentalPayment[]
 
+  @@index([parkSlug])
   @@index([tenantId])
   @@index([officeId])
   @@index([status, endDate])
@@ -507,7 +527,8 @@ enum EmailLogStatus {
 model EmailTemplate {
   id         String   @id @default(cuid())
   moduleSlug String   @default("rental")
-  key        String   @unique
+  parkSlug   String   @default("delovoy")
+  key        String
   name       String
   subject    String
   bodyHtml   String   @db.Text
@@ -518,12 +539,15 @@ model EmailTemplate {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@unique([parkSlug, key])
   @@index([moduleSlug])
+  @@index([parkSlug])
 }
 
 model EmailLog {
   id          String         @id @default(cuid())
   moduleSlug  String         @default("rental")
+  parkSlug    String         @default("delovoy")
   type        EmailLogType
   templateKey String?
   to          String[]
@@ -546,7 +570,8 @@ model EmailLog {
 }
 
 model RentalNotificationSettings {
-  id                        String   @id @default("singleton")
+  id                        String   @id @default(cuid())
+  parkSlug                  String   @unique @default("delovoy")
   preReminderDays           Int      @default(5)
   escalationDaysAfter       Int      @default(5)
   autoSendEnabled           Boolean  @default(false)
@@ -574,6 +599,7 @@ enum ManagerTaskStatus {
 model ManagerTask {
   id             String            @id @default(cuid())
   moduleSlug     String            @default("rental")
+  parkSlug       String            @default("delovoy")
   type           ManagerTaskType
   status         ManagerTaskStatus @default(OPEN)
   title          String
@@ -610,6 +636,7 @@ enum InquiryStatus {
 
 model RentalInquiry {
   id            String        @id @default(cuid())
+  parkSlug      String        @default("delovoy")
   name          String
   phone         String
   email         String?
@@ -624,6 +651,7 @@ model RentalInquiry {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
+  @@index([parkSlug, status])
   @@index([status, createdAt])
   @@index([isRead])
 }
@@ -659,6 +687,7 @@ enum DealSource {
 
 model RentalDeal {
   id          String  @id @default(cuid())
+  parkSlug    String  @default("delovoy")
   contactName String
   phone       String
   email       String?
@@ -691,6 +720,7 @@ model RentalDeal {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([parkSlug])
   @@index([stage])
   @@index([priority])
   @@index([nextActionDate])

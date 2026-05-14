@@ -703,6 +703,7 @@ describe("getOccupancyReport", () => {
 
 const mockDeal = (overrides = {}) => ({
   id: "deal-1",
+  parkSlug: "delovoy",
   contactName: "Иван Петров",
   phone: "+7 999 123-45-67",
   email: "ivan@example.com",
