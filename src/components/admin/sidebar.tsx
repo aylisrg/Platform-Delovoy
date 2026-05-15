@@ -46,6 +46,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Плей Парк", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
   { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
+  { label: "НеДеловой", href: "/admin/nedelovoy", icon: "🏗", section: "nedelovoy" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
   { label: "Гости (CRM)", href: "/admin/clients", icon: "🧑", section: "clients" },

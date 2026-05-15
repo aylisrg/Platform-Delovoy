@@ -22,15 +22,13 @@ export class RentalEmailError extends Error {
   }
 }
 
-export async function getOrCreateSettings(): Promise<RentalNotificationSettings> {
+export async function getOrCreateSettings(parkSlug = "delovoy"): Promise<RentalNotificationSettings> {
   const existing = await prisma.rentalNotificationSettings.findUnique({
-    where: { id: "singleton" },
+    where: { parkSlug },
   });
   if (existing) return existing;
-  return prisma.rentalNotificationSettings.upsert({
-    where: { id: "singleton" },
-    update: {},
-    create: { id: "singleton" },
+  return prisma.rentalNotificationSettings.create({
+    data: { parkSlug },
   });
 }
 
@@ -92,6 +90,7 @@ export type ManualSendInput = {
   customBodyHtml?: string;
   variables?: Record<string, string>;
   sentById: string;
+  parkSlug?: string;
 };
 
 export type ManualSendResult = {
@@ -152,12 +151,13 @@ export async function sendManualEmail(input: ManualSendInput): Promise<ManualSen
     );
   }
 
-  const settings = await getOrCreateSettings();
+  const settings = await getOrCreateSettings(input.parkSlug ?? "delovoy");
 
   let template: EmailTemplate | null = null;
   if (input.templateKey) {
+    const parkSlug = input.parkSlug ?? "delovoy";
     template = await prisma.emailTemplate.findUnique({
-      where: { key: input.templateKey },
+      where: { parkSlug_key: { parkSlug, key: input.templateKey } },
     });
     if (!template) {
       throw new RentalEmailError(
@@ -270,7 +270,8 @@ export async function sendAutoReminder(params: {
   const recipients = resolveRecipients(payment.contract.tenant);
   if (recipients.length === 0) return { outcome: "NO_RECIPIENT" };
 
-  const template = await prisma.emailTemplate.findUnique({ where: { key: templateKey } });
+  const parkSlug = payment.contract.parkSlug ?? "delovoy";
+  const template = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug, key: templateKey } } });
   if (!template || !template.isActive) return { outcome: "TEMPLATE_INACTIVE" };
 
   const vars = buildVariables({ contract: payment.contract, payment, settings });

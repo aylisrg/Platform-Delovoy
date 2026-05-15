@@ -18,6 +18,7 @@
  * См. docs/adr/ADR-0001-unified-seed-pipeline.md
  */
 import { PrismaClient } from "@prisma/client";
+import { seedParks } from "./seeds/parks";
 import { seedCore } from "./seeds/core";
 import { seedTasks } from "./seeds/tasks";
 
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
     console.log("🌱 Seed pipeline started");
+    await seedParks(prisma); // Parks must exist before Module grants that reference them
     await seedCore(prisma);
     await seedTasks(prisma);
     console.log("✅ Seed pipeline completed");

@@ -18,6 +18,8 @@ export const ADMIN_SECTIONS = [
   { slug: "ps-park", label: "Плей Парк", icon: "🎮" },
   { slug: "cafe", label: "Кафе", icon: "☕" },
   { slug: "rental", label: "Аренда", icon: "🏢" },
+  { slug: "nedelovoy", label: "НеДеловой", icon: "🏗" },
+  { slug: "sauna", label: "Бани", icon: "🛁" },
   { slug: "modules", label: "Модули", icon: "📦" },
   { slug: "users", label: "Пользователи", icon: "👥" },
   { slug: "clients", label: "Гости (CRM)", icon: "🧑" },
@@ -29,6 +31,13 @@ export const ADMIN_SECTIONS = [
   { slug: "tasks", label: "Задачи", icon: "📌" },
   { slug: "avito", label: "Деловой Авито", icon: "📣" },
 ] as const;
+
+/**
+ * Modules where SUPERADMIN bypass is disabled.
+ * Access requires explicit ModuleAssignment + AdminPermission for everyone,
+ * regardless of role. Used for parks/tenants with separate ownership.
+ */
+export const STRICT_ACCESS_MODULES = new Set(["nedelovoy"]);
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]["slug"];
 
@@ -69,7 +78,8 @@ export function hasRole(user: SessionUser, requiredRole: Role): boolean {
 
 /**
  * Check if user has access to a specific module.
- * SUPERADMIN has access to all modules.
+ * SUPERADMIN has access to all modules — EXCEPT strict-access modules (e.g. "nedelovoy")
+ * where explicit ModuleAssignment is required regardless of role.
  */
 export async function hasModuleAccess(
   userId: string,
@@ -81,7 +91,10 @@ export async function hasModuleAccess(
   });
 
   if (!user) return false;
-  if (user.role === "SUPERADMIN") return true;
+
+  if (user.role === "SUPERADMIN" && !STRICT_ACCESS_MODULES.has(moduleSlug)) {
+    return true;
+  }
 
   const assignment = await prisma.moduleAssignment.findFirst({
     where: {
@@ -95,6 +108,7 @@ export async function hasModuleAccess(
 
 /**
  * Get all module slugs a user has access to.
+ * For SUPERADMIN: all non-strict modules + any strict modules with explicit assignment.
  */
 export async function getUserModules(userId: string): Promise<string[]> {
   const user = await prisma.user.findUnique({
@@ -109,7 +123,16 @@ export async function getUserModules(userId: string): Promise<string[]> {
       where: { isActive: true },
       select: { slug: true },
     });
-    return modules.map((m) => m.slug);
+    const allSlugs = modules.map((m) => m.slug);
+    const nonStrict = allSlugs.filter((s) => !STRICT_ACCESS_MODULES.has(s));
+    const strictAssignments = await prisma.moduleAssignment.findMany({
+      where: {
+        userId,
+        module: { isActive: true, slug: { in: allSlugs.filter((s) => STRICT_ACCESS_MODULES.has(s)) } },
+      },
+      include: { module: { select: { slug: true } } },
+    });
+    return [...nonStrict, ...strictAssignments.map((a) => a.module.slug)];
   }
 
   const assignments = await prisma.moduleAssignment.findMany({
@@ -124,8 +147,9 @@ export async function getUserModules(userId: string): Promise<string[]> {
 
 /**
  * Check if user has access to a specific admin panel section.
- * SUPERADMIN always has access to everything.
- * ADMIN and MANAGER need explicit AdminPermission records.
+ * SUPERADMIN always has access — EXCEPT strict-access sections (e.g. "nedelovoy")
+ * where explicit AdminPermission is required regardless of role.
+ * ADMIN and MANAGER need explicit AdminPermission records for all other sections.
  */
 export async function hasAdminSectionAccess(
   userId: string,
@@ -137,10 +161,12 @@ export async function hasAdminSectionAccess(
   });
 
   if (!user) return false;
-  if (user.role === "SUPERADMIN") return true;
   if (user.role === "USER") return false;
 
-  // ADMIN and MANAGER — check explicit permission
+  if (user.role === "SUPERADMIN" && !STRICT_ACCESS_MODULES.has(section)) {
+    return true;
+  }
+
   const permission = await prisma.adminPermission.findUnique({
     where: { userId_section: { userId, section } },
   });
@@ -150,7 +176,8 @@ export async function hasAdminSectionAccess(
 
 /**
  * Get all admin sections a user has access to.
- * SUPERADMIN gets all sections. ADMIN and MANAGER get only granted ones.
+ * SUPERADMIN gets all non-strict sections, plus strict ones if they have explicit grants.
+ * ADMIN and MANAGER get only granted ones.
  */
 export async function getUserAdminSections(userId: string): Promise<string[]> {
   const user = await prisma.user.findUnique({
@@ -162,7 +189,14 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
   if (user.role === "USER") return [];
 
   if (user.role === "SUPERADMIN") {
-    return ADMIN_SECTION_SLUGS;
+    const nonStrict = ADMIN_SECTION_SLUGS.filter(
+      (s) => !STRICT_ACCESS_MODULES.has(s)
+    );
+    const strictPermissions = await prisma.adminPermission.findMany({
+      where: { userId, section: { in: [...STRICT_ACCESS_MODULES] } },
+      select: { section: true },
+    });
+    return [...nonStrict, ...strictPermissions.map((p) => p.section)];
   }
 
   const permissions = await prisma.adminPermission.findMany({

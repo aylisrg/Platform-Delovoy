@@ -80,12 +80,17 @@ export async function requireAdminSection(
   if (!session?.user) return apiUnauthorized();
 
   const { role } = session.user;
-  if (role === "SUPERADMIN" || role === "ADMIN") return null; // Full access
   if (role === "USER") return apiForbidden();
 
-  // MANAGER — requires explicit AdminPermission for the section.
   // Dynamic import to avoid circular deps
-  const { hasAdminSectionAccess } = await import("./permissions");
+  const { hasAdminSectionAccess, STRICT_ACCESS_MODULES } = await import("./permissions");
+
+  // SUPERADMIN/ADMIN get full access — EXCEPT strict-access sections (e.g. "nedelovoy")
+  // which require explicit AdminPermission regardless of role.
+  if ((role === "SUPERADMIN" || role === "ADMIN") && !STRICT_ACCESS_MODULES.has(section)) {
+    return null;
+  }
+
   const hasAccess = await hasAdminSectionAccess(session.user.id, section);
   if (!hasAccess) {
     return apiForbidden("Нет доступа к этому разделу");

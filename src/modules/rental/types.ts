@@ -72,6 +72,7 @@ export type RentalOffice = Pick<
 >;
 
 export type CreateOfficeInput = {
+  parkSlug?: string;
   number: string;
   floor: number;
   building: number;
@@ -90,6 +91,7 @@ export type UpdateOfficeInput = Partial<CreateOfficeInput> & {
 };
 
 export type OfficeFilter = {
+  parkSlug?: string;
   status?: OfficeStatus;
   floor?: number;
   building?: number;
@@ -122,6 +124,7 @@ export type RentalContractWithRelations = Pick<
 };
 
 export type CreateContractInput = {
+  parkSlug?: string;
   tenantId: string;
   officeId: string;
   startDate: string;
@@ -151,6 +154,7 @@ export type UpdateContractInput = Partial<{
 }>;
 
 export type ContractFilter = {
+  parkSlug?: string;
   status?: ContractStatus | ContractStatus[];
   tenantId?: string;
   officeId?: string;
@@ -166,6 +170,7 @@ export type RenewContractInput = {
 // === Inquiry Types ===
 
 export type CreateInquiryInput = {
+  parkSlug?: string;
   name: string;
   phone: string;
   email?: string;
@@ -183,6 +188,7 @@ export type UpdateInquiryInput = Partial<{
 }>;
 
 export type InquiryFilter = {
+  parkSlug?: string;
   status?: InquiryStatus;
   isRead?: boolean;
 };
@@ -190,6 +196,7 @@ export type InquiryFilter = {
 // === Deal Types (Sales Pipeline) ===
 
 export type CreateDealInput = {
+  parkSlug?: string;
   contactName: string;
   phone: string;
   email?: string;
@@ -217,6 +224,7 @@ export type UpdateDealInput = Partial<CreateDealInput> & {
 };
 
 export type DealFilter = {
+  parkSlug?: string;
   stage?: DealStage | DealStage[];
   priority?: DealPriority;
   source?: DealSource;

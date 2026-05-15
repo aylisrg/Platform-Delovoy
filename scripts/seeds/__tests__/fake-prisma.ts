@@ -172,7 +172,7 @@ export function createFakePrisma(): FakePrisma {
     module: makeDelegate([["slug"]]),
     resource: makeDelegate([]), // no DB-level unique
     menuItem: makeDelegate([]),
-    office: makeDelegate([["building", "floor", "number"]]),
+    office: makeDelegate([["parkSlug", "building", "floor", "number"]]),
     recurringExpense: makeDelegate([]),
     taskBoard: makeDelegate([["slug"]]),
     taskColumn: makeDelegate([["boardId", "sortOrder"]]),

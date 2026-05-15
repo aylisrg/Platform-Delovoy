@@ -49,7 +49,7 @@ export async function POST(
     const parsed = previewTemplateSchema.safeParse(body);
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
-    const tpl = await prisma.emailTemplate.findUnique({ where: { key } });
+    const tpl = await prisma.emailTemplate.findUnique({ where: { parkSlug_key: { parkSlug: "delovoy", key } } });
     if (!tpl) return apiNotFound("Шаблон не найден");
 
     const vars = { ...DEMO_VARS, ...(parsed.data.sampleVars ?? {}) };
