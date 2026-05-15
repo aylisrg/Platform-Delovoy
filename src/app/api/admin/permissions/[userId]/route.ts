@@ -11,6 +11,7 @@ import {
   setUserAdminSections,
   ADMIN_SECTIONS,
   ADMIN_SECTION_SLUGS,
+  STRICT_ACCESS_MODULES,
 } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
@@ -50,6 +51,7 @@ export async function GET(
     userRole: user.role,
     grantedSections,
     allSections: ADMIN_SECTIONS,
+    strictSections: [...STRICT_ACCESS_MODULES],
   });
 }
 
@@ -68,15 +70,6 @@ export async function PUT(
 
   const { userId } = await params;
 
-  // Cannot change own permissions (superadmin always has full access)
-  if (userId === session.user.id) {
-    return apiError(
-      "CANNOT_EDIT_OWN",
-      "Суперадмин всегда имеет полный доступ",
-      400
-    );
-  }
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true },
@@ -84,14 +77,6 @@ export async function PUT(
 
   if (!user) {
     return apiError("NOT_FOUND", "Пользователь не найден", 404);
-  }
-
-  if (user.role !== "MANAGER") {
-    return apiError(
-      "INVALID_ROLE",
-      "Права доступа можно настроить только для менеджеров",
-      400
-    );
   }
 
   try {
@@ -104,12 +89,37 @@ export async function PUT(
       );
     }
 
-    // Filter to only valid section slugs
     const validSections = parsed.data.sections.filter((s) =>
       (ADMIN_SECTION_SLUGS as readonly string[]).includes(s)
     );
 
-    await setUserAdminSections(userId, validSections);
+    const strictSections = validSections.filter((s) => STRICT_ACCESS_MODULES.has(s));
+    const nonStrictSections = validSections.filter((s) => !STRICT_ACCESS_MODULES.has(s));
+
+    if (nonStrictSections.length > 0 && user.role !== "MANAGER") {
+      return apiError(
+        "INVALID_ROLE",
+        "Стандартные разделы можно настроить только для менеджеров",
+        400
+      );
+    }
+
+    if (user.role === "MANAGER") {
+      // Full replace for managers (strict + non-strict together)
+      await setUserAdminSections(userId, validSections);
+    } else {
+      // For SUPERADMIN/ADMIN targets: only update strict sections, leave non-strict alone
+      await prisma.$transaction([
+        prisma.adminPermission.deleteMany({
+          where: { userId, section: { in: [...STRICT_ACCESS_MODULES] } },
+        }),
+        ...(strictSections.length > 0
+          ? [prisma.adminPermission.createMany({
+              data: strictSections.map((section) => ({ userId, section })),
+            })]
+          : []),
+      ]);
+    }
 
     // Log the action
     await prisma.auditLog.create({
@@ -118,14 +128,11 @@ export async function PUT(
         action: "permissions.update",
         entity: "AdminPermission",
         entityId: userId,
-        metadata: { sections: validSections },
+        metadata: { sections: validSections, targetRole: user.role },
       },
     });
 
-    return apiResponse({
-      userId,
-      grantedSections: validSections,
-    });
+    return apiResponse({ userId, grantedSections: validSections });
   } catch {
     return apiError("INTERNAL_ERROR", "Ошибка обновления прав доступа", 500);
   }
