@@ -24,6 +24,7 @@ export function PermissionsModal({
   onSaved,
 }: PermissionsModalProps) {
   const [allSections, setAllSections] = useState<AdminSection[]>([]);
+  const [strictSections, setStrictSections] = useState<string[]>([]);
   const [grantedSections, setGrantedSections] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,6 +36,7 @@ export function PermissionsModal({
       .then((data) => {
         if (data.success) {
           setAllSections(data.data.allSections);
+          setStrictSections(data.data.strictSections ?? []);
           setGrantedSections(data.data.grantedSections);
         } else {
           setError(data.error?.message || "Ошибка загрузки");
@@ -46,18 +48,24 @@ export function PermissionsModal({
 
   function toggleSection(slug: string) {
     setGrantedSections((prev) =>
-      prev.includes(slug)
-        ? prev.filter((s) => s !== slug)
-        : [...prev, slug]
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
   }
 
   function selectAll() {
-    setGrantedSections(allSections.map((s) => s.slug));
+    const available = isSuperadmin
+      ? allSections.filter((s) => strictSections.includes(s.slug))
+      : allSections;
+    setGrantedSections(available.map((s) => s.slug));
   }
 
   function deselectAll() {
-    setGrantedSections([]);
+    const available = isSuperadmin
+      ? allSections.filter((s) => strictSections.includes(s.slug))
+      : allSections;
+    setGrantedSections((prev) =>
+      prev.filter((s) => !available.some((a) => a.slug === s))
+    );
   }
 
   async function handleSave() {
@@ -83,7 +91,18 @@ export function PermissionsModal({
     }
   }
 
-  const isSuperadmin = userRole === "SUPERADMIN";
+  const isSuperadmin = userRole === "SUPERADMIN" || userRole === "ADMIN";
+  const isManager = userRole === "MANAGER";
+  const isUser = userRole === "USER";
+
+  const strictSectionObjects = allSections.filter((s) => strictSections.includes(s.slug));
+  const regularSections = allSections.filter((s) => !strictSections.includes(s.slug));
+
+  const canEdit = isManager || isSuperadmin;
+  const availableCount = isSuperadmin ? strictSectionObjects.length : allSections.length;
+  const selectedCount = isSuperadmin
+    ? grantedSections.filter((s) => strictSections.includes(s)).length
+    : grantedSections.length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -91,11 +110,16 @@ export function PermissionsModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900">
-              Права доступа
-            </h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Права доступа</h2>
             <p className="text-sm text-zinc-500">
-              {userName || "Без имени"} — {userRole === "SUPERADMIN" ? "Суперадмин" : userRole === "ADMIN" ? "Администратор" : userRole === "MANAGER" ? "Менеджер" : "Пользователь"}
+              {userName || "Без имени"} —{" "}
+              {userRole === "SUPERADMIN"
+                ? "Суперадмин"
+                : userRole === "ADMIN"
+                  ? "Администратор"
+                  : userRole === "MANAGER"
+                    ? "Менеджер"
+                    : "Пользователь"}
             </p>
           </div>
           <button
@@ -109,16 +133,11 @@ export function PermissionsModal({
         </div>
 
         {/* Body */}
-        <div className="px-6 py-4">
-          {isSuperadmin ? (
-            <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm text-blue-700">
-              Суперадмин всегда имеет полный доступ ко всем разделам.
-              Управление правами доступно только для менеджеров.
-            </div>
-          ) : userRole !== "MANAGER" ? (
+        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+          {isUser ? (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-700">
-              Управление правами доступно только для пользователей с ролью «Менеджер».
-              Сначала измените роль пользователя на «Менеджер».
+              Управление правами доступно только для менеджеров.
+              Сначала измените роль пользователя.
             </div>
           ) : loading ? (
             <div className="flex flex-col gap-3">
@@ -148,42 +167,104 @@ export function PermissionsModal({
                   Снять все
                 </button>
                 <span className="ml-auto text-xs text-zinc-400">
-                  {grantedSections.length} из {allSections.length}
+                  {selectedCount} из {availableCount}
                 </span>
               </div>
 
-              {/* Checkboxes */}
-              <div className="space-y-1">
-                {allSections.map((section) => {
-                  const isGranted = grantedSections.includes(section.slug);
-                  return (
-                    <label
-                      key={section.slug}
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
-                        isGranted
-                          ? "bg-blue-50 border border-blue-200"
-                          : "border border-transparent hover:bg-zinc-50"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isGranted}
-                        onChange={() => toggleSection(section.slug)}
-                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-lg">{section.icon}</span>
-                      <div className="flex-1">
-                        <span className="text-sm font-medium text-zinc-900">
-                          {section.label}
-                        </span>
-                        <span className="ml-2 text-xs text-zinc-400">
-                          /admin/{section.slug}
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
+              {/* Strict sections group */}
+              {strictSectionObjects.length > 0 && (
+                <div className="mb-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+                      Строгий доступ
+                    </span>
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                      требует явного гранта
+                    </span>
+                  </div>
+                  {isSuperadmin && (
+                    <p className="mb-2 text-xs text-zinc-400">
+                      Суперадмин получает доступ ко всем стандартным разделам автоматически.
+                      Разделы ниже требуют ручного включения.
+                    </p>
+                  )}
+                  <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/40 p-2">
+                    {strictSectionObjects.map((section) => {
+                      const isGranted = grantedSections.includes(section.slug);
+                      return (
+                        <label
+                          key={section.slug}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
+                            isGranted
+                              ? "bg-amber-100 border border-amber-300"
+                              : "border border-transparent hover:bg-amber-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isGranted}
+                            onChange={() => toggleSection(section.slug)}
+                            className="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+                          />
+                          <span className="text-lg">{section.icon}</span>
+                          <div className="flex-1">
+                            <span className="text-sm font-medium text-zinc-900">
+                              {section.label}
+                            </span>
+                            <span className="ml-2 text-xs text-zinc-400">
+                              /admin/{section.slug}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Regular sections — only for managers */}
+              {isManager && regularSections.length > 0 && (
+                <div>
+                  {strictSectionObjects.length > 0 && (
+                    <div className="mb-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                        Стандартные разделы
+                      </span>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {regularSections.map((section) => {
+                      const isGranted = grantedSections.includes(section.slug);
+                      return (
+                        <label
+                          key={section.slug}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
+                            isGranted
+                              ? "bg-blue-50 border border-blue-200"
+                              : "border border-transparent hover:bg-zinc-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isGranted}
+                            onChange={() => toggleSection(section.slug)}
+                            className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-lg">{section.icon}</span>
+                          <div className="flex-1">
+                            <span className="text-sm font-medium text-zinc-900">
+                              {section.label}
+                            </span>
+                            <span className="ml-2 text-xs text-zinc-400">
+                              /admin/{section.slug}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -196,7 +277,7 @@ export function PermissionsModal({
           >
             Отмена
           </button>
-          {userRole === "MANAGER" && !loading && (
+          {canEdit && !loading && (
             <button
               onClick={handleSave}
               disabled={saving}
