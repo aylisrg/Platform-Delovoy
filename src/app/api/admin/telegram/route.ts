@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { logAudit } from "@/lib/logger";
+import { logAudit, log } from "@/lib/logger";
 
 const SYSTEM_MODULE_SLUG = "system";
 
@@ -26,7 +26,9 @@ export async function GET() {
     const settings = await getTelegramSettings();
     return apiResponse(settings);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error("[Admin Telegram] GET error:", error);
+    void log.error("admin.telegram", `GET failed: ${msg}`);
     return apiServerError();
   }
 }
@@ -84,7 +86,9 @@ export async function PUT(request: NextRequest) {
     const settings = await getTelegramSettings();
     return apiResponse(settings);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error("[Admin Telegram] PUT error:", error);
+    void log.error("admin.telegram", `PUT failed: ${msg}`);
     return apiServerError();
   }
 }
