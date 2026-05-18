@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MetrikaClient } from "../metrika-client";
+
+vi.mock("@/lib/redis", () => ({
+  redis: { get: vi.fn().mockResolvedValue(null), setex: vi.fn().mockResolvedValue("OK") },
+  redisAvailable: false,
+}));
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -10,6 +15,10 @@ describe("MetrikaClient", () => {
   beforeEach(() => {
     client = new MetrikaClient("test-token", "73068007");
     mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("fetches traffic summary", async () => {
@@ -196,7 +205,7 @@ describe("MetrikaClient", () => {
     }
   });
 
-  it("throws on API error", async () => {
+  it("throws on non-retryable API error", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 403,
@@ -226,5 +235,76 @@ describe("MetrikaClient", () => {
     expect(result).toHaveLength(3);
     expect(result[0].source).toBe("ad");
     expect(result[0].percentage).toBe(60);
+  });
+
+  // --- New: semaphore, retry, goals dedup ---
+
+  it("limits concurrent outbound requests to 3", async () => {
+    let inFlight = 0;
+    let maxSeen = 0;
+
+    mockFetch.mockImplementation(async () => {
+      inFlight++;
+      maxSeen = Math.max(maxSeen, inFlight);
+      // Yield so other queued requests can run while this one is "in flight".
+      await new Promise<void>((r) => setTimeout(r, 0));
+      inFlight--;
+      return { ok: true, json: async () => ({ totals: [0, 0, 0, 0, 0], data: [], query: { metrics: [] } }) };
+    });
+
+    const requests = Array.from({ length: 10 }, () =>
+      client.getTrafficSummary("2026-01-01", "2026-01-31")
+    );
+    await Promise.all(requests);
+
+    expect(maxSeen).toBeLessThanOrEqual(3);
+    expect(mockFetch).toHaveBeenCalledTimes(10);
+  });
+
+  it("retries once on 429 and returns the successful response", async () => {
+    vi.useFakeTimers();
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 429, text: async () => "" })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ totals: [5, 10, 3, 20, 90], data: [], query: { metrics: [] } }),
+      });
+
+    const promise = client.getTrafficSummary("2026-01-01", "2026-01-31");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.visits).toBe(5);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws YANDEX_METRIKA_ERROR after exhausting all 429 retries", async () => {
+    vi.useFakeTimers();
+
+    mockFetch.mockResolvedValue({ ok: false, status: 429, text: async () => '{"code":429}' });
+
+    const promise = client.getTrafficSummary("2026-01-01", "2026-01-31");
+    // Attach rejection handler before advancing timers to avoid unhandled-rejection warning.
+    const assertion = expect(promise).rejects.toThrow("YANDEX_METRIKA_ERROR: 429");
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("deduplicates concurrent getGoals() calls — fetch invoked once per instance", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        goals: [{ id: 1, name: "Цель A", type: "action" }],
+      }),
+    });
+
+    const [r1, r2] = await Promise.all([client.getGoals(), client.getGoals()]);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(r1).toEqual(r2);
+    expect(r1).toHaveLength(1);
   });
 });

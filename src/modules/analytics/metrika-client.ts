@@ -1,3 +1,4 @@
+import { redis, redisAvailable } from "@/lib/redis";
 import type { TrafficSummary, TrafficSource } from "./types";
 
 export type RawGoalConversion = {
@@ -35,6 +36,29 @@ const AD_SOURCE_FILTER = "ym:s:lastAdvEngine=='ya_direct'";
 // (где также шлётся `ym:s:visits`). Берём с запасом.
 const METRIKA_METRICS_LIMIT = 20;
 
+// Yandex enforces a per-UID parallel request quota (~5). This semaphore keeps
+// all MetrikaClient instances on this process under 3 concurrent outbound calls.
+const MAX_CONCURRENT = 3;
+let _inFlight = 0;
+const _waitQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (_inFlight < MAX_CONCURRENT) {
+    _inFlight++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => _waitQueue.push(resolve));
+}
+
+function releaseSlot(): void {
+  const next = _waitQueue.shift();
+  if (next) {
+    next();
+  } else {
+    _inFlight--;
+  }
+}
+
 type MetrikaStatResponse = {
   data: Array<{ metrics: number[]; dimensions?: Array<{ name: string }> }>;
   totals: number[];
@@ -44,6 +68,8 @@ type MetrikaStatResponse = {
 type MetrikaGoal = { id: number; name: string; type: string };
 
 export class MetrikaClient {
+  private _goalsCache?: Promise<Array<{ id: number; name: string; type: string }>>;
+
   constructor(
     private readonly oauthToken: string,
     private readonly counterId: string
@@ -53,27 +79,60 @@ export class MetrikaClient {
     const searchParams = new URLSearchParams(params);
     const fullUrl = `${url}?${searchParams.toString()}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await acquireSlot();
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-    try {
-      const res = await fetch(fullUrl, {
-        headers: { Authorization: `OAuth ${this.oauthToken}` },
-        signal: controller.signal,
-      });
+        let res: Response;
+        try {
+          res = await fetch(fullUrl, {
+            headers: { Authorization: `OAuth ${this.oauthToken}` },
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`YANDEX_METRIKA_ERROR: ${res.status} ${text}`);
+        if (res.status === 429 && attempt < maxAttempts) {
+          await sleep(500 * Math.pow(2, attempt - 1));
+          continue;
+        }
+
+        if (res.status >= 500 && attempt < maxAttempts) {
+          await sleep(500);
+          continue;
+        }
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`YANDEX_METRIKA_ERROR: ${res.status} ${text}`);
+        }
+
+        return (await res.json()) as T;
+      } finally {
+        releaseSlot();
       }
-
-      return (await res.json()) as T;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    // Unreachable, but satisfies TypeScript.
+    throw new Error("YANDEX_METRIKA_ERROR: max retries exceeded");
   }
 
   async getTrafficSummary(dateFrom: string, dateTo: string): Promise<TrafficSummary> {
+    const cacheKey = `metrika:traffic-summary:${this.counterId}:${dateFrom}:${dateTo}`;
+
+    if (redisAvailable) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) return JSON.parse(cached) as TrafficSummary;
+      } catch {
+        // best-effort
+      }
+    }
+
     const data = await this.request<MetrikaStatResponse>(METRIKA_STAT_URL, {
       ids: this.counterId,
       metrics:
@@ -83,13 +142,19 @@ export class MetrikaClient {
     });
 
     const t = data.totals ?? [0, 0, 0, 0, 0];
-    return {
+    const result: TrafficSummary = {
       visits: Math.round(t[0] ?? 0),
       pageviews: Math.round(t[1] ?? 0),
       users: Math.round(t[2] ?? 0),
       bounceRate: Math.round((t[3] ?? 0) * 100) / 100,
       avgVisitDuration: Math.round((t[4] ?? 0) * 10) / 10,
     };
+
+    if (redisAvailable) {
+      redis.setex(cacheKey, 300, JSON.stringify(result)).catch(() => {});
+    }
+
+    return result;
   }
 
   async getGoalConversions(dateFrom: string, dateTo: string): Promise<RawGoalConversion[]> {
@@ -203,11 +268,39 @@ export class MetrikaClient {
   }
 
   async getGoals(): Promise<Array<{ id: number; name: string; type: string }>> {
-    const data = await this.request<{ goals: MetrikaGoal[] }>(
-      `${METRIKA_MGMT_URL}/counter/${this.counterId}/goals`
-    );
-    return (data.goals ?? [])
-      .filter((g) => !COMPOSITE_GOAL_TYPES.has(g.type))
-      .map((g) => ({ id: g.id, name: g.name, type: g.type }));
+    // Dedupe concurrent calls within one instance lifetime.
+    if (this._goalsCache) return this._goalsCache;
+
+    this._goalsCache = (async () => {
+      const cacheKey = `metrika:goals:${this.counterId}`;
+
+      if (redisAvailable) {
+        try {
+          const cached = await redis.get(cacheKey);
+          if (cached) return JSON.parse(cached) as Array<MetrikaGoal>;
+        } catch {
+          // best-effort
+        }
+      }
+
+      const data = await this.request<{ goals: MetrikaGoal[] }>(
+        `${METRIKA_MGMT_URL}/counter/${this.counterId}/goals`
+      );
+      const goals = (data.goals ?? [])
+        .filter((g) => !COMPOSITE_GOAL_TYPES.has(g.type))
+        .map((g) => ({ id: g.id, name: g.name, type: g.type }));
+
+      if (redisAvailable) {
+        redis.setex(cacheKey, 3600, JSON.stringify(goals)).catch(() => {});
+      }
+
+      return goals;
+    })();
+
+    return this._goalsCache;
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
