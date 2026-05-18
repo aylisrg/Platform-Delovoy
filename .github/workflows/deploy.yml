@@ -169,6 +169,42 @@ jobs:
             echo "No server found — skipping snapshot"
           fi
 
+      - name: Check Telegram secrets
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_ADMIN: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          TG_OWNER: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+        run: |
+          [ -z "$TG_TOKEN" ] && echo "::warning::TELEGRAM_BOT_TOKEN is empty — TG notifications will be silenced"
+          [ -z "$TG_ADMIN" ] && echo "::warning::TELEGRAM_ADMIN_CHAT_ID is empty — admin alerts won't be delivered"
+          [ -z "$TG_OWNER" ] && echo "::warning::TELEGRAM_OWNER_CHAT_ID is empty — owner DMs won't be delivered"
+          echo "Telegram secret check complete"
+
+      - name: Probe Telegram bot reachability
+        continue-on-error: true
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "::warning::Skipping TG probe — secrets missing"
+            exit 0
+          fi
+          ME=$(curl -sf --max-time 8 "https://api.telegram.org/bot$TG_TOKEN/getMe" || echo '{"ok":false}')
+          if ! echo "$ME" | jq -e '.ok==true' >/dev/null 2>&1; then
+            echo "::warning::getMe failed — bot token may be invalid or TG API unreachable"
+            exit 0
+          fi
+          BOT=$(echo "$ME" | jq -r '.result.username // "unknown"')
+          CHAT=$(curl -sf --max-time 8 "https://api.telegram.org/bot$TG_TOKEN/getChat?chat_id=$TG_CHAT" || echo '{"ok":false}')
+          if ! echo "$CHAT" | jq -e '.ok==true' >/dev/null 2>&1; then
+            REASON=$(echo "$CHAT" | jq -r '.description // "unknown"')
+            echo "::warning::getChat failed ($REASON) — bot may have been kicked from admin group or chat_id is wrong"
+            exit 0
+          fi
+          TITLE=$(echo "$CHAT" | jq -r '.result.title // .result.username // "unknown"')
+          echo "✅ Bot @$BOT reachable, admin chat: $TITLE"
+
       - name: Sync secrets to server .env
         uses: appleboy/ssh-action@v1
         env:
@@ -195,10 +231,14 @@ jobs:
             set -e
             cd /opt/delovoy-park
 
-            # Write or update a key in .env without touching other lines
+            # Write or update a key in .env without touching other lines.
+            # Empty value = keep whatever was there before (warn, don't overwrite).
             upsert_env() {
               local key="$1" val="$2"
-              [ -z "$val" ] && return
+              if [ -z "$val" ]; then
+                echo "⚠️  $key is empty in GH secrets — keeping previous .env value if any"
+                return
+              fi
               if grep -q "^${key}=" .env 2>/dev/null; then
                 sed -i "s|^${key}=.*|${key}=${val}|" .env
               else
@@ -344,6 +384,27 @@ jobs:
             fi
             exit 1
 
+      - name: Ensure process-outgoing cron is registered
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            CRON_SECRET_VAL=$(grep '^CRON_SECRET=' /opt/delovoy-park/.env 2>/dev/null | cut -d= -f2- || true)
+            if [ -z "$CRON_SECRET_VAL" ]; then
+              echo "⚠️  CRON_SECRET not found in .env — skipping cron setup (add it manually)"
+              exit 0
+            fi
+            CRON_ENTRY="* * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/process-outgoing > /dev/null 2>&1"
+            if crontab -l 2>/dev/null | grep -q 'process-outgoing'; then
+              echo "✅ process-outgoing cron already registered"
+            else
+              (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
+              echo "✅ process-outgoing cron installed (every minute)"
+            fi
+
       - name: Verify deployment + smoke tests
         if: ${{ !inputs.skip_smoke_tests }}
         uses: appleboy/ssh-action@v1
@@ -381,6 +442,23 @@ jobs:
             else
               echo "❌ PS Park API health: FAILED"
               FAILED=$((FAILED + 1))
+            fi
+
+            # Telegram notifications pipeline health (warn-only — never increments FAILED)
+            NH=$(curl -s --max-time 10 https://delovoy-park.ru/api/notifications/health || echo '{}')
+            if echo "$NH" | jq -e '.data.ok==true' >/dev/null 2>&1; then
+              echo "✅ Notifications health: OK"
+            else
+              echo "⚠️  Notifications health: FAILED"
+              echo "$NH" | jq -c '.data.checks // .error // "no data"' || true
+              TG_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+              TG_CHAT="${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}"
+              if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+                curl -s "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+                  -d "chat_id=$TG_CHAT" \
+                  -d "text=⚠️ Post-deploy: /api/notifications/health = FAIL. Проверь /admin/monitoring." \
+                  -d "parse_mode=HTML" || true
+              fi
             fi
 
             echo ""
