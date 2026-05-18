@@ -1,4 +1,4 @@
-import type { OutgoingNotification } from "@prisma/client";
+import type { OutgoingNotification, UserNotificationChannel } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ChannelRegistry } from "./channel-registry";
 import { bootstrapChannels } from "./channels";
@@ -62,6 +62,7 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
       status: inQuiet ? "DEFERRED" : "PENDING",
       scheduledFor,
       dedupKey,
+      triedChannelIds: [],
     },
   });
 
@@ -102,35 +103,23 @@ export async function processOutgoing(
   return { sent, failed, processed: due.length };
 }
 
-async function deliverOne(
-  item: OutgoingNotification & { channel: { kind: import("@prisma/client").NotificationChannelKind; address: string } }
-): Promise<"sent" | "failed" | "retry"> {
+type ItemWithChannel = OutgoingNotification & {
+  channel: UserNotificationChannel;
+};
+
+async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "retry"> {
   const channel = ChannelRegistry.get(item.channel.kind);
-  if (!channel) {
-    await prisma.outgoingNotification.update({
-      where: { id: item.id },
-      data: {
-        status: "FAILED",
-        failureReason: `channel ${item.channel.kind} not registered`,
-        attempts: { increment: 1 },
-      },
-    });
-    return "failed";
+  const unavailable = !channel || !channel.isAvailable();
+
+  if (unavailable) {
+    return attemptFallback(item, unavailable ? `channel ${item.channel.kind} unavailable` : "");
   }
 
-  if (!channel.isAvailable()) {
-    await prisma.outgoingNotification.update({
-      where: { id: item.id },
-      data: {
-        status: "FAILED",
-        failureReason: `channel ${item.channel.kind} unavailable`,
-        attempts: { increment: 1 },
-      },
-    });
-    return "failed";
-  }
-
-  const payload = item.payload as { title: string; body: string; actions?: Array<{ label: string; url?: string }> };
+  const payload = item.payload as {
+    title: string;
+    body: string;
+    actions?: Array<{ label: string; url?: string }>;
+  };
   const result = await channel.send(item.channel.address, {
     title: payload.title,
     body: payload.body,
@@ -140,28 +129,91 @@ async function deliverOne(
   if (result.ok) {
     await prisma.outgoingNotification.update({
       where: { id: item.id },
-      data: {
-        status: "SENT",
-        sentAt: new Date(),
-        attempts: { increment: 1 },
-      },
+      data: { status: "SENT", sentAt: new Date(), attempts: { increment: 1 } },
     });
     return "sent";
   }
 
   const nextAttempts = item.attempts + 1;
   const exhausted = nextAttempts >= item.maxAttempts || !result.retryable;
+
+  if (!exhausted) {
+    await prisma.outgoingNotification.update({
+      where: { id: item.id },
+      data: {
+        status: "PENDING",
+        failureReason: result.reason,
+        attempts: nextAttempts,
+        scheduledFor: new Date(Date.now() + 5 * 60_000),
+      },
+    });
+    return "retry";
+  }
+
+  return attemptFallback(item, result.reason ?? "exhausted", nextAttempts);
+}
+
+async function attemptFallback(
+  item: ItemWithChannel,
+  reason: string,
+  attempts?: number
+): Promise<"sent" | "failed"> {
+  // Mark current record as failed
   await prisma.outgoingNotification.update({
     where: { id: item.id },
     data: {
-      status: exhausted ? "FAILED" : "PENDING",
-      failureReason: result.reason,
-      attempts: nextAttempts,
-      // retry in 5 minutes
-      scheduledFor: exhausted ? item.scheduledFor : new Date(Date.now() + 5 * 60_000),
+      status: "FAILED",
+      failureReason: reason,
+      attempts: attempts !== undefined ? attempts : { increment: 1 },
     },
   });
-  return exhausted ? "failed" : "retry";
+
+  // Collect channels already tried (includes this one)
+  const triedIds = [...item.triedChannelIds, item.channelId];
+
+  // Find next available channel for this user by priority, excluding tried ones
+  const nextChannel = await prisma.userNotificationChannel.findFirst({
+    where: {
+      userId: item.userId,
+      isActive: true,
+      verifiedAt: { not: null },
+      id: { notIn: triedIds },
+    },
+    orderBy: { priority: "asc" },
+  });
+
+  if (!nextChannel || !ChannelRegistry.get(nextChannel.kind)?.isAvailable()) {
+    // All channels exhausted — log warning via SystemEvent
+    await prisma.systemEvent.create({
+      data: {
+        level: "WARNING",
+        source: "notifications",
+        message: `All channels exhausted for userId=${item.userId} eventType=${item.eventType}`,
+        meta: { outgoingId: item.id, triedIds },
+      },
+    });
+    return "failed";
+  }
+
+  // Enqueue fallback attempt
+  await prisma.outgoingNotification.create({
+    data: {
+      userId: item.userId,
+      eventType: item.eventType,
+      entityType: item.entityType,
+      entityId: item.entityId,
+      channelId: nextChannel.id,
+      payload: item.payload as object,
+      status: "PENDING",
+      scheduledFor: new Date(),
+      dedupKey: item.dedupKey,
+      triedChannelIds: triedIds,
+      fallbackOfId: item.fallbackOfId ?? item.id,
+      maxAttempts: item.maxAttempts,
+    },
+  });
+
+  return "failed"; // current item failed; fallback queued
 }
 
 export const NotificationDispatcher = { dispatch, processOutgoing };

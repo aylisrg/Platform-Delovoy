@@ -9,11 +9,28 @@
  * брала контроль над уже открытыми вкладками админки.
  */
 
-const SW_VERSION = "1.0.0";
+const SW_VERSION = "1.1.0";
+
+const WEBAPP_SHELL_CACHE = "webapp-shell-v1";
+const WEBAPP_SHELL_URLS = [
+  "/webapp",
+  "/webapp/messenger",
+  "/webapp/offline",
+  "/icons/webapp-192.png",
+];
 
 self.addEventListener("install", (event) => {
-  // Никаких pre-cache: SW нужен только для push.
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    Promise.all([
+      self.skipWaiting(),
+      // Pre-cache webapp shell. Fail gracefully if any resource isn't found yet.
+      caches.open(WEBAPP_SHELL_CACHE).then((cache) =>
+        cache.addAll(WEBAPP_SHELL_URLS).catch(() => {
+          // Shell resources may not exist yet in dev — skip silently.
+        }),
+      ),
+    ]),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -78,10 +95,17 @@ self.addEventListener("notificationclick", (event) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((windowClients) => {
+        // Prefer a window that's already open at the target path.
+        // Support both /admin/* and /webapp/* origins.
+        const isAdminUrl = targetUrl.includes("/admin");
+        const isWebappUrl = targetUrl.includes("/webapp");
+
         for (const client of windowClients) {
-          // Любая открытая вкладка админки подходит для фокуса.
-          if (client.url.includes("/admin") && "focus" in client) {
-            // navigate возвращает Promise<WindowClient | null>
+          const matchAdmin = isAdminUrl && client.url.includes("/admin");
+          const matchWebapp = isWebappUrl && client.url.includes("/webapp");
+          const matchAny = !isAdminUrl && !isWebappUrl;
+
+          if ((matchAdmin || matchWebapp || matchAny) && "focus" in client) {
             if ("navigate" in client) {
               return client.navigate(targetUrl).then((c) => (c ? c.focus() : null));
             }
@@ -152,6 +176,79 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       }
     })(),
   );
+});
+
+/**
+ * Fetch handler — offline shell strategy for /webapp/*.
+ *
+ * Strategy by path:
+ *   /webapp/* navigation → network-first, fallback /webapp/offline
+ *   /_next/static/*      → cache-first (immutable hashed assets)
+ *   /api/*               → network-only (never cache auth/data)
+ *   /admin/*             → network-only (admin is not a PWA)
+ *   everything else      → network
+ */
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return; // external — passthrough
+
+  const { pathname } = url;
+
+  // Static Next.js assets — cache first (they're content-hashed).
+  if (pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      caches.open(WEBAPP_SHELL_CACHE).then(async (cache) => {
+        const cached = await cache.match(event.request);
+        if (cached) return cached;
+        const response = await fetch(event.request);
+        if (response.ok) cache.put(event.request, response.clone());
+        return response;
+      }),
+    );
+    return;
+  }
+
+  // Webapp navigation — network-first with offline fallback.
+  if (pathname.startsWith("/webapp") && event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cache = await caches.open(WEBAPP_SHELL_CACHE);
+        return (
+          (await cache.match("/webapp/offline")) ||
+          new Response("Offline", { status: 503 })
+        );
+      }),
+    );
+    return;
+  }
+
+  // API and admin — always network.
+});
+
+/**
+ * Background Sync — flush IndexedDB outbox when connectivity is restored.
+ * Registered on send failure: `swReg.sync.register('chat-sync')`.
+ */
+self.addEventListener("sync", (event) => {
+  if (event.tag === "chat-sync") {
+    event.waitUntil(
+      (async () => {
+        try {
+          // POST to a flush endpoint — the webapp client must expose this.
+          // The actual IndexedDB flush runs in the webapp page on receipt.
+          const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+          for (const client of clients) {
+            if (client.url.includes("/webapp")) {
+              client.postMessage({ type: "chat-sync-flush" });
+              break;
+            }
+          }
+        } catch {
+          // Will retry on next sync opportunity.
+        }
+      })(),
+    );
+  }
 });
 
 // --- helpers (используются только внутри SW) ---

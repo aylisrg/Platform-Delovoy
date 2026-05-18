@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { subscribeAdminEvents } from "@/lib/admin-events";
 import { getUserAdminSections } from "@/lib/permissions";
+import { markAdminOnline, markAdminOffline, refreshHeartbeat } from "@/lib/realtime/presence";
+import { randomUUID } from "crypto";
 
 /**
  * GET /api/admin/events/stream — SSE endpoint for real-time admin notifications.
@@ -21,14 +23,17 @@ export async function GET() {
   }
 
   const sections = await getUserAdminSections(session.user.id);
+  const connId = randomUUID();
 
   const encoder = new TextEncoder();
-  let cleanup: (() => void) | undefined;
+  const cleanups: Array<() => void> = [];
 
   const stream = new ReadableStream({
-    start(controller) {
-      // Send initial keepalive
+    async start(controller) {
       controller.enqueue(encoder.encode(": connected\n\n"));
+      controller.enqueue(encoder.encode("retry: 5000\n\n"));
+
+      await markAdminOnline(session.user.id, connId);
 
       // Subscribe to admin events
       const unsubscribe = subscribeAdminEvents((event) => {
@@ -36,29 +41,26 @@ export async function GET() {
         if (role !== "SUPERADMIN" && !sections.includes(event.moduleSlug)) {
           return;
         }
-
-        const data = JSON.stringify(event);
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch { /* stream closed */ }
       });
+      cleanups.push(unsubscribe);
 
-      // Keepalive every 30s to prevent connection timeout
-      const keepalive = setInterval(() => {
+      // Keepalive every 30s to prevent connection timeout + refresh presence
+      const keepalive = setInterval(async () => {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
+          await refreshHeartbeat(session.user.id);
         } catch {
           clearInterval(keepalive);
         }
       }, 30_000);
-
-      cleanup = () => {
-        unsubscribe();
-        clearInterval(keepalive);
-      };
-
-      controller.enqueue(encoder.encode("retry: 5000\n\n"));
+      cleanups.push(() => clearInterval(keepalive));
     },
-    cancel() {
-      cleanup?.();
+    async cancel() {
+      for (const fn of cleanups) fn();
+      await markAdminOffline(session.user.id);
     },
   });
 

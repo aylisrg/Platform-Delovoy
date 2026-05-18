@@ -1,12 +1,11 @@
 /**
- * In-memory admin event broadcaster for SSE connections.
+ * Admin event broadcaster for SSE connections.
  *
- * Admin/manager users subscribe via SSE. When a notification event fires
- * with admin routing, it's broadcast here so connected browsers receive
- * it in real time.
+ * Wraps the realtime bus (Redis Pub/Sub when available, in-memory fallback).
+ * Public API is unchanged so existing callers are not affected.
  */
 
-import { EventEmitter } from "events";
+import { publish, subscribe } from "@/lib/realtime";
 
 export type AdminBrowserEvent = {
   id: string;
@@ -18,24 +17,16 @@ export type AdminBrowserEvent = {
   timestamp: string; // ISO string
 };
 
-const emitter = new EventEmitter();
-emitter.setMaxListeners(100); // Support many concurrent admin sessions
+const ADMIN_CHANNEL = "admin:events";
 
-/**
- * Broadcast an event to all connected admin SSE clients.
- */
+/** Broadcast an event to all connected admin SSE clients. */
 export function broadcastAdminEvent(event: AdminBrowserEvent): void {
-  emitter.emit("admin-event", event);
+  publish(ADMIN_CHANNEL, event).catch(() => {});
 }
 
-/**
- * Subscribe to admin events. Returns an unsubscribe function.
- */
+/** Subscribe to admin events. Returns an unsubscribe function. */
 export function subscribeAdminEvents(
-  listener: (event: AdminBrowserEvent) => void
+  listener: (event: AdminBrowserEvent) => void,
 ): () => void {
-  emitter.on("admin-event", listener);
-  return () => {
-    emitter.off("admin-event", listener);
-  };
+  return subscribe(ADMIN_CHANNEL, listener as (event: { type: string; [key: string]: unknown }) => void);
 }
