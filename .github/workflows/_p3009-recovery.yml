@@ -1,0 +1,56 @@
+name: P3009 Recovery (one-shot)
+
+# One-shot workflow to unblock the stuck migration from 2026-04-25 and re-run seed.
+# Run this ONCE after PR merge, then delete the file.
+on:
+  workflow_dispatch:
+
+jobs:
+  recover:
+    name: Resolve stuck migration + run seed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve stuck migration and run seed via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/delovoy-park
+
+            echo "=== Current state of stuck migration ==="
+            docker compose exec -T postgres psql -U delovoy delovoy_park -c \
+              "SELECT migration_name, started_at, finished_at, rolled_back_at, applied_steps_count, logs \
+               FROM _prisma_migrations \
+               WHERE migration_name = '20260425120000_inventory_sku_unique_name';"
+
+            echo "=== Check if inventory_sku indexes already exist in DB ==="
+            docker compose exec -T postgres psql -U delovoy delovoy_park -c "\di inventory_sku*" || true
+
+            echo "=== Mark migration as rolled-back (safe to re-apply idempotent SQL) ==="
+            docker compose exec -T app npx prisma migrate resolve \
+              --rolled-back 20260425120000_inventory_sku_unique_name \
+              && echo "✅ Marked as rolled-back" \
+              || echo "⚠️ resolve --rolled-back failed (may already be in different state, continuing)"
+
+            echo "=== Apply all pending migrations ==="
+            docker compose exec -T app npx prisma migrate deploy \
+              && echo "✅ Migrations applied" \
+              || { echo "❌ Migration failed — manual intervention required"; exit 1; }
+
+            echo "=== Run seed pipeline ==="
+            docker compose exec -T app npx tsx scripts/seed.ts \
+              && echo "✅ Seed complete" \
+              || { echo "❌ Seed failed"; exit 1; }
+
+            echo "=== Verify Park table and grants ==="
+            docker compose exec -T postgres psql -U delovoy delovoy_park -c \
+              "SELECT slug FROM \"Park\";" || echo "⚠️ Park table still missing"
+            docker compose exec -T postgres psql -U delovoy delovoy_park -c \
+              "SELECT u.email, ap.section FROM \"User\" u
+               JOIN \"AdminPermission\" ap ON ap.\"userId\" = u.id
+               WHERE u.role='SUPERADMIN' AND ap.section='nedelovoy';" || true
+
+            echo "=== Recovery complete ==="

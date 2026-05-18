@@ -289,10 +289,6 @@ jobs:
 
             if [ "$HEALTHY" = true ]; then
               echo "=== Apply pending DB migrations ==="
-              # Resolve a migration that failed on 2026-04-25 and blocked the pipeline.
-              # Uses IF NOT EXISTS — safe to re-run. No-op once resolved.
-              docker compose exec -T app npx prisma migrate resolve \
-                --applied 20260425120000_inventory_sku_unique_name 2>/dev/null || true
               # prisma migrate deploy is idempotent — safe to run on every deploy.
               # Pre-migration backup already taken above (pg_dump → /opt/backups).
               # Failure here is a deploy failure — app code and DB schema must stay in sync.
