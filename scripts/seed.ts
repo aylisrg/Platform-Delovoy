@@ -21,6 +21,7 @@ import { PrismaClient } from "@prisma/client";
 import { seedParks } from "./seeds/parks";
 import { seedCore } from "./seeds/core";
 import { seedTasks } from "./seeds/tasks";
+import { seedNedelovoyGrants } from "./seeds/nedelovoy-grants";
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
     await seedParks(prisma); // Parks must exist before Module grants that reference them
     await seedCore(prisma);
     await seedTasks(prisma);
+    await seedNedelovoyGrants(prisma); // After seedCore — Module records must exist
     console.log("✅ Seed pipeline completed");
   } finally {
     await prisma.$disconnect();

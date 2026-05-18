@@ -288,6 +288,14 @@ jobs:
             done
 
             if [ "$HEALTHY" = true ]; then
+              echo "=== Apply pending DB migrations ==="
+              # prisma migrate deploy is idempotent — safe to run on every deploy.
+              # Pre-migration backup already taken above (pg_dump → /opt/backups).
+              # Failure here is a deploy failure — app code and DB schema must stay in sync.
+              docker compose exec -T app npx prisma migrate deploy \
+                && echo "✅ Migrations applied" \
+                || { echo "❌ Migration failed"; exit 1; }
+
               echo "=== Run unified seed pipeline ==="
               # Idempotent reference-data seed (modules, boards, categories, demo offices, etc).
               # See docs/adr/ADR-0001-unified-seed-pipeline.md
