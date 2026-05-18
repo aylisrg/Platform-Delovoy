@@ -41,35 +41,29 @@ jobs:
                    rolled_back_at = NULL
                WHERE migration_name != '20260514000000_add_park_discriminator';"
 
-            echo "=== Insert any missing migration rows ==="
-            # Some migrations may not have a row at all (never tracked).
-            # Insert them so prisma migrate deploy sees them as applied.
-            for name in \
-              0_init \
-              20260416000000_add_notify_releases \
-              20260417000000_add_user_birthday_gender \
-              20260419000000_add_rental_deal_pipeline \
-              20260420000000_add_receipt_v2_workflow \
-              20260421000000_add_deletion_log \
-              20260421120000_rental_email_notifications \
-              20260421130000_add_backup_log \
-              20260423000000_link_stock_batch_to_receipt_tx \
-              20260423180000_booking_user_nullable \
-              20260425000000_feedback_office_linkage \
-              20260425120000_inventory_sku_unique_name \
-              20260426000000_tasks_kanban_and_channel_agnostic_notifications \
-              20260427000000_auth_crm_v1_schema \
-              20260428000000_avito_integration \
-              20260504120000_add_order_booking_id \
-              20260504120000_subscriptions \
-              20260510000001_add_web_push_subscription \
-              20260510120000_release_notify_default_true
-            do
-              docker compose exec -T postgres psql -U delovoy delovoy_park -c \
-                "INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
-                 VALUES (gen_random_uuid(), 'recovered', NOW(), '${name}', NULL, NULL, NOW(), 1)
-                 ON CONFLICT (migration_name) DO NOTHING;" 2>&1 | grep -v "^INSERT\|^$" || true
-            done
+            echo "=== Insert any missing migration rows (WHERE NOT EXISTS) ==="
+            # Migrations 20260426–20260510 were applied to prod DB but never tracked
+            # in _prisma_migrations (no row at all). Insert them as applied so prisma
+            # migrate deploy skips them and only applies the new park migration.
+            # Uses WHERE NOT EXISTS because _prisma_migrations PK is id (UUID),
+            # not migration_name — ON CONFLICT (migration_name) would fail.
+            docker compose exec -T postgres psql -U delovoy delovoy_park -c \
+              "INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
+               SELECT gen_random_uuid(), 'recovered', NOW(), m.name, NULL, NULL, NOW(), 1
+               FROM (VALUES
+                 ('20260426000000_tasks_kanban_and_channel_agnostic_notifications'),
+                 ('20260427000000_auth_crm_v1_schema'),
+                 ('20260428000000_avito_integration'),
+                 ('20260504120000_add_order_booking_id'),
+                 ('20260504120000_subscriptions'),
+                 ('20260510000001_add_web_push_subscription'),
+                 ('20260510120000_release_notify_default_true')
+               ) AS m(name)
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM _prisma_migrations WHERE migration_name = m.name
+               );" \
+              && echo "✅ Missing rows inserted" \
+              || echo "⚠️ Insert failed — check manually"
 
             echo "=== Verify migration history after patch ==="
             docker compose exec -T postgres psql -U delovoy delovoy_park -c \
