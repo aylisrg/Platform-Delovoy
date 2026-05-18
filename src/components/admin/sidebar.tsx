@@ -32,13 +32,15 @@ type NavItem = {
 type NavGroup = {
   id: string;
   label: string;
-  itemIds: string[]; // section keys
+  itemIds: string[];
 };
 
 type SidebarLayout = {
-  order: string[]; // top-level items: section keys or group ids
+  order: string[];
   groups: NavGroup[];
 };
+
+type ParkContext = "delovoy" | "nedelovoy";
 
 const ALL_NAVIGATION: NavItem[] = [
   { label: "Дашборд", href: "/admin/dashboard", icon: "📊", section: "dashboard" },
@@ -47,6 +49,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
   { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
   { label: "НеДеловой", href: "/admin/nedelovoy", icon: "🏗", section: "nedelovoy" },
+  { label: "Бани", href: "/admin/sauna", icon: "🧖", section: "sauna" },
   { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
   { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
   { label: "Гости (CRM)", href: "/admin/clients", icon: "🧑", section: "clients" },
@@ -61,20 +64,48 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
 ];
 
+// Sections that belong to each park context.
+// "users" is global — pinned separately above the park nav.
+const DELOVOY_SECTIONS = new Set([
+  "dashboard", "rental", "gazebos", "ps-park", "cafe",
+  "clients", "inventory", "analytics", "management",
+  "feedback", "tasks", "avito", "notifications", "monitoring",
+  "architect", "modules",
+]);
+const NEDELOVOY_SECTIONS = new Set(["nedelovoy", "sauna"]);
+
+// Within НеДеловой context the "nedelovoy" module is labelled "Аренда"
+function resolveLabel(item: NavItem, park: ParkContext): NavItem {
+  if (item.section === "nedelovoy" && park === "nedelovoy") {
+    return { ...item, label: "Аренда" };
+  }
+  return item;
+}
+
+function detectParkFromPath(pathname: string | null): ParkContext | null {
+  if (!pathname) return null;
+  if (pathname.startsWith("/admin/nedelovoy") || pathname.startsWith("/admin/sauna")) {
+    return "nedelovoy";
+  }
+  const delovoyPrefixes = [
+    "/admin/dashboard", "/admin/rental", "/admin/gazebos", "/admin/ps-park",
+    "/admin/cafe", "/admin/clients", "/admin/inventory", "/admin/analytics",
+    "/admin/management", "/admin/feedback", "/admin/tasks", "/admin/avito",
+    "/admin/notifications", "/admin/monitoring", "/admin/architect", "/admin/modules",
+  ];
+  if (delovoyPrefixes.some((p) => pathname.startsWith(p))) return "delovoy";
+  return null;
+}
+
 const STORAGE_KEY = "admin-sidebar-layout";
+const PARK_STORAGE_KEY = "admin-park-context";
 const LAYOUT_CHANGE_EVENT = "admin-sidebar-layout:change";
 const BADGE_POLL_INTERVAL = 30_000;
 
 function defaultLayout(): SidebarLayout {
-  return {
-    order: ALL_NAVIGATION.map((n) => n.section),
-    groups: [],
-  };
+  return { order: ALL_NAVIGATION.map((n) => n.section), groups: [] };
 }
 
-// Sidebar layout is owned by the user via drag-drop, persisted in localStorage.
-// We expose it as an external store so cross-tab edits sync automatically and
-// the React component never has to setState-in-effect to read or persist.
 const SERVER_LAYOUT: SidebarLayout = Object.freeze({
   order: ALL_NAVIGATION.map((n) => n.section),
   groups: [],
@@ -91,9 +122,7 @@ function readLayoutFromStorage(): SidebarLayout {
 
 function refreshLayoutCache(): boolean {
   const next = readLayoutFromStorage();
-  if (cachedLayout && JSON.stringify(next) === JSON.stringify(cachedLayout)) {
-    return false;
-  }
+  if (cachedLayout && JSON.stringify(next) === JSON.stringify(cachedLayout)) return false;
   cachedLayout = next;
   return true;
 }
@@ -128,16 +157,9 @@ function persistLayout(next: SidebarLayout) {
   } catch {}
 }
 
-// ---- Drag handle icon ----
 function GripIcon() {
   return (
-    <svg
-      width="12"
-      height="16"
-      viewBox="0 0 12 16"
-      fill="none"
-      className="text-zinc-400"
-    >
+    <svg width="12" height="16" viewBox="0 0 12 16" fill="none" className="text-zinc-400">
       {[2, 6, 10].map((x) =>
         [3, 7, 11].map((y) => (
           <circle key={`${x}-${y}`} cx={x} cy={y} r={1.5} fill="currentColor" />
@@ -147,23 +169,12 @@ function GripIcon() {
   );
 }
 
-// ---- Single nav link ----
-function NavLink({
-  item,
-  isActive,
-  count,
-}: {
-  item: NavItem;
-  isActive: boolean;
-  count: number;
-}) {
+function NavLink({ item, isActive, count }: { item: NavItem; isActive: boolean; count: number }) {
   return (
     <Link
       href={item.href}
       className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-        isActive
-          ? "bg-blue-50 text-blue-700"
-          : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+        isActive ? "bg-blue-50 text-blue-700" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
       }`}
     >
       <span>{item.icon}</span>
@@ -177,7 +188,6 @@ function NavLink({
   );
 }
 
-// ---- Sortable item in edit mode ----
 function SortableNavItem({
   item,
   isActive,
@@ -198,18 +208,10 @@ function SortableNavItem({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.section });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="group/item flex items-center gap-1"
-    >
+    <div ref={setNodeRef} style={style} className="group/item flex items-center gap-1">
       <button
         {...attributes}
         {...listeners}
@@ -231,26 +233,20 @@ function SortableNavItem({
           </span>
         )}
       </div>
-      {/* Group assignment dropdown */}
       {groups.length > 0 && (
         <select
           className="ml-1 text-[10px] rounded border border-zinc-200 bg-white px-1 py-1 text-zinc-500 opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
           value={currentGroupId ?? ""}
           onChange={(e) => {
             const val = e.target.value;
-            if (val === "") {
-              onRemoveFromGroup?.(item.section);
-            } else {
-              onMoveToGroup(item.section, val);
-            }
+            if (val === "") onRemoveFromGroup?.(item.section);
+            else onMoveToGroup(item.section, val);
           }}
           title="Переместить в группу"
         >
           <option value="">— без группы</option>
           {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.label}
-            </option>
+            <option key={g.id} value={g.id}>{g.label}</option>
           ))}
         </select>
       )}
@@ -258,18 +254,9 @@ function SortableNavItem({
   );
 }
 
-// ---- Sortable group container ----
 function SortableGroup({
-  group,
-  items,
-  pathname,
-  badgeCounts,
-  editMode,
-  onRename,
-  onDelete,
-  onMoveToGroup,
-  allGroups,
-  onRemoveFromGroup,
+  group, items, pathname, badgeCounts, editMode,
+  onRename, onDelete, onMoveToGroup, allGroups, onRemoveFromGroup,
 }: {
   group: NavGroup;
   items: NavItem[];
@@ -289,45 +276,25 @@ function SortableGroup({
   const [draft, setDraft] = useState(group.label);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Sync draft back to the upstream label when the user is NOT actively editing
-  // (so external label updates flow in, but in-flight edits aren't clobbered).
-  // Standard "controlled-when-editing" pattern; setState here is intentional.
   useEffect(() => {
     if (!editing) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDraft(group.label);
     }
   }, [group.label, editing]);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
 
   return (
     <div ref={setNodeRef} style={style} className="rounded-lg border border-zinc-200 bg-zinc-50/60">
       <div className="flex items-center gap-1 px-2 py-1.5">
         {editMode && (
-          <button
-            {...attributes}
-            {...listeners}
-            className="cursor-grab p-1 rounded hover:bg-zinc-100 active:cursor-grabbing touch-none"
-          >
+          <button {...attributes} {...listeners} className="cursor-grab p-1 rounded hover:bg-zinc-100 active:cursor-grabbing touch-none">
             <GripIcon />
           </button>
         )}
-
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className="flex-1 flex items-center gap-1.5 text-left"
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            className={`text-zinc-400 transition-transform flex-shrink-0 ${collapsed ? "-rotate-90" : ""}`}
-          >
+        <button onClick={() => setCollapsed((c) => !c)} className="flex-1 flex items-center gap-1.5 text-left">
+          <svg width="10" height="10" viewBox="0 0 10 10" className={`text-zinc-400 transition-transform flex-shrink-0 ${collapsed ? "-rotate-90" : ""}`}>
             <path d="M1 3l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
           </svg>
           {editing ? (
@@ -335,19 +302,10 @@ function SortableGroup({
               autoFocus
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => {
-                onRename(group.id, draft.trim() || group.label);
-                setEditing(false);
-              }}
+              onBlur={() => { onRename(group.id, draft.trim() || group.label); setEditing(false); }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onRename(group.id, draft.trim() || group.label);
-                  setEditing(false);
-                }
-                if (e.key === "Escape") {
-                  setDraft(group.label);
-                  setEditing(false);
-                }
+                if (e.key === "Enter") { onRename(group.id, draft.trim() || group.label); setEditing(false); }
+                if (e.key === "Escape") { setDraft(group.label); setEditing(false); }
               }}
               className="text-xs font-semibold text-zinc-500 bg-white border border-blue-400 rounded px-1 w-24 outline-none"
               onClick={(e) => e.stopPropagation()}
@@ -356,32 +314,20 @@ function SortableGroup({
             <span
               className="text-xs font-semibold uppercase tracking-wide text-zinc-400 cursor-text hover:text-zinc-600 transition-colors"
               title="Двойной клик — переименовать"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setEditing(true);
-              }}
+              onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
             >
               {group.label}
             </span>
           )}
         </button>
-
         {editMode && (
           <div className="flex items-center gap-0.5 ml-auto">
-            <button
-              onClick={() => setEditing(true)}
-              className="p-1 rounded hover:bg-zinc-200 text-zinc-400 hover:text-zinc-600"
-              title="Переименовать"
-            >
+            <button onClick={() => setEditing(true)} className="p-1 rounded hover:bg-zinc-200 text-zinc-400 hover:text-zinc-600" title="Переименовать">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                 <path d="M11 2l3 3-9 9H2v-3l9-9z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-            <button
-              onClick={() => onDelete(group.id)}
-              className="p-1 rounded hover:bg-red-50 text-zinc-400 hover:text-red-500"
-              title="Удалить группу"
-            >
+            <button onClick={() => onDelete(group.id)} className="p-1 rounded hover:bg-red-50 text-zinc-400 hover:text-red-500" title="Удалить группу">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                 <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
@@ -389,7 +335,6 @@ function SortableGroup({
           </div>
         )}
       </div>
-
       {!collapsed && (
         <div className="px-2 pb-2 space-y-0.5">
           <SortableContext items={items.map((i) => i.section)} strategy={verticalListSortingStrategy}>
@@ -424,22 +369,17 @@ function SortableGroup({
   );
 }
 
-// ---- Main Sidebar ----
 export function Sidebar() {
   const pathname = usePathname();
   const [allowedSections, setAllowedSections] = useState<string[] | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
-  const layout = useSyncExternalStore(
-    subscribeLayout,
-    getLayoutSnapshot,
-    getLayoutServerSnapshot,
-  );
+  const [park, setPark] = useState<ParkContext>("delovoy");
+  const layout = useSyncExternalStore(subscribeLayout, getLayoutSnapshot, getLayoutServerSnapshot);
   const setLayout = useCallback(
     (updater: SidebarLayout | ((prev: SidebarLayout) => SidebarLayout)) => {
-      const next =
-        typeof updater === "function"
-          ? (updater as (prev: SidebarLayout) => SidebarLayout)(getLayoutSnapshot())
-          : updater;
+      const next = typeof updater === "function"
+        ? (updater as (prev: SidebarLayout) => SidebarLayout)(getLayoutSnapshot())
+        : updater;
       persistLayout(next);
     },
     [],
@@ -447,7 +387,26 @@ export function Sidebar() {
   const [editMode, setEditMode] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Fetch permissions
+  // Initialise park context from URL then localStorage
+  useEffect(() => {
+    const fromPath = detectParkFromPath(pathname);
+    if (fromPath) {
+      setPark(fromPath);
+      try { localStorage.setItem(PARK_STORAGE_KEY, fromPath); } catch {}
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(PARK_STORAGE_KEY) as ParkContext | null;
+      if (stored === "delovoy" || stored === "nedelovoy") setPark(stored);
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  const switchPark = useCallback((next: ParkContext) => {
+    setPark(next);
+    try { localStorage.setItem(PARK_STORAGE_KEY, next); } catch {}
+  }, []);
+
   useEffect(() => {
     fetch("/api/admin/permissions/me")
       .then((res) => res.json())
@@ -458,15 +417,12 @@ export function Sidebar() {
       .catch(() => setAllowedSections([]));
   }, []);
 
-  // Poll badge counts
   useEffect(() => {
     let active = true;
     function poll() {
       fetch("/api/admin/badge-counts")
         .then((res) => res.json())
-        .then((data) => {
-          if (data.success && active) setBadgeCounts(data.data);
-        })
+        .then((data) => { if (data.success && active) setBadgeCounts(data.data); })
         .catch(() => {});
     }
     poll();
@@ -474,37 +430,35 @@ export function Sidebar() {
     return () => { active = false; clearInterval(interval); };
   }, []);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  // Resolve visible items
   const visibleSections = new Set(allowedSections ?? []);
-
   const navBySection = Object.fromEntries(ALL_NAVIGATION.map((n) => [n.section, n]));
 
-  // Collect all sections that are in a group
+  // Park switcher visibility — only show tab if user has ≥1 section in that park
+  const hasDelovoy = allowedSections !== null && [...visibleSections].some((s) => DELOVOY_SECTIONS.has(s));
+  const hasNedelovoy = allowedSections !== null && [...visibleSections].some((s) => NEDELOVOY_SECTIONS.has(s));
+  const showParkSwitcher = hasDelovoy && hasNedelovoy;
+
+  // Park-scoped visible sections (excludes global "users")
+  const parkFilter = park === "delovoy" ? DELOVOY_SECTIONS : NEDELOVOY_SECTIONS;
+  const parkVisibleSections = new Set([...visibleSections].filter((s) => parkFilter.has(s)));
+
   const groupedSections = new Set(layout.groups.flatMap((g) => g.itemIds));
 
-  // Top-level order: items and group-ids, filtered to visible
   const topLevelIds = layout.order.filter((id) => {
     const isGroup = layout.groups.some((g) => g.id === id);
     if (isGroup) {
       const group = layout.groups.find((g) => g.id === id)!;
-      return group.itemIds.some((s) => visibleSections.has(s));
+      return group.itemIds.some((s) => parkVisibleSections.has(s));
     }
-    return visibleSections.has(id) && !groupedSections.has(id);
+    return parkVisibleSections.has(id) && !groupedSections.has(id);
   });
 
-  // Ensure any allowed section not in layout is appended
   const allLayoutSections = new Set([...layout.order, ...layout.groups.flatMap((g) => g.itemIds)]);
-  const missingSections = [...visibleSections].filter((s) => !allLayoutSections.has(s));
+  const missingSections = [...parkVisibleSections].filter((s) => !allLayoutSections.has(s));
   if (missingSections.length > 0) {
-    // Add missing to layout (fire-and-forget state update)
-    setLayout((prev) => ({
-      ...prev,
-      order: [...prev.order, ...missingSections],
-    }));
+    setLayout((prev) => ({ ...prev, order: [...prev.order, ...missingSections] }));
   }
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -515,28 +469,19 @@ export function Sidebar() {
     (event: DragOverEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-
       const activeIdStr = String(active.id);
       const overIdStr = String(over.id);
-
-      // Check if active is a section and over is a group id
       const isSection = !!navBySection[activeIdStr];
       const overGroup = layout.groups.find((g) => g.id === overIdStr);
-
       if (isSection && overGroup) {
         setLayout((prev) => {
           const sourceGroup = prev.groups.find((g) => g.itemIds.includes(activeIdStr));
           const newGroups = prev.groups.map((g) => {
-            if (g.id === sourceGroup?.id) {
-              return { ...g, itemIds: g.itemIds.filter((id) => id !== activeIdStr) };
-            }
-            if (g.id === overGroup.id && !g.itemIds.includes(activeIdStr)) {
-              return { ...g, itemIds: [...g.itemIds, activeIdStr] };
-            }
+            if (g.id === sourceGroup?.id) return { ...g, itemIds: g.itemIds.filter((id) => id !== activeIdStr) };
+            if (g.id === overGroup.id && !g.itemIds.includes(activeIdStr)) return { ...g, itemIds: [...g.itemIds, activeIdStr] };
             return g;
           });
-          const newOrder = prev.order.filter((id) => id !== activeIdStr);
-          return { ...prev, order: newOrder, groups: newGroups };
+          return { ...prev, order: prev.order.filter((id) => id !== activeIdStr), groups: newGroups };
         });
       }
     },
@@ -548,29 +493,20 @@ export function Sidebar() {
       setActiveId(null);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-
       const activeIdStr = String(active.id);
       const overIdStr = String(over.id);
-
       setLayout((prev) => {
         const isActiveGroup = prev.groups.some((g) => g.id === activeIdStr);
         const isOverGroup = prev.groups.some((g) => g.id === overIdStr);
         const isActiveSection = !!navBySection[activeIdStr];
         const isOverSection = !!navBySection[overIdStr];
-
         const activeInTopLevel = prev.order.includes(activeIdStr);
         const activeGroupId = prev.groups.find((g) => g.itemIds.includes(activeIdStr))?.id;
-
-        // Case 1: reorder top-level (groups or ungrouped sections)
         if ((isActiveGroup || (isActiveSection && activeInTopLevel)) && (isOverGroup || (isOverSection && prev.order.includes(overIdStr)))) {
           const oldIdx = prev.order.indexOf(activeIdStr);
           const newIdx = prev.order.indexOf(overIdStr);
-          if (oldIdx !== -1 && newIdx !== -1) {
-            return { ...prev, order: arrayMove(prev.order, oldIdx, newIdx) };
-          }
+          if (oldIdx !== -1 && newIdx !== -1) return { ...prev, order: arrayMove(prev.order, oldIdx, newIdx) };
         }
-
-        // Case 2: reorder within a group
         if (isActiveSection && isOverSection && activeGroupId) {
           const overGroupId = prev.groups.find((g) => g.itemIds.includes(overIdStr))?.id;
           if (overGroupId === activeGroupId) {
@@ -585,7 +521,6 @@ export function Sidebar() {
             return { ...prev, groups: newGroups };
           }
         }
-
         return prev;
       });
     },
@@ -602,20 +537,14 @@ export function Sidebar() {
   }, [setLayout]);
 
   const renameGroup = useCallback((groupId: string, label: string) => {
-    setLayout((prev) => ({
-      ...prev,
-      groups: prev.groups.map((g) => (g.id === groupId ? { ...g, label } : g)),
-    }));
+    setLayout((prev) => ({ ...prev, groups: prev.groups.map((g) => (g.id === groupId ? { ...g, label } : g)) }));
   }, [setLayout]);
 
   const deleteGroup = useCallback((groupId: string) => {
     setLayout((prev) => {
       const group = prev.groups.find((g) => g.id === groupId);
       const freedItems = group?.itemIds ?? [];
-      return {
-        order: [...prev.order.filter((id) => id !== groupId), ...freedItems],
-        groups: prev.groups.filter((g) => g.id !== groupId),
-      };
+      return { order: [...prev.order.filter((id) => id !== groupId), ...freedItems], groups: prev.groups.filter((g) => g.id !== groupId) };
     });
   }, [setLayout]);
 
@@ -623,12 +552,8 @@ export function Sidebar() {
     setLayout((prev) => {
       const newOrder = prev.order.filter((id) => id !== section);
       const newGroups = prev.groups.map((g) => {
-        if (g.itemIds.includes(section)) {
-          return { ...g, itemIds: g.itemIds.filter((id) => id !== section) };
-        }
-        if (g.id === groupId && !g.itemIds.includes(section)) {
-          return { ...g, itemIds: [...g.itemIds, section] };
-        }
+        if (g.itemIds.includes(section)) return { ...g, itemIds: g.itemIds.filter((id) => id !== section) };
+        if (g.id === groupId && !g.itemIds.includes(section)) return { ...g, itemIds: [...g.itemIds, section] };
         return g;
       });
       return { order: newOrder, groups: newGroups };
@@ -637,21 +562,17 @@ export function Sidebar() {
 
   const removeFromGroup = useCallback((section: string) => {
     setLayout((prev) => {
-      const newGroups = prev.groups.map((g) => ({
-        ...g,
-        itemIds: g.itemIds.filter((id) => id !== section),
-      }));
+      const newGroups = prev.groups.map((g) => ({ ...g, itemIds: g.itemIds.filter((id) => id !== section) }));
       if (prev.order.includes(section)) return { ...prev, groups: newGroups };
       return { order: [...prev.order, section], groups: newGroups };
     });
   }, [setLayout]);
 
-  const resetLayout = useCallback(() => {
-    persistLayout(defaultLayout());
-  }, []);
+  const resetLayout = useCallback(() => { persistLayout(defaultLayout()); }, []);
 
-  // Active drag item for overlay
   const activeNavItem = activeId ? navBySection[activeId] : null;
+
+  const usersItem = navBySection["users"];
 
   const renderTopLevel = () => {
     if (allowedSections === null) {
@@ -671,8 +592,8 @@ export function Sidebar() {
             const group = layout.groups.find((g) => g.id === id);
             if (group) {
               const groupItems = group.itemIds
-                .filter((s) => visibleSections.has(s))
-                .map((s) => navBySection[s])
+                .filter((s) => parkVisibleSections.has(s))
+                .map((s) => resolveLabel(navBySection[s], park))
                 .filter(Boolean);
               return (
                 <SortableGroup
@@ -692,12 +613,13 @@ export function Sidebar() {
             }
 
             const item = navBySection[id];
-            if (!item || !visibleSections.has(id)) return null;
+            if (!item || !parkVisibleSections.has(id)) return null;
+            const displayItem = resolveLabel(item, park);
 
             return editMode ? (
               <SortableNavItem
                 key={id}
-                item={item}
+                item={displayItem}
                 isActive={!!pathname?.startsWith(item.href)}
                 count={badgeCounts[id] || 0}
                 onMoveToGroup={moveToGroup}
@@ -707,7 +629,7 @@ export function Sidebar() {
             ) : (
               <NavLink
                 key={id}
-                item={item}
+                item={displayItem}
                 isActive={!!pathname?.startsWith(item.href)}
                 count={badgeCounts[id] || 0}
               />
@@ -720,31 +642,68 @@ export function Sidebar() {
 
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-zinc-200 bg-white">
-      <div className="flex h-16 items-center border-b border-zinc-200 px-6">
-        <Link href="/admin/dashboard" className="text-lg font-bold text-zinc-900">
-          Деловой Парк
-        </Link>
+      {/* Header: park switcher */}
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-zinc-200 px-4">
+        {showParkSwitcher ? (
+          <div className="flex flex-1 items-center gap-1">
+            <button
+              onClick={() => switchPark("delovoy")}
+              className={`rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                park === "delovoy"
+                  ? "bg-blue-600 text-white"
+                  : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+              }`}
+            >
+              🏢 Деловой
+            </button>
+            <button
+              onClick={() => switchPark("nedelovoy")}
+              className={`rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                park === "nedelovoy"
+                  ? "bg-amber-500 text-white"
+                  : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+              }`}
+            >
+              🏗 НеДеловой
+            </button>
+          </div>
+        ) : (
+          <Link href="/admin/dashboard" className="flex-1 text-base font-bold text-zinc-900">
+            {park === "nedelovoy" ? "🏗 НеДеловой" : "🏢 Деловой Парк"}
+          </Link>
+        )}
         <button
           onClick={() => setEditMode((v) => !v)}
-          className={`ml-auto rounded-lg p-1.5 transition-colors ${
-            editMode
-              ? "bg-blue-100 text-blue-600"
-              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          className={`ml-auto shrink-0 rounded-lg p-1.5 transition-colors ${
+            editMode ? "bg-blue-100 text-blue-600" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
           }`}
           title={editMode ? "Сохранить порядок" : "Настроить меню"}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M11 2l3 3-9 9H2v-3l9-9z"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M11 2l3 3-9 9H2v-3l9-9z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       </div>
+
+      {/* Global: Users — ecosystem-wide, not park-specific */}
+      {usersItem && visibleSections.has("users") && (
+        <div className="border-b border-zinc-100 px-3 py-2">
+          <Link
+            href="/admin/users"
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              pathname?.startsWith("/admin/users")
+                ? "bg-zinc-900 text-white"
+                : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+            }`}
+          >
+            <span>👥</span>
+            <span>Пользователи</span>
+            <span className="ml-auto text-[10px] font-normal text-zinc-400 group-hover:text-zinc-500">
+              экосистема
+            </span>
+          </Link>
+        </div>
+      )}
 
       {editMode && (
         <div className="border-b border-zinc-200 bg-blue-50 px-4 py-2 flex items-center justify-between gap-2">
@@ -776,7 +735,6 @@ export function Sidebar() {
           onDragEnd={handleDragEnd}
         >
           {renderTopLevel()}
-
           <DragOverlay>
             {activeNavItem ? (
               <div className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-lg border border-zinc-200 text-zinc-700">
@@ -798,18 +756,16 @@ export function Sidebar() {
             playsInline
             className="h-6 w-6 rounded object-cover"
           />
-          <span className="text-xs text-zinc-400 font-medium">Деловой Парк</span>
+          <span className="text-xs text-zinc-400 font-medium">
+            {park === "nedelovoy" ? "НеДеловой" : "Деловой Парк"}
+          </span>
           <span className="pointer-events-none absolute bottom-full left-0 mb-2 whitespace-nowrap rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 shadow-sm opacity-0 transition-opacity group-hover/logo:opacity-100">
             Работает на кофе и дедлайнах ☕
           </span>
         </div>
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700"
-        >
+        <Link href="/" className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700">
           ← На сайт
         </Link>
-
       </div>
     </aside>
   );
