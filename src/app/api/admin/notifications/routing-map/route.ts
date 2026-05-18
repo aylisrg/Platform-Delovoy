@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/db";
 import { EVENT_ROUTING } from "@/modules/notifications/events";
 import { getModuleBotConfig } from "@/modules/notifications/service";
+import { log } from "@/lib/logger";
 
 // Map event type prefixes to module slugs
 const EVENT_MODULE_MAP: Record<string, string[]> = {
@@ -97,7 +98,12 @@ export async function GET() {
     for (const [moduleSlug, eventTypes] of Object.entries(EVENT_MODULE_MAP)) {
       const mod = moduleMap.get(moduleSlug);
       const isModuleActive = mod?.isActive !== false;
-      const config = await getModuleBotConfig(moduleSlug);
+      let config: Awaited<ReturnType<typeof getModuleBotConfig>> = {};
+      try {
+        config = await getModuleBotConfig(moduleSlug);
+      } catch {
+        // non-fatal — fall back to global chat
+      }
       const moduleChatId = config.telegramAdminChatId || globalAdminChatId;
 
       const events = eventTypes.map((eventType) => {
@@ -182,7 +188,11 @@ export async function GET() {
       },
     });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error("[RoutingMap] Error:", error);
+    void log.error("monitoring.routing-map", `Routing map build failed: ${msg}`, {
+      error: msg,
+    });
     return apiServerError();
   }
 }

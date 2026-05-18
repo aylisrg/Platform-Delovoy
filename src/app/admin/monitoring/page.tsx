@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { TelegramSettings } from "@/components/admin/telegram/telegram-settings";
 import { NotificationFlowMap } from "@/components/admin/notifications/NotificationFlowMap";
 import { getRecentEvents, getEventStats } from "@/modules/monitoring/service";
+import { notificationsHealth } from "@/modules/notifications/health";
 import type { EventLevel } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +20,17 @@ const levelVariant: Record<EventLevel, "success" | "warning" | "danger" | "info"
 export default async function MonitoringPage() {
   let stats = { last24h: 0, lastHour: 0, criticalCount: 0 };
   let events: Awaited<ReturnType<typeof getRecentEvents>>["events"] = [];
+  let tgHealth: Awaited<ReturnType<typeof notificationsHealth>> | null = null;
 
   try {
-    stats = await getEventStats();
-    const result = await getRecentEvents({ limit: 20 });
-    events = result.events;
+    const [statsResult, eventsResult, healthResult] = await Promise.allSettled([
+      getEventStats(),
+      getRecentEvents({ limit: 20 }),
+      notificationsHealth(),
+    ]);
+    if (statsResult.status === "fulfilled") stats = statsResult.value;
+    if (eventsResult.status === "fulfilled") events = eventsResult.value.events;
+    if (healthResult.status === "fulfilled") tgHealth = healthResult.value;
   } catch {
     // DB may not be available yet
   }
@@ -50,6 +57,48 @@ export default async function MonitoringPage() {
             description={stats.criticalCount === 0 ? "Вы красавчики." : undefined}
           />
         </div>
+
+        {/* Telegram channel status — visible immediately without client fetch */}
+        {tgHealth && (
+          <div className={`mt-6 rounded-xl border px-5 py-4 flex items-start gap-4 flex-wrap ${tgHealth.ok ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+            <span className="text-xl mt-0.5">{tgHealth.ok ? "✅" : "⚠️"}</span>
+            <div className="flex-1 min-w-0">
+              <p className={`font-semibold text-sm ${tgHealth.ok ? "text-green-800" : "text-red-800"}`}>
+                {tgHealth.ok ? "Telegram-канал работает" : "Проблема с Telegram-каналом"}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                <span className={tgHealth.checks.botToken.ok ? "text-green-700" : "text-red-600"}>
+                  {tgHealth.checks.botToken.ok
+                    ? `Бот @${tgHealth.checks.botToken.username ?? "ok"}`
+                    : `Бот: ${tgHealth.checks.botToken.reason}`}
+                </span>
+                <span className={tgHealth.checks.adminChat.ok ? "text-green-700" : "text-red-600"}>
+                  {tgHealth.checks.adminChat.ok
+                    ? `Группа: ${tgHealth.checks.adminChat.title ?? "ok"}`
+                    : `Группа: ${tgHealth.checks.adminChat.reason}`}
+                </span>
+                <span className={tgHealth.checks.ownerChat.ok ? "text-green-700" : "text-red-600"}>
+                  {tgHealth.checks.ownerChat.ok
+                    ? "Владелец: ok"
+                    : `Владелец: ${tgHealth.checks.ownerChat.reason}`}
+                </span>
+                {tgHealth.checks.queue.failedLastHour > 0 && (
+                  <span className="text-orange-600">
+                    Не доставлено за час: {tgHealth.checks.queue.failedLastHour}
+                  </span>
+                )}
+                <span className="text-zinc-400">
+                  В очереди: {tgHealth.checks.queue.pending}
+                </span>
+                {tgHealth.checks.cron.lastRunAt && (
+                  <span className="text-zinc-400">
+                    Cron: {tgHealth.checks.cron.staleMin} мин назад
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <Card className="mt-8">
           <CardHeader>
