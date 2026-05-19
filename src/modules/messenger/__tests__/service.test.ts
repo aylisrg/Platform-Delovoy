@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock prisma before importing service
@@ -77,10 +78,6 @@ describe("sendMessage", () => {
       receipts: [],
     };
     vi.mocked(prisma.chatMessage.findUnique).mockResolvedValue(existingMsg as any);
-    vi.mocked(prisma.chat.findUniqueOrThrow).mockResolvedValue({
-      id: "chat1",
-      lastMessageAt: new Date(),
-    } as any);
 
     const result = await sendMessage({
       chatId: "chat1",
@@ -110,7 +107,7 @@ describe("sendMessage", () => {
       receipts: [],
     };
 
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => {
       const fakeTx = {
         chatMessage: {
           create: vi.fn().mockResolvedValue(newMsg),

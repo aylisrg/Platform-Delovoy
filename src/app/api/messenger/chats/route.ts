@@ -5,7 +5,6 @@ import { rateLimit } from "@/lib/rate-limit";
 import { canStartDirect, createGroupChat, getOrCreateDirectChat, getOrCreateSupportChat, getOrCreateTopicBookingsChat, getOrCreateTopicContractsChat, listChatsForUser } from "@/modules/messenger/service";
 import { canCreateGroup } from "@/modules/messenger/access";
 import { createChatSchema, listChatsQuerySchema } from "@/modules/messenger/validation";
-import { prisma } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   const session = await auth();
