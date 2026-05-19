@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Props = {
   message: {
@@ -122,7 +122,11 @@ export function MessageBubble(props: Props): ReactNode {
 
   const isDeleted = message.deletedAt !== null;
   const isEdited = message.editedAt !== null && !isDeleted;
-  const canEdit = isMine && !isDeleted && Date.now() - Date.parse(message.createdAt) < EDIT_WINDOW_MS;
+  const canEdit = useMemo(
+    () => isMine && !isDeleted && Date.now() - Date.parse(message.createdAt) < EDIT_WINDOW_MS,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- createdAt is stable per message; Date.now() sampled at menu-open time
+    [isMine, isDeleted, message.createdAt],
+  );
 
   useEffect(() => {
     if (menuPos === null) return;

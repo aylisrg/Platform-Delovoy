@@ -34,7 +34,9 @@ const MAX_BACKOFF_MS = 30_000;
 export function useChatStream(options: Options): void {
   const { chatIds, isAdmin, onEvent } = options;
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   const chatIdsKey = chatIds.join(",");
 
