@@ -19,6 +19,30 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "any",
         type: "image/x-icon",
       },
+      {
+        src: "/icons/webapp-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/icons/webapp-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icons/webapp-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/icons/webapp-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
     ],
     shortcuts: [
       {
@@ -38,6 +62,13 @@ export default function manifest(): MetadataRoute.Manifest {
         short_name: "Кафе",
         description: "Меню и заказ с доставкой в офис",
         url: "/cafe",
+      },
+      {
+        name: "Мессенджер",
+        short_name: "Чаты",
+        description: "Внутренние чаты и поддержка",
+        url: "/webapp/messenger",
+        icons: [{ src: "/icons/webapp-192.png", sizes: "192x192" }],
       },
     ],
   };

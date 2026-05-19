@@ -127,6 +127,11 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
       name: "Бани",
       description: "Бронирование бань (в разработке)",
     },
+    {
+      slug: "messenger",
+      name: "Мессенджер",
+      description: "Внутренние чаты: USER↔Администрация, USER↔USER (при наличии связи), групповые чаты",
+    },
   ];
 
   for (const mod of modules) {

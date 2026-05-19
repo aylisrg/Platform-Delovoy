@@ -115,6 +115,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `profile` | ⚠️ webapp only | USER contact API (`/api/profile/*`) |
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |
 | `subscriptions` | ✅ | PS Park prepaid-hour passes |
+| `messenger` | ✅ | In-app chat: USER↔Admin (SUPPORT/TOPIC), USER↔USER (shared-connection only), GROUP; Web Push + SSE realtime |
 | `feedback` | ❌ scope creep | — |
 | `inventory` | ❌ scope creep | — |
 | `management` | ❌ scope creep | — |

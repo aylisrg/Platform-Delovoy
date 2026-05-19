@@ -71,6 +71,12 @@ model User {
 
   subscriptions Subscription[] @relation("UserSubscriptions")
 
+  // === MESSENGER ===
+  chatsCreated      Chat[]               @relation("ChatCreator")
+  chatParticipants  ChatParticipant[]    @relation("ChatParticipantUser")
+  chatMessages      ChatMessage[]        @relation("ChatMessageSender")
+  chatReceipts      ChatMessageReceipt[] @relation("ChatReceiptUser")
+
   @@index([mergedIntoUserId])
   @@index([lastSeenAt])
   @@index([phoneNormalized])
@@ -1749,14 +1755,34 @@ model OutgoingNotification {
   scheduledFor  DateTime                   @default(now())
   sentAt        DateTime?
   failureReason String?                    @db.Text
-  dedupKey      String
-  createdAt     DateTime                   @default(now())
-  updatedAt     DateTime                   @updatedAt
+  dedupKey        String
+  triedChannelIds String[]                   @default([])
+  fallbackOfId    String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
 
   @@index([status, scheduledFor])
   @@index([dedupKey, createdAt])
   @@index([userId, createdAt])
   @@index([entityType, entityId])
+}
+
+// === BROADCAST CAMPAIGNS ===
+
+model BroadcastCampaign {
+  id         String   @id @default(cuid())
+  segmentKey String
+  eventType  String
+  payload    Json
+  createdBy  String
+  createdAt  DateTime @default(now())
+  total      Int      @default(0)
+  sent       Int      @default(0)
+  failed     Int      @default(0)
+  status     String   @default("running")
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 // === AVITO INTEGRATION ===
@@ -1969,4 +1995,85 @@ model SubscriptionTransaction {
   @@index([subscriptionId, createdAt])
   @@index([type, createdAt])
   @@index([bookingId])
+}
+
+// === MESSENGER ===
+
+enum ChatKind {
+  SUPPORT          // USER ↔ Администрация (поддержка)
+  DIRECT           // USER ↔ USER (только при наличии общей связи)
+  GROUP            // N участников, создаётся администратором
+  TOPIC_BOOKINGS   // USER ↔ Администрация по теме бронирований
+  TOPIC_CONTRACTS  // USER ↔ Администрация по теме договоров
+}
+
+enum ChatParticipantRole {
+  MEMBER  // обычный участник
+  ADMIN   // администратор группового чата (может добавлять/кикать)
+}
+
+model Chat {
+  id              String    @id @default(cuid())
+  kind            ChatKind
+  title           String?   // для GROUP; для SUPPORT/DIRECT — null
+  createdByUserId String
+  createdBy       User      @relation("ChatCreator", fields: [createdByUserId], references: [id])
+  lastMessageAt   DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+
+  @@index([kind, lastMessageAt])
+  @@index([createdByUserId])
+}
+
+model ChatParticipant {
+  id                String              @id @default(cuid())
+  chatId            String
+  userId            String
+  role              ChatParticipantRole @default(MEMBER)
+  joinedAt          DateTime            @default(now())
+  leftAt            DateTime?
+  unreadCount       Int                 @default(0)
+  lastReadMessageId String?
+  mutedUntil        DateTime?
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation("ChatParticipantUser", fields: [userId], references: [id])
+
+  @@unique([chatId, userId])
+  @@index([userId, leftAt])
+}
+
+model ChatMessage {
+  id           String    @id @default(cuid())
+  chatId       String
+  senderUserId String
+  body         String    @db.Text
+  clientId     String?   // idempotency key (IndexedDB outbox)
+  editedAt     DateTime?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  chat     Chat               @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender   User               @relation("ChatMessageSender", fields: [senderUserId], references: [id])
+  receipts ChatMessageReceipt[]
+
+  @@unique([chatId, clientId])
+  @@index([chatId, createdAt])
+  @@index([senderUserId])
+}
+
+model ChatMessageReceipt {
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation("ChatReceiptUser", fields: [userId], references: [id])
+
+  @@id([messageId, userId])
+  @@index([userId])
 }

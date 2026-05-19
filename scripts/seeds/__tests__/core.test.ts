@@ -20,14 +20,15 @@ describe("seedCore", () => {
     const superadmin = fake.user.__store.rows.find((r) => r.role === "SUPERADMIN");
     expect(superadmin).toBeDefined();
 
-    // 9 modules: cafe, ps-park, gazebos, parking, rental, inventory, management, nedelovoy, sauna
-    expect(fake.module.__store.rows.length).toBe(9);
+    // 10 modules: cafe, ps-park, gazebos, parking, rental, inventory, management, nedelovoy, sauna, messenger
+    expect(fake.module.__store.rows.length).toBe(10);
     const slugs = fake.module.__store.rows.map((r) => r.slug).sort();
     expect(slugs).toEqual([
       "cafe",
       "gazebos",
       "inventory",
       "management",
+      "messenger",
       "nedelovoy",
       "parking",
       "ps-park",
