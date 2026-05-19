@@ -107,7 +107,7 @@ describe("sendMessage", () => {
       receipts: [],
     };
 
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => {
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
       const fakeTx = {
         chatMessage: {
           create: vi.fn().mockResolvedValue(newMsg),
