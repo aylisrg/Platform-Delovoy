@@ -26,6 +26,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Клиенты", href: "/admin/clients", icon: "🧑", section: "clients" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
+  { label: "Мессенджер", href: "/admin/messenger", icon: "✉️", section: "messenger" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
   { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
@@ -34,7 +35,7 @@ const ALL_NAVIGATION: NavItem[] = [
 const DELOVOY_SECTIONS = new Set([
   "dashboard", "rental", "gazebos", "ps-park", "cafe",
   "clients", "inventory", "analytics", "feedback",
-  "monitoring", "architect", "modules",
+  "messenger", "monitoring", "architect", "modules",
 ]);
 const NEDELOVOY_SECTIONS = new Set(["nedelovoy", "sauna"]);
 

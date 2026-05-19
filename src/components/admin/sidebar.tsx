@@ -58,6 +58,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
   { label: "Задачи", href: "/admin/tasks", icon: "📌", section: "tasks" },
+  { label: "Мессенджер", href: "/admin/messenger", icon: "💬", section: "messenger" },
   { label: "Деловой Авито", href: "/admin/avito", icon: "📣", section: "avito" },
   { label: "Уведомления", href: "/admin/notifications", icon: "🔔", section: "notifications" },
   { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
@@ -69,7 +70,7 @@ const ALL_NAVIGATION: NavItem[] = [
 const DELOVOY_SECTIONS = new Set([
   "dashboard", "rental", "gazebos", "ps-park", "cafe",
   "clients", "inventory", "analytics", "management",
-  "feedback", "tasks", "avito", "notifications", "monitoring",
+  "feedback", "tasks", "messenger", "avito", "notifications", "monitoring",
   "architect", "modules",
 ]);
 const NEDELOVOY_SECTIONS = new Set(["nedelovoy", "sauna"]);
