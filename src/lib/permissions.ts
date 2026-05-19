@@ -29,6 +29,7 @@ export const ADMIN_SECTIONS = [
   { slug: "monitoring", label: "Мониторинг", icon: "🔍" },
   { slug: "architect", label: "Архитектор", icon: "🗺" },
   { slug: "tasks", label: "Задачи", icon: "📌" },
+  { slug: "messenger", label: "Мессенджер", icon: "💬" },
   { slug: "avito", label: "Деловой Авито", icon: "📣" },
 ] as const;
 
