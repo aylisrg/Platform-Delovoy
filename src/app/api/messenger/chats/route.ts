@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { apiError, apiResponse, apiUnauthorized } from "@/lib/api-response";
+import { apiError, apiResponse, apiServerError, apiUnauthorized } from "@/lib/api-response";
 import { rateLimit } from "@/lib/rate-limit";
 import { canStartDirect, createGroupChat, getOrCreateDirectChat, getOrCreateSupportChat, getOrCreateTopicBookingsChat, getOrCreateTopicContractsChat, listChatsForUser } from "@/modules/messenger/service";
 import { canCreateGroup } from "@/modules/messenger/access";
@@ -18,8 +18,13 @@ export async function GET(request: NextRequest) {
   );
   if (!query.success) return apiError("VALIDATION_ERROR", query.error.message, 422);
 
-  const result = await listChatsForUser(session.user.id, query.data);
-  return apiResponse(result.chats, { limit: 30 });
+  try {
+    const result = await listChatsForUser(session.user.id, query.data);
+    return apiResponse(result.chats, { limit: 30 });
+  } catch (err) {
+    console.error("[messenger/chats GET]", err);
+    return apiServerError();
+  }
 }
 
 export async function POST(request: NextRequest) {

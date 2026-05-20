@@ -34,6 +34,11 @@ export default function AdminError({ error, reset }: ErrorProps) {
       </h2>
       <p className="text-sm text-zinc-500 max-w-sm mb-6">
         Произошла ошибка при загрузке раздела.
+        {error.message && (
+          <span className="block mt-2 font-mono text-xs text-red-400 break-all">
+            {error.message}
+          </span>
+        )}
         {error.digest && (
           <span className="block mt-1 font-mono text-xs text-zinc-400">
             ID: {error.digest}
