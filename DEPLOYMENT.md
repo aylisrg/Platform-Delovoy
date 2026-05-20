@@ -64,6 +64,42 @@ docker compose logs -f bot   # убедиться что бот стартану
 
 ---
 
+### Сервис `agent` — Claude Code Agent
+
+Принимает задачи через Telegram и исполняет их через Claude Code CLI в изолированном workspace `/opt/claude-agent-workspace/`. Использует **отдельный бот-токен** (`AGENT_TELEGRAM_BOT_TOKEN`) — не конфликтует с `@DelovoyPark_bot`. Принимает команды только от владельца (`AGENT_TELEGRAM_USER_ID`). Нет доступа к prod БД/Redis.
+
+**Образ:** `ghcr.io/aylisrg/platform-delovoy-agent:latest` (собирается workflow `build-agent.yml`).
+
+**Одноразовая настройка после первого деплоя:**
+```bash
+# 1. Создать workspace и клонировать репо
+ssh deploy@<VPS>
+sudo bash /opt/delovoy-park/scripts/setup-agent-workspace.sh
+
+# 2. Авторизовать Claude Code через claude.ai OAuth (API key не нужен)
+docker compose exec agent claude login
+# → Откроется URL в stdout, пройди авторизацию в браузере
+
+# 3. Перезапустить сервис чтобы подхватить auth
+docker compose restart agent
+docker compose logs -f agent  # должно быть "Bot is running, waiting for messages"
+```
+
+**GitHub Secrets для агента:**
+
+| Secret | Описание |
+|--------|----------|
+| `AGENT_TELEGRAM_BOT_TOKEN` | Токен нового бота (создать через @BotFather) |
+| `AGENT_TELEGRAM_USER_ID` | Твой Telegram user_id (получить у @userinfobot) |
+| `AGENT_GITHUB_PAT` | Fine-grained PAT: repo `contents:write` + `pull-requests:write` |
+
+**Команды бота:**
+- Любой текст → выполнить задачу через Claude Code
+- `/status` → состояние очереди
+- `/start` → приветствие + справка
+
+---
+
 ## Правило №1: Никогда не пушь в main напрямую
 
 **Весь код идёт через Pull Request.**

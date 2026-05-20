@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (!query.success) return apiError("VALIDATION_ERROR", query.error.message, 422);
 
   const result = await listChatsForUser(session.user.id, query.data);
-  return apiResponse(result.chats, { limit: 30 });
+  return apiResponse(result, { limit: 30 });
 }
 
 export async function POST(request: NextRequest) {
