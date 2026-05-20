@@ -118,6 +118,32 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Claude Code agent — accepts tasks via Telegram, executes in isolated workspace.
+  # No DB/Redis access. Separate bot token to avoid 409 Conflict with delovoy-bot.
+  # One-time setup after first deploy: docker compose exec agent claude login
+  agent:
+    image: ghcr.io/aylisrg/platform-delovoy-agent:latest
+    container_name: delovoy-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AGENT_WORKSPACE: /workspace
+    volumes:
+      - /opt/claude-agent-workspace:/workspace
+      - claude_auth:/root/.claude
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 volumes:
   postgres_data:
   redis_data:
+  claude_auth:

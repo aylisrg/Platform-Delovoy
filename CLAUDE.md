@@ -127,6 +127,9 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 **Integrations (not modules):**
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
 
+**Infrastructure services (not modules, no `src/modules/` directory):**
+- `agent` → lives in `agent/`. Telegram-controlled Claude Code agent. Separate Docker image `platform-delovoy-agent`. Workspace: `/opt/claude-agent-workspace/` on VPS. Does NOT touch `src/modules/`. See `DEPLOYMENT.md` § "Сервис `agent`".
+
 ---
 
 ## Scope guard (enforced for all agents)
