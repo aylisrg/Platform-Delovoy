@@ -17,6 +17,10 @@ export async function GET(request: NextRequest) {
     const denied = await requireAdminSection(session, "notifications");
     if (denied) return denied;
 
+    if (session!.user.role !== "SUPERADMIN") {
+      return apiError("FORBIDDEN", "Только суперадмин может просматривать превью рассылок", 403);
+    }
+
     const segmentKey = request.nextUrl.searchParams.get("segment");
     if (!segmentKey) return apiValidationError("segment query param required");
     if (!(SEGMENT_KEYS as readonly string[]).includes(segmentKey)) {

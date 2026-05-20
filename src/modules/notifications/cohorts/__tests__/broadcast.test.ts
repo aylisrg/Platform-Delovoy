@@ -22,8 +22,11 @@ vi.mock("../segments", () => ({
   },
 }));
 
+vi.mock("@/lib/logger", () => ({ logAudit: vi.fn() }));
+
 import { prisma } from "@/lib/db";
 import { dispatch } from "@/modules/notifications/dispatch/dispatcher";
+import { logAudit } from "@/lib/logger";
 import { SEGMENT_RESOLVERS } from "../segments";
 import { broadcastToSegment } from "../broadcast";
 
@@ -91,5 +94,23 @@ describe("broadcastToSegment", () => {
     expect(result.total).toBe(0);
     expect(result.sent).toBe(0);
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("logs audit event on broadcast.create", async () => {
+    vi.mocked(SEGMENT_RESOLVERS.all_verified_users).mockResolvedValueOnce(["u-1"]);
+    vi.mocked(dispatch).mockResolvedValue({ status: "queued", outgoingId: "n-1" } as never);
+
+    await broadcastToSegment(
+      { segmentKey: "all_verified_users", title: "T", body: "B" },
+      "admin-1"
+    );
+
+    expect(logAudit).toHaveBeenCalledWith(
+      "admin-1",
+      "broadcast.create",
+      "BroadcastCampaign",
+      "camp-1",
+      expect.objectContaining({ segmentKey: "all_verified_users" })
+    );
   });
 });

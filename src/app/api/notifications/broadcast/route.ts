@@ -13,9 +13,6 @@ import { broadcastSchema } from "@/modules/notifications/cohorts/validation";
 
 export async function POST(request: NextRequest) {
   try {
-    const limited = await rateLimit(request, "authenticated");
-    if (limited) return limited;
-
     const session = await auth();
     const denied = await requireAdminSection(session, "notifications");
     if (denied) return denied;
@@ -24,6 +21,10 @@ export async function POST(request: NextRequest) {
     if (session!.user.role !== "SUPERADMIN") {
       return apiError("FORBIDDEN", "Только суперадмин может отправлять рассылки", 403);
     }
+
+    // Per-user rate limit: max 5 broadcasts/min to prevent accidental double-send
+    const limited = await rateLimit(request, "authenticated", session.user.id);
+    if (limited) return limited;
 
     const body = await request.json();
     const parsed = broadcastSchema.safeParse(body);
