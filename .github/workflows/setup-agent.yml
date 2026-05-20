@@ -17,7 +17,20 @@ jobs:
           command_timeout: 2m
           script: |
             set -e
-            bash /opt/delovoy-park/scripts/setup-agent-workspace.sh
+            WORKSPACE=/opt/claude-agent-workspace
+            REPO_URL=https://github.com/aylisrg/Platform-Delovoy.git
+
+            if [ -d "$WORKSPACE/.git" ]; then
+              echo "Workspace exists — pulling latest..."
+              git -C "$WORKSPACE" pull --ff-only
+            else
+              echo "Cloning repo into $WORKSPACE..."
+              git clone "$REPO_URL" "$WORKSPACE"
+            fi
+
+            git -C "$WORKSPACE" config user.name  "Claude Code Agent"
+            git -C "$WORKSPACE" config user.email "agent@delovoy-park.ru"
+            echo "Workspace ready at $WORKSPACE"
 
       - name: Claude login — open URL from logs to complete OAuth
         uses: appleboy/ssh-action@v1
