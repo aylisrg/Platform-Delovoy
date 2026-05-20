@@ -1,0 +1,44 @@
+name: Setup Claude Agent (one-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: Setup agent on VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bootstrap agent workspace
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 2m
+          script: |
+            set -e
+            bash /opt/delovoy-park/scripts/setup-agent-workspace.sh
+
+      - name: Claude login — open URL from logs to complete OAuth
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            cd /opt/delovoy-park
+            BROWSER=none docker compose exec -T agent claude login 2>&1
+
+      - name: Restart agent
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 1m
+          script: |
+            cd /opt/delovoy-park
+            docker compose restart agent
+            sleep 5
+            docker compose logs agent --tail 30
