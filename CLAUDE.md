@@ -116,13 +116,13 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |
 | `subscriptions` | ✅ | PS Park prepaid-hour passes |
 | `messenger` | ✅ | In-app chat: USER↔Admin (SUPPORT/TOPIC), USER↔USER (shared-connection only), GROUP; Web Push + SSE realtime |
-| `feedback` | ❌ scope creep | — |
-| `inventory` | ❌ scope creep | — |
-| `management` | ❌ scope creep | — |
-| `telephony` | ❌ scope creep | — |
-| `telegram-link` | ❌ scope creep | — |
-| `pipeline-metrics` | ❌ scope creep | — |
-| `backups` | ❌ scope creep | — |
+| `feedback` | ✅ | User feedback & office linkage — PRD `2026-04-15`, `2026-04-25` |
+| `inventory` | ✅ | Cafe & module stock management — PRD `2026-04-12` |
+| `management` | ✅ | Park expense tracking & financial accounting — PRD `2026-04-18` |
+| `telephony` | ✅ | Novofon integration for call tracking — PRD `2026-04-12` |
+| `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications` |
+| `pipeline-metrics` | ✅ (infrastructure-only) | CI pipeline self-diagnostics for agents; not a business module, no public API |
+| `backups` | ✅ | Backup logging (`BackupLog`); approved in project memory |
 
 **Integrations (not modules):**
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
