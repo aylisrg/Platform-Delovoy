@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Per-user rate limit: max 5 broadcasts/min to prevent accidental double-send
-    const limited = await rateLimit(request, "authenticated", session.user.id);
+    const limited = await rateLimit(request, "authenticated", session!.user.id);
     if (limited) return limited;
 
     const body = await request.json();
@@ -31,9 +31,9 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return apiValidationError(parsed.error.issues[0].message);
 
     const result = await broadcastToSegment(parsed.data, session!.user.id);
-    return apiResponse(result, 200);
+    return apiResponse(result);
   } catch (err) {
-    return apiServerError(err);
+    return apiServerError(err instanceof Error ? err.message : undefined);
   }
 }
 
@@ -46,6 +46,6 @@ export async function GET() {
     const campaigns = await getCampaigns(20);
     return apiResponse(campaigns);
   } catch (err) {
-    return apiServerError(err);
+    return apiServerError(err instanceof Error ? err.message : undefined);
   }
 }

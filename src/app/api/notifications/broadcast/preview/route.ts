@@ -42,6 +42,6 @@ export async function GET(request: NextRequest) {
       sample,
     });
   } catch (err) {
-    return apiServerError(err);
+    return apiServerError(err instanceof Error ? err.message : undefined);
   }
 }
