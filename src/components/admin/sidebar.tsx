@@ -93,6 +93,7 @@ function detectParkFromPath(pathname: string | null): ParkContext | null {
     "/admin/cafe", "/admin/clients", "/admin/inventory", "/admin/analytics",
     "/admin/management", "/admin/feedback", "/admin/tasks", "/admin/avito",
     "/admin/notifications", "/admin/monitoring", "/admin/architect", "/admin/modules",
+    "/admin/messenger",
   ];
   if (delovoyPrefixes.some((p) => pathname.startsWith(p))) return "delovoy";
   return null;
