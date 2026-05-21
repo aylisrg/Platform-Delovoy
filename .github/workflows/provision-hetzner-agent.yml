@@ -1,0 +1,194 @@
+name: "Hetzner: Provision & Deploy Agent"
+
+# Full setup of Claude Code agent on a fresh Hetzner Ubuntu 24.04 VPS.
+# Run once after the server is created.
+# After workflow completes: ssh root@<AGENT_VPS_HOST> and run
+#   docker exec -it delovoy-agent claude /login
+# to complete OAuth (requires interactive TTY).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        required: true
+        type: choice
+        default: full-setup
+        options:
+          - full-setup      # Install Docker + deploy agent (first run)
+          - deploy-only     # Pull latest image and restart agent (already provisioned)
+          - logs            # Show agent container logs
+
+jobs:
+  provision:
+    name: Setup agent on Hetzner VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Install Docker + system deps ──────────────────────────────────
+      - name: Install Docker
+        if: inputs.action == 'full-setup'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -e
+            echo "=== Installing system packages ==="
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              ca-certificates curl gnupg git ufw fail2ban jq
+
+            # Docker (official repo)
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+              | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            chmod a+r /etc/apt/keyrings/docker.gpg
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+              > /etc/apt/sources.list.d/docker.list
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+            systemctl enable docker
+            systemctl start docker
+
+            # Firewall — allow SSH only (agent has no web-facing ports)
+            ufw default deny incoming
+            ufw default allow outgoing
+            ufw allow 22/tcp
+            ufw --force enable
+
+            echo "✓ Docker $(docker --version) installed"
+            echo "✓ Firewall: SSH-only inbound"
+
+      # ── 2. Clone repo + write .env ────────────────────────────────────────
+      - name: Bootstrap workspace and write .env
+        if: inputs.action == 'full-setup'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            set -e
+
+            # Agent working directory (compose file + .env)
+            mkdir -p /opt/delovoy-agent
+
+            # Isolated workspace for Claude Code to operate in
+            if [ ! -d /opt/claude-agent-workspace/.git ]; then
+              echo "Cloning repo into workspace..."
+              git clone https://github.com/aylisrg/Platform-Delovoy.git \
+                /opt/claude-agent-workspace
+            else
+              echo "Workspace exists — pulling latest..."
+              git -C /opt/claude-agent-workspace pull --ff-only
+            fi
+            git -C /opt/claude-agent-workspace config user.name  "Claude Code Agent"
+            git -C /opt/claude-agent-workspace config user.email "agent@delovoy-park.ru"
+
+            echo "✓ Workspace ready at /opt/claude-agent-workspace"
+
+      # ── 3. Write compose file + .env ─────────────────────────────────────
+      - name: Write docker-compose and .env
+        if: inputs.action == 'full-setup' || inputs.action == 'deploy-only'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 3m
+          envs: AGENT_TG_TOKEN,AGENT_TG_USER,AGENT_GH_PAT
+          script: |
+            set -e
+            cd /opt/delovoy-agent
+
+            # .env for the agent container
+            cat > .env << ENV
+            AGENT_TELEGRAM_BOT_TOKEN=${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}
+            AGENT_TELEGRAM_USER_ID=${{ secrets.AGENT_TELEGRAM_USER_ID }}
+            AGENT_GITHUB_PAT=${{ secrets.AGENT_GITHUB_PAT }}
+            GIT_AUTHOR_NAME=Claude Code Agent
+            GIT_AUTHOR_EMAIL=agent@delovoy-park.ru
+            ENV
+
+            # Minimal docker-compose (agent only)
+            cat > docker-compose.yml << 'COMPOSE'
+            services:
+              agent:
+                image: ghcr.io/aylisrg/platform-delovoy-agent:latest
+                container_name: delovoy-agent
+                restart: unless-stopped
+                env_file:
+                  - .env
+                environment:
+                  AGENT_WORKSPACE: /workspace
+                volumes:
+                  - /opt/claude-agent-workspace:/workspace
+                  - claude_auth:/root/.claude
+                deploy:
+                  resources:
+                    limits:
+                      memory: 2G
+                      cpus: "2.0"
+                logging:
+                  driver: json-file
+                  options:
+                    max-size: "20m"
+                    max-file: "5"
+            volumes:
+              claude_auth:
+            COMPOSE
+
+            echo "✓ .env and docker-compose.yml written"
+
+      # ── 4. Pull image + start agent ───────────────────────────────────────
+      - name: Pull image and start agent
+        if: inputs.action == 'full-setup' || inputs.action == 'deploy-only'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            set -e
+            cd /opt/delovoy-agent
+
+            # Login to GHCR
+            echo "${{ secrets.AGENT_GITHUB_PAT }}" \
+              | docker login ghcr.io -u aylisrg --password-stdin
+
+            docker compose pull agent
+            docker compose up -d agent
+
+            sleep 5
+            docker compose ps agent
+
+            echo ""
+            echo "✓ Agent deployed!"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  NEXT STEP (one-time, interactive):"
+            echo "  ssh ${{ secrets.AGENT_HETZNER_USER }}@${{ secrets.AGENT_HETZNER_HOST }}"
+            echo "  docker exec -it delovoy-agent claude /login"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ── 5. Logs ───────────────────────────────────────────────────────────
+      - name: Show agent logs
+        if: always() && inputs.action == 'logs'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 1m
+          script: |
+            cd /opt/delovoy-agent
+            docker compose logs agent --tail 100
