@@ -49,11 +49,12 @@ jobs:
       - name: Add SSH key to Hetzner
         id: hetzner_key
         run: |
-          RESULT=$(curl -sf -X POST \
+          RESULT=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"name\": \"claude-agent-$(date +%Y%m%d)\", \"public_key\": \"${{ steps.keygen.outputs.pub_key }}\"}" \
             "https://api.hetzner.cloud/v1/ssh_keys")
+          echo "SSH key response: $RESULT"
           KEY_ID=$(echo "$RESULT" | jq '.ssh_key.id')
           echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
           echo "✓ SSH key added to Hetzner (id=$KEY_ID)"
@@ -61,7 +62,7 @@ jobs:
       - name: Create server
         id: create_server
         run: |
-          RESULT=$(curl -sf -X POST \
+          RESULT=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{
@@ -74,7 +75,13 @@ jobs:
             }" \
             "https://api.hetzner.cloud/v1/servers")
 
-          echo "$RESULT" | jq '.server | {id, name, status, datacenter: .datacenter.name}'
+          echo "Server creation response: $RESULT"
+          echo "$RESULT" | jq '.server | {id, name, status, datacenter: .datacenter.name}' || true
+          # Fail explicitly if error
+          if echo "$RESULT" | jq -e '.error' > /dev/null 2>&1; then
+            echo "::error::Hetzner API error: $(echo "$RESULT" | jq -r '.error.message')"
+            exit 1
+          fi
 
           SERVER_ID=$(echo "$RESULT" | jq '.server.id')
           SERVER_IP=$(echo "$RESULT" | jq -r '.server.public_net.ipv4.ip')
