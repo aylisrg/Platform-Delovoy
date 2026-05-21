@@ -1,0 +1,160 @@
+name: "Hetzner: Create Agent Server"
+
+# One-shot: создаёт VPS на Hetzner, генерирует SSH-ключ и записывает
+# AGENT_HETZNER_HOST / AGENT_HETZNER_USER / AGENT_HETZNER_SSH_KEY
+# в GitHub Secrets автоматически.
+#
+# Нужен один секрет: HETZNER_API_TOKEN (Hetzner Console → Security → API Tokens)
+# Нужен PAT с правом secrets:write: AGENT_GITHUB_PAT (уже есть)
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_type:
+        description: "Server type"
+        required: false
+        default: "cx22"
+      location:
+        description: "Datacenter location"
+        required: false
+        default: "nbg1"
+        type: choice
+        options:
+          - nbg1   # Nuremberg
+          - hel1   # Helsinki
+          - fsn1   # Falkenstein
+
+jobs:
+  create:
+    name: Create Hetzner VPS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Generate SSH key pair
+        id: keygen
+        run: |
+          ssh-keygen -t ed25519 -f /tmp/agent_hetzner_key -N "" -C "claude-agent@delovoy-park.ru"
+          echo "pub_key=$(cat /tmp/agent_hetzner_key.pub)" >> "$GITHUB_OUTPUT"
+          # Private key — multiline, encode for safe passing between steps
+          {
+            echo "priv_key_b64<<EOF"
+            base64 -w0 /tmp/agent_hetzner_key
+            echo
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "✓ SSH key pair generated"
+
+      - name: Add SSH key to Hetzner
+        id: hetzner_key
+        run: |
+          RESULT=$(curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"claude-agent-$(date +%Y%m%d)\", \"public_key\": \"${{ steps.keygen.outputs.pub_key }}\"}" \
+            "https://api.hetzner.cloud/v1/ssh_keys")
+          KEY_ID=$(echo "$RESULT" | jq '.ssh_key.id')
+          echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          echo "✓ SSH key added to Hetzner (id=$KEY_ID)"
+
+      - name: Create server
+        id: create_server
+        run: |
+          RESULT=$(curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"name\": \"delovoy-agent\",
+              \"server_type\": \"${{ inputs.server_type }}\",
+              \"image\": \"ubuntu-24.04\",
+              \"location\": \"${{ inputs.location }}\",
+              \"ssh_keys\": [${{ steps.hetzner_key.outputs.key_id }}],
+              \"labels\": {\"project\": \"platform-delovoy\", \"role\": \"claude-agent\"}
+            }" \
+            "https://api.hetzner.cloud/v1/servers")
+
+          echo "$RESULT" | jq '.server | {id, name, status, datacenter: .datacenter.name}'
+
+          SERVER_ID=$(echo "$RESULT" | jq '.server.id')
+          SERVER_IP=$(echo "$RESULT" | jq -r '.server.public_net.ipv4.ip')
+
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_ip=$SERVER_IP"  >> "$GITHUB_OUTPUT"
+
+          echo "✓ Server created: id=$SERVER_ID ip=$SERVER_IP"
+
+      - name: Wait for server to be ready
+        run: |
+          SERVER_ID="${{ steps.create_server.outputs.server_id }}"
+          echo "Waiting for server $SERVER_ID to become running..."
+          for i in $(seq 1 24); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" \
+              | jq -r '.server.status')
+            echo "  Attempt $i/24: status=$STATUS"
+            if [ "$STATUS" = "running" ]; then
+              echo "✓ Server is running!"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Save secrets to GitHub
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_GITHUB_PAT }}
+        run: |
+          REPO="${{ github.repository }}"
+          API="https://api.github.com/repos/$REPO"
+
+          # Helper: upsert a GitHub secret
+          upsert_secret() {
+            local name="$1"
+            local value="$2"
+
+            # Get repo public key for secret encryption
+            PUB_KEY_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+              "$API/actions/secrets/public-key")
+            PUB_KEY=$(echo "$PUB_KEY_RESP" | jq -r '.key')
+            PUB_KEY_ID=$(echo "$PUB_KEY_RESP" | jq -r '.key_id')
+
+            # Encrypt value with libsodium (sodium_sealed_box)
+            ENCRYPTED=$(python3 - <<PYEOF
+          import base64, sys
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+          # Use PyNaCl for sealed box
+          import nacl.encoding, nacl.public
+          pub = nacl.public.PublicKey(base64.b64decode("$PUB_KEY"))
+          sealed = nacl.public.SealedBox(pub)
+          enc = sealed.encrypt(b"""$value""")
+          print(base64.b64encode(enc).decode())
+          PYEOF
+            )
+
+            curl -sf -X PUT \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"encrypted_value\": \"$ENCRYPTED\", \"key_id\": \"$PUB_KEY_ID\"}" \
+              "$API/actions/secrets/$name" && echo "✓ Secret $name saved" \
+              || echo "✗ Failed to save $name"
+          }
+
+          pip install PyNaCl -q
+
+          SERVER_IP="${{ steps.create_server.outputs.server_ip }}"
+          PRIV_KEY=$(echo "${{ steps.keygen.outputs.priv_key_b64 }}" | base64 -d)
+
+          upsert_secret "AGENT_HETZNER_HOST" "$SERVER_IP"
+          upsert_secret "AGENT_HETZNER_USER" "root"
+          upsert_secret "AGENT_HETZNER_SSH_KEY" "$PRIV_KEY"
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  ✓ Server: $SERVER_IP"
+          echo "  ✓ Secrets written: AGENT_HETZNER_HOST / AGENT_HETZNER_USER / AGENT_HETZNER_SSH_KEY"
+          echo ""
+          echo "  NEXT: run workflow 'Hetzner: Provision & Deploy Agent'"
+          echo "        action: full-setup"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
