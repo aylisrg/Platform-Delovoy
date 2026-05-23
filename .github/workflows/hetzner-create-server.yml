@@ -62,17 +62,20 @@ jobs:
       - name: Create server
         id: create_server
         run: |
+          SERVER_TYPE="${{ inputs.server_type }}"
+          LOCATION="${{ inputs.location }}"
+          KEY_ID="${{ steps.hetzner_key.outputs.key_id }}"
+          JSON=$(jq -n \
+            --arg name "delovoy-agent" \
+            --arg type "$SERVER_TYPE" \
+            --arg image "ubuntu-24.04" \
+            --arg loc "$LOCATION" \
+            --argjson keys "[$KEY_ID]" \
+            '{name:$name,server_type:$type,image:$image,location:$loc,ssh_keys:$keys,labels:{project:"platform-delovoy",role:"claude-agent"}}')
           RESULT=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"name\": \"delovoy-agent\",
-              \"server_type\": \"${{ inputs.server_type }}\",
-              \"image\": \"ubuntu-24.04\",
-              \"location\": \"${{ inputs.location }}\",
-              \"ssh_keys\": [${{ steps.hetzner_key.outputs.key_id }}],
-              \"labels\": {\"project\": \"platform-delovoy\", \"role\": \"claude-agent\"}
-            }" \
+            -d "$JSON" \
             "https://api.hetzner.cloud/v1/servers")
 
           echo "Server creation response: $RESULT"
