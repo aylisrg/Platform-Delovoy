@@ -49,13 +49,32 @@ jobs:
       - name: Add SSH key to Hetzner
         id: hetzner_key
         run: |
+          KEY_NAME="claude-agent-$(date +%Y%m%d)"
+          AUTH="-H 'Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}'"
+
+          # Delete existing key with same name if any (previous failed run)
+          EXISTING_ID=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            "https://api.hetzner.cloud/v1/ssh_keys?name=$KEY_NAME" \
+            | jq '.ssh_keys[0].id // empty')
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Deleting existing key id=$EXISTING_ID..."
+            curl -s -X DELETE \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              "https://api.hetzner.cloud/v1/ssh_keys/$EXISTING_ID"
+          fi
+
           RESULT=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"name\": \"claude-agent-$(date +%Y%m%d)\", \"public_key\": \"${{ steps.keygen.outputs.pub_key }}\"}" \
+            -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"${{ steps.keygen.outputs.pub_key }}\"}" \
             "https://api.hetzner.cloud/v1/ssh_keys")
           echo "SSH key response: $RESULT"
           KEY_ID=$(echo "$RESULT" | jq '.ssh_key.id')
+          if [ "$KEY_ID" = "null" ] || [ -z "$KEY_ID" ]; then
+            echo "::error::Failed to create SSH key: $RESULT"
+            exit 1
+          fi
           echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
           echo "✓ SSH key added to Hetzner (id=$KEY_ID)"
 
