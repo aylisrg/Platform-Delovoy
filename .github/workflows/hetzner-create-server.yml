@@ -145,56 +145,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.AGENT_GITHUB_PAT }}
         run: |
-          REPO="${{ github.repository }}"
-          API="https://api.github.com/repos/$REPO"
-
-          # Helper: upsert a GitHub secret
-          upsert_secret() {
-            local name="$1"
-            local value="$2"
-
-            # Get repo public key for secret encryption
-            PUB_KEY_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-              "$API/actions/secrets/public-key")
-            PUB_KEY=$(echo "$PUB_KEY_RESP" | jq -r '.key')
-            PUB_KEY_ID=$(echo "$PUB_KEY_RESP" | jq -r '.key_id')
-
-            # Encrypt value with libsodium (sodium_sealed_box)
-            ENCRYPTED=$(python3 - <<PYEOF
-          import base64, sys
-          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
-          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-          # Use PyNaCl for sealed box
-          import nacl.encoding, nacl.public
-          pub = nacl.public.PublicKey(base64.b64decode("$PUB_KEY"))
-          sealed = nacl.public.SealedBox(pub)
-          enc = sealed.encrypt(b"""$value""")
-          print(base64.b64encode(enc).decode())
-          PYEOF
-            )
-
-            curl -sf -X PUT \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"encrypted_value\": \"$ENCRYPTED\", \"key_id\": \"$PUB_KEY_ID\"}" \
-              "$API/actions/secrets/$name" && echo "✓ Secret $name saved" \
-              || echo "✗ Failed to save $name"
-          }
-
-          pip install PyNaCl -q
-
           SERVER_IP="${{ steps.create_server.outputs.server_ip }}"
           PRIV_KEY=$(echo "${{ steps.keygen.outputs.priv_key_b64 }}" | base64 -d)
 
-          upsert_secret "AGENT_HETZNER_HOST" "$SERVER_IP"
-          upsert_secret "AGENT_HETZNER_USER" "root"
-          upsert_secret "AGENT_HETZNER_SSH_KEY" "$PRIV_KEY"
+          gh secret set AGENT_HETZNER_HOST --body "$SERVER_IP" --repo "${{ github.repository }}"
+          echo "✓ AGENT_HETZNER_HOST=$SERVER_IP"
+
+          gh secret set AGENT_HETZNER_USER --body "root" --repo "${{ github.repository }}"
+          echo "✓ AGENT_HETZNER_USER=root"
+
+          printf '%s' "$PRIV_KEY" | gh secret set AGENT_HETZNER_SSH_KEY --repo "${{ github.repository }}"
+          echo "✓ AGENT_HETZNER_SSH_KEY saved"
 
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  ✓ Server: $SERVER_IP"
-          echo "  ✓ Secrets written: AGENT_HETZNER_HOST / AGENT_HETZNER_USER / AGENT_HETZNER_SSH_KEY"
+          echo "  ✓ Secrets: AGENT_HETZNER_HOST / AGENT_HETZNER_USER / AGENT_HETZNER_SSH_KEY"
           echo ""
-          echo "  NEXT: run workflow 'Hetzner: Provision & Deploy Agent'"
-          echo "        action: full-setup"
+          echo "  NEXT: run 'Hetzner: Provision & Deploy Agent' → full-setup"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
