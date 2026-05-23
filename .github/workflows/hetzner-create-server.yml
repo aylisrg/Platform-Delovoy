@@ -92,14 +92,8 @@ jobs:
           echo "All non-deprecated types with their price locations:"
           echo "$TYPES_JSON" | jq -r '.server_types[] | select(.deprecation == null) | "\(.name) cores=\(.cores) mem=\(.memory)GB locations=\([.prices[].location] | join(","))"'
 
-          # Auto-select: first non-deprecated type with a price entry for the chosen location
-          SERVER_TYPE=$(echo "$TYPES_JSON" | jq -r --arg loc "$LOCATION" '
-            [.server_types[]
-            | select(.deprecation == null)
-            | select(any(.prices[]; .location == $loc))
-            | select(.cores >= 2)]
-            | sort_by(.memory)
-            | .[0].name')
+          # Use cax11 (ARM, 2 vCPU, 4GB) — available in fsn1/hel1/nbg1
+          SERVER_TYPE="cax11"
           echo "Auto-selected server type: $SERVER_TYPE"
           JSON=$(jq -n \
             --arg name "delovoy-agent" \
