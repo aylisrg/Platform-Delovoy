@@ -84,36 +84,33 @@ jobs:
           LOCATION="${{ inputs.location }}"
           KEY_ID="${{ steps.hetzner_key.outputs.key_id }}"
 
-          echo "=== Querying available server types ==="
-          TYPES_JSON=$(curl -s \
+          # Check if server already exists
+          EXISTING=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
-            "https://api.hetzner.cloud/v1/server_types?per_page=50")
+            "https://api.hetzner.cloud/v1/servers?name=delovoy-agent")
+          EXISTING_ID=$(echo "$EXISTING" | jq '.servers[0].id // empty')
 
-          echo "All non-deprecated types with their price locations:"
-          echo "$TYPES_JSON" | jq -r '.server_types[] | select(.deprecation == null) | "\(.name) cores=\(.cores) mem=\(.memory)GB locations=\([.prices[].location] | join(","))"'
-
-          # Use cax11 (ARM, 2 vCPU, 4GB) — available in fsn1/hel1/nbg1
-          SERVER_TYPE="cax11"
-          echo "Auto-selected server type: $SERVER_TYPE"
-          JSON=$(jq -n \
-            --arg name "delovoy-agent" \
-            --arg type "$SERVER_TYPE" \
-            --arg image "ubuntu-24.04" \
-            --arg loc "$LOCATION" \
-            --argjson keys "[$KEY_ID]" \
-            '{name:$name,server_type:$type,image:$image,location:$loc,ssh_keys:$keys,labels:{project:"platform-delovoy",role:"claude-agent"}}')
-          RESULT=$(curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "$JSON" \
-            "https://api.hetzner.cloud/v1/servers")
-
-          echo "Server creation response: $RESULT"
-          echo "$RESULT" | jq '.server | {id, name, status, datacenter: .datacenter.name}' || true
-          # Fail explicitly if error
-          if echo "$RESULT" | jq -e '.error' > /dev/null 2>&1; then
-            echo "::error::Hetzner API error: $(echo "$RESULT" | jq -r '.error.message')"
-            exit 1
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Server 'delovoy-agent' already exists (id=$EXISTING_ID), reusing it."
+            RESULT=$(curl -s \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              "https://api.hetzner.cloud/v1/servers/$EXISTING_ID")
+          else
+            # Create new server with cax11 (ARM, 2 vCPU, 4GB) in fsn1
+            JSON=$(jq -n \
+              --arg name "delovoy-agent" \
+              --argjson keys "[$KEY_ID]" \
+              '{name:$name,server_type:"cax11",image:"ubuntu-24.04",location:"fsn1",ssh_keys:$keys,labels:{project:"platform-delovoy",role:"claude-agent"}}')
+            RESULT=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "$JSON" \
+              "https://api.hetzner.cloud/v1/servers")
+            echo "Server creation response: $RESULT"
+            if echo "$RESULT" | jq -e '.error' > /dev/null 2>&1; then
+              echo "::error::Hetzner API error: $(echo "$RESULT" | jq -r '.error.message')"
+              exit 1
+            fi
           fi
 
           SERVER_ID=$(echo "$RESULT" | jq '.server.id')
