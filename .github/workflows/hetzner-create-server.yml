@@ -17,12 +17,12 @@ on:
       location:
         description: "Datacenter location"
         required: false
-        default: "nbg1"
+        default: "fsn1"
         type: choice
         options:
-          - nbg1   # Nuremberg
-          - hel1   # Helsinki
           - fsn1   # Falkenstein
+          - hel1   # Helsinki
+          - nbg1   # Nuremberg
 
 jobs:
   create:
