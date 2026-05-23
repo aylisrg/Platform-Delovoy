@@ -84,21 +84,22 @@ jobs:
           LOCATION="${{ inputs.location }}"
           KEY_ID="${{ steps.hetzner_key.outputs.key_id }}"
 
-          # If input type is explicitly set use it, otherwise auto-pick cheapest available
-          INPUT_TYPE="${{ inputs.server_type }}"
-          echo "Available server types in $LOCATION:"
+          echo "=== Querying available server types ==="
           TYPES_JSON=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             "https://api.hetzner.cloud/v1/server_types?per_page=50")
-          echo "$TYPES_JSON" | jq '.server_types[] | {name, cores, memory, storage, deprecated: .deprecation}' | head -60
 
-          # Auto-select: first non-deprecated type available in the chosen location, ~2+ vCPU
+          echo "All non-deprecated types with their price locations:"
+          echo "$TYPES_JSON" | jq -r '.server_types[] | select(.deprecation == null) | "\(.name) cores=\(.cores) mem=\(.memory)GB locations=\([.prices[].location] | join(","))"'
+
+          # Auto-select: first non-deprecated type with a price entry for the chosen location
           SERVER_TYPE=$(echo "$TYPES_JSON" | jq -r --arg loc "$LOCATION" '
-            .server_types[]
+            [.server_types[]
             | select(.deprecation == null)
-            | select(.prices | map(select(.location == $loc)) | length > 0)
-            | select(.cores >= 2)
-            | .name' | head -1)
+            | select(any(.prices[]; .location == $loc))
+            | select(.cores >= 2)]
+            | sort_by(.memory)
+            | .[0].name')
           echo "Auto-selected server type: $SERVER_TYPE"
           JSON=$(jq -n \
             --arg name "delovoy-agent" \
