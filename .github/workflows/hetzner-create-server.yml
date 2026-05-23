@@ -13,7 +13,7 @@ on:
       server_type:
         description: "Server type"
         required: false
-        default: "cx22"
+        default: "cpx11"
       location:
         description: "Datacenter location"
         required: false
