@@ -91,7 +91,21 @@ jobs:
           EXISTING_ID=$(echo "$EXISTING" | jq '.servers[0].id // empty')
 
           if [ -n "$EXISTING_ID" ]; then
-            echo "Server 'delovoy-agent' already exists (id=$EXISTING_ID), reusing it."
+            echo "Server 'delovoy-agent' already exists (id=$EXISTING_ID), rebuilding with new SSH key..."
+            # Rebuild reinstalls the OS and applies the new SSH key
+            REBUILD=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"image\":\"ubuntu-24.04\",\"ssh_keys\":[$KEY_ID]}" \
+              "https://api.hetzner.cloud/v1/servers/$EXISTING_ID/actions/rebuild")
+            echo "Rebuild response: $REBUILD"
+            if echo "$REBUILD" | jq -e '.error' > /dev/null 2>&1; then
+              echo "::error::Rebuild failed: $(echo "$REBUILD" | jq -r '.error.message')"
+              exit 1
+            fi
+            # Wait for rebuild to complete
+            echo "Waiting for rebuild..."
+            sleep 30
             RESULT=$(curl -s \
               -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
               "https://api.hetzner.cloud/v1/servers/$EXISTING_ID")
