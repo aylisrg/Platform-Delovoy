@@ -62,6 +62,8 @@ services:
       NODE_ENV: "production"
       NEXTAUTH_URL: "http://localhost:3000"
       AUTH_TRUST_HOST: "true"
+    volumes:
+      - /var/www/delovoy/media:/app/public/media
     depends_on:
       postgres:
         condition: service_healthy
