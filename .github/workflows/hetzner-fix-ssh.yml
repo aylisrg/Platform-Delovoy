@@ -1,0 +1,40 @@
+name: "Hetzner: Fix SSH access (one-shot)"
+
+# Resets root password via Hetzner API, then SSHes in with password
+# to add our SSH public key. Run once to restore SSH access.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      - name: Reset root password via Hetzner API
+        id: reset
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            "https://api.hetzner.cloud/v1/servers/132536346/actions/reset_password")
+          echo "Response: $RESPONSE"
+          ROOT_PASS=$(echo "$RESPONSE" | jq -r '.root_password')
+          if [ -z "$ROOT_PASS" ] || [ "$ROOT_PASS" = "null" ]; then
+            echo "::error::Failed to reset password: $RESPONSE"
+            exit 1
+          fi
+          echo "root_pass=$ROOT_PASS" >> "$GITHUB_OUTPUT"
+          echo "✓ Root password reset"
+
+      - name: Add SSH public key via password
+        run: |
+          sleep 10
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
+          sshpass -p "${{ steps.reset.outputs.root_pass }}" ssh \
+            -o StrictHostKeyChecking=no \
+            -o PasswordAuthentication=yes \
+            root@178.105.195.243 \
+            "mkdir -p /root/.ssh && echo '$PUB_KEY' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo '✓ SSH key added'"
+          echo "✓ Done — SSH access restored"
