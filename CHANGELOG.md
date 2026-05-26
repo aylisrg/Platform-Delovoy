@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.6.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.5.0...v2.6.0) (2026-05-26)
+
+
+### Features
+
+* **admin:** park switcher + global Users nav ([#284](https://github.com/aylisrg/Platform-Delovoy/issues/284)) ([3f5cfb2](https://github.com/aylisrg/Platform-Delovoy/commit/3f5cfb26a263c917db291e56673c21ad814e936a))
+* **gazebos:** enforce 4-hour minimum booking duration ([#273](https://github.com/aylisrg/Platform-Delovoy/issues/273)) ([857f68d](https://github.com/aylisrg/Platform-Delovoy/commit/857f68d2c80584244aa1cf2ee91ab54b4e1bfc98))
+* **messenger:** in-app chat — SUPPORT/DIRECT/GROUP + SSE realtime + Web Push + PWA ([#287](https://github.com/aylisrg/Platform-Delovoy/issues/287)) ([8d6a98b](https://github.com/aylisrg/Platform-Delovoy/commit/8d6a98b2eb20fdb6852d0b06975c08620024bdef))
+* **nedelovoy:** второй бизнес-парк + заглушка бань ([#274](https://github.com/aylisrg/Platform-Delovoy/issues/274)) ([bf08761](https://github.com/aylisrg/Platform-Delovoy/commit/bf087614d10ccc254c881a1ddbc9bdf02ef8a0e3))
+* **notifications:** cron overdue session reminders (PR 4/4) ([#256](https://github.com/aylisrg/Platform-Delovoy/issues/256)) ([ae59776](https://github.com/aylisrg/Platform-Delovoy/commit/ae5977604dfb500a96845c402a86de0252cdb6f9))
+* **rental:** fix landing form + lead→task + per-module TG recipients ([#268](https://github.com/aylisrg/Platform-Delovoy/issues/268)) ([845c55b](https://github.com/aylisrg/Platform-Delovoy/commit/845c55b41f46db5b03b450c61fa970751015faee))
+* **sprint-1:** broadcast campaigns + legalize modules + cleanup ([#295](https://github.com/aylisrg/Platform-Delovoy/issues/295)) ([0bad963](https://github.com/aylisrg/Platform-Delovoy/commit/0bad96307378eb378027f88de2a7db7429aae657))
+* VK ID OAuth + VK notifications channel + rental TG group routing ([#269](https://github.com/aylisrg/Platform-Delovoy/issues/269)) ([4735c0e](https://github.com/aylisrg/Platform-Delovoy/commit/4735c0e5120b94a3a58645aa62fa523db2e7a6e4))
+
+
+### Bug Fixes
+
+* **agent:** inline workspace bootstrap script in setup workflow ([#292](https://github.com/aylisrg/Platform-Delovoy/issues/292)) ([994b87e](https://github.com/aylisrg/Platform-Delovoy/commit/994b87e88bb77be017dc855a08d25531c2dde250))
+* **analytics:** prevent 429 quota_parallel_requests_by_uid from Yandex Metrika ([#285](https://github.com/aylisrg/Platform-Delovoy/issues/285)) ([f9d567a](https://github.com/aylisrg/Platform-Delovoy/commit/f9d567a77019932db5bb6974772724303589a7aa))
+* **analytics:** replace 200%-conversion bug with primary-goal selector + Telegram warning ([#267](https://github.com/aylisrg/Platform-Delovoy/issues/267)) ([51bc8ac](https://github.com/aylisrg/Platform-Delovoy/commit/51bc8acfd7fd425b1683b9dc283043f6461bf679))
+* **auth:** guard VkIdProvider behind env-var check ([#272](https://github.com/aylisrg/Platform-Delovoy/issues/272)) ([5146dee](https://github.com/aylisrg/Platform-Delovoy/commit/5146dee7c9c69c25c717dbc0808838661087ef5b))
+* auto-select non-deprecated server type from Hetzner API ([#303](https://github.com/aylisrg/Platform-Delovoy/issues/303)) ([9a86975](https://github.com/aylisrg/Platform-Delovoy/commit/9a869753b84d9fb57ae252104ce884ecbff24047))
+* catch-up migration + deploy pipeline fix ([#275](https://github.com/aylisrg/Platform-Delovoy/issues/275)) ([298e396](https://github.com/aylisrg/Platform-Delovoy/commit/298e39680547f77f9cad6eea5920bd72e2894337))
+* delete duplicate SSH key before creating on Hetzner ([#300](https://github.com/aylisrg/Platform-Delovoy/issues/300)) ([a8ed9bf](https://github.com/aylisrg/Platform-Delovoy/commit/a8ed9bf5a5d3070b080b4025bd4c9f55b6b408d3))
+* **deploy:** fix missing migration INSERT — use WHERE NOT EXISTS ([#283](https://github.com/aylisrg/Platform-Delovoy/issues/283)) ([41887e3](https://github.com/aylisrg/Platform-Delovoy/commit/41887e331debf7064ff80c0e05e9dc767215ff33))
+* **deploy:** p3009 recovery workflow + clean deploy.yml migrate step ([#281](https://github.com/aylisrg/Platform-Delovoy/issues/281)) ([d73c2b6](https://github.com/aylisrg/Platform-Delovoy/commit/d73c2b6a1acdd6f55802252dba0b98e65d64d349))
+* **deploy:** resolve stuck migration via SQL patch + comprehensive recovery ([#282](https://github.com/aylisrg/Platform-Delovoy/issues/282)) ([3397ff8](https://github.com/aylisrg/Platform-Delovoy/commit/3397ff88b30e61d0330486e00b44a8884e84820d))
+* **deploy:** SSH timeout 30m + make agent restart non-fatal ([#293](https://github.com/aylisrg/Platform-Delovoy/issues/293)) ([385c0a1](https://github.com/aylisrg/Platform-Delovoy/commit/385c0a1d3385fbd1e82a654de8a140a2adc13586))
+* hardcode cax11 server type (ARM 2vCPU 4GB, works in fsn1) ([#306](https://github.com/aylisrg/Platform-Delovoy/issues/306)) ([491f851](https://github.com/aylisrg/Platform-Delovoy/commit/491f851ec5380ab11fe8db469407d8d6c553bb98))
+* improve server type selection + debug logging ([#305](https://github.com/aylisrg/Platform-Delovoy/issues/305)) ([db158cf](https://github.com/aylisrg/Platform-Delovoy/commit/db158cf2efc6c9d138602d8c04657f903d6dd78e))
+* **messenger:** register admin nav section (follow-up to [#287](https://github.com/aylisrg/Platform-Delovoy/issues/287)) ([#288](https://github.com/aylisrg/Platform-Delovoy/issues/288)) ([d22775e](https://github.com/aylisrg/Platform-Delovoy/commit/d22775e7599dbb014b271adf9561f2d198975d3e))
+* **messenger:** show error details + API error handling + park path fix ([#296](https://github.com/aylisrg/Platform-Delovoy/issues/296)) ([5b89a43](https://github.com/aylisrg/Platform-Delovoy/commit/5b89a438aaa07c2ed8f5f0791068be70ef794b10))
+* **notifications:** restore legacy chatId fallback for admin notifications ([#271](https://github.com/aylisrg/Platform-Delovoy/issues/271)) ([a8771e5](https://github.com/aylisrg/Platform-Delovoy/commit/a8771e5a77188f0e1b926cf7c6ad6f00db4d2c71))
+* **notifications:** wire processOutgoing cron + monitoring resilience ([#286](https://github.com/aylisrg/Platform-Delovoy/issues/286)) ([11cb8cd](https://github.com/aylisrg/Platform-Delovoy/commit/11cb8cdb4632535b9f2d4a4a6839d860a5fc19fb))
+* reuse existing Hetzner server if already created ([#308](https://github.com/aylisrg/Platform-Delovoy/issues/308)) ([987a0b0](https://github.com/aylisrg/Platform-Delovoy/commit/987a0b0434632e7ccfc6b813fd8d40c6835afa65))
+* show Hetzner API error details in workflow ([#298](https://github.com/aylisrg/Platform-Delovoy/issues/298)) ([9fd8350](https://github.com/aylisrg/Platform-Delovoy/commit/9fd8350a30f9031b1acc628f80c5c0891cf2af09))
+* use cpx11 server type (cx22 deprecated on Hetzner) ([#301](https://github.com/aylisrg/Platform-Delovoy/issues/301)) ([05981f0](https://github.com/aylisrg/Platform-Delovoy/commit/05981f0500b358dece9a92f3adc1eeb1c69550dc))
+* use cx32 server type (cpx11 unavailable in nbg1) ([#302](https://github.com/aylisrg/Platform-Delovoy/issues/302)) ([fd279dc](https://github.com/aylisrg/Platform-Delovoy/commit/fd279dc6c1345def450f9512046951deed503c43))
+* use fsn1 location (cpx11 not available in nbg1) ([#304](https://github.com/aylisrg/Platform-Delovoy/issues/304)) ([8ab35fe](https://github.com/aylisrg/Platform-Delovoy/commit/8ab35fe38d76b4007c0d2f6e839a95c5f3b094d4))
+* use gh secret set to save Hetzner secrets ([#307](https://github.com/aylisrg/Platform-Delovoy/issues/307)) ([4bb2864](https://github.com/aylisrg/Platform-Delovoy/commit/4bb2864bd3d23d856381914c68695ae8daf5e31a))
+* use jq to build Hetzner API JSON payload ([#299](https://github.com/aylisrg/Platform-Delovoy/issues/299)) ([75daed8](https://github.com/aylisrg/Platform-Delovoy/commit/75daed8a09d41ebdd82be8f04a03fbcbdada9ea8))
+
 ## [2.5.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.4.0...v2.5.0) (2026-05-10)
 
 
