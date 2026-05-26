@@ -1,7 +1,7 @@
 name: "Hetzner: Fix SSH access (one-shot)"
 
-# Resets root password via Hetzner API, then SSHes in with password
-# to add our SSH public key. Run once to restore SSH access.
+# Rebuilds the server (reinstalls Ubuntu 24.04 + applies our SSH key).
+# After this runs, provision-hetzner-agent.yml full-setup can proceed.
 
 on:
   workflow_dispatch:
@@ -10,31 +10,48 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Install sshpass
-        run: sudo apt-get install -y sshpass
-
-      - name: Reset root password via Hetzner API
-        id: reset
+      - name: Find SSH key on Hetzner and rebuild server
         run: |
-          RESPONSE=$(curl -s -X POST \
+          SERVER_ID=132536346
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
+          KEY_NAME="claude-agent-fix"
+
+          # Find or create the SSH key on Hetzner
+          EXISTING=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
-            "https://api.hetzner.cloud/v1/servers/132536346/actions/reset_password")
-          echo "Response: $RESPONSE"
-          ROOT_PASS=$(echo "$RESPONSE" | jq -r '.root_password')
-          if [ -z "$ROOT_PASS" ] || [ "$ROOT_PASS" = "null" ]; then
-            echo "::error::Failed to reset password: $RESPONSE"
+            "https://api.hetzner.cloud/v1/ssh_keys?name=$KEY_NAME" \
+            | jq '.ssh_keys[0].id // empty')
+
+          if [ -n "$EXISTING" ]; then
+            KEY_ID=$EXISTING
+            echo "Using existing key id=$KEY_ID"
+          else
+            RESP=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"$KEY_NAME\",\"public_key\":\"$PUB_KEY\"}" \
+              "https://api.hetzner.cloud/v1/ssh_keys")
+            KEY_ID=$(echo "$RESP" | jq '.ssh_key.id')
+            echo "Created key id=$KEY_ID, response: $RESP"
+          fi
+
+          # Rebuild server = reinstall Ubuntu 24.04 + apply SSH key
+          REBUILD=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"image\":\"ubuntu-24.04\",\"ssh_keys\":[$KEY_ID]}" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/rebuild")
+          echo "Rebuild response: $REBUILD"
+
+          if echo "$REBUILD" | jq -e '.error' > /dev/null 2>&1; then
+            echo "::error::$(echo "$REBUILD" | jq -r '.error.message')"
             exit 1
           fi
-          echo "root_pass=$ROOT_PASS" >> "$GITHUB_OUTPUT"
-          echo "✓ Root password reset"
 
-      - name: Add SSH public key via password
+          echo "✓ Rebuild started. Waiting 90s for server to come back up..."
+          sleep 90
+
+      - name: Verify SSH access
         run: |
-          sleep 10
-          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
-          sshpass -p "${{ steps.reset.outputs.root_pass }}" ssh \
-            -o StrictHostKeyChecking=no \
-            -o PasswordAuthentication=yes \
-            root@178.105.195.243 \
-            "mkdir -p /root/.ssh && echo '$PUB_KEY' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo '✓ SSH key added'"
-          echo "✓ Done — SSH access restored"
+          echo "${{ secrets.AGENT_HETZNER_SSH_KEY }}" > /tmp/key && chmod 600 /tmp/key
+          ssh -i /tmp/key -o StrictHostKeyChecking=no root@178.105.195.243 "echo '✓ SSH works!'"
