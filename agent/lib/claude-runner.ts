@@ -15,7 +15,7 @@ export async function runClaude(
   return new Promise((resolve, reject) => {
     const proc = spawn(
       "claude",
-      ["--print", task],
+      ["--print", "--dangerously-skip-permissions", task],
       {
         cwd: WORKSPACE,
         env: {
