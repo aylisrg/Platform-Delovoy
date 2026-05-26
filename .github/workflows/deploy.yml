@@ -169,6 +169,22 @@ jobs:
             echo "No server found — skipping snapshot"
           fi
 
+      - name: Setup media directory and register upload key
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            mkdir -p /var/www/delovoy/media/{gazebos,park,spaces,ps-park}
+            MEDIA_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8/5QxKlQERUNuYOBiGdtI8AkzBVJCDaTTR9WSPLU+a media-upload"
+            if ! grep -qF "media-upload" ~/.ssh/authorized_keys 2>/dev/null; then
+              echo "$MEDIA_KEY" >> ~/.ssh/authorized_keys
+              echo "Media upload key added"
+            else
+              echo "Media upload key already present"
+            fi
+
       - name: Check Telegram secrets
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
