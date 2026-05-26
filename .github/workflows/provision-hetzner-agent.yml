@@ -131,7 +131,7 @@ jobs:
                   AGENT_WORKSPACE: /workspace
                 volumes:
                   - /opt/claude-agent-workspace:/workspace
-                  - claude_auth:/root/.claude
+                  - claude_auth:/home/node/.claude
                 deploy:
                   resources:
                     limits:
