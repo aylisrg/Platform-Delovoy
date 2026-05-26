@@ -386,17 +386,6 @@ jobs:
               fi
               echo "✅ Bot is running"
 
-              echo "=== Agent rolling deploy (non-blocking) ==="
-              # Agent is auxiliary infra — its failure must NOT roll back a healthy app deploy.
-              docker pull ghcr.io/aylisrg/platform-delovoy-agent:latest || true
-              docker compose up -d --no-deps agent || true
-              sleep 5
-              if docker compose ps agent --format '{{.State}}' | grep -q running; then
-                echo "✅ Agent is running"
-              else
-                echo "⚠️  Agent is not running — check manually (config / secrets)"
-                docker compose logs --tail 50 agent || true
-              fi
               exit 0
             fi
 

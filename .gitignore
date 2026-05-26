@@ -54,3 +54,7 @@ uploads/
 
 # debug scripts (temporary local debugging, never commit)
 scripts/debug-*
+
+# agent runtime state (stored in workspace volume on Hetzner)
+.agent-state.json
+.agent-logs/
