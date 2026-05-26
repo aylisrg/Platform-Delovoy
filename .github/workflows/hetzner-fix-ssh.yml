@@ -1,0 +1,48 @@
+name: "Hetzner: Fix SSH key (one-shot)"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild server with correct SSH key
+        run: |
+          SERVER_ID=132536346
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
+
+          # Find or create the SSH key on Hetzner
+          KEY_NAME="claude-agent-fix"
+          EXISTING=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            "https://api.hetzner.cloud/v1/ssh_keys?name=$KEY_NAME" \
+            | jq '.ssh_keys[0].id // empty')
+
+          if [ -n "$EXISTING" ]; then
+            KEY_ID=$EXISTING
+            echo "Using existing key id=$KEY_ID"
+          else
+            RESP=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"$KEY_NAME\",\"public_key\":\"$PUB_KEY\"}" \
+              "https://api.hetzner.cloud/v1/ssh_keys")
+            KEY_ID=$(echo "$RESP" | jq '.ssh_key.id')
+            echo "Created key id=$KEY_ID"
+          fi
+
+          # Rebuild server (reinstalls Ubuntu 24.04 + adds our key to authorized_keys)
+          REBUILD=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"image\":\"ubuntu-24.04\",\"ssh_keys\":[$KEY_ID]}" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/rebuild")
+          echo "Rebuild: $REBUILD"
+
+          if echo "$REBUILD" | jq -e '.error' > /dev/null 2>&1; then
+            echo "::error::$(echo "$REBUILD" | jq -r '.error.message')"
+            exit 1
+          fi
+
+          echo "✓ Rebuild started. Wait ~60s then run provision-hetzner-agent → full-setup"
