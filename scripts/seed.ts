@@ -22,6 +22,7 @@ import { seedParks } from "./seeds/parks";
 import { seedCore } from "./seeds/core";
 import { seedTasks } from "./seeds/tasks";
 import { seedNedelovoyGrants } from "./seeds/nedelovoy-grants";
+import { seedDevOverlay } from "./seeds/dev-overlay";
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
@@ -31,6 +32,9 @@ async function main(): Promise<void> {
     await seedCore(prisma);
     await seedTasks(prisma);
     await seedNedelovoyGrants(prisma); // After seedCore — Module records must exist
+    if (process.env.DEV_OVERLAY === "1") {
+      await seedDevOverlay(prisma);
+    }
     console.log("✅ Seed pipeline completed");
   } finally {
     await prisma.$disconnect();
