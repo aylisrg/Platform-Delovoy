@@ -16,23 +16,28 @@ jobs:
           PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
           KEY_NAME="claude-agent-fix"
 
-          # Find or create the SSH key on Hetzner
+          # Delete existing key with same name if any, then create fresh
           EXISTING=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
             "https://api.hetzner.cloud/v1/ssh_keys?name=$KEY_NAME" \
             | jq '.ssh_keys[0].id // empty')
-
           if [ -n "$EXISTING" ]; then
-            KEY_ID=$EXISTING
-            echo "Using existing key id=$KEY_ID"
-          else
-            RESP=$(curl -s -X POST \
+            echo "Deleting existing key id=$EXISTING..."
+            curl -s -X DELETE \
               -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -d "{\"name\":\"$KEY_NAME\",\"public_key\":\"$PUB_KEY\"}" \
-              "https://api.hetzner.cloud/v1/ssh_keys")
-            KEY_ID=$(echo "$RESP" | jq '.ssh_key.id')
-            echo "Created key id=$KEY_ID, response: $RESP"
+              "https://api.hetzner.cloud/v1/ssh_keys/$EXISTING"
+          fi
+
+          RESP=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.HETZNER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"$KEY_NAME\",\"public_key\":\"$PUB_KEY\"}" \
+            "https://api.hetzner.cloud/v1/ssh_keys")
+          KEY_ID=$(echo "$RESP" | jq '.ssh_key.id')
+          echo "Created key id=$KEY_ID"
+          if [ "$KEY_ID" = "null" ] || [ -z "$KEY_ID" ]; then
+            echo "::error::Failed to create SSH key: $RESP"
+            exit 1
           fi
 
           # Rebuild server = reinstall Ubuntu 24.04 + apply SSH key
