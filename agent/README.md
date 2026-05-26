@@ -77,9 +77,10 @@ Telegram → Grammy Bot → TaskQueue → claude --print → Telegram
 
 | Файл | Роль |
 |------|------|
-| `index.ts` | Grammy bot: whitelist, команды `/start` `/status`, роутинг в очередь |
+| `index.ts` | Grammy bot: whitelist, команды `/start` `/status` `/tasks` `/cancel` `/new`, роутинг в очередь |
 | `lib/queue.ts` | FIFO очередь — одна задача за раз, остальные ждут |
-| `lib/claude-runner.ts` | Запускает `claude --print <task>`, стримит stdout в TG, hard timeout 15 мин |
+| `lib/store.ts` | Персистентное хранилище задач + session continuity (JSON в `/workspace/.agent-state.json`) |
+| `lib/claude-runner.ts` | Запускает Claude Code с project context, git-sync перед каждой задачей, timeout 30 мин |
 | `Dockerfile` | `node:20-bookworm-slim` + git + `@anthropic-ai/claude-code` |
 
 ---
@@ -124,6 +125,9 @@ Telegram → Grammy Bot → TaskQueue → claude --print → Telegram
 | любой текст | Выполнить как задачу через Claude Code |
 | `/start` | Приветствие и инструкция |
 | `/status` | Состояние очереди |
+| `/tasks` | Последние 10 задач со статусами и ветками |
+| `/cancel` | Остановить текущую задачу |
+| `/new` | Сбросить контекст сессии (начать новый разговор с нуля) |
 
 ---
 
