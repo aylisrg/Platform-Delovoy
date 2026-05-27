@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { AgentStore } from "../lib/store";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 

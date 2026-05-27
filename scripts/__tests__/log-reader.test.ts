@@ -1,19 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DbLogReader, FileLogReader } from '../lib/log-reader';
+import type { PrismaClient } from '@prisma/client';
+import { DbLogReader, FileLogReader, type LogEntry } from '../lib/log-reader';
+
+// Helper to access private methods of FileLogReader in tests
+type FileLogReaderPrivate = {
+  parseLogContent: (content: string, since: Date, until: Date) => LogEntry[];
+  normalizeLevel: (level: string) => LogEntry['level'];
+};
+function priv(r: FileLogReader): FileLogReaderPrivate {
+  return r as unknown as FileLogReaderPrivate;
+}
 
 // Mock Prisma
 const mockPrisma = {
   systemEvent: {
     findMany: vi.fn(),
   },
-};
+} as unknown as PrismaClient;
 
 describe('DbLogReader', () => {
   let reader: DbLogReader;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    reader = new DbLogReader(mockPrisma as any);
+    reader = new DbLogReader(mockPrisma);
   });
 
   it('should read ERROR and CRITICAL events from DB', async () => {
@@ -84,8 +94,7 @@ describe('FileLogReader', () => {
 {"timestamp":"2026-05-10T10:05:00Z","level":"critical","source":"api/cafe","message":"Critical issue"}
 `.trim();
 
-    // Mock private method by testing through public interface
-    const entries = (reader as any).parseLogContent(
+    const entries = priv(reader).parseLogContent(
       logContent,
       new Date('2026-05-10T09:00:00Z'),
       new Date('2026-05-10T11:00:00Z')
@@ -105,14 +114,14 @@ describe('FileLogReader', () => {
 2026-05-10T10:05:00 CRITICAL: Critical issue
 `.trim();
 
-    const entries = (reader as any).parseLogContent(
+    const entries = priv(reader).parseLogContent(
       logContent,
       new Date('2026-05-10T09:00:00Z'),
       new Date('2026-05-10T11:00:00Z')
     );
 
     expect(entries.length).toBeGreaterThanOrEqual(2);
-    expect(entries.every((e: any) => e.level === 'ERROR' || e.level === 'CRITICAL')).toBe(true);
+    expect(entries.every((e) => e.level === 'ERROR' || e.level === 'CRITICAL')).toBe(true);
   });
 
   it('should filter entries by time window', async () => {
@@ -122,7 +131,7 @@ describe('FileLogReader', () => {
 {"timestamp":"2026-05-10T12:00:00Z","level":"error","source":"api/booking","message":"Too late"}
 `.trim();
 
-    const entries = (reader as any).parseLogContent(
+    const entries = priv(reader).parseLogContent(
       logContent,
       new Date('2026-05-10T09:00:00Z'),
       new Date('2026-05-10T11:00:00Z')
@@ -139,7 +148,7 @@ describe('FileLogReader', () => {
 {"timestamp":"2026-05-10T10:02:00Z","level":"warning","source":"api/booking","message":"Warning message"}
 `.trim();
 
-    const entries = (reader as any).parseLogContent(
+    const entries = priv(reader).parseLogContent(
       logContent,
       new Date('2026-05-10T09:00:00Z'),
       new Date('2026-05-10T11:00:00Z')
@@ -147,7 +156,7 @@ describe('FileLogReader', () => {
 
     // Only ERROR should be included, WARNING is normalized but still accepted
     expect(entries.length).toBeGreaterThanOrEqual(1);
-    expect(entries.some((e: any) => e.message === 'Error message')).toBe(true);
+    expect(entries.some((e) => e.message === 'Error message')).toBe(true);
   });
 
   it('should handle malformed JSON gracefully', async () => {
@@ -157,7 +166,7 @@ describe('FileLogReader', () => {
 {"timestamp":"2026-05-10T10:01:00Z","level":"error","message":"Also valid"}
 `.trim();
 
-    const entries = (reader as any).parseLogContent(
+    const entries = priv(reader).parseLogContent(
       logContent,
       new Date('2026-05-10T09:00:00Z'),
       new Date('2026-05-10T11:00:00Z')
@@ -167,7 +176,7 @@ describe('FileLogReader', () => {
   });
 
   it('should normalize log levels correctly', () => {
-    const normalizeLevel = (reader as any).normalizeLevel.bind(reader);
+    const normalizeLevel = priv(reader).normalizeLevel.bind(reader);
 
     expect(normalizeLevel('critical')).toBe('CRITICAL');
     expect(normalizeLevel('CRITICAL')).toBe('CRITICAL');
