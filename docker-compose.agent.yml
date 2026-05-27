@@ -13,7 +13,7 @@ services:
       AGENT_WORKSPACE: /workspace
     volumes:
       - /opt/claude-agent-workspace:/workspace
-      - claude_auth:/root/.claude
+      - /opt/claude-auth:/home/node/.claude
     deploy:
       resources:
         limits:
@@ -24,6 +24,3 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
-
-volumes:
-  claude_auth:

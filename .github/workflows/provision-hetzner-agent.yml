@@ -1,10 +1,12 @@
 name: "Hetzner: Provision & Deploy Agent"
 
 # Full setup of Claude Code agent on a fresh Hetzner Ubuntu 24.04 VPS.
-# Run once after the server is created.
-# After workflow completes: ssh root@<AGENT_VPS_HOST> and run
-#   docker exec -it delovoy-agent claude /login
-# to complete OAuth (requires interactive TTY).
+#
+# Actions:
+#   full-setup   — первый запуск: Docker + workspace + agent
+#   deploy-only  — обновить образ и перезапустить (уже настроен)
+#   login        — отправить ссылку OAuth в Telegram (одноразово после full-setup)
+#   logs         — показать логи контейнера
 
 on:
   workflow_dispatch:
@@ -13,10 +15,11 @@ on:
         description: "What to do"
         required: true
         type: choice
-        default: full-setup
+        default: deploy-only
         options:
           - full-setup      # Install Docker + deploy agent (first run)
           - deploy-only     # Pull latest image and restart agent (already provisioned)
+          - login           # Get Claude OAuth URL and send to Telegram
           - logs            # Show agent container logs
 
 jobs:
@@ -81,6 +84,12 @@ jobs:
             # Agent working directory (compose file + .env)
             mkdir -p /opt/delovoy-agent
 
+            # Claude Code auth — bind mount so it survives image updates and docker compose down
+            # uid=1000 = node user inside the container
+            mkdir -p /opt/claude-auth
+            chown 1000:1000 /opt/claude-auth
+            chmod 700 /opt/claude-auth
+
             # Isolated workspace for Claude Code to operate in
             if [ ! -d /opt/claude-agent-workspace/.git ]; then
               echo "Cloning repo into workspace..."
@@ -109,6 +118,14 @@ jobs:
             set -e
             cd /opt/delovoy-agent
 
+            # Workspace writeable by node user (uid=1000) inside container
+            chown -R 1000:1000 /opt/claude-agent-workspace
+
+            # Claude Code auth dir — bind mount, persists across image updates
+            mkdir -p /opt/claude-auth
+            chown 1000:1000 /opt/claude-auth
+            chmod 700 /opt/claude-auth
+
             # .env for the agent container
             cat > .env << ENV
             AGENT_TELEGRAM_BOT_TOKEN=${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}
@@ -131,7 +148,7 @@ jobs:
                   AGENT_WORKSPACE: /workspace
                 volumes:
                   - /opt/claude-agent-workspace:/workspace
-                  - claude_auth:/home/node/.claude
+                  - /opt/claude-auth:/home/node/.claude
                 deploy:
                   resources:
                     limits:
@@ -142,8 +159,6 @@ jobs:
                   options:
                     max-size: "20m"
                     max-file: "5"
-            volumes:
-              claude_auth:
             COMPOSE
 
             echo "✓ .env and docker-compose.yml written"
@@ -192,3 +207,35 @@ jobs:
           script: |
             cd /opt/delovoy-agent
             docker compose logs agent --tail 100
+
+      # ── 6. Login — get OAuth URL and send to Telegram ────────────────────
+      - name: Get Claude login URL and send to Telegram
+        if: inputs.action == 'login'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 2m
+          script: |
+            # Run claude login non-interactively, capture the OAuth URL from output
+            LOGIN_OUTPUT=$(docker exec delovoy-agent \
+              sh -c 'claude /login 2>&1 || true' | head -20)
+
+            echo "=== Login output ==="
+            echo "$LOGIN_OUTPUT"
+
+            # Extract URL (claude prints something like https://claude.ai/oauth/...)
+            LOGIN_URL=$(echo "$LOGIN_OUTPUT" | grep -oE 'https://[^ ]+' | head -1)
+
+            if [ -n "$LOGIN_URL" ]; then
+              echo "✓ Got login URL: $LOGIN_URL"
+              # Send to Telegram
+              curl -s "https://api.telegram.org/bot${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}/sendMessage" \
+                -d "chat_id=${{ secrets.AGENT_TELEGRAM_USER_ID }}" \
+                -d "text=🔑 Claude login URL:%0A${LOGIN_URL}%0A%0AОткрой в браузере и авторизуйся." \
+                | grep -o '"ok":[^,}]*'
+            else
+              echo "⚠️  Could not extract URL from output. Check logs above."
+              echo "Full output: $LOGIN_OUTPUT"
+            fi
