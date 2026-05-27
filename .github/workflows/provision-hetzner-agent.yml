@@ -81,6 +81,12 @@ jobs:
             # Agent working directory (compose file + .env)
             mkdir -p /opt/delovoy-agent
 
+            # Claude Code auth — bind mount so it survives image updates and docker compose down
+            # uid=1000 = node user inside the container
+            mkdir -p /opt/claude-auth
+            chown 1000:1000 /opt/claude-auth
+            chmod 700 /opt/claude-auth
+
             # Isolated workspace for Claude Code to operate in
             if [ ! -d /opt/claude-agent-workspace/.git ]; then
               echo "Cloning repo into workspace..."
@@ -109,6 +115,11 @@ jobs:
             set -e
             cd /opt/delovoy-agent
 
+            # Ensure claude auth dir exists with correct ownership (idempotent)
+            mkdir -p /opt/claude-auth
+            chown 1000:1000 /opt/claude-auth
+            chmod 700 /opt/claude-auth
+
             # .env for the agent container
             cat > .env << ENV
             AGENT_TELEGRAM_BOT_TOKEN=${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}
@@ -131,7 +142,7 @@ jobs:
                   AGENT_WORKSPACE: /workspace
                 volumes:
                   - /opt/claude-agent-workspace:/workspace
-                  - claude_auth:/home/node/.claude
+                  - /opt/claude-auth:/home/node/.claude
                 deploy:
                   resources:
                     limits:
@@ -142,8 +153,6 @@ jobs:
                   options:
                     max-size: "20m"
                     max-file: "5"
-            volumes:
-              claude_auth:
             COMPOSE
 
             echo "✓ .env and docker-compose.yml written"
