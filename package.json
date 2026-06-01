@@ -39,7 +39,7 @@
     "@types/nodemailer": "^6.4.0",
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
-    "framer-motion": "^12.38.0",
+    "framer-motion": "^12.40.0",
     "googleapis": "^171.4.0",
     "grammy": "^1.43.0",
     "ioredis": "^5.10.1",
