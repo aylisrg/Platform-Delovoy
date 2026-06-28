@@ -23,10 +23,10 @@ describe("waitForWebApp", () => {
 
   it("resolves once the SDK attaches after a few polls", () => {
     const webapp = { id: "tg" };
-    let current: typeof webapp | undefined;
+    const box: { current: typeof webapp | undefined } = { current: undefined };
     const onResult = vi.fn();
 
-    waitForWebApp(() => current, onResult, { intervalMs: 100, maxAttempts: 30 });
+    waitForWebApp(() => box.current, onResult, { intervalMs: 100, maxAttempts: 30 });
     expect(onResult).not.toHaveBeenCalled();
 
     // SDK still missing after two polls.
@@ -34,7 +34,7 @@ describe("waitForWebApp", () => {
     expect(onResult).not.toHaveBeenCalled();
 
     // SDK attaches, next poll picks it up.
-    current = webapp;
+    box.current = webapp;
     vi.advanceTimersByTime(100);
     expect(onResult).toHaveBeenCalledTimes(1);
     expect(onResult).toHaveBeenCalledWith(webapp);

@@ -151,7 +151,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       if (!webapp) {
         // SDK never attached — opened outside Telegram, or the script was
         // blocked/too slow. Render the app instead of an endless spinner.
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
         setReady(true);
         return;
       }
@@ -162,7 +161,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       const initData = webapp.initData;
       if (!initData) {
         // Dev mode — no initData available
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
         setReady(true);
         return;
       }
