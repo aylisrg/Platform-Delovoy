@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { waitForWebApp } from "./telegram-bootstrap";
 
 interface WebAppUser {
   id: string;
@@ -135,46 +136,60 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       root.style.setProperty("--tg-secondary-bg", themeParams.secondary_bg_color);
   }, [themeParams]);
 
-  // Bootstrap: tell Telegram we're ready, then authenticate against our backend.
+  // Bootstrap: wait for the Telegram SDK (it can attach after hydration on iOS
+  // Safari / Telegram WebView), tell Telegram we're ready, then authenticate
+  // against our backend. If the SDK never attaches we still flip `ready` so the
+  // UI degrades to guest mode instead of spinning forever.
   // Dev path / auth fetch are classic data-loading effects — the rule was
   // intentionally downgraded for exactly this pattern.
   useEffect(() => {
-    const webapp = getWebApp();
-    if (!webapp) return;
-
-    webapp.ready();
-    webapp.expand();
-
-    const initData = webapp.initData;
-    if (!initData) {
-      // Dev mode — no initData available
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
-      setReady(true);
-      return;
-    }
-
     let cancelled = false;
-    fetch("/api/webapp/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.success) {
-          setToken(data.data.token);
-          setUser(data.data.user);
-          if (data.data.needsLinking) setNeedsLinking(true);
-        }
+
+    const cancelWait = waitForWebApp(getWebApp, (webapp) => {
+      if (cancelled) return;
+
+      if (!webapp) {
+        // SDK never attached — opened outside Telegram, or the script was
+        // blocked/too slow. Render the app instead of an endless spinner.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
         setReady(true);
+        return;
+      }
+
+      webapp.ready();
+      webapp.expand();
+
+      const initData = webapp.initData;
+      if (!initData) {
+        // Dev mode — no initData available
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- data loading path
+        setReady(true);
+        return;
+      }
+
+      fetch("/api/webapp/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
       })
-      .catch(() => {
-        if (!cancelled) setReady(true);
-      });
+        .then((res) => res.json())
+        .then((data) => {
+          if (cancelled) return;
+          if (data.success) {
+            setToken(data.data.token);
+            setUser(data.data.user);
+            if (data.data.needsLinking) setNeedsLinking(true);
+          }
+          setReady(true);
+        })
+        .catch(() => {
+          if (!cancelled) setReady(true);
+        });
+    });
 
     return () => {
       cancelled = true;
+      cancelWait();
     };
   }, []);
 
