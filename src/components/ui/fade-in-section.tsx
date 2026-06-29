@@ -1,38 +1,35 @@
-"use client";
-
-import { motion, useReducedMotion } from "framer-motion";
 import type { ReactNode } from "react";
 
 type FadeInSectionProps = {
-  children: ReactNode;
+  children?: ReactNode;
   delay?: number;
   className?: string;
 };
 
 /**
- * Wraps content with a fade-in + slight upward motion on scroll into view.
- * Respects prefers-reduced-motion — renders children as-is when reduced motion is on.
+ * Reveal-on-load wrapper for marketing sections.
+ *
+ * Implemented as a pure-CSS animation (no client JS) so the content is ALWAYS
+ * visible even if scripts are slow, blocked, or fail to hydrate. The previous
+ * framer-motion version rendered `opacity: 0` in the SSR HTML and only revealed
+ * content once `whileInView` fired client-side — on slow/flaky mobile Safari
+ * that left ~40% of the homepage permanently blank ("сайт не открывается").
+ *
+ * The resting state is fully visible: the fade is a progressive enhancement,
+ * and if CSS animations are unsupported or reduced-motion is requested the
+ * content simply shows immediately.
  */
 export function FadeInSection({
   children,
   delay = 0,
   className,
 }: FadeInSectionProps) {
-  const reduced = useReducedMotion();
-
-  if (reduced) {
-    return <div className={className}>{children}</div>;
-  }
-
   return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-60px" }}
-      transition={{ duration: 0.5, delay, ease: "easeOut" }}
+    <div
+      className={className ? `fade-in-section ${className}` : "fade-in-section"}
+      style={delay ? { animationDelay: `${delay}s` } : undefined}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }
