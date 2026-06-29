@@ -56,8 +56,12 @@ const nextConfig: NextConfig = {
         headers: securityHeaders,
       },
       {
-        // HTML pages: always revalidate
-        source: "/((?!_next/static|_next/image|favicon.ico|media/).*)",
+        // Private / always-fresh routes: never cache (auth state, personal
+        // data, live booking availability). Public marketing pages are NOT
+        // matched here so their ISR cache headers (s-maxage / SWR) survive —
+        // a blanket no-store previously defeated all caching and CDN offload.
+        source:
+          "/((?:admin|dashboard|webapp|api|auth|track|ps-park|gazebos|report).*)",
         headers: [
           {
             key: "Cache-Control",

@@ -112,7 +112,7 @@ export default async function GazebosPage() {
             muted
             loop
             playsInline
-            preload="metadata"
+            preload="none"
             poster="/media/IMG_3724_Custom.JPG.webp"
             className="absolute inset-0 w-full h-full object-cover hidden md:block"
           >

@@ -4,7 +4,9 @@ import { MenuList } from "@/components/public/cafe/menu-list";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
-export const dynamic = "force-dynamic";
+// Menu/categories are not per-user and not second-critical — cache the page
+// (ISR) and revalidate periodically instead of full SSR on every request.
+export const revalidate = 600;
 
 const APP_URL = "https://delovoy-park.ru";
 

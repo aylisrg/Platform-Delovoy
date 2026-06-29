@@ -40,6 +40,7 @@ export function CyberpunkGrid({ className = "" }: { className?: string }) {
     }
     let flickers: Flicker[] = [];
     let scanY = 0;
+    let running = false;
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -152,16 +153,48 @@ export function CyberpunkGrid({ className = "" }: { className?: string }) {
         }
       }
 
+      if (running) animationId = requestAnimationFrame(draw);
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
       animationId = requestAnimationFrame(draw);
+    }
+
+    function stop() {
+      running = false;
+      if (animationId) cancelAnimationFrame(animationId);
     }
 
     resize();
     window.addEventListener("resize", resize);
-    animationId = requestAnimationFrame(draw);
+
+    // Respect reduced-motion: render a single static frame, no rAF loop.
+    const prefersReduced =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (prefersReduced) {
+      draw(0);
+      return () => {
+        window.removeEventListener("resize", resize);
+      };
+    }
+
+    // Only animate while the canvas is on-screen — pause the rAF loop when the
+    // hero scrolls out of view to free CPU/GPU.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) start();
+        else stop();
+      },
+      { threshold: 0 },
+    );
+    observer.observe(canvas);
 
     return () => {
       window.removeEventListener("resize", resize);
-      cancelAnimationFrame(animationId);
+      observer.disconnect();
+      stop();
     };
   }, []);
 
