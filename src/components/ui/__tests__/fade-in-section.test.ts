@@ -22,11 +22,11 @@ describe("FadeInSection", () => {
 
   it("forwards className and an optional animation delay", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        FadeInSection,
-        { className: "mt-4", delay: 0.05 },
-        createElement("p", null, "x"),
-      ),
+      createElement(FadeInSection, {
+        className: "mt-4",
+        delay: 0.05,
+        children: createElement("p", null, "x"),
+      }),
     );
     expect(html).toContain("fade-in-section mt-4");
     expect(html).toMatch(/animation-delay/);
