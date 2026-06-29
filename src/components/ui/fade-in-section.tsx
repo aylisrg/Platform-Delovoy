@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 type FadeInSectionProps = {
-  children: ReactNode;
+  children?: ReactNode;
   delay?: number;
   className?: string;
 };
