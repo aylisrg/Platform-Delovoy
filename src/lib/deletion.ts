@@ -102,7 +102,20 @@ export async function parseDeletionBody(
 }
 
 /**
- * Gate a destructive action behind: login + SUPERADMIN role + password re-auth.
+ * Options controlling which roles may pass the deletion gate.
+ * By default only SUPERADMIN is allowed; `allowAdmin` additionally lets ADMIN
+ * through (used by modules where ADMIN owns the data, e.g. gazebos).
+ */
+export type DeletionAuthorizationOptions = {
+  allowAdmin?: boolean;
+};
+
+/**
+ * Gate a destructive action behind: login + role check + password re-auth.
+ *
+ * The role check defaults to SUPERADMIN-only. Pass `{ allowAdmin: true }` to
+ * also permit ADMIN — the password re-auth and DeletionLog/AuditLog trail are
+ * applied identically regardless of role.
  *
  * Usage in a Route Handler:
  *
@@ -113,15 +126,23 @@ export async function parseDeletionBody(
  */
 export async function authorizeSuperadminDeletion(
   request: NextRequest,
-  session: SessionLike
+  session: SessionLike,
+  opts: DeletionAuthorizationOptions = {}
 ): Promise<DeletionAuthorization> {
   if (!session?.user?.id) {
     return { ok: false, response: apiUnauthorized() };
   }
-  if (session.user.role !== "SUPERADMIN") {
+  const role = session.user.role;
+  const roleAllowed =
+    role === "SUPERADMIN" || (opts.allowAdmin === true && role === "ADMIN");
+  if (!roleAllowed) {
     return {
       ok: false,
-      response: apiForbidden("Удаление доступно только суперадмину"),
+      response: apiForbidden(
+        opts.allowAdmin
+          ? "Удаление доступно только администратору или суперадмину"
+          : "Удаление доступно только суперадмину"
+      ),
     };
   }
 

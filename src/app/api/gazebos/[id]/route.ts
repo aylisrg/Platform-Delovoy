@@ -73,7 +73,7 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/gazebos/:id — soft delete a gazebo resource (SUPERADMIN only)
+ * DELETE /api/gazebos/:id — soft delete a gazebo resource (ADMIN + SUPERADMIN)
  * Body: { password: string, reason?: string }
  */
 export async function DELETE(
@@ -82,7 +82,9 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    const authz = await authorizeSuperadminDeletion(request, session);
+    const authz = await authorizeSuperadminDeletion(request, session, {
+      allowAdmin: true,
+    });
     if (!authz.ok) return authz.response;
 
     const { id } = await params;

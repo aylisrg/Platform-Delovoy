@@ -197,6 +197,67 @@ describe("authorizeSuperadminDeletion", () => {
   });
 });
 
+describe("authorizeSuperadminDeletion with { allowAdmin: true }", () => {
+  it("authorises ADMIN with correct password", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ passwordHash: "$2a$hash" } as never);
+    vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
+
+    const req = makeRequest({ password: "correct" });
+    const session = { user: { id: "a1", role: "ADMIN", email: "a@x.com" } };
+    const result = await authorizeSuperadminDeletion(req, session, { allowAdmin: true });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actor.id).toBe("a1");
+      // Role is captured from the session — DeletionLog records ADMIN.
+      expect(result.actor.role).toBe("ADMIN");
+    }
+  });
+
+  it("still requires a password for ADMIN (422 PASSWORD_REQUIRED)", async () => {
+    const req = makeRequest({});
+    const session = { user: { id: "a1", role: "ADMIN" } };
+    const result = await authorizeSuperadminDeletion(req, session, { allowAdmin: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(422);
+      const body = await result.response.json();
+      expect(body.error.code).toBe("PASSWORD_REQUIRED");
+    }
+  });
+
+  it("still authorises SUPERADMIN with correct password", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ passwordHash: "$2a$hash" } as never);
+    vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
+
+    const req = makeRequest({ password: "correct" });
+    const session = { user: { id: "sa", role: "SUPERADMIN" } };
+    const result = await authorizeSuperadminDeletion(req, session, { allowAdmin: true });
+    expect(result.ok).toBe(true);
+  });
+
+  it("still rejects MANAGER with 403 even when allowAdmin is set", async () => {
+    const req = makeRequest({ password: "whatever" });
+    const session = { user: { id: "m1", role: "MANAGER" } };
+    const result = await authorizeSuperadminDeletion(req, session, { allowAdmin: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+      const body = await result.response.json();
+      expect(body.error.code).toBe("FORBIDDEN");
+    }
+    expect(bcrypt.compare).not.toHaveBeenCalled();
+  });
+
+  it("still rejects USER with 403 even when allowAdmin is set", async () => {
+    const req = makeRequest({ password: "whatever" });
+    const session = { user: { id: "u1", role: "USER" } };
+    const result = await authorizeSuperadminDeletion(req, session, { allowAdmin: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(403);
+  });
+});
+
 describe("logDeletion", () => {
   const authzOk = {
     ok: true as const,

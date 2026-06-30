@@ -1,4 +1,5 @@
 import { ModuleSettings } from "@/components/admin/shared/module-settings";
+import { GazeboTelegramChannelForm } from "@/components/admin/gazebos/telegram-channel-form";
 
 export const dynamic = "force-dynamic";
 
@@ -10,5 +11,12 @@ const FIELDS = [
 ];
 
 export default function GazebosSettingsPage() {
-  return <ModuleSettings moduleSlug="gazebos" fields={FIELDS} />;
+  return (
+    <div className="space-y-8">
+      <ModuleSettings moduleSlug="gazebos" fields={FIELDS} />
+      <div className="border-t border-zinc-200 pt-8">
+        <GazeboTelegramChannelForm />
+      </div>
+    </div>
+  );
 }

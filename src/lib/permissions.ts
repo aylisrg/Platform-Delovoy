@@ -241,6 +241,17 @@ export function canDelete(user: SessionUser): boolean {
 }
 
 /**
+ * Check if user can DELETE gazebo bookings and resources. ADMIN + SUPERADMIN.
+ * Gazebos data is ADMIN-owned (see ADMIN_EDITABLE_MODULES), so ADMIN may delete
+ * here while the generic `canDelete` stays SUPERADMIN-only for other modules.
+ * DELETE endpoints still go through authorizeSuperadminDeletion({ allowAdmin })
+ * for password re-auth + DeletionLog capture — this helper is for UI visibility.
+ */
+export function canDeleteGazebo(user: SessionUser): boolean {
+  return user.role === "SUPERADMIN" || user.role === "ADMIN";
+}
+
+/**
  * Find all users with ADMIN role who have access to a specific module.
  * Used for sending notifications to the right ADMIN(s).
  */

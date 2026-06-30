@@ -254,4 +254,26 @@ describe("moduleSettingsSchema", () => {
     const result = moduleSettingsSchema.safeParse({ minBookingHours: 0 });
     expect(result.success).toBe(false);
   });
+
+  it("accepts Telegram channel settings", () => {
+    const result = moduleSettingsSchema.safeParse({
+      telegramChannelEnabled: true,
+      telegramChannelName: "Беседки",
+      telegramChannelId: "-1001234567890",
+      telegramChannelEvents: ["booking.created", "booking.deleted"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts empty telegramChannelId (clears the channel)", () => {
+    const result = moduleSettingsSchema.safeParse({ telegramChannelId: "" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an unknown channel event type", () => {
+    const result = moduleSettingsSchema.safeParse({
+      telegramChannelEvents: ["booking.created", "order.placed"],
+    });
+    expect(result.success).toBe(false);
+  });
 });
