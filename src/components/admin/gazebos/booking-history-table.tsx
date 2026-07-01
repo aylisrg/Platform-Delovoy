@@ -43,7 +43,8 @@ const statusVariant: Record<string, "warning" | "success" | "default" | "info"> 
 
 export function GazeboBookingHistoryTable() {
   const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.role === "SUPERADMIN";
+  const role = session?.user?.role;
+  const canDelete = role === "SUPERADMIN" || role === "ADMIN";
 
   const [bookings, setBookings] = useState<HistoryBooking[]>([]);
   const [page, setPage] = useState(1);
@@ -163,7 +164,7 @@ export function GazeboBookingHistoryTable() {
                 <th className="pb-3 font-medium">Клиент</th>
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
-                {isSuperAdmin && <th className="pb-3 font-medium text-right">Действия</th>}
+                {canDelete && <th className="pb-3 font-medium text-right">Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -188,7 +189,7 @@ export function GazeboBookingHistoryTable() {
                       {statusLabel[b.status] ?? b.status}
                     </Badge>
                   </td>
-                  {isSuperAdmin && (
+                  {canDelete && (
                     <td className="py-3 text-right">
                       <button
                         onClick={() => { setDeletingId(b.id); setShowDeleteConfirm(true); }}

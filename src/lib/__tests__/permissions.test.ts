@@ -36,6 +36,7 @@ import {
   isAdminEditableModule,
   canEditModule,
   canDelete,
+  canDeleteGazebo,
   getModuleAdmins,
   canConfirmReceipt,
   canCorrectReceipt,
@@ -531,6 +532,31 @@ describe("canDelete", () => {
 
   it("USER cannot delete", () => {
     expect(canDelete({ id: "u1", role: "USER" })).toBe(false);
+  });
+});
+
+// ============================================================
+// canDeleteGazebo
+// ============================================================
+describe("canDeleteGazebo", () => {
+  it("SUPERADMIN can delete gazebo data", () => {
+    expect(canDeleteGazebo({ id: "sa", role: "SUPERADMIN" })).toBe(true);
+  });
+
+  it("ADMIN can delete gazebo data", () => {
+    expect(canDeleteGazebo({ id: "a1", role: "ADMIN" })).toBe(true);
+  });
+
+  it("MANAGER cannot delete gazebo data", () => {
+    expect(canDeleteGazebo({ id: "m1", role: "MANAGER" })).toBe(false);
+  });
+
+  it("USER cannot delete gazebo data", () => {
+    expect(canDeleteGazebo({ id: "u1", role: "USER" })).toBe(false);
+  });
+
+  it("generic canDelete stays SUPERADMIN-only (no regression for other modules)", () => {
+    expect(canDelete({ id: "a1", role: "ADMIN" })).toBe(false);
   });
 });
 

@@ -35,6 +35,9 @@ export function enqueueNotification(event: NotificationEvent): void {
     .then(async () => {
       const { notify } = await import("./service");
       await notify(event);
+      // Mirror into the module's dedicated Telegram channel (if configured).
+      const { dispatchModuleChannel } = await import("./module-channel");
+      await dispatchModuleChannel(event);
     })
     .catch((err) => {
       console.error("[Notifications] Dispatch failed:", err);

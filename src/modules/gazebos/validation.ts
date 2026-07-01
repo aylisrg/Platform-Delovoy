@@ -55,12 +55,47 @@ export const analyticsQuerySchema = z.object({
   period: z.enum(["week", "month", "quarter"]).default("month"),
 });
 
+/**
+ * Notification types that can be toggled for the dedicated gazebos Telegram
+ * channel. Single source of truth for the validation schema, the admin UI
+ * checkboxes, and the channel dispatcher templates.
+ */
+export const GAZEBO_CHANNEL_EVENT_TYPES = [
+  "booking.created",
+  "booking.confirmed",
+  "booking.cancelled",
+  "booking.completed",
+  "booking.deleted",
+  "booking.reminder",
+] as const;
+
+export type GazeboChannelEventType = (typeof GAZEBO_CHANNEL_EVENT_TYPES)[number];
+
+export const GAZEBO_CHANNEL_EVENTS: {
+  type: GazeboChannelEventType;
+  label: string;
+}[] = [
+  { type: "booking.created", label: "Новая бронь" },
+  { type: "booking.confirmed", label: "Бронь подтверждена" },
+  { type: "booking.cancelled", label: "Бронь отменена" },
+  { type: "booking.completed", label: "Бронь завершена" },
+  { type: "booking.deleted", label: "Бронь удалена" },
+  { type: "booking.reminder", label: "Напоминание (за 1 час)" },
+];
+
 export const moduleSettingsSchema = z.object({
   openHour: z.number().int().min(0).max(23).optional(),
   closeHour: z.number().int().min(0).max(23).optional(),
   minBookingHours: z.number().int().min(1).max(24).optional(),
   maxBookingHours: z.number().int().min(1).max(24).optional(),
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
+  // Dedicated gazebos Telegram channel settings (stored in Module.config).
+  telegramChannelEnabled: z.boolean().optional(),
+  telegramChannelName: z.string().max(200).optional(),
+  telegramChannelId: z.string().max(64).optional(), // empty string clears it
+  telegramChannelEvents: z
+    .array(z.enum(GAZEBO_CHANNEL_EVENT_TYPES))
+    .optional(),
 });
 
 export const adminCreateBookingSchema = z.object({

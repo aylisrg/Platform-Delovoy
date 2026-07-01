@@ -11,6 +11,8 @@ import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { getBooking, updateBookingStatus, cancelBooking, BookingError } from "@/modules/gazebos/service";
+import { enqueueNotification } from "@/modules/notifications/queue";
+import { formatTime } from "@/lib/format";
 import { hasRole } from "@/lib/permissions";
 import { checkoutDiscountSchema } from "@/modules/booking/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
@@ -136,7 +138,7 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/gazebos/bookings/:id — soft delete booking (SUPERADMIN only)
+ * DELETE /api/gazebos/bookings/:id — soft delete booking (ADMIN + SUPERADMIN)
  * Body: { password: string, reason?: string }
  */
 export async function DELETE(
@@ -145,7 +147,9 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    const authz = await authorizeSuperadminDeletion(request, session);
+    const authz = await authorizeSuperadminDeletion(request, session, {
+      allowAdmin: true,
+    });
     if (!authz.ok) return authz.response;
 
     const { id } = await params;
@@ -165,6 +169,26 @@ export async function DELETE(
       moduleSlug: "gazebos",
       snapshot: booking,
     });
+
+    // Notify the dedicated gazebos Telegram channel (if enabled for this event).
+    const resource = await prisma.resource.findUnique({
+      where: { id: booking.resourceId },
+      select: { name: true },
+    });
+    enqueueNotification({
+      type: "booking.deleted",
+      moduleSlug: "gazebos",
+      entityId: id,
+      actor: "admin",
+      data: {
+        resourceName: resource?.name ?? "",
+        date: booking.date.toISOString().split("T")[0],
+        startTime: formatTime(booking.startTime),
+        endTime: formatTime(booking.endTime),
+        userName: booking.clientName ?? "без имени",
+      },
+    });
+
     return apiResponse({ id, deletedAt: new Date().toISOString() });
   } catch {
     return apiServerError();
