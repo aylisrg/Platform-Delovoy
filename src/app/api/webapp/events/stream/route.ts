@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { subscribeUserEvents, subscribeChatEvents } from "@/lib/user-events";
 import { markOnline, markOffline, refreshHeartbeat } from "@/lib/realtime/presence";
+import { createSseResponse } from "@/lib/realtime/sse";
 import { randomUUID } from "crypto";
 
 /**
@@ -29,59 +30,22 @@ export async function GET(request: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const encoder = new TextEncoder();
-  const cleanups: Array<() => void> = [];
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      controller.enqueue(encoder.encode(": connected\n\n"));
-      controller.enqueue(encoder.encode("retry: 5000\n\n"));
-
+  return createSseResponse({
+    signal: request.signal,
+    connectionKey: `user:${userId}`,
+    async onStart(sse) {
       await markOnline(userId, connId);
 
       // Subscribe to user's personal channel (new messages across all chats).
-      const unsub = subscribeUserEvents(userId, (event) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        } catch { /* stream closed */ }
-      });
-      cleanups.push(unsub);
+      sse.addCleanup(subscribeUserEvents(userId, (event) => sse.sendEvent(event)));
 
       // Subscribe to chat-level events for specified chats.
       for (const chatId of chatIds) {
-        const unsubChat = subscribeChatEvents(chatId, (event) => {
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-          } catch { /* stream closed */ }
-        });
-        cleanups.push(unsubChat);
+        sse.addCleanup(subscribeChatEvents(chatId, (event) => sse.sendEvent(event)));
       }
-
-      // Keepalive every 30 s — also refreshes presence heartbeat.
-      const keepalive = setInterval(async () => {
-        try {
-          controller.enqueue(encoder.encode(": keepalive\n\n"));
-          await refreshHeartbeat(userId);
-        } catch {
-          clearInterval(keepalive);
-        }
-      }, 30_000);
-
-      cleanups.push(() => clearInterval(keepalive));
     },
-    async cancel() {
-      for (const fn of cleanups) fn();
-      await markOffline(userId, connId);
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
+    onKeepalive: () => refreshHeartbeat(userId),
+    onClose: () => markOffline(userId, connId),
   });
 }
 

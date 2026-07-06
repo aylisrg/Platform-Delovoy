@@ -17,6 +17,18 @@ const CONFIGS = {
   "web-push-subscribe": { limit: 10, windowSeconds: 60 } as RateLimitConfig,
 } as const;
 
+// Fail-open — осознанное решение: без Redis запросы пропускаем. Но молчать
+// об этом нельзя: отключённый rate-limit оставляет публичные эндпоинты без
+// защиты от флуда. Логируем не чаще раза в минуту, чтобы не спамить.
+let lastFailOpenLogAt = 0;
+
+function warnFailOpen(reason: string) {
+  const now = Date.now();
+  if (now - lastFailOpenLogAt < 60_000) return;
+  lastFailOpenLogAt = now;
+  console.error(`[rate-limit] ОТКЛЮЧЁН (fail-open): ${reason}`);
+}
+
 /**
  * Sliding window rate limiter using Redis.
  * Returns null if within limit, or an error response if exceeded.
@@ -32,6 +44,7 @@ export async function rateLimit(
 ) {
   // Skip rate limiting entirely when Redis is unavailable
   if (!redisAvailable) {
+    warnFailOpen("Redis недоступен");
     return null;
   }
 
@@ -66,8 +79,9 @@ export async function rateLimit(
     }
 
     return null;
-  } catch {
+  } catch (err) {
     // If Redis is down, allow the request
+    warnFailOpen(`ошибка Redis: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
