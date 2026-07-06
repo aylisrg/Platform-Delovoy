@@ -18,6 +18,7 @@ on:
           - server-shutdown        # Выключить сервер
           - server-start           # Включить сервер
           - server-logs            # Логи контейнеров (через SSH)
+          - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -180,6 +181,62 @@ jobs:
             echo ""
             echo "=== Docker Disk ==="
             docker system df
+
+      - name: Memory Relief (via SSH)
+        if: inputs.action == 'ops-memory-relief'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== Memory BEFORE ==="
+            free -h
+
+            echo ""
+            echo "=== Leftover 'docker compose run' containers ==="
+            # docker compose run leaves one-off containers named <project>-<service>-run-<hash>.
+            # They are full app instances holding RAM and must never survive the command they ran.
+            LEFTOVERS=$(docker ps -a --filter "name=-run-" --format '{{.Names}}' || true)
+            if [ -n "$LEFTOVERS" ]; then
+              echo "$LEFTOVERS"
+              echo "$LEFTOVERS" | xargs -r docker rm -f
+              echo "Removed."
+            else
+              echo "None found."
+            fi
+
+            echo ""
+            echo "=== Swap ==="
+            if swapon --show | grep -q .; then
+              echo "Swap already active:"
+              swapon --show
+            else
+              echo "Creating 2G swapfile..."
+              $SUDO fallocate -l 2G /swapfile || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=2048
+              $SUDO chmod 600 /swapfile
+              $SUDO mkswap /swapfile
+              $SUDO swapon /swapfile
+              if ! grep -q '^/swapfile' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab > /dev/null
+              fi
+              # Prefer RAM; swap is an OOM safety net, not working memory.
+              $SUDO sysctl vm.swappiness=10
+              echo 'vm.swappiness=10' | $SUDO tee /etc/sysctl.d/99-swappiness.conf > /dev/null
+              echo "Swap enabled."
+            fi
+
+            echo ""
+            echo "=== Memory AFTER ==="
+            free -h
+
+            echo ""
+            echo "=== Containers ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}"
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'

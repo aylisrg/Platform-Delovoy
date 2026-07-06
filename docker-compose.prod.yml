@@ -52,7 +52,13 @@ services:
   app:
     image: ghcr.io/aylisrg/platform-delovoy:latest
     container_name: delovoy-app
-    restart: on-failure:5
+    # unless-stopped, НЕ on-failure:N — иначе после N быстрых крашей (OOM,
+    # недоступная БД на старте) Docker перестаёт поднимать app и сайт лежит
+    # до ручного вмешательства. Защита от бесконечного crash loop есть в
+    # docker-entrypoint.sh (sleep 30 при рестарте чаще раза в 30с).
+    restart: unless-stopped
+    labels:
+      - "autoheal=true"  # рестарт по unhealthy — см. сервис autoheal ниже
     ports:
       - "127.0.0.1:3000:3000"  # Only localhost — nginx handles external traffic
     env_file:
@@ -64,6 +70,10 @@ services:
       NEXTAUTH_URL: "https://delovoy-park.ru"
       NEXT_PUBLIC_APP_URL: "https://delovoy-park.ru"
       AUTH_TRUST_HOST: "true"
+      # Куча V8 должна знать про cgroup-лимит 1G, иначе V8 целится в память
+      # хоста и контейнер убивается OOM-киллером вместо мягкого GC.
+      # ~75% лимита: остальное — стек, буферы, native-память.
+      NODE_OPTIONS: "--max-old-space-size=768"
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,6 +127,31 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+  # Docker Compose (без оркестратора) сам НЕ перезапускает unhealthy-контейнеры:
+  # restart-политика реагирует только на выход процесса. autoheal закрывает эту
+  # дыру — рестартует контейнеры с label autoheal=true, когда healthcheck падает
+  # (зависший процесс, исчерпанный пул соединений и т.п.).
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: delovoy-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: "autoheal"
+      AUTOHEAL_INTERVAL: "15"
+      # Даём entrypoint app дожить до health: старт тяжёлый (prisma + seed)
+      AUTOHEAL_START_PERIOD: "120"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
   postgres_data:

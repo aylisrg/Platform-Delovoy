@@ -14,6 +14,20 @@ apt-get update && apt-get install -y \
   nginx certbot python3-certbot-nginx \
   fail2ban ufw curl jq
 
+# --- 1.5. Swap (страховка от OOM: суммарные лимиты контейнеров ≈ RAM) ---
+if ! swapon --show | grep -q .; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl vm.swappiness=10
+  echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+  echo "Swap 2G enabled."
+else
+  echo "Swap already active."
+fi
+
 # --- 2. Firewall ---
 ufw default deny incoming
 ufw default allow outgoing

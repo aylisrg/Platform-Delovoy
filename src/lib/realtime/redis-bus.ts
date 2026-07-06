@@ -14,7 +14,7 @@
  */
 
 import { EventEmitter } from "events";
-import { redis, redisAvailable } from "@/lib/redis";
+import { redis, redisAvailable, redisRetryStrategy } from "@/lib/redis";
 
 export type RedisBusEvent = {
   type: string;
@@ -40,10 +40,10 @@ function getSubscriber(): import("ioredis").Redis {
       maxRetriesPerRequest: 3,
       lazyConnect: true,
       enableOfflineQueue: false,
-      retryStrategy(times: number) {
-        if (times > 10) return null;
-        return Math.min(times * 500, 10_000);
-      },
+      // Никогда не сдаёмся (см. redisRetryStrategy): подписчик, переставший
+      // реконнектиться, молча убивает realtime до рестарта процесса.
+      // После реконнекта ioredis сам восстанавливает активные SUBSCRIBE.
+      retryStrategy: redisRetryStrategy,
     });
 
     _subscriber!.on("message", (channel: string, raw: string) => {
