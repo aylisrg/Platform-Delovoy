@@ -1,7 +1,11 @@
 # Диагностика периодической недоступности delovoy-park.ru
 
 **Дата:** 2026-07-06
-**Статус:** диагностика завершена; исправления вынесены в отдельные задачи (см. «Рекомендуемый план устранения»)
+**Статус:** этапы 0–2 выполнены (2026-07-06, ветка `claude/project-refactor-availability-ufxadr`):
+- Этап 0 — выполнен на VPS через `timeweb-manage.yml → ops-memory-relief` (run 28772278895): зомби-контейнер удалён (−300 MB), swap 2G включён (available 456→689 Mi). `delovoy-agent` оставлен — перенос на Hetzner требует отдельного решения.
+- Этап 1 — коммит `4cbe879`: restart unless-stopped, NODE_OPTIONS 768M, autoheal, swap в setup-vps.sh. Вступит в силу после мержа и деплоя.
+- Этап 2 — коммит `a0a79b3`: SSE-каркас с abort-cleanup и лимитом соединений, вечный Redis-реконнект, instrumentation-гарды, лог fail-open rate-limit. Тесты: 2507 passed.
+- Этап 3 — не начат (поведенческие риски пагинации, требует отдельного решения)
 **Источники данных:** кодовая база, история GitHub Actions, открытые issues, живое состояние VPS (`timeweb-manage.yml` → `server-logs` / `server-status`, запуски [28771641619](https://github.com/aylisrg/Platform-Delovoy/actions/runs/28771641619) и [28771649246](https://github.com/aylisrg/Platform-Delovoy/actions/runs/28771649246))
 
 ## TL;DR
