@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import { GazeboBookingEditForm } from "./booking-edit-form";
 import type { TimelineBooking } from "@/modules/gazebos/types";
 import {
   DISCOUNT_REASONS,
@@ -29,7 +31,12 @@ export function GazeboBookingDetailCard({
   onStatusChanged,
   maxDiscountPercent = 30,
 }: Props) {
+  const { data: session } = useSession();
+  const role = session?.user?.role;
+  const canEdit = role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER";
+
   const [actionLoading, setActionLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState<DiscountReason | "">("");
@@ -265,7 +272,28 @@ export function GazeboBookingDetailCard({
         </div>
       )}
 
+      {editing && (
+        <GazeboBookingEditForm
+          booking={booking}
+          onSaved={() => {
+            setEditing(false);
+            onStatusChanged();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+
       <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2">
+        {canEdit && !editing && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setEditing(true)}
+            disabled={actionLoading}
+          >
+            Изменить
+          </Button>
+        )}
         {isPending && (
           <Button
             size="sm"

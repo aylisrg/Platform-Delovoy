@@ -28,6 +28,8 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
       `🆕 <b>Новая бронь беседки</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}`,
     "booking.confirmed": (d) =>
       `✅ <b>Бронь подтверждена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+    "booking.updated": (d) =>
+      `✏️ <b>Бронь изменена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}${d.changes ? `\nИзменено: ${d.changes}` : ""}`,
     "booking.cancelled": (d) =>
       `❌ <b>Бронь отменена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}`,
     "booking.completed": (d) =>

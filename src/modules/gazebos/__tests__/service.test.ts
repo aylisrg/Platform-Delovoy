@@ -66,6 +66,7 @@ import {
   createBooking,
   createAdminBooking,
   updateBookingStatus,
+  updateBookingDetails,
   cancelBooking,
   getAvailability,
   getTimeline,
@@ -112,6 +113,60 @@ const validBookingInput = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+// ===== updateBookingDetails =====
+
+describe("updateBookingDetails", () => {
+  it("edits contact fields without a schedule change and notifies booking.updated", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CONFIRMED", clientName: "Иван", clientPhone: "+70000000000", metadata: { guestCount: 5 } }) as never
+    );
+    vi.mocked(prisma.resource.findFirst).mockResolvedValueOnce(mockResource({ capacity: 30, googleCalendarId: null }) as never);
+    vi.mocked(prisma.booking.update).mockResolvedValueOnce(mockBooking({ clientPhone: "+71112223344" }) as never);
+
+    await updateBookingDetails("booking-1", "admin-1", { clientPhone: "+71112223344" });
+
+    // No conflict lookup should happen (schedule unchanged) — only the initial findFirst.
+    expect(prisma.booking.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "booking-1" },
+        data: expect.objectContaining({ clientPhone: "+71112223344" }),
+      })
+    );
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "booking.updated", moduleSlug: "gazebos", entityId: "booking-1" })
+    );
+  });
+
+  it("rejects editing a CANCELLED booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CANCELLED" }) as never
+    );
+
+    await expect(
+      updateBookingDetails("booking-1", "admin-1", { comment: "x" })
+    ).rejects.toMatchObject({ code: "BOOKING_CANCELLED" });
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(enqueueNotification).not.toHaveBeenCalled();
+  });
+
+  it("throws BOOKING_CONFLICT when a rescheduled slot overlaps another booking", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(mockBooking({ status: "CONFIRMED" }) as never) // initial lookup
+      .mockResolvedValueOnce(mockBooking({ id: "other" }) as never); // conflict lookup
+    vi.mocked(prisma.resource.findFirst).mockResolvedValueOnce(mockResource({ capacity: 30 }) as never);
+
+    await expect(
+      updateBookingDetails("booking-1", "admin-1", {
+        date: FUTURE_DATE,
+        startTime: "10:00",
+        endTime: "14:00",
+      })
+    ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
 });
 
 // ===== createBooking =====

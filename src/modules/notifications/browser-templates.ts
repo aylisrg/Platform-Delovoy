@@ -13,6 +13,10 @@ const templates: Record<string, Record<string, BrowserTemplateFn>> = {
       title: "Новое бронирование — Барбекю Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
     }),
+    "booking.updated": (d) => ({
+      title: "Бронирование изменено — Барбекю Парк",
+      body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}${d.changes ? `\nИзменено: ${d.changes}` : ""}`,
+    }),
     "booking.cancelled": (d) => ({
       title: "Бронирование отменено — Барбекю Парк",
       body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,

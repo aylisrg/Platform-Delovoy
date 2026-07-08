@@ -63,6 +63,7 @@ export const analyticsQuerySchema = z.object({
 export const GAZEBO_CHANNEL_EVENT_TYPES = [
   "booking.created",
   "booking.confirmed",
+  "booking.updated",
   "booking.cancelled",
   "booking.completed",
   "booking.deleted",
@@ -77,6 +78,7 @@ export const GAZEBO_CHANNEL_EVENTS: {
 }[] = [
   { type: "booking.created", label: "Новая бронь" },
   { type: "booking.confirmed", label: "Бронь подтверждена" },
+  { type: "booking.updated", label: "Бронь изменена" },
   { type: "booking.cancelled", label: "Бронь отменена" },
   { type: "booking.completed", label: "Бронь завершена" },
   { type: "booking.deleted", label: "Бронь удалена" },
@@ -106,6 +108,30 @@ export const moduleSettingsSchema = z.object({
 export const channelTestMessageSchema = z.object({
   chatId: z.string().max(64).optional(),
 });
+
+/**
+ * Partial edit of an existing booking's details (admin/manager action).
+ * All fields optional; at least one must be present. Scheduling fields are
+ * re-validated server-side (conflict, min duration, capacity).
+ */
+export const updateBookingDetailsSchema = z
+  .object({
+    resourceId: z.string().min(1).optional(),
+    date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
+    startTime: z.string().regex(timeRegex, "Формат времени: HH:mm").optional(),
+    endTime: z.string().regex(timeRegex, "Формат времени: HH:mm").optional(),
+    guestCount: z.number().int().positive().optional(),
+    comment: z.string().max(500).optional(),
+    clientName: z.string().min(1, "Имя клиента обязательно").max(200).optional(),
+    clientPhone: z.string().min(1, "Телефон клиента обязателен").max(30).optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, {
+    message: "Укажите хотя бы одно поле для изменения",
+  })
+  .refine((d) => !(d.startTime && d.endTime) || d.startTime < d.endTime, {
+    message: "Время начала должно быть раньше времени окончания",
+    path: ["endTime"],
+  });
 
 export const adminCreateBookingSchema = z.object({
   resourceId: z.string().min(1, "ID ресурса обязателен"),

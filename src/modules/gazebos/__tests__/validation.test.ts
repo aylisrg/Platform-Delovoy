@@ -8,6 +8,8 @@ import {
   timelineQuerySchema,
   analyticsQuerySchema,
   moduleSettingsSchema,
+  updateBookingDetailsSchema,
+  GAZEBO_CHANNEL_EVENT_TYPES,
 } from "@/modules/gazebos/validation";
 
 describe("createResourceSchema", () => {
@@ -274,6 +276,53 @@ describe("moduleSettingsSchema", () => {
     const result = moduleSettingsSchema.safeParse({
       telegramChannelEvents: ["booking.created", "order.placed"],
     });
+    expect(result.success).toBe(false);
+  });
+
+  it("includes booking.updated as a toggleable channel event", () => {
+    expect(GAZEBO_CHANNEL_EVENT_TYPES).toContain("booking.updated");
+    const result = moduleSettingsSchema.safeParse({
+      telegramChannelEvents: ["booking.updated"],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("updateBookingDetailsSchema", () => {
+  it("accepts a partial edit (single field)", () => {
+    const result = updateBookingDetailsSchema.safeParse({ clientPhone: "+70000000000" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a full reschedule payload", () => {
+    const result = updateBookingDetailsSchema.safeParse({
+      resourceId: "r1",
+      date: "2030-07-01",
+      startTime: "10:00",
+      endTime: "14:00",
+      guestCount: 5,
+      comment: "ок",
+      clientName: "Иван",
+      clientPhone: "+70000000000",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty object", () => {
+    const result = updateBookingDetailsSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects when startTime is not before endTime", () => {
+    const result = updateBookingDetailsSchema.safeParse({
+      startTime: "14:00",
+      endTime: "10:00",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a malformed time", () => {
+    const result = updateBookingDetailsSchema.safeParse({ startTime: "25:99" });
     expect(result.success).toBe(false);
   });
 });

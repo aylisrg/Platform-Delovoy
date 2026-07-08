@@ -11,6 +11,8 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Заявка принята!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\n\nОжидайте подтверждения.`,
     "booking.confirmed": (d) =>
       `Бронирование подтверждено!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+    "booking.updated": (d) =>
+      `Ваше бронирование изменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.cancelled": (d) =>
       `Бронирование отменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.reminder": (d) =>
@@ -48,6 +50,8 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
     "booking.created": (d) =>
       `<b>Новое бронирование!</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}\n\nТребуется подтверждение.`,
+    "booking.updated": (d) =>
+      `<b>Бронирование изменено</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}${d.changes ? `\nИзменено: ${d.changes}` : ""}`,
     "booking.cancelled": (d) =>
       `<b>Бронирование отменено</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}`,
   },

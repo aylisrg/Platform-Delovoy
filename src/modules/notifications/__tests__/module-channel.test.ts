@@ -125,6 +125,25 @@ describe("dispatchModuleChannel", () => {
     await expect(dispatchModuleChannel(baseEvent)).resolves.toBeUndefined();
   });
 
+  it("sends a template for the booking.updated event", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.updated"],
+    });
+
+    await dispatchModuleChannel({
+      ...baseEvent,
+      type: "booking.updated",
+      data: { ...baseEvent.data, changes: "время" },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string
+    );
+    expect(body.text).toContain("изменена");
+  });
+
   it("sends a template for the new booking.deleted event", async () => {
     mockConfig({
       telegramChannelEnabled: true,

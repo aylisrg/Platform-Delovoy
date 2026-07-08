@@ -10,11 +10,12 @@ import {
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { getBooking, updateBookingStatus, cancelBooking, BookingError } from "@/modules/gazebos/service";
+import { getBooking, updateBookingStatus, updateBookingDetails, cancelBooking, BookingError } from "@/modules/gazebos/service";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { formatTime } from "@/lib/format";
 import { hasRole } from "@/lib/permissions";
 import { checkoutDiscountSchema } from "@/modules/booking/validation";
+import { updateBookingDetailsSchema } from "@/modules/gazebos/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 
 /**
@@ -50,8 +51,20 @@ export async function PATCH(
     const body = await request.json();
     const { status } = body;
 
+    // No status field → this is a details edit (date/time/resource/guests/
+    // comment/contacts). Restricted to ADMIN / SUPERADMIN / MANAGER with the
+    // gazebos section; the change is logged and notified inside the service.
     if (!status) {
-      return apiError("VALIDATION_ERROR", "Укажите статус", 422);
+      const denied = await requireAdminSection(session, "gazebos");
+      if (denied) return denied;
+
+      const parsed = updateBookingDetailsSchema.safeParse(body);
+      if (!parsed.success) {
+        return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
+      }
+
+      const edited = await updateBookingDetails(id, session.user.id, parsed.data);
+      return apiResponse(edited);
     }
 
     const { reason, confirmPenalty, cashAmount, cardAmount } = body;
@@ -117,20 +130,31 @@ export async function PATCH(
     return apiResponse(updated);
   } catch (error) {
     if (error instanceof BookingError) {
+      const notFoundCodes = new Set([
+        "BOOKING_NOT_FOUND",
+        "RESOURCE_NOT_FOUND",
+      ]);
       const conflictCodes = new Set([
         "INVALID_STATUS_TRANSITION",
         "ALREADY_COMPLETED",
         "ALREADY_CANCELLED",
+        "BOOKING_CONFLICT",
       ]);
       const unprocessableCodes = new Set([
         "DISCOUNT_EXCEEDS_LIMIT",
         "PAYMENT_REQUIRED",
+        "CAPACITY_EXCEEDED",
+        "DURATION_BELOW_MIN",
+        "BOOKING_CANCELLED",
+        "INVALID_TIME_RANGE",
       ]);
-      const status = conflictCodes.has(error.code)
-        ? 409
-        : unprocessableCodes.has(error.code)
-          ? 422
-          : 400;
+      const status = notFoundCodes.has(error.code)
+        ? 404
+        : conflictCodes.has(error.code)
+          ? 409
+          : unprocessableCodes.has(error.code)
+            ? 422
+            : 400;
       return apiError(error.code, error.message, status, error.metadata);
     }
     return apiServerError();

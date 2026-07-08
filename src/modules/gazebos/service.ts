@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import type { BookingStatus } from "@prisma/client";
+import type { BookingStatus, Prisma } from "@prisma/client";
+import { logAudit } from "@/lib/logger";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
   createCalendarEvent,
@@ -394,6 +395,260 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
   });
 
   return booking;
+}
+
+/** Local HH:mm formatter — exact inverse of parseDatetime (both local time). */
+function toHHmm(d: Date): string {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/**
+ * Edit the details of an existing booking (admin/manager action).
+ *
+ * Supports partial edits of date, time, resource, guest count, comment and
+ * client contacts. Scheduling changes (date/time/resource) are re-validated
+ * for capacity, minimum duration and slot conflicts (excluding this booking);
+ * price and Google Calendar are re-synced. The change is mirrored to AuditLog
+ * and a `booking.updated` notification is emitted (client + module channel).
+ *
+ * Editing is blocked only for CANCELLED bookings.
+ */
+export async function updateBookingDetails(
+  id: string,
+  actorId: string,
+  input: {
+    resourceId?: string;
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    guestCount?: number;
+    comment?: string;
+    clientName?: string;
+    clientPhone?: string;
+  }
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id, moduleSlug: MODULE_SLUG },
+  });
+  if (!booking) {
+    throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  }
+  if (booking.status === "CANCELLED") {
+    throw new BookingError(
+      "BOOKING_CANCELLED",
+      "Нельзя редактировать отменённую бронь"
+    );
+  }
+
+  const meta = (booking.metadata as Record<string, unknown> | null) ?? {};
+
+  const scheduleChanged =
+    input.resourceId !== undefined ||
+    input.date !== undefined ||
+    input.startTime !== undefined ||
+    input.endTime !== undefined;
+
+  const newResourceId = input.resourceId ?? booking.resourceId;
+  const resource = await prisma.resource.findFirst({
+    where: { id: newResourceId, moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  if (!resource) {
+    throw new BookingError("RESOURCE_NOT_FOUND", "Беседка не найдена или неактивна");
+  }
+
+  const existingDateStr = booking.date.toISOString().split("T")[0];
+  const dateStr = input.date ?? existingDateStr;
+  const startStr = input.startTime ?? toHHmm(booking.startTime);
+  const endStr = input.endTime ?? toHHmm(booking.endTime);
+  const bookingDate = new Date(dateStr);
+  const start = parseDatetime(dateStr, startStr);
+  const end = parseDatetime(dateStr, endStr);
+
+  const newGuestCount =
+    input.guestCount ?? (meta.guestCount as number | undefined);
+  const newComment = input.comment ?? (meta.comment as string | undefined);
+  const newClientName = input.clientName ?? booking.clientName;
+  const newClientPhone = input.clientPhone ?? booking.clientPhone;
+
+  // Capacity check when guests or resource change.
+  if (
+    newGuestCount &&
+    resource.capacity &&
+    newGuestCount > resource.capacity
+  ) {
+    throw new BookingError(
+      "CAPACITY_EXCEEDED",
+      `Максимальная вместимость: ${resource.capacity} человек`
+    );
+  }
+
+  // Scheduling validations only when date/time/resource actually change.
+  // Past dates are intentionally allowed here — admins may correct historic
+  // (e.g. completed) records; only CANCELLED bookings are blocked above.
+  if (scheduleChanged) {
+    if (end <= start) {
+      throw new BookingError(
+        "INVALID_TIME_RANGE",
+        "Время начала должно быть раньше времени окончания"
+      );
+    }
+    const minHours = await getMinBookingHours();
+    const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
+    if (durationHours < minHours) {
+      throw new BookingError(
+        "DURATION_BELOW_MIN",
+        `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+      );
+    }
+    const conflict = await prisma.booking.findFirst({
+      where: {
+        id: { not: id },
+        moduleSlug: MODULE_SLUG,
+        resourceId: newResourceId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: bookingDate,
+        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+      },
+    });
+    if (conflict) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+  }
+
+  // Recompute price when scheduling (times/resource) changed.
+  let priceFields: Record<string, unknown> = {};
+  if (scheduleChanged) {
+    const itemsTotal = Number(meta.itemsTotal ?? 0) || 0;
+    const pricing = computeGazeboPricing(
+      start,
+      end,
+      dateStr,
+      resource.metadata,
+      resource.pricePerHour ? Number(resource.pricePerHour) : null,
+      itemsTotal
+    );
+    priceFields = {
+      basePrice: pricing.basePrice,
+      pricePerHour: pricing.pricePerHour,
+      totalPrice: pricing.totalPrice,
+    };
+  }
+
+  // Google Calendar re-sync (non-blocking): drop the old event, recreate on the
+  // (possibly new) resource when the booking is confirmed and the calendar is set.
+  let googleEventId = booking.googleEventId;
+  if (scheduleChanged) {
+    if (booking.googleEventId) {
+      const oldResource = await prisma.resource.findUnique({
+        where: { id: booking.resourceId },
+        select: { googleCalendarId: true },
+      });
+      if (oldResource?.googleCalendarId) {
+        await deleteCalendarEvent(oldResource.googleCalendarId, booking.googleEventId);
+      }
+      googleEventId = null;
+    }
+    if (resource.googleCalendarId && booking.status === "CONFIRMED") {
+      const calResult = await createCalendarEvent(resource.googleCalendarId, {
+        summary: `${resource.name} — ${newClientName || "Клиент"}`,
+        description: `Телефон: ${newClientPhone || "не указан"}`,
+        startTime: start,
+        endTime: end,
+      });
+      googleEventId = calResult.success && calResult.eventId ? calResult.eventId : null;
+    }
+  }
+
+  // Build a human-readable diff for the audit log and the notification.
+  const changes: string[] = [];
+  if (input.resourceId !== undefined && input.resourceId !== booking.resourceId) {
+    changes.push("беседка");
+  }
+  if (input.date !== undefined && input.date !== existingDateStr) changes.push("дата");
+  if (
+    (input.startTime !== undefined && input.startTime !== toHHmm(booking.startTime)) ||
+    (input.endTime !== undefined && input.endTime !== toHHmm(booking.endTime))
+  ) {
+    changes.push("время");
+  }
+  if (input.guestCount !== undefined && input.guestCount !== meta.guestCount) {
+    changes.push("гости");
+  }
+  if (input.comment !== undefined && input.comment !== meta.comment) {
+    changes.push("комментарий");
+  }
+  if (input.clientName !== undefined && input.clientName !== booking.clientName) {
+    changes.push("имя");
+  }
+  if (input.clientPhone !== undefined && input.clientPhone !== booking.clientPhone) {
+    changes.push("телефон");
+  }
+
+  const newMetadata = {
+    ...meta,
+    ...(newGuestCount !== undefined ? { guestCount: newGuestCount } : {}),
+    ...(newComment !== undefined ? { comment: newComment } : {}),
+    ...priceFields,
+  };
+
+  const updated = await prisma.booking.update({
+    where: { id },
+    data: {
+      resourceId: newResourceId,
+      date: bookingDate,
+      startTime: start,
+      endTime: end,
+      clientName: newClientName,
+      clientPhone: newClientPhone,
+      googleEventId,
+      metadata: newMetadata as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  await logAudit(actorId, "booking.update", "Booking", id, {
+    moduleSlug: MODULE_SLUG,
+    changes,
+    before: {
+      resourceId: booking.resourceId,
+      date: existingDateStr,
+      startTime: toHHmm(booking.startTime),
+      endTime: toHHmm(booking.endTime),
+      guestCount: meta.guestCount,
+      comment: meta.comment,
+      clientName: booking.clientName,
+      clientPhone: booking.clientPhone,
+    },
+    after: {
+      resourceId: newResourceId,
+      date: dateStr,
+      startTime: startStr,
+      endTime: endStr,
+      guestCount: newGuestCount,
+      comment: newComment,
+      clientName: newClientName,
+      clientPhone: newClientPhone,
+    },
+  });
+
+  enqueueNotification({
+    type: "booking.updated",
+    moduleSlug: MODULE_SLUG,
+    entityId: id,
+    userId: booking.userId ?? undefined,
+    actor: "admin",
+    data: {
+      resourceName: resource.name,
+      date: dateStr,
+      startTime: startStr,
+      endTime: endStr,
+      userName: newClientName ?? "без имени",
+      changes: changes.join(", "),
+    },
+  });
+
+  return updated;
 }
 
 export async function updateBookingStatus(

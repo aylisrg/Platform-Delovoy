@@ -14,6 +14,7 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   // Bookings (gazebos, ps-park)
   "booking.created": { client: true, admin: true, category: "booking" },
   "booking.confirmed": { client: true, admin: false, category: "booking" },
+  "booking.updated": { client: true, admin: true, category: "booking" },
   "booking.cancelled": { client: true, admin: true, category: "booking" },
   "booking.reminder": { client: true, admin: false, category: "reminder" },
 
