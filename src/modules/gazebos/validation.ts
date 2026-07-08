@@ -98,6 +98,15 @@ export const moduleSettingsSchema = z.object({
     .optional(),
 });
 
+/**
+ * Test-message request for the dedicated Telegram channel.
+ * chatId lets the admin test the value currently typed in the form
+ * before saving; falls back to the saved Module.config.telegramChannelId.
+ */
+export const channelTestMessageSchema = z.object({
+  chatId: z.string().max(64).optional(),
+});
+
 export const adminCreateBookingSchema = z.object({
   resourceId: z.string().min(1, "ID ресурса обязателен"),
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),

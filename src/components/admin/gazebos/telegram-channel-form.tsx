@@ -22,6 +22,7 @@ export function GazeboTelegramChannelForm() {
   const [state, setState] = useState<ChannelState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +88,33 @@ export function GazeboTelegramChannelForm() {
       setError(err instanceof Error ? err.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const chatId = state.telegramChannelId.trim();
+      const res = await fetch("/api/gazebos/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(chatId ? { chatId } : {}),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error?.message ?? "Не удалось отправить тест");
+      }
+      setMessage(
+        json.data?.chatTitle
+          ? `Тестовое сообщение отправлено в «${json.data.chatTitle}»`
+          : "Тестовое сообщение отправлено"
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось отправить тест");
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -171,8 +199,16 @@ export function GazeboTelegramChannelForm() {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {message && <p className="text-sm text-green-600">{message}</p>}
 
-      <div className="flex justify-end pt-2">
-        <Button type="submit" disabled={saving}>
+      <div className="flex justify-end gap-3 pt-2">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={testing || saving}
+          onClick={handleTest}
+        >
+          {testing ? "Отправка…" : "Отправить тест"}
+        </Button>
+        <Button type="submit" disabled={saving || testing}>
           {saving ? "Сохранение…" : "Сохранить"}
         </Button>
       </div>

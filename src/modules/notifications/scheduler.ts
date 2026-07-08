@@ -34,10 +34,6 @@ async function processBookingReminders(): Promise<void> {
     });
 
     for (const booking of bookings) {
-      // Guest bookings have no userId — there's no registered channel to remind.
-      // The manager already reached out by phone at confirmation time.
-      if (!booking.userId) continue;
-
       // Check if reminder already sent
       const alreadySent = await prisma.notificationLog.findFirst({
         where: {
@@ -54,20 +50,44 @@ async function processBookingReminders(): Promise<void> {
         select: { name: true },
       });
 
+      const data = {
+        resourceName: resource?.name || "Ресурс",
+        date: booking.date.toLocaleDateString("ru-RU"),
+        startTime: booking.startTime.toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        endTime: booking.endTime.toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+
       enqueueNotification({
         type: "booking.reminder",
         moduleSlug: booking.moduleSlug,
         entityId: booking.id,
-        userId: booking.userId,
-        data: {
-          resourceName: resource?.name || "Ресурс",
-          date: booking.date.toLocaleDateString("ru-RU"),
-          startTime: booking.startTime.toLocaleTimeString("ru-RU", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        },
+        userId: booking.userId ?? undefined,
+        data,
       });
+
+      // Guest bookings have no client delivery to write a SENT log, so mark
+      // the reminder here — otherwise the module Telegram channel would get a
+      // duplicate on every scheduler run within the hour window.
+      if (!booking.userId) {
+        await prisma.notificationLog.create({
+          data: {
+            channel: "TELEGRAM",
+            eventType: "booking.reminder",
+            moduleSlug: booking.moduleSlug,
+            entityId: booking.id,
+            recipient: "module-channel",
+            message: `Напоминание: ${data.resourceName}, ${data.date} ${data.startTime}–${data.endTime}`,
+            status: "SENT",
+            sentAt: new Date(),
+          },
+        });
+      }
     }
   } catch (err) {
     console.error("[Scheduler] Booking reminders failed:", err);
