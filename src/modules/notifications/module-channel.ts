@@ -99,6 +99,7 @@ export async function dispatchModuleChannel(
           text,
           parse_mode: "HTML",
         }),
+        signal: AbortSignal.timeout(15_000),
       }
     );
     if (!res.ok) {

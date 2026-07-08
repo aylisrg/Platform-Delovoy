@@ -91,6 +91,19 @@ describe("POST /api/gazebos/settings/test", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it("returns TELEGRAM_UNREACHABLE when the fetch itself fails (network timeout)", async () => {
+    global.fetch = vi
+      .fn()
+      .mockRejectedValue(new TypeError("fetch failed")) as never;
+
+    const res = await POST(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("TELEGRAM_UNREACHABLE");
+  });
+
   it("relays the Telegram error description on send failure", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       json: async () => ({ ok: false, description: "chat not found" }),

@@ -62,12 +62,23 @@ export async function POST(request: NextRequest) {
       `Отправил: ${userName}`,
     ].join("\n");
 
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-    });
-    const tgData = await res.json();
+    let tgData: { ok: boolean; description?: string; result?: { chat?: { title?: string } } };
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      tgData = await res.json();
+    } catch (err) {
+      console.error("[GazeboChannel] Telegram API unreachable:", err);
+      return apiError(
+        "TELEGRAM_UNREACHABLE",
+        "Сервер не смог соединиться с api.telegram.org (таймаут). Это сетевая проблема на сервере, а не ошибка настроек — проверьте доступ к Telegram API с VPS.",
+        502
+      );
+    }
 
     if (!tgData.ok) {
       return apiError(
