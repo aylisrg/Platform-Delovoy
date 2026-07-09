@@ -48,6 +48,33 @@ jobs:
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       ADMIN_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
     steps:
+      # Секрета TELEGRAM_BOT_TOKEN в GitHub может не быть (upsert_env в deploy.yml
+      # сознательно пропускает пустые значения — токен живёт в .env на сервере).
+      # Тогда забираем его с VPS по SSH и сразу маскируем в логах.
+      - name: Токен из .env на VPS (fallback)
+        if: env.TG_TOKEN == ''
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/diag_key
+          chmod 600 ~/.ssh/diag_key
+          vps() {
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i ~/.ssh/diag_key \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "$1" 2>/dev/null || true
+          }
+          FETCHED=$(vps "grep -oP '^TELEGRAM_BOT_TOKEN=\K.*' /opt/delovoy-park/.env | tr -d '\"'")
+          if [ -z "$ADMIN_CHAT" ]; then
+            AC=$(vps "grep -oP '^TELEGRAM_ADMIN_CHAT_ID=\K.*' /opt/delovoy-park/.env | tr -d '\"'")
+            [ -n "$AC" ] && echo "ADMIN_CHAT=$AC" >> "$GITHUB_ENV" || true
+          fi
+          rm -f ~/.ssh/diag_key
+          if [ -z "$FETCHED" ]; then
+            echo "::error::TELEGRAM_BOT_TOKEN нет ни в секретах GitHub, ни в /opt/delovoy-park/.env"
+            exit 1
+          fi
+          echo "::add-mask::$FETCHED"
+          echo "TG_TOKEN=$FETCHED" >> "$GITHUB_ENV"
+          echo "Токен получен с VPS (замаскирован)"
+
       - name: getMe — валидность токена
         run: |
           if [ -z "$TG_TOKEN" ]; then
