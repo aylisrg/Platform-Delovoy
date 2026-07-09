@@ -132,6 +132,11 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
       name: "Мессенджер",
       description: "Внутренние чаты: USER↔Администрация, USER↔USER (при наличии связи), групповые чаты",
     },
+    {
+      slug: "payments",
+      name: "Платежи",
+      description: "Онлайн-оплата через ЮKassa: платежи, возвраты, сверка",
+    },
   ];
 
   for (const mod of modules) {

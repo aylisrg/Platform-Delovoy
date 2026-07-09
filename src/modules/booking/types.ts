@@ -47,6 +47,10 @@ export type BookingMetadata = {
 
   // Checkout discount
   discount?: BookingDiscount;
+
+  // Online payments (YooKassa): сумма, оплаченная онлайн, и последний платёж.
+  onlinePaidAmount?: string; // decimal string
+  paymentId?: string;
 };
 
 export type CancellationPolicy = {
@@ -77,6 +81,14 @@ export type NoShowMetadata = {
 export const DEFAULT_CANCELLATION_POLICY: CancellationPolicy = {
   thresholdHours: 2,
   penaltyPercent: 50,
+};
+
+// Политика для броней со 100 % онлайн-предоплатой (решение владельца
+// 2026-07-08): отмена гостем более чем за 24 ч — полный возврат, позже —
+// без возврата (штраф = вся предоплата).
+export const PREPAID_CANCELLATION_POLICY: CancellationPolicy = {
+  thresholdHours: 24,
+  penaltyPercent: 100,
 };
 
 export const DEFAULT_NO_SHOW_THRESHOLD_MINUTES = 30;

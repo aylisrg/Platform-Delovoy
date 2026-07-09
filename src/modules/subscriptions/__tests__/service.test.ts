@@ -99,6 +99,7 @@ describe("createSubscription (F6)", () => {
         validFrom: "2026-05-01",
         validTo: "2026-12-31",
         notes: null,
+        paymentMethod: "manual" as const,
       },
       "manager-1"
     );
@@ -143,6 +144,7 @@ describe("createSubscription (F6)", () => {
           validFrom: "2026-05-01",
           validTo: "2026-09-01",
           notes: null,
+          paymentMethod: "manual" as const,
         },
         "manager-1"
       )
@@ -166,6 +168,7 @@ describe("createSubscription (F6)", () => {
           validFrom: "2026-05-01",
           validTo: "2026-09-01",
           notes: null,
+          paymentMethod: "manual" as const,
         },
         "manager-1"
       )
@@ -186,6 +189,7 @@ describe("createSubscription (F6)", () => {
           validFrom: "2026-05-01",
           validTo: "2026-09-01",
           notes: null,
+          paymentMethod: "manual" as const,
         },
         "manager-1"
       )

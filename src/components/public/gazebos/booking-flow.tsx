@@ -191,6 +191,13 @@ export function BookingFlow() {
       const data = await res.json();
       if (data.success) {
         reachGoal("gazebo_booking_success");
+        // Онлайн-оплата включена → уводим на страницу оплаты ЮKassa.
+        // Бронь подтвердится автоматически после успешного платежа.
+        if (data.data?.payment?.confirmationUrl) {
+          showToast("Переходим к оплате…", "success");
+          window.location.href = data.data.payment.confirmationUrl;
+          return;
+        }
         setStep("done");
         showToast(pickRandom(TOAST_BOOKING_SUCCESS), "success");
       } else {

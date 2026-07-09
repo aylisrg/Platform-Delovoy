@@ -29,6 +29,8 @@ export const createBookingSchema = z.object({
   // at the schema level we only validate shape so authed callers don't need to send them.
   guestName: z.string().min(1, "Имя обязательно").max(200).optional(),
   guestPhone: z.string().min(1, "Телефон обязателен").max(30).optional(),
+  // Контакт для чека 54-ФЗ при онлайн-оплате.
+  email: z.string().email("Некорректный email").max(200).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }

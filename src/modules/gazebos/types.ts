@@ -42,6 +42,9 @@ export type CreateBookingInput = {
   // clientName/clientPhone on the Booking row.
   guestName?: string;
   guestPhone?: string;
+  // Контакт для чека 54-ФЗ при онлайн-оплате (у гостей есть телефон,
+  // у залогиненных контакт берётся из профиля).
+  email?: string;
 };
 
 export type BookingFilter = {

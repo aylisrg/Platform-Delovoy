@@ -33,4 +33,9 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
 
   // Avito integration — lead came in via Messenger (PR-2).
   "avito.lead.new": { client: false, admin: true },
+
+  // Online payments (YooKassa) — see docs/requirements/2026-07-09-payments-module-prd.md
+  "payment.succeeded": { client: true, admin: true },
+  "payment.canceled": { client: true, admin: false },
+  "payment.refund.succeeded": { client: true, admin: true },
 };

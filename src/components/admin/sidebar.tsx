@@ -55,6 +55,7 @@ const ALL_NAVIGATION: NavItem[] = [
   { label: "Гости (CRM)", href: "/admin/clients", icon: "🧑", section: "clients" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
+  { label: "Платежи", href: "/admin/payments", icon: "💳", section: "payments" },
   { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
   { label: "Задачи", href: "/admin/tasks", icon: "📌", section: "tasks" },
@@ -69,7 +70,7 @@ const ALL_NAVIGATION: NavItem[] = [
 // "users" is global — pinned separately above the park nav.
 const DELOVOY_SECTIONS = new Set([
   "dashboard", "rental", "gazebos", "ps-park", "cafe",
-  "clients", "inventory", "analytics", "management",
+  "clients", "inventory", "analytics", "payments", "management",
   "feedback", "tasks", "messenger", "avito", "notifications", "monitoring",
   "architect", "modules",
 ]);
@@ -91,7 +92,7 @@ function detectParkFromPath(pathname: string | null): ParkContext | null {
   const delovoyPrefixes = [
     "/admin/dashboard", "/admin/rental", "/admin/gazebos", "/admin/ps-park",
     "/admin/cafe", "/admin/clients", "/admin/inventory", "/admin/analytics",
-    "/admin/management", "/admin/feedback", "/admin/tasks", "/admin/avito",
+    "/admin/payments", "/admin/management", "/admin/feedback", "/admin/tasks", "/admin/avito",
     "/admin/notifications", "/admin/monitoring", "/admin/architect", "/admin/modules",
     "/admin/messenger",
   ];

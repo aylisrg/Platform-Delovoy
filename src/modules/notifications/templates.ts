@@ -1,6 +1,24 @@
 type TemplateData = Record<string, unknown>;
 type TemplateFn = (d: TemplateData) => string;
 
+// Единые шаблоны онлайн-оплат (ЮKassa) — одинаковы для всех модулей,
+// подмешиваются в каждый модульный блок ниже.
+const paymentClientTemplates: Record<string, TemplateFn> = {
+  "payment.succeeded": (d) =>
+    `Оплата получена: ${d.amount} ₽\n\n${d.description}\n\nЧек придёт на указанный при оплате контакт.`,
+  "payment.canceled": (d) =>
+    `Оплата не прошла (${d.amount} ₽).\n\n${d.description}\n\nПопробуйте оформить заново или обратитесь к администратору.`,
+  "payment.refund.succeeded": (d) =>
+    `Возврат оформлен: ${d.amount} ₽\n\n${d.description}\n\nДеньги вернутся тем же способом, которым вы платили (обычно 1–3 дня).`,
+};
+
+const paymentAdminTemplates: Record<string, TemplateFn> = {
+  "payment.succeeded": (d) =>
+    `<b>💳 Онлайн-оплата: ${d.amount} ₽</b>\n\n${d.description}`,
+  "payment.refund.succeeded": (d) =>
+    `<b>↩️ Возврат: ${d.amount} ₽</b>\n\n${d.description}`,
+};
+
 /**
  * Client notification templates — sent to the user.
  * Organized by module slug, then event type.
@@ -15,6 +33,7 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Бронирование отменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.reminder": (d) =>
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
+    ...paymentClientTemplates,
   },
   "ps-park": {
     "booking.created": (d) =>
@@ -25,6 +44,7 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Бронирование отменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.reminder": (d) =>
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
+    ...paymentClientTemplates,
   },
   cafe: {
     "order.placed": (d) =>
@@ -50,12 +70,14 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
       `<b>Новое бронирование!</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}\n\nТребуется подтверждение.`,
     "booking.cancelled": (d) =>
       `<b>Бронирование отменено</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}`,
+    ...paymentAdminTemplates,
   },
   "ps-park": {
     "booking.created": (d) =>
       `<b>Новое бронирование!</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}\n\nТребуется подтверждение.`,
     "booking.cancelled": (d) =>
       `<b>Бронирование отменено</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}\nКлиент: ${d.userName}`,
+    ...paymentAdminTemplates,
   },
   cafe: {
     "order.placed": (d) =>

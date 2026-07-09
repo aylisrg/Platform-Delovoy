@@ -15,6 +15,13 @@ vi.mock("@/modules/inventory/service", () => ({
   returnBookingItems: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Онлайн-оплата (YooKassa) в этих тестах не задействована: env-ключей нет,
+// поэтому createBooking платёж не создаёт; автовозвраты мокируются как no-op.
+vi.mock("@/modules/payments/service", () => ({
+  createOnlinePayment: vi.fn(),
+  autoRefundOnCancellation: vi.fn().mockResolvedValue({ refunded: false, reason: "no_payment" }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {

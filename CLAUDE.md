@@ -123,9 +123,11 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications` |
 | `pipeline-metrics` | ✅ (infrastructure-only) | CI pipeline self-diagnostics for agents; not a business module, no public API |
 | `backups` | ✅ | Backup logging (`BackupLog`); approved in project memory |
+| `payments` | ✅ | Online acquiring (YooKassa): `Payment`/`PaymentRefund`, webhook c re-fetch-верификацией, reconciliation-cron, авто/ручные возвраты — PRD `2026-07-09`, план `docs/architecture/2026-07-08-yookassa-integration-plan.md` |
 
 **Integrations (not modules):**
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
+- `yookassa` → API-клиент in `src/lib/yookassa/` (fetch, Basic auth, Idempotence-Key, чеки 54-ФЗ). Бизнес-логика — в модуле `payments`. Does NOT create `src/modules/yookassa/`.
 
 **Infrastructure services (not modules, no `src/modules/` directory):**
 - `agent` → lives in `agent/`. Telegram-controlled Claude Code agent. Separate Docker image `platform-delovoy-agent`. Workspace: `/opt/claude-agent-workspace/` on VPS. Does NOT touch `src/modules/`. See `DEPLOYMENT.md` § "Сервис `agent`".

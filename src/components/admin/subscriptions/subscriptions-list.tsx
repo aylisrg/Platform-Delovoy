@@ -7,6 +7,7 @@ import { SubscriptionForm } from "./subscription-form";
 import { formatDate as formatDateUnified } from "@/lib/format";
 
 const STATUS_LABEL: Record<string, string> = {
+  PENDING_PAYMENT: "Ожидает оплаты",
   ACTIVE: "Активен",
   EXPIRED: "Истёк",
   DEPLETED: "Исчерпан",
@@ -14,6 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
+  PENDING_PAYMENT: "bg-blue-100 text-blue-700",
   ACTIVE: "bg-emerald-100 text-emerald-700",
   EXPIRED: "bg-zinc-200 text-zinc-700",
   DEPLETED: "bg-amber-100 text-amber-700",
@@ -78,7 +80,7 @@ export function SubscriptionsList() {
       {showForm && <SubscriptionForm onSuccess={() => setShowForm(false)} />}
 
       <div className="flex gap-2 flex-wrap">
-        {["", "ACTIVE", "EXPIRED", "DEPLETED", "CANCELLED"].map((s) => (
+        {["", "PENDING_PAYMENT", "ACTIVE", "EXPIRED", "DEPLETED", "CANCELLED"].map((s) => (
           <button
             key={s || "all"}
             onClick={() => setStatusFilter(s)}
