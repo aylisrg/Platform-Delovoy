@@ -41,7 +41,7 @@
     "cheerio": "^1.2.0",
     "framer-motion": "^12.38.0",
     "googleapis": "^171.4.0",
-    "grammy": "^1.43.0",
+    "grammy": "^1.44.0",
     "https-proxy-agent": "^9.1.0",
     "ioredis": "^5.10.1",
     "isomorphic-dompurify": "3.14.0",
