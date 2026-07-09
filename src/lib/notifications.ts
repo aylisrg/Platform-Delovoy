@@ -1,3 +1,5 @@
+import { telegramApi } from "@/lib/telegram/client";
+
 type AlertLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
 const LEVEL_EMOJI: Record<AlertLevel, string> = {
@@ -33,21 +35,15 @@ async function sendAlert(
     `<i>${new Date().toISOString()}</i>`,
   ].join("\n");
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("[Notifications] Failed to send Telegram alert:", err);
-    return false;
+  const res = await telegramApi(
+    "sendMessage",
+    { chat_id: chatId, text, parse_mode: "HTML" },
+    { botToken: token }
+  );
+  if (!res.ok) {
+    console.error("[Notifications] Failed to send Telegram alert:", res.description);
   }
+  return res.ok;
 }
 
 export type NotificationChannel = "telegram" | "email";

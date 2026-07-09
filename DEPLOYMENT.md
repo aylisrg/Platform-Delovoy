@@ -198,6 +198,53 @@ Prisma `db push` выполняется автоматически при ста
 
 ---
 
+## Runbook: Telegram недоступен с VPS
+
+Симптом: уведомления не доставляются, в логах/админке ошибка вида
+«Сервер не смог соединиться с Telegram API» (`TELEGRAM_UNREACHABLE`), бот молчит.
+Все серверные вызовы Bot API идут через `src/lib/telegram/client.ts`
+(таймаут 15 с + env-переключатели), бот grammy — через те же env.
+
+### Шаг 1 — Диагностика
+
+Actions → **Telegram Diagnose** → Run workflow (chat_id по умолчанию — владелец).
+- **Job `from-github`** проверяет токен и chat_id с раннера GitHub (вне РФ) и шлёт
+  тестовое сообщение → отделяет проблему токена/чата от сетевой.
+- **Job `from-vps`** по SSH прогоняет с сервера: DNS A/AAAA, `curl -4/-6` к
+  `getMe`, baseline-контроли (api.github.com, ya.ru), проверку изнутри
+  контейнера `app` — и печатает вердикт последним блоком лога.
+
+### Шаг 2 — Митигация по вердикту
+
+| Вердикт | Причина | Действие |
+|---------|---------|----------|
+| `TOKEN_INVALID` | Токен отозван/сменён | Обновить `TELEGRAM_BOT_TOKEN` в GH Secrets → redeploy |
+| `DNS_FAIL` | Резолвер сервера не отвечает | Проверить `resolvectl status`, `/etc/resolv.conf`; сменить DNS на 1.1.1.1/8.8.8.8 |
+| `V6_ONLY_FAIL` | Сломан IPv6-маршрут, а AAAA предпочитается | Отключить/депроритизировать IPv6 (`sysctl net.ipv6.conf.all.disable_ipv6=1` или `gai.conf`) |
+| `CONTAINER_ONLY_FAIL` | Хост видит Telegram, контейнер — нет | Docker DNS/MTU: проверить `/etc/docker/daemon.json`, перезапустить docker |
+| `NETWORK_DOWN` | Весь egress сломан | Тикет в Timeweb, проверить firewall egress |
+| `FULL_BLOCK` | api.telegram.org блокируется с IP сервера | Включить обход (ниже) |
+
+**Обход `FULL_BLOCK`** — задать один из GH Secrets и передеплоить
+(deploy.yml сам занесёт их в `/opt/delovoy-park/.env`; пустые секреты
+пропускаются), либо вписать в `.env` на сервере и `docker compose up -d app bot`:
+
+1. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси (напр. squid/3proxy на
+   Hetzner-сервере агента, доступ только с IP VPS). SOCKS не поддерживается.
+2. `TELEGRAM_API_ROOT` — релей Bot API:
+   - **Cloudflare Worker** (бесплатно): worker, проксирующий
+     `https://api.telegram.org${url.pathname}${url.search}` c методом/телом as-is;
+   - **nginx на Hetzner**: `location ~ ^/bot { proxy_pass https://api.telegram.org; proxy_ssl_server_name on; }`
+     + allowlist по IP VPS. ⚠️ В URI содержится токен бота — на релее
+     отключить логирование URI (`access_log off`).
+
+### Шаг 3 — Проверка
+
+Повторно запустить **Telegram Diagnose** (ожидаем `OK` + сообщение с VPS),
+затем из админки `POST /api/admin/telegram/test-owner`.
+
+---
+
 ## Правило №7: Версионирование
 
 Версия в `package.json` обновляется по semver:

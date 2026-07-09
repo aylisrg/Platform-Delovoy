@@ -10,6 +10,7 @@ import {
 import { channelTestMessageSchema } from "@/modules/gazebos/validation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { telegramApi } from "@/lib/telegram/client";
 
 const MODULE_SLUG = "gazebos";
 
@@ -62,34 +63,31 @@ export async function POST(request: NextRequest) {
       `Отправил: ${userName}`,
     ].join("\n");
 
-    let tgData: { ok: boolean; description?: string; result?: { chat?: { title?: string } } };
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      tgData = await res.json();
-    } catch (err) {
-      console.error("[GazeboChannel] Telegram API unreachable:", err);
+    const tgRes = await telegramApi<{ chat?: { title?: string } }>(
+      "sendMessage",
+      { chat_id: chatId, text, parse_mode: "HTML" },
+      { botToken: token }
+    );
+
+    if (!tgRes.ok && tgRes.transportError) {
+      console.error("[GazeboChannel] Telegram API unreachable:", tgRes.description);
       return apiError(
         "TELEGRAM_UNREACHABLE",
-        "Сервер не смог соединиться с api.telegram.org (таймаут). Это сетевая проблема на сервере, а не ошибка настроек — проверьте доступ к Telegram API с VPS.",
+        "Сервер не смог соединиться с Telegram API (таймаут или сетевая ошибка). Это проблема сети на сервере, а не ошибка настроек — запустите workflow «Telegram Diagnose» или проверьте доступ к Telegram API с VPS.",
         502
       );
     }
 
-    if (!tgData.ok) {
+    if (!tgRes.ok) {
       return apiError(
         "TELEGRAM_ERROR",
-        tgData.description || "Ошибка отправки в Telegram"
+        tgRes.description || "Ошибка отправки в Telegram"
       );
     }
 
     return apiResponse({
       chatId,
-      chatTitle: tgData.result?.chat?.title ?? null,
+      chatTitle: tgRes.result?.chat?.title ?? null,
     });
   } catch (error) {
     console.error("[GazeboChannel] Test message error:", error);

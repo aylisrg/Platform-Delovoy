@@ -9,6 +9,7 @@
  */
 
 import { Bot, InlineKeyboard } from "grammy";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { registerGazeboHandlers } from "./handlers/gazebos";
 import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
@@ -25,6 +26,7 @@ import { registerUnknownTextHandler } from "./handlers/unknown";
 import { mintBotLoginUrl } from "./lib/bot-login";
 import { prisma } from "../src/lib/db";
 import { logEvent } from "../src/lib/logger";
+import { getTelegramApiRoot, getTelegramProxyUrl, telegramApi } from "../src/lib/telegram/client";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -72,28 +74,18 @@ export async function sendAlert(
     `\n<i>${new Date().toISOString()}</i>`,
   ].join("\n");
 
-  try {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: ADMIN_CHAT_ID,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
+  const response = await telegramApi(
+    "sendMessage",
+    { chat_id: ADMIN_CHAT_ID, text, parse_mode: "HTML" },
+    { botToken: BOT_TOKEN }
+  );
 
-    if (!response.ok) {
-      console.error("[Bot] Failed to send alert:", await response.text());
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error("[Bot] Error sending alert:", error);
+  if (!response.ok) {
+    console.error("[Bot] Failed to send alert:", response.description);
     return false;
   }
+
+  return true;
 }
 
 const WEBAPP_URL = `${APP_URL}/webapp`;
@@ -116,7 +108,18 @@ async function startBot() {
     return;
   }
 
-  const bot = new Bot(BOT_TOKEN);
+  // TELEGRAM_API_ROOT / TELEGRAM_PROXY_URL — обходные пути, когда VPS не может
+  // достучаться до api.telegram.org напрямую (см. runbook в DEPLOYMENT.md).
+  // grammy на Node ходит через node-fetch, поэтому прокси задаётся через agent.
+  const proxyUrl = getTelegramProxyUrl();
+  const bot = new Bot(BOT_TOKEN, {
+    client: {
+      apiRoot: getTelegramApiRoot(),
+      ...(proxyUrl
+        ? { baseFetchConfig: { compress: true, agent: new HttpsProxyAgent(proxyUrl) } }
+        : {}),
+    },
+  });
 
   // /start — main menu (supports deep linking: /start gazebos, /start ps-park)
   bot.command("start", async (ctx) => {

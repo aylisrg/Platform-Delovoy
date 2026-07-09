@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "fs";
 import { prisma } from "@/lib/db";
+import { telegramApi } from "@/lib/telegram/client";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // TELEGRAM_OWNER_CHAT_ID — личный чат владельца (для СРОЧНО обращений)
@@ -65,28 +66,20 @@ export async function sendUrgentFeedbackAlert(params: {
     `<a href="${adminUrl}">Открыть в панели</a>`,
   ].join("\n");
 
-  try {
-    // Send text message
-    const msgResponse = await fetch(
-      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-        }),
-      }
-    );
+  const msgResponse = await telegramApi(
+    "sendMessage",
+    { chat_id: chatId, text, parse_mode: "HTML" },
+    { botToken: BOT_TOKEN }
+  );
 
-    if (!msgResponse.ok) {
-      console.error("[Feedback TG] Failed to send message:", await msgResponse.text());
-      return false;
-    }
+  if (!msgResponse.ok) {
+    console.error("[Feedback TG] Failed to send message:", msgResponse.description);
+    return false;
+  }
 
-    // Send screenshot if present
-    if (params.screenshotPath && existsSync(params.screenshotPath)) {
+  // Send screenshot if present (failure is non-fatal)
+  if (params.screenshotPath && existsSync(params.screenshotPath)) {
+    try {
       const fileBuffer = readFileSync(params.screenshotPath);
       const formData = new FormData();
       formData.append("chat_id", chatId);
@@ -97,17 +90,13 @@ export async function sendUrgentFeedbackAlert(params: {
       );
       formData.append("caption", `Скриншот к обращению`);
 
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-        method: "POST",
-        body: formData,
-      });
+      await telegramApi("sendPhoto", formData, { botToken: BOT_TOKEN });
+    } catch (error) {
+      console.error("[Feedback TG] Error sending screenshot:", error);
     }
-
-    return true;
-  } catch (error) {
-    console.error("[Feedback TG] Error sending alert:", error);
-    return false;
   }
+
+  return true;
 }
 
 function escapeHtml(text: string): string {

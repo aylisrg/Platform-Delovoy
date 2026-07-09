@@ -1,4 +1,5 @@
 import type { NotificationChannelKind } from "@prisma/client";
+import { telegramApi } from "@/lib/telegram/client";
 import type {
   DeliveryResult,
   INotificationChannel,
@@ -31,24 +32,13 @@ export class TelegramChannel implements INotificationChannel {
         }
       : undefined;
 
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${this.token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: address,
-          text,
-          parse_mode: "HTML",
-          reply_markup,
-        }),
-      });
-      const json = (await res.json()) as { ok: boolean; description?: string; result?: { message_id: number } };
-      if (json.ok) return { ok: true, externalId: String(json.result?.message_id) };
-      const retryable = res.status >= 500 || res.status === 429;
-      return { ok: false, reason: json.description ?? `HTTP ${res.status}`, retryable };
-    } catch (err) {
-      return { ok: false, reason: (err as Error).message, retryable: true };
-    }
+    const res = await telegramApi<{ message_id?: number }>(
+      "sendMessage",
+      { chat_id: address, text, parse_mode: "HTML", reply_markup },
+      { botToken: this.token }
+    );
+    if (res.ok) return { ok: true, externalId: String(res.result?.message_id) };
+    return { ok: false, reason: res.description, retryable: res.retryable };
   }
 }
 

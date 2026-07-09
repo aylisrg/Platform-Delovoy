@@ -1,3 +1,4 @@
+import { telegramApi } from "@/lib/telegram/client";
 import type { ChannelAdapter, UserWithContacts } from "../types";
 
 /**
@@ -14,32 +15,20 @@ export const telegramAdapter: ChannelAdapter = {
       return { success: false, error: "Telegram bot token not configured" };
     }
 
-    try {
-      const res = await fetch(
-        `https://api.telegram.org/bot${token}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: recipient,
-            text: message,
-            parse_mode: "HTML",
-          }),
-        }
-      );
+    const res = await telegramApi(
+      "sendMessage",
+      { chat_id: recipient, text: message, parse_mode: "HTML" },
+      { botToken: token }
+    );
 
-      if (!res.ok) {
-        const text = await res.text();
-        return { success: false, error: `Telegram API: ${res.status} ${text}` };
-      }
-
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      };
+    if (!res.ok) {
+      const error = res.transportError
+        ? res.description
+        : `Telegram API: ${res.status ?? ""} ${res.description}`.replace("  ", " ");
+      return { success: false, error };
     }
+
+    return { success: true };
   },
 
   resolveRecipient(user: UserWithContacts) {

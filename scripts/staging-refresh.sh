@@ -32,7 +32,7 @@ err() { echo "[$(date -u +%FT%TZ)] staging-refresh ERROR: $*" >&2; }
 tg_alert() {
   local level="$1" text="$2"
   if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_ADMIN_CHAT_ID:-}" ]; then
-    curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    curl -sS --max-time 15 -X POST "${TELEGRAM_API_ROOT:-https://api.telegram.org}/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       --data-urlencode "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
       --data-urlencode "text=${level} [staging-refresh] ${text}" \
       > /dev/null 2>&1 || true

@@ -1,5 +1,6 @@
 import { apiResponse, apiError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
+import { telegramApi } from "@/lib/telegram/client";
 
 /**
  * POST /api/admin/telegram/test-owner — send a test message to the owner's private chat.
@@ -35,35 +36,34 @@ export async function POST() {
       `Если ты это видишь — личные уведомления владельцу работают.\n` +
       `<i>Platform Delovoy · ${now}</i>`;
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: ownerChatId,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
+    const res = await telegramApi<{
+      chat?: { first_name?: string; last_name?: string; username?: string };
+    }>("sendMessage", { chat_id: ownerChatId, text, parse_mode: "HTML" }, { botToken });
 
-    const data = await res.json();
-
-    if (!data.ok) {
-      if (data.description?.includes("chat not found")) {
+    if (!res.ok) {
+      if (res.transportError) {
+        return apiError(
+          "TELEGRAM_UNREACHABLE",
+          "Сервер не смог соединиться с Telegram API. Это проблема сети на сервере — запустите workflow «Telegram Diagnose».",
+          502
+        );
+      }
+      if (res.description.includes("chat not found")) {
         return apiError("CHAT_NOT_FOUND", "Чат не найден. Проверьте TELEGRAM_OWNER_CHAT_ID. Бот должен быть запущен (/start) пользователем.");
       }
-      if (data.description?.includes("bot was blocked")) {
+      if (res.description.includes("bot was blocked")) {
         return apiError("BOT_BLOCKED", "Пользователь заблокировал бота. Нужно разблокировать @DelovoyPark_bot.");
       }
-      return apiError("TELEGRAM_ERROR", data.description || "Ошибка отправки");
+      return apiError("TELEGRAM_ERROR", res.description || "Ошибка отправки");
     }
 
     return apiResponse({
       sent: true,
       chatId: ownerChatId,
-      recipientName: data.result?.chat?.first_name
-        ? `${data.result.chat.first_name} ${data.result.chat.last_name || ""}`.trim()
+      recipientName: res.result?.chat?.first_name
+        ? `${res.result.chat.first_name} ${res.result.chat.last_name || ""}`.trim()
         : undefined,
-      recipientUsername: data.result?.chat?.username,
+      recipientUsername: res.result?.chat?.username,
     });
   } catch (error) {
     console.error("[Admin Telegram] Test-owner error:", error);

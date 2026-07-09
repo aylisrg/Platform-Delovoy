@@ -4,6 +4,8 @@
  * (enqueueNotification / channels adapter with routing + preferences).
  */
 
+import { telegramApi } from "@/lib/telegram/client";
+
 export type TelegramAlertOptions = {
   chatId?: string;
   botToken?: string;
@@ -25,27 +27,22 @@ export async function sendTelegramAlert(
     return false;
   }
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: options.parseMode ?? "HTML",
-        disable_web_page_preview: options.disableWebPagePreview ?? true,
-      }),
-    });
-    if (!res.ok) {
-      console.error(
-        "[telegram-alert] Telegram API returned",
-        res.status,
-        await res.text().catch(() => "")
-      );
+  const res = await telegramApi(
+    "sendMessage",
+    {
+      chat_id: chatId,
+      text: message,
+      parse_mode: options.parseMode ?? "HTML",
+      disable_web_page_preview: options.disableWebPagePreview ?? true,
+    },
+    { botToken: token }
+  );
+  if (!res.ok) {
+    if (res.transportError) {
+      console.error("[telegram-alert] Failed to send Telegram message:", res.description);
+    } else {
+      console.error("[telegram-alert] Telegram API returned", res.status, res.description);
     }
-    return res.ok;
-  } catch (err) {
-    console.error("[telegram-alert] Failed to send Telegram message:", err);
-    return false;
   }
+  return res.ok;
 }
