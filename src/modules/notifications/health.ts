@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { telegramApi } from "@/lib/telegram/client";
 
 export type NotificationsHealthCheck = {
   ok: boolean;
@@ -14,46 +15,27 @@ export type NotificationsHealthCheck = {
 async function probeBot(
   token: string
 ): Promise<{ ok: boolean; username?: string; reason?: string }> {
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    const json = (await res.json()) as {
-      ok: boolean;
-      result?: { username: string };
-      description?: string;
-    };
-    if (json.ok) return { ok: true, username: json.result?.username };
-    return { ok: false, reason: json.description ?? `HTTP ${res.status}` };
-  } catch (err) {
-    return { ok: false, reason: (err as Error).message };
-  }
+  const res = await telegramApi<{ username?: string }>("getMe", undefined, {
+    botToken: token,
+    timeoutMs: 5000,
+  });
+  if (res.ok) return { ok: true, username: res.result?.username };
+  return { ok: false, reason: res.description };
 }
 
 async function probeChat(
   token: string,
   chatId: string
 ): Promise<{ ok: boolean; title?: string; reason?: string }> {
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(chatId)}`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    const json = (await res.json()) as {
-      ok: boolean;
-      result?: { title?: string; first_name?: string };
-      description?: string;
-    };
-    if (json.ok) {
-      return {
-        ok: true,
-        title: json.result?.title ?? json.result?.first_name,
-      };
-    }
-    return { ok: false, reason: json.description ?? `HTTP ${res.status}` };
-  } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+  const res = await telegramApi<{ title?: string; first_name?: string }>(
+    "getChat",
+    { chat_id: chatId },
+    { botToken: token, timeoutMs: 5000 }
+  );
+  if (res.ok) {
+    return { ok: true, title: res.result?.title ?? res.result?.first_name };
   }
+  return { ok: false, reason: res.description };
 }
 
 export async function notificationsHealth(): Promise<NotificationsHealthCheck> {

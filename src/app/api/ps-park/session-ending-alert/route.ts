@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { telegramApi } from "@/lib/telegram/client";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -41,17 +42,10 @@ export async function POST(request: NextRequest) {
     let sent = false;
 
     if (BOT_TOKEN && ADMIN_CHAT_ID) {
-      const res = await fetch(
-        `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: ADMIN_CHAT_ID,
-            text: message,
-            parse_mode: "HTML",
-          }),
-        }
+      const res = await telegramApi(
+        "sendMessage",
+        { chat_id: ADMIN_CHAT_ID, text: message, parse_mode: "HTML" },
+        { botToken: BOT_TOKEN }
       );
       sent = res.ok;
     }

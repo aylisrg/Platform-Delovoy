@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
+import { telegramApi } from "@/lib/telegram/client";
 
 const schema = z.object({
   name: z.string().min(2).max(100),
@@ -37,15 +38,18 @@ export async function POST(req: NextRequest) {
     const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const res = await telegramApi(
+        "sendMessage",
+        {
           chat_id: chatId,
           text: `🔔 <b>Лист ожидания — новая заявка</b>\n\n👤 ${name}\n📞 ${phone}`,
           parse_mode: "HTML",
-        }),
-      });
+        },
+        { botToken }
+      );
+      if (!res.ok) {
+        console.error("[Waitlist] Telegram notify failed:", res.description);
+      }
     }
 
     return apiResponse({ queued: true });

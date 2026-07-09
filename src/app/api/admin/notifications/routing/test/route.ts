@@ -7,6 +7,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { telegramApi } from "@/lib/telegram/client";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -83,30 +84,28 @@ export async function POST(request: NextRequest) {
       `Если вы видите это сообщение — маршрут «${label}» настроен правильно.`,
     ].join("\n");
 
-    const tgResponse = await fetch(
-      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-        }),
-      }
+    const tgRes = await telegramApi<{ chat?: { title?: string } }>(
+      "sendMessage",
+      { chat_id: chatId, text, parse_mode: "HTML" },
+      { botToken: BOT_TOKEN }
     );
 
-    const tgData = await tgResponse.json();
-
-    if (!tgData.ok) {
+    if (!tgRes.ok) {
+      if (tgRes.transportError) {
+        return apiError(
+          "TELEGRAM_UNREACHABLE",
+          "Сервер не смог соединиться с Telegram API. Это проблема сети на сервере — запустите workflow «Telegram Diagnose».",
+          502
+        );
+      }
       return apiError(
         "TELEGRAM_ERROR",
-        tgData.description || "Ошибка отправки в Telegram"
+        tgRes.description || "Ошибка отправки в Telegram"
       );
     }
 
     // Extract chat title from response
-    const chatTitle = tgData.result?.chat?.title || null;
+    const chatTitle = tgRes.result?.chat?.title || null;
 
     // Auto-save chat title if we got one
     if (chatTitle) {

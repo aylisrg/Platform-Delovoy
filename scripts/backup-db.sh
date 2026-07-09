@@ -52,7 +52,7 @@ tg_alert() {
   local level="$1"
   local text="$2"
   if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_ADMIN_CHAT_ID:-}" ]; then
-    curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    curl -sS --max-time 15 -X POST "${TELEGRAM_API_ROOT:-https://api.telegram.org}/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       --data-urlencode "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
       --data-urlencode "text=${level} [$(hostname)] ${text}" \
       --data-urlencode "parse_mode=HTML" \

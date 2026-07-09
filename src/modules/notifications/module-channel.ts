@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { telegramApi } from "@/lib/telegram/client";
 import type { NotificationEvent } from "./types";
 
 /**
@@ -89,24 +90,13 @@ export async function dispatchModuleChannel(
       return;
     }
 
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-        }),
-        signal: AbortSignal.timeout(15_000),
-      }
+    const res = await telegramApi(
+      "sendMessage",
+      { chat_id: chatId, text, parse_mode: "HTML" },
+      { botToken: token }
     );
     if (!res.ok) {
-      console.error(
-        "[ModuleChannel] Telegram send failed:",
-        await res.text().catch(() => res.status)
-      );
+      console.error("[ModuleChannel] Telegram send failed:", res.description);
     }
   } catch (err) {
     console.error("[ModuleChannel] Dispatch error:", err);
