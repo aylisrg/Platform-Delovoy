@@ -1,0 +1,190 @@
+# Диагностика доступности Telegram Bot API.
+#
+# Job 1 (from-github): проверяет токен и chat_id с раннера GitHub (вне сети VPS)
+#   и шлёт тестовое сообщение — отделяет проблему токена/чата от сетевой.
+# Job 2 (from-vps): по SSH прогоняет сетевую диагностику с прод-сервера и печатает
+#   структурированный вердикт (OK / FULL_BLOCK / V6_ONLY_FAIL / DNS_FAIL /
+#   NETWORK_DOWN / CONTAINER_ONLY_FAIL). Митигации — DEPLOYMENT.md,
+#   runbook «Telegram недоступен с VPS».
+#
+# push-триггер на не-main ветки — чтобы диагностику можно было запустить с
+# feature-ветки до мержа (workflow_dispatch доступен только после попадания
+# файла в main). Срабатывает только на изменение самого этого файла.
+name: Telegram Diagnose
+
+on:
+  workflow_dispatch:
+    inputs:
+      chat_id:
+        description: "Chat ID для тестовой доставки (пусто = владелец)"
+        required: false
+        default: ""
+      send_test_message:
+        description: "Отправить реальное тестовое сообщение"
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/telegram-diagnose.yml"]
+
+concurrency:
+  group: telegram-diagnose
+  cancel-in-progress: false
+
+env:
+  # push-событие не имеет inputs — подставляем владельца.
+  TARGET_CHAT: ${{ inputs.chat_id || secrets.TELEGRAM_OWNER_CHAT_ID || '694696' }}
+  SEND_TEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.send_test_message == false) && 'false' || 'true' }}
+
+jobs:
+  from-github:
+    name: "1/2 — Токен и чат (GitHub runner, вне РФ)"
+    runs-on: ubuntu-latest
+    env:
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      ADMIN_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+    steps:
+      - name: getMe — валидность токена
+        run: |
+          if [ -z "$TG_TOKEN" ]; then
+            echo "::error::Секрет TELEGRAM_BOT_TOKEN не задан"
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/getme.json -w "%{http_code}" --max-time 15 \
+            "https://api.telegram.org/bot$TG_TOKEN/getMe" || true)
+          echo "HTTP: $CODE"
+          if [ "$CODE" = "000" ] || [ -z "$CODE" ]; then
+            echo "ВЕРДИКТ: TG_UNREACHABLE_FROM_GITHUB — Telegram недоступен даже с раннера GitHub (крайне маловероятно, проверьте статус Telegram)"
+            exit 1
+          fi
+          if [ "$CODE" != "200" ]; then
+            echo "ВЕРДИКТ: TOKEN_INVALID — токен отклонён Telegram"
+            cat /tmp/getme.json
+            exit 1
+          fi
+          echo "Бот: @$(jq -r '.result.username' /tmp/getme.json)"
+          echo "ВЕРДИКТ: TOKEN_OK"
+
+      - name: getChat — проверка chat_id (warn-only)
+        continue-on-error: true
+        run: |
+          check_chat() {
+            local label="$1" id="$2"
+            [ -z "$id" ] && { echo "$label: пусто — пропуск"; return 0; }
+            local code
+            code=$(curl -s -o /tmp/chat.json -w "%{http_code}" --max-time 15 \
+              -X POST -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"$id\"}" \
+              "https://api.telegram.org/bot$TG_TOKEN/getChat" || true)
+            if [ "$code" = "200" ]; then
+              echo "$label ($id): OK — $(jq -r '.result.title // .result.first_name // "?"' /tmp/chat.json)"
+            else
+              echo "::warning::$label ($id): HTTP $code — $(jq -r '.description // "?"' /tmp/chat.json 2>/dev/null)"
+            fi
+          }
+          check_chat "Целевой чат" "$TARGET_CHAT"
+          check_chat "Админ-группа" "$ADMIN_CHAT"
+
+      - name: sendMessage — тестовое сообщение владельцу
+        if: env.SEND_TEST == 'true'
+        run: |
+          TEXT="🔧 Диагностика Telegram (1/2): токен и chat_id работают. Отправлено с GitHub runner — вне сети VPS. Следующий шаг: проверка доступа с самого сервера."
+          BODY=$(jq -n --arg c "$TARGET_CHAT" --arg t "$TEXT" '{chat_id:$c,text:$t}')
+          CODE=$(curl -s -o /tmp/send.json -w "%{http_code}" --max-time 15 \
+            -X POST -H "Content-Type: application/json" -d "$BODY" \
+            "https://api.telegram.org/bot$TG_TOKEN/sendMessage" || true)
+          if [ "$CODE" != "200" ]; then
+            echo "::error::sendMessage в чат $TARGET_CHAT не прошёл (HTTP $CODE)"
+            cat /tmp/send.json 2>/dev/null || true
+            exit 1
+          fi
+          echo "✅ Сообщение доставлено в чат $TARGET_CHAT"
+
+  from-vps:
+    name: "2/2 — Сеть с VPS"
+    runs-on: ubuntu-latest
+    needs: from-github
+    steps:
+      - name: SSH-диагностика с прод-сервера
+        uses: appleboy/ssh-action@v1
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_OWNER_CHAT_ID || '694696' }}
+          SEND_TEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.send_test_message == false) && 'false' || 'true' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: TG_TOKEN,CHAT_ID,SEND_TEST
+          script: |
+            set -u
+            probe() { curl "$1" -s -o /dev/null -w "%{http_code}" --max-time 12 "$2" 2>/dev/null || true; }
+
+            echo "=== DNS api.telegram.org ==="
+            V4=$(getent ahostsv4 api.telegram.org 2>/dev/null | awk '{print $1}' | sort -u | head -5 | tr '\n' ' ')
+            V6=$(getent ahostsv6 api.telegram.org 2>/dev/null | awk '{print $1}' | sort -u | head -5 | tr '\n' ' ')
+            echo "A:    ${V4:-<нет>}"
+            echo "AAAA: ${V6:-<нет>}"
+
+            echo ""
+            echo "=== Прямой доступ к Telegram API с хоста ==="
+            C4=$(probe -4 "https://api.telegram.org/bot$TG_TOKEN/getMe")
+            echo "IPv4: HTTP=$C4 (000 = нет соединения/таймаут)"
+            C6=$(probe -6 "https://api.telegram.org/bot$TG_TOKEN/getMe")
+            echo "IPv6: HTTP=$C6"
+
+            echo ""
+            echo "=== Baseline (исправность egress вообще) ==="
+            BG=$(probe -4 "https://api.github.com")
+            echo "api.github.com (вне РФ): HTTP=$BG"
+            BY=$(probe -4 "https://ya.ru")
+            echo "ya.ru (в РФ):            HTTP=$BY"
+
+            echo ""
+            echo "=== Изнутри контейнера app ==="
+            CONT=$(docker exec -e TG_TOKEN="$TG_TOKEN" delovoy-app node -e 'fetch("https://api.telegram.org/bot"+process.env.TG_TOKEN+"/getMe",{signal:AbortSignal.timeout(12000)}).then(function(r){return r.json()}).then(function(j){console.log("CONTAINER:",j.ok?"OK":"API_ERROR")}).catch(function(e){console.log("CONTAINER: FAIL",String((e&&e.cause&&(e.cause.code||e.cause.message))||e))})' 2>&1 || echo "CONTAINER: EXEC_FAIL")
+            echo "$CONT"
+
+            HOST_OK=no
+            if [ "$C4" = "200" ] || [ "$C6" = "200" ]; then HOST_OK=yes; fi
+            CONT_OK=no
+            case "$CONT" in *"CONTAINER: OK"*) CONT_OK=yes;; esac
+
+            VERDICT=UNKNOWN
+            if [ "$HOST_OK" = yes ] && [ "$CONT_OK" = yes ]; then
+              VERDICT=OK
+            elif [ "$HOST_OK" = yes ]; then
+              VERDICT=CONTAINER_ONLY_FAIL
+            elif [ -z "${V4:-}" ] && [ -z "${V6:-}" ]; then
+              VERDICT=DNS_FAIL
+            elif [ "$BG" != "200" ] && [ "$BY" != "200" ]; then
+              VERDICT=NETWORK_DOWN
+            elif [ -n "${V6:-}" ] && [ -z "${V4:-}" ]; then
+              VERDICT=V6_ONLY_FAIL
+            else
+              VERDICT=FULL_BLOCK
+            fi
+
+            if [ "$VERDICT" = "OK" ] && [ "$SEND_TEST" = "true" ]; then
+              CODE=$(curl -4 -s -o /dev/null -w "%{http_code}" --max-time 12 \
+                -X POST -H "Content-Type: application/json" \
+                -d "{\"chat_id\":\"$CHAT_ID\",\"text\":\"✅ Диагностика Telegram (2/2): VPS → Telegram, связь с сервера работает.\"}" \
+                "https://api.telegram.org/bot$TG_TOKEN/sendMessage" 2>/dev/null || true)
+              echo ""
+              echo "sendMessage с VPS: HTTP=$CODE"
+            fi
+
+            echo ""
+            echo "===================================="
+            echo "ВЕРДИКТ: $VERDICT"
+            echo "===================================="
+            case "$VERDICT" in
+              OK) echo "Сеть в порядке. Если уведомления всё равно не идут — смотрите логи app/bot и /api/notifications/health." ;;
+              FULL_BLOCK) echo "api.telegram.org блокируется с IP сервера. Обход: TELEGRAM_PROXY_URL или TELEGRAM_API_ROOT (runbook в DEPLOYMENT.md)." ;;
+              V6_ONLY_FAIL) echo "Есть только AAAA-запись, IPv6-маршрут сломан. Отключите/депроритизируйте IPv6 (runbook)." ;;
+              DNS_FAIL) echo "DNS не резолвит api.telegram.org. Проверьте resolvectl / /etc/resolv.conf (runbook)." ;;
+              NETWORK_DOWN) echo "Весь egress сломан — тикет в Timeweb." ;;
+              CONTAINER_ONLY_FAIL) echo "Хост видит Telegram, контейнер — нет. Docker DNS/MTU (runbook)." ;;
+            esac
