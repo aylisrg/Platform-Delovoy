@@ -305,6 +305,14 @@ jobs:
             ensure_env YOOKASSA_RECEIPTS_ENABLED "true"
             ensure_env YOOKASSA_VAT_CODE "1"
 
+            # CRON_SECRET: без него шаг регистрации кронов молча выходит и ни
+            # один cron (process-outgoing, payments-reconcile) не ставится.
+            # Генерируется один раз; app-контейнер получает его через env_file.
+            if ! grep -q "^CRON_SECRET=" .env 2>/dev/null; then
+              echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env
+              echo "➕ CRON_SECRET generated"
+            fi
+
             # Вебхук-секрет генерируется на сервере при первом деплое и никогда
             # не покидает VPS (в лог не печатается). Готовый URL для ЛК ЮKassa
             # уходит владельцу в Telegram.
