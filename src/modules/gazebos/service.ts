@@ -15,7 +15,11 @@ import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
-import { DEFAULT_CANCELLATION_POLICY } from "@/modules/booking/types";
+import { DEFAULT_CANCELLATION_POLICY, PREPAID_CANCELLATION_POLICY } from "@/modules/booking/types";
+import { createOnlinePayment, autoRefundOnCancellation } from "@/modules/payments/service";
+import { PaymentError } from "@/modules/payments/types";
+import { isYooKassaConfigured } from "@/lib/yookassa/client";
+import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
@@ -152,6 +156,22 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     }
   }
 
+  // Онлайн-оплата: контакт для чека 54-ФЗ (email или телефон) должен быть
+  // известен ДО создания брони — иначе гость уходит на оплату, которую
+  // невозможно провести.
+  const paymentContact = await resolvePaymentContact(userId, input.email, guestPhone);
+  if (
+    isYooKassaConfigured() &&
+    receiptsEnabled() &&
+    !paymentContact.email &&
+    !paymentContact.phone
+  ) {
+    throw new BookingError(
+      "PAYMENT_CONTACT_REQUIRED",
+      "Для онлайн-оплаты укажите email или телефон"
+    );
+  }
+
   // Verify resource exists and is active
   const resource = await prisma.resource.findFirst({
     where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -259,7 +279,76 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     data: { resourceName: resource.name, date, startTime, endTime },
   });
 
-  return booking;
+  // === 100 % онлайн-предоплата (YooKassa) ===
+  // Бронь ждёт денег в PENDING: CONFIRMED придёт из вебхука payment.succeeded,
+  // неоплаченная бронь отменяется по TTL платежа (reconciliation-cron).
+  // Без настроенной ЮKassa работает прежний поток: менеджер подтверждает вручную.
+  let payment: { id: string; confirmationUrl: string | null } | null = null;
+  if (isYooKassaConfigured() && Number(pricing.totalPrice) > 0) {
+    try {
+      const created = await createOnlinePayment({
+        subjectType: "BOOKING",
+        subjectId: booking.id,
+        moduleSlug: MODULE_SLUG,
+        amount: Number(pricing.totalPrice),
+        description: `Беседка: ${resource.name}, ${date} ${startTime}–${endTime}`,
+        userId,
+        customerEmail: paymentContact.email,
+        customerPhone: paymentContact.phone,
+        receiptItems: [
+          {
+            description: `Аренда беседки: ${resource.name}, ${date}`,
+            amount: Number(pricing.totalPrice),
+            paymentMode: "full_prepayment",
+          },
+        ],
+        returnUrl: `${appBaseUrl()}/payments/{paymentId}`,
+        metadata: { bookingId: booking.id },
+      });
+      payment = { id: created.id, confirmationUrl: created.confirmationUrl };
+    } catch (err) {
+      if (err instanceof PaymentError && err.code === "PAYMENT_CREATE_FAILED") {
+        // Провайдер недоступен — бронь остаётся в PENDING, подтвердит менеджер
+        // (graceful degradation, план § 8). Ошибка уже залогирована в payments.
+        payment = null;
+      } else if (err instanceof PaymentError) {
+        // Проблема с данными платежа — бронь без оплаты не имеет смысла.
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { status: "CANCELLED", cancelReason: "Оплата не оформлена" },
+        });
+        throw new BookingError(err.code, err.message);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return { ...booking, payment };
+}
+
+/** Базовый URL приложения для return_url платёжной страницы. */
+function appBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+}
+
+/**
+ * Контакт плательщика для чека 54-ФЗ: приоритет — явно переданный email,
+ * затем профиль пользователя; у гостей — телефон из формы.
+ */
+async function resolvePaymentContact(
+  userId: string | null,
+  inputEmail?: string,
+  guestPhone?: string
+): Promise<{ email: string | null; phone: string | null }> {
+  if (!userId) {
+    return { email: inputEmail ?? null, phone: guestPhone ?? null };
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, phone: true },
+  });
+  return { email: inputEmail ?? user?.email ?? null, phone: user?.phone ?? null };
 }
 
 /**
@@ -541,23 +630,27 @@ export async function updateBookingStatus(
       ? Number(discountData.finalAmount)
       : originalTotal;
 
+    // Онлайн-предоплата (YooKassa) уже проведена в леджер вебхуком —
+    // в гейте она засчитывается, в кассовый FT при завершении не попадает.
+    const onlinePaid = Number(existingMeta.onlinePaidAmount ?? 0);
+
     // PAYMENT_REQUIRED gate — see ADR 2026-05-04-gazebos-payment-required-on-complete.
     // CRON not used in gazebos today, but the actorRole branch keeps the door
     // closed to a future cron auto-completion regression.
     if (actorRole !== "CRON" && completedTotalBill > 0) {
       const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
-      if (paidByOperator < completedTotalBill) {
+      if (paidByOperator + onlinePaid < completedTotalBill) {
         const shortfall =
-          Math.round((completedTotalBill - paidByOperator) * 100) / 100;
+          Math.round((completedTotalBill - onlinePaid - paidByOperator) * 100) / 100;
         throw new BookingError(
           "PAYMENT_REQUIRED",
           `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
-          { shortfall, totalBill: completedTotalBill, paid: paidByOperator }
+          { shortfall, totalBill: completedTotalBill, paid: paidByOperator, onlinePaid }
         );
       }
     }
 
-    const resolvedCash = cashAmount ?? completedTotalBill;
+    const resolvedCash = cashAmount ?? Math.max(0, completedTotalBill - onlinePaid);
     const resolvedCard = cardAmount ?? 0;
 
     const managerUser = managerId
@@ -594,33 +687,41 @@ export async function updateBookingStatus(
       }
       const b = await tx.booking.findUniqueOrThrow({ where: { id } });
 
-      // Financial ledger — immutable revenue record (totalAmount = post-discount).
-      await tx.financialTransaction.create({
-        data: {
-          moduleSlug: MODULE_SLUG,
-          type: "SESSION_PAYMENT",
-          bookingId: id,
-          totalAmount: completedTotalBill,
-          cashAmount: resolvedCash,
-          cardAmount: resolvedCard,
-          performedById,
-          performedByName: managerName,
-          description: `Беседка: ${resource?.name ?? "—"} · ${booking.clientName ?? "—"}`,
-          metadata: {
-            resourceName: resource?.name ?? "—",
-            clientName: booking.clientName ?? "—",
-            date: booking.date.toISOString().split("T")[0],
-            startTime: booking.startTime.toISOString(),
-            endTime: booking.endTime.toISOString(),
-            originalTotal,
-            ...(discountData && {
-              discountPercent: discountData.percent,
-              discountAmount: Number(discountData.amount),
-              finalAmount: Number(discountData.finalAmount),
-            }),
-          } as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        },
-      });
+      // Financial ledger — immutable revenue record. Онлайн-часть уже проведена
+      // отдельной ONLINE_PAYMENT-строкой из вебхука; здесь фиксируется только
+      // принятое на месте (иначе выручка задвоится). Полностью предоплаченная
+      // бронь кассовой записи не создаёт; для броней без онлайн-оплаты
+      // сохраняется прежнее поведение (запись пишется даже при нулевом счёте).
+      const onSiteTotal = resolvedCash + resolvedCard;
+      if (onSiteTotal > 0 || onlinePaid === 0) {
+        await tx.financialTransaction.create({
+          data: {
+            moduleSlug: MODULE_SLUG,
+            type: "SESSION_PAYMENT",
+            bookingId: id,
+            totalAmount: onSiteTotal,
+            cashAmount: resolvedCash,
+            cardAmount: resolvedCard,
+            performedById,
+            performedByName: managerName,
+            description: `Беседка: ${resource?.name ?? "—"} · ${booking.clientName ?? "—"}`,
+            metadata: {
+              resourceName: resource?.name ?? "—",
+              clientName: booking.clientName ?? "—",
+              date: booking.date.toISOString().split("T")[0],
+              startTime: booking.startTime.toISOString(),
+              endTime: booking.endTime.toISOString(),
+              originalTotal,
+              ...(onlinePaid > 0 && { onlinePaidAmount: onlinePaid }),
+              ...(discountData && {
+                discountPercent: discountData.percent,
+                discountAmount: Number(discountData.amount),
+                finalAmount: Number(discountData.finalAmount),
+              }),
+            } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+          },
+        });
+      }
 
       const completionAction =
         actorRole === "CRON" ? "booking.auto_complete" : "booking.complete";
@@ -704,6 +805,17 @@ export async function updateBookingStatus(
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 
+  // Отмена парком/менеджером → полный автовозврат онлайн-предоплаты
+  // (политика владельца: отмена парком — возврат всегда). Ошибка возврата
+  // не блокирует отмену — логируется внутри для ручного разбора.
+  if (status === "CANCELLED") {
+    await autoRefundOnCancellation({
+      subjectType: "BOOKING",
+      subjectId: id,
+      trigger: "park_cancellation",
+    });
+  }
+
   return updated;
 }
 
@@ -731,13 +843,20 @@ export async function cancelBooking(
   }
 
   const metadata = booking.metadata as BookingMetadata | null;
-  const basePrice = Number(metadata?.basePrice ?? 0);
+
+  // Предоплаченная онлайн бронь живёт по своей политике (решение владельца):
+  // >24 ч до начала — бесплатная отмена с полным автовозвратом; ≤24 ч —
+  // «штраф» = вся предоплата (возврата нет). Штраф считается от онлайн-суммы.
+  const onlinePaid = Number(metadata?.onlinePaidAmount ?? 0);
+  const isPrepaid = onlinePaid > 0;
+  const basePrice = isPrepaid ? onlinePaid : Number(metadata?.basePrice ?? 0);
+  const effectivePolicy = isPrepaid ? PREPAID_CANCELLATION_POLICY : policy;
 
   const cancellationResult = computeCancellationPenalty(
     booking.startTime,
     new Date(),
     basePrice,
-    policy,
+    effectivePolicy,
     false
   );
 
@@ -816,6 +935,18 @@ export async function cancelBooking(
     actor: "client",
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
+
+  // Автовозврат предоплаты по политике: >24 ч до начала — полный возврат,
+  // ≤24 ч — возврата нет (внутри сервиса тот же порог). Ошибка возврата
+  // не блокирует отмену.
+  if (isPrepaid) {
+    await autoRefundOnCancellation({
+      subjectType: "BOOKING",
+      subjectId: id,
+      trigger: "client_cancellation",
+      eventStartTime: booking.startTime,
+    });
+  }
 
   return { penaltyRequired: false, booking: updated };
 }

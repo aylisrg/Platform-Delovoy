@@ -277,6 +277,7 @@ enum FinancialTxType {
   SESSION_PAYMENT
   REFUND
   ADJUSTMENT
+  ONLINE_PAYMENT // online acquiring (YooKassa) — linked Payment id in metadata
 }
 
 enum ShiftStatus {
@@ -1935,6 +1936,7 @@ model AvitoItemStatsSnapshot {
 // === SUBSCRIPTIONS (PS Park, F6 — see ADR 2026-05-04-subscriptions-module-impl) ===
 
 enum SubscriptionStatus {
+  PENDING_PAYMENT // created for online purchase, becomes ACTIVE when payment succeeds
   ACTIVE
   EXPIRED
   DEPLETED
@@ -2076,4 +2078,78 @@ model ChatMessageReceipt {
 
   @@id([messageId, userId])
   @@index([userId])
+}
+
+// === PAYMENTS (online acquiring via YooKassa) ===
+// See docs/architecture/2026-07-08-yookassa-integration-plan.md.
+// Payment = платёжная сессия у внешнего провайдера, полиморфно привязанная
+// к доменной сущности (subjectType + subjectId). Источник истины по статусу —
+// API провайдера (re-fetch в вебхуке/reconciliation), эта модель — наш кэш
+// и точка проведения доменных эффектов.
+
+enum PaymentStatus {
+  PENDING // created, waiting for user to pay (~1h TTL at YooKassa)
+  WAITING_FOR_CAPTURE // two-stage hold (not used by current flows, kept for completeness)
+  SUCCEEDED
+  CANCELED // not paid / expired / rejected
+  REFUNDED // fully refunded
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentSubjectType {
+  BOOKING // Booking.id — gazebos prepayment, ps-park bill
+  SUBSCRIPTION // Subscription.id — PS Park pass purchase
+  ORDER // Order.id — reserved for phase 4 (cafe)
+  RENTAL_PAYMENT // RentalPayment.id — reserved, out of scope per owner decision 2026-07-08
+}
+
+model Payment {
+  id                 String             @id @default(cuid())
+  provider           String             @default("yookassa")
+  providerPaymentId  String?            @unique
+  status             PaymentStatus      @default(PENDING)
+  amount             Decimal            @db.Decimal(10, 2)
+  refundedAmount     Decimal            @default(0) @db.Decimal(10, 2)
+  currency           String             @default("RUB")
+  subjectType        PaymentSubjectType
+  subjectId          String
+  moduleSlug         String
+  userId             String?
+  createdById        String? // manager who initiated the link (admin flows); null for self-serve
+  confirmationUrl    String?
+  description        String
+  idempotenceKey     String             @unique // persisted BEFORE the API call — retries reuse it
+  paymentMethodType  String? // bank_card / sbp / ... from provider response
+  cancellationReason String?
+  customerEmail      String? // receipt (54-ФЗ) destination
+  customerPhone      String?
+  isTest             Boolean            @default(false)
+  metadata           Json?
+  paidAt             DateTime?
+  expiresAt          DateTime? // pending-payment TTL; reconciliation cancels past it
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  refunds PaymentRefund[]
+
+  @@index([subjectType, subjectId])
+  @@index([status, createdAt])
+  @@index([moduleSlug, createdAt])
+  @@index([userId])
+}
+
+model PaymentRefund {
+  id               String   @id @default(cuid())
+  paymentId        String
+  payment          Payment  @relation(fields: [paymentId], references: [id])
+  providerRefundId String?  @unique
+  idempotenceKey   String   @unique
+  amount           Decimal  @db.Decimal(10, 2)
+  status           String   @default("pending") // pending | succeeded | canceled (provider statuses)
+  reason           String
+  createdById      String // userId, or "system" for policy auto-refunds
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([paymentId])
 }

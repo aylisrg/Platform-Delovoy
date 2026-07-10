@@ -243,11 +243,13 @@ jobs:
           AGENT_TELEGRAM_BOT_TOKEN: ${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}
           AGENT_TELEGRAM_USER_ID: ${{ secrets.AGENT_TELEGRAM_USER_ID }}
           AGENT_GITHUB_PAT: ${{ secrets.AGENT_GITHUB_PAT }}
+          YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
+          YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,TELEGRAM_PROXY_URL,TELEGRAM_API_ROOT,AGENT_TELEGRAM_BOT_TOKEN,AGENT_TELEGRAM_USER_ID,AGENT_GITHUB_PAT
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,TELEGRAM_PROXY_URL,TELEGRAM_API_ROOT,AGENT_TELEGRAM_BOT_TOKEN,AGENT_TELEGRAM_USER_ID,AGENT_GITHUB_PAT,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
             set -e
             cd /opt/delovoy-park
@@ -286,6 +288,44 @@ jobs:
             upsert_env AGENT_TELEGRAM_BOT_TOKEN   "$AGENT_TELEGRAM_BOT_TOKEN"
             upsert_env AGENT_TELEGRAM_USER_ID     "$AGENT_TELEGRAM_USER_ID"
             upsert_env AGENT_GITHUB_PAT           "$AGENT_GITHUB_PAT"
+
+            # === YooKassa (онлайн-оплата) ===
+            upsert_env YOOKASSA_SHOP_ID           "$YOOKASSA_SHOP_ID"
+            upsert_env YOOKASSA_SECRET_KEY        "$YOOKASSA_SECRET_KEY"
+
+            # Дефолты — добавляются только если ключа ещё нет (ручная правка
+            # .env на сервере переживает деплой).
+            ensure_env() {
+              local key="$1" val="$2"
+              if ! grep -q "^${key}=" .env 2>/dev/null; then
+                echo "${key}=${val}" >> .env
+                echo "➕ ${key} set to default"
+              fi
+            }
+            ensure_env YOOKASSA_RECEIPTS_ENABLED "true"
+            ensure_env YOOKASSA_VAT_CODE "1"
+
+            # Вебхук-секрет генерируется на сервере при первом деплое и никогда
+            # не покидает VPS (в лог не печатается). Готовый URL для ЛК ЮKassa
+            # уходит владельцу в Telegram.
+            if ! grep -q "^YOOKASSA_WEBHOOK_SECRET=" .env 2>/dev/null; then
+              YK_WEBHOOK_SECRET=$(openssl rand -hex 32)
+              echo "YOOKASSA_WEBHOOK_SECRET=${YK_WEBHOOK_SECRET}" >> .env
+              echo "➕ YOOKASSA_WEBHOOK_SECRET generated"
+              if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_OWNER_CHAT_ID" ]; then
+                TG_ROOT="${TELEGRAM_API_ROOT:-https://api.telegram.org}"
+                TG_MSG=$(printf 'ЮKassa: создан секрет вебхука. Вставьте этот URL в ЛК ЮKassa → Интеграция → HTTP-уведомления (события: payment.succeeded, payment.waiting_for_capture, payment.canceled, refund.succeeded):\n\nhttps://delovoy-park.ru/api/payments/yookassa/webhook/%s' "$YK_WEBHOOK_SECRET")
+                if curl -fsS --max-time 15 -X POST "${TG_ROOT}/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                    -d chat_id="${TELEGRAM_OWNER_CHAT_ID}" \
+                    --data-urlencode text="${TG_MSG}" > /dev/null 2>&1; then
+                  echo "✅ Webhook URL отправлен владельцу в Telegram"
+                else
+                  echo "⚠️  Telegram недоступен — webhook URL смотрите в /opt/delovoy-park/.env (YOOKASSA_WEBHOOK_SECRET)"
+                fi
+              else
+                echo "⚠️  Telegram secrets отсутствуют — webhook URL смотрите в /opt/delovoy-park/.env (YOOKASSA_WEBHOOK_SECRET)"
+              fi
+            fi
 
             echo "Secrets synced to .env"
 
@@ -431,6 +471,16 @@ jobs:
             else
               (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
               echo "✅ process-outgoing cron installed (every minute)"
+            fi
+
+            # Сверка платежей ЮKassa: добивает зависшие статусы, если вебхук
+            # не дошёл (ретраи ЮKassa живут только 24 часа).
+            RECONCILE_ENTRY="*/10 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/payments-reconcile > /dev/null 2>&1"
+            if crontab -l 2>/dev/null | grep -q 'payments-reconcile'; then
+              echo "✅ payments-reconcile cron already registered"
+            else
+              (crontab -l 2>/dev/null; echo "$RECONCILE_ENTRY") | crontab -
+              echo "✅ payments-reconcile cron installed (every 10 minutes)"
             fi
 
       - name: Verify deployment + smoke tests

@@ -504,13 +504,18 @@ export async function updateBookingStatus(
       subscriptionCredit = completedTotalBill;
     }
 
+    // Онлайн-оплата счёта (YooKassa, QR/ссылка) уже проведена в леджер
+    // вебхуком отдельной ONLINE_PAYMENT-строкой — в гейте засчитывается,
+    // в кассовый FT при завершении не попадает.
+    const onlinePaid = Number((metadata?.onlinePaidAmount as string | undefined) ?? 0);
+
     // PAYMENT_REQUIRED gate — see ADR 2026-05-04-ps-park-payment-required-on-complete.
     // CRON safety-net excluded; totalBill === 0 (no tariff/items) and 100% discount
     // (completedTotalBill collapses to 0 above) both pass through naturally.
     // F7: subscriptionCredit is added to paid when subscriptionId is in play.
     if (actorRole !== "CRON" && completedTotalBill > 0) {
       const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
-      const totalCovered = paidByOperator + subscriptionCredit;
+      const totalCovered = paidByOperator + subscriptionCredit + onlinePaid;
       if (totalCovered < completedTotalBill) {
         const shortfall =
           Math.round((completedTotalBill - totalCovered) * 100) / 100;
@@ -522,12 +527,14 @@ export async function updateBookingStatus(
             totalBill: completedTotalBill,
             paid: paidByOperator,
             subscriptionCredit,
+            onlinePaid,
           }
         );
       }
     }
 
-    const resolvedCash = cashAmount ?? (subscriptionId ? 0 : completedTotalBill);
+    const resolvedCash =
+      cashAmount ?? (subscriptionId ? 0 : Math.max(0, completedTotalBill - onlinePaid));
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
       ? await prisma.user.findUnique({ where: { id: managerId }, select: { name: true, email: true } })
@@ -582,7 +589,9 @@ export async function updateBookingStatus(
       }
 
       // F7: when paid via subscription, FT records 0 (the debit IS the payment).
-      const ftTotal = subscriptionId ? 0 : completedTotalBill;
+      // Онлайн-часть уже проведена ONLINE_PAYMENT-строкой из вебхука — здесь
+      // фиксируется только принятое на месте (иначе выручка задвоится).
+      const ftTotal = subscriptionId ? 0 : resolvedCash + resolvedCard;
       const ftCash = subscriptionId ? 0 : resolvedCash;
       const ftCard = subscriptionId ? 0 : resolvedCard;
 
@@ -600,6 +609,7 @@ export async function updateBookingStatus(
           description: `Сессия: ${billSnapshot?.resourceName ?? "—"} · ${billSnapshot?.clientName ?? "—"}`,
           metadata: {
             ...(billSnapshot ? (billSnapshot as Record<string, unknown>) : {}),
+            ...(onlinePaid > 0 && { onlinePaidAmount: onlinePaid }),
             ...(subscriptionId && {
               paymentMethod: "SUBSCRIPTION",
               subscriptionId,
@@ -1502,6 +1512,7 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     items,
     itemsTotal,
     totalBill: hoursCost + itemsTotal,
+    onlinePaidAmount: Number((metadata?.onlinePaidAmount as string | undefined) ?? 0),
   };
 }
 

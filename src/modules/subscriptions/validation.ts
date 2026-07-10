@@ -13,6 +13,9 @@ export const createSubscriptionSchema = z
     validFrom: isoDate,
     validTo: isoDate,
     notes: z.string().max(2000).optional().nullable(),
+    // manual — оплата на месте, пасс сразу ACTIVE (как раньше);
+    // online — пасс PENDING_PAYMENT + платёжная ссылка ЮKassa, активация по вебхуку.
+    paymentMethod: z.enum(["manual", "online"]).default("manual"),
   })
   .refine((d) => new Date(d.validFrom) < new Date(d.validTo), {
     message: "Дата окончания должна быть позже даты начала",
@@ -53,7 +56,7 @@ export type CancelSubscriptionInput = z.infer<typeof cancelSubscriptionSchema>;
 
 export const listSubscriptionsSchema = z.object({
   status: z
-    .enum(["ACTIVE", "EXPIRED", "DEPLETED", "CANCELLED"])
+    .enum(["PENDING_PAYMENT", "ACTIVE", "EXPIRED", "DEPLETED", "CANCELLED"])
     .optional(),
   userId: z.string().optional(),
   search: z.string().max(200).optional(),

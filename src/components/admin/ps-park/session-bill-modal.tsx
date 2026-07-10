@@ -58,18 +58,28 @@ export function SessionBillModal({
   const discountAmount = discountPercent > 0 ? Math.round(originalTotal * discountPercent / 100) : 0;
   const effectiveTotal = originalTotal - discountAmount;
 
+  // Онлайн-оплата (ЮKassa): уже оплаченная гостем часть вычитается из суммы
+  // к приёму на месте. Server-side гейт считает так же (cash+card+online).
+  const onlinePaid = bill.onlinePaidAmount ?? 0;
+  const toCollect = Math.max(0, Math.round((effectiveTotal - onlinePaid) * 100) / 100);
+
   // Split payment state
-  const [cashRaw, setCashRaw] = useState(String(effectiveTotal));
+  const [cashRaw, setCashRaw] = useState(String(toCollect));
   const [cardRaw, setCardRaw] = useState("0");
+
+  // Pay-online link (QR/ссылка ЮKassa на остаток счёта)
+  const [payLink, setPayLink] = useState<string | null>(null);
+  const [payLinkLoading, setPayLinkLoading] = useState(false);
+  const [payLinkError, setPayLinkError] = useState<string | null>(null);
 
   const cash = parseFloat(cashRaw) || 0;
   const card = parseFloat(cardRaw) || 0;
-  const remainder = Math.round((effectiveTotal - cash - card) * 100) / 100;
+  const remainder = Math.round((toCollect - cash - card) * 100) / 100;
   const isBalanced = Math.abs(remainder) < 0.01;
   // Defense in depth: server enforces PAYMENT_REQUIRED in updateBookingStatus.
   // UI mirrors the same invariant to keep the button disabled before the
   // request even goes out (cheaper than a 422 round-trip).
-  const isUnderpaid = effectiveTotal > 0 && cash + card < effectiveTotal;
+  const isUnderpaid = toCollect > 0 && cash + card < toCollect;
 
   // When the underlying bill amount changes (item added/removed by another flow,
   // or discount applied), reset the cash/card split to default. Intentional
@@ -77,9 +87,29 @@ export function SessionBillModal({
   // which would lose other internal state we want to preserve.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
-    setCashRaw(String(effectiveTotal));
+    setCashRaw(String(toCollect));
     setCardRaw("0");
-  }, [effectiveTotal]);
+  }, [toCollect]);
+
+  async function requestPayLink() {
+    setPayLinkLoading(true);
+    setPayLinkError(null);
+    try {
+      const res = await fetch(`/api/ps-park/bookings/${bill.bookingId}/pay-online`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.success && json.data?.confirmationUrl) {
+        setPayLink(json.data.confirmationUrl);
+      } else {
+        setPayLinkError(json.error?.message ?? "Не удалось создать ссылку");
+      }
+    } catch {
+      setPayLinkError("Не удалось создать ссылку: ошибка сети");
+    } finally {
+      setPayLinkLoading(false);
+    }
+  }
 
   // Reset discount fields each time the modal opens — operator should always
   // start a fresh checkout, not see stale discount from a previous session.
@@ -96,14 +126,14 @@ export function SessionBillModal({
   function handleCashChange(val: string) {
     setCashRaw(val);
     const parsed = parseFloat(val) || 0;
-    const auto = Math.max(0, Math.round((effectiveTotal - parsed) * 100) / 100);
+    const auto = Math.max(0, Math.round((toCollect - parsed) * 100) / 100);
     setCardRaw(String(auto));
   }
 
   function handleCardChange(val: string) {
     setCardRaw(val);
     const parsed = parseFloat(val) || 0;
-    const auto = Math.max(0, Math.round((effectiveTotal - parsed) * 100) / 100);
+    const auto = Math.max(0, Math.round((toCollect - parsed) * 100) / 100);
     setCashRaw(String(auto));
   }
 
@@ -218,24 +248,70 @@ export function SessionBillModal({
               </div>
             )}
 
+            {/* Online prepaid */}
+            {onlinePaid > 0 && (
+              <div className="border-t border-emerald-200 px-4 py-2.5 bg-emerald-50/50">
+                <div className="flex justify-between text-sm text-emerald-800">
+                  <span>Оплачено онлайн</span>
+                  <span className="tabular-nums font-medium">−{formatMoney(onlinePaid)}</span>
+                </div>
+              </div>
+            )}
+
             {/* Grand total */}
             <div className="border-t-2 border-zinc-300 px-4 py-3 bg-white">
               <div className="flex justify-between items-center">
-                <span className="text-base font-bold text-zinc-900">ИТОГ��</span>
+                <span className="text-base font-bold text-zinc-900">
+                  {onlinePaid > 0 ? "К ОПЛАТЕ" : "ИТОГО"}
+                </span>
                 <div className="text-right">
-                  {showDiscount && discountPercent > 0 && (
+                  {(showDiscount && discountPercent > 0) || onlinePaid > 0 ? (
                     <span className="text-sm text-zinc-400 line-through mr-2 tabular-nums">
                       {formatMoney(originalTotal)}
                     </span>
-                  )}
+                  ) : null}
                   <span className="text-xl font-bold text-zinc-900 tabular-nums">
-                    {formatMoney(effectiveTotal)}
+                    {formatMoney(toCollect)}
                   </span>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Pay online (ЮKassa link/QR) */}
+        {toCollect > 0 && (
+          <div className="px-6 pb-4">
+            {!payLink ? (
+              <button
+                type="button"
+                onClick={requestPayLink}
+                disabled={payLinkLoading}
+                className="text-sm text-emerald-600 hover:text-emerald-700 font-medium disabled:opacity-50"
+              >
+                {payLinkLoading ? "Создаём ссылку…" : "💳 Оплатить онлайн (ссылка для гостя)"}
+              </button>
+            ) : (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                <p className="text-xs text-emerald-800">
+                  Отправьте ссылку гостю — после оплаты закройте и откройте чек, онлайн-сумма
+                  зачтётся автоматически.
+                </p>
+                <p className="break-all text-xs text-zinc-600">{payLink}</p>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(payLink)}
+                  className="rounded-lg border border-emerald-300 px-3 py-1 text-xs hover:bg-emerald-100"
+                >
+                  Скопировать ссылку
+                </button>
+              </div>
+            )}
+            {payLinkError && (
+              <p className="mt-1 text-xs text-red-600">{payLinkError}</p>
+            )}
+          </div>
+        )}
 
         {/* Discount toggle & form */}
         <div className="px-6 pb-4">
@@ -320,7 +396,7 @@ export function SessionBillModal({
                   <input
                     type="number"
                     min={0}
-                    max={effectiveTotal}
+                    max={toCollect}
                     step={1}
                     value={cashRaw}
                     onChange={(e) => handleCashChange(e.target.value)}
@@ -339,7 +415,7 @@ export function SessionBillModal({
                   <input
                     type="number"
                     min={0}
-                    max={effectiveTotal}
+                    max={toCollect}
                     step={1}
                     value={cardRaw}
                     onChange={(e) => handleCardChange(e.target.value)}

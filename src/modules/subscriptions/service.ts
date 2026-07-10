@@ -1,6 +1,9 @@
 import { Prisma, type SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
+import { createOnlinePayment } from "@/modules/payments/service";
+import { PaymentError } from "@/modules/payments/types";
+import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import type {
   AdjustHoursInput,
   CancelSubscriptionInput,
@@ -96,12 +99,41 @@ async function recomputeStatusIfStale(sub: {
 export async function createSubscription(
   input: CreateSubscriptionInput,
   performedById: string
-): Promise<{ id: string }> {
-  await loadActiveUserOrThrow(input.userId);
+): Promise<{ id: string; payment?: { id: string; confirmationUrl: string | null } }> {
+  const targetUser = await loadActiveUserOrThrow(input.userId);
   const performerName = await loadPerformer(performedById);
 
   const validFrom = new Date(input.validFrom);
   const validTo = new Date(input.validTo);
+  const isOnline = input.paymentMethod === "online";
+
+  if (isOnline) {
+    if (!isYooKassaConfigured()) {
+      throw new SubscriptionError(
+        "PAYMENTS_NOT_CONFIGURED",
+        "Онлайн-оплата не настроена — примите оплату на месте"
+      );
+    }
+    if (input.pricePaid <= 0) {
+      throw new SubscriptionError(
+        "INVALID_PRICE",
+        "Для онлайн-оплаты цена должна быть больше нуля"
+      );
+    }
+    // Пре-чек «один ACTIVE на гостя»: при онлайн-продаже конфликт всплыл бы
+    // только при активации по вебхуку (деньги уже списаны) — ловим заранее.
+    const existing = await prisma.subscription.findFirst({
+      where: { userId: input.userId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new SubscriptionError(
+        "ACTIVE_SUBSCRIPTION_EXISTS",
+        "У гостя уже есть активный абонемент",
+        { existingSubscriptionId: existing.id }
+      );
+    }
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -113,6 +145,9 @@ export async function createSubscription(
           remainingHours: new Prisma.Decimal(input.totalHours),
           validFrom,
           validTo,
+          // Онлайн-пасс ждёт оплаты; активация и стартовая транзакция часов —
+          // в subjects/subscription.ts после payment.succeeded.
+          ...(isOnline && { status: "PENDING_PAYMENT" as const }),
           pricePaid: new Prisma.Decimal(input.pricePaid),
           notes: input.notes ?? null,
           createdById: performedById,
@@ -120,17 +155,19 @@ export async function createSubscription(
         select: { id: true },
       });
 
-      await tx.subscriptionTransaction.create({
-        data: {
-          subscriptionId: sub.id,
-          type: "MANUAL_TOPUP",
-          hoursDelta: new Prisma.Decimal(input.totalHours),
-          balanceAfter: new Prisma.Decimal(input.totalHours),
-          reason: "initial purchase",
-          performedById,
-          performedByName: performerName,
-        },
-      });
+      if (!isOnline) {
+        await tx.subscriptionTransaction.create({
+          data: {
+            subscriptionId: sub.id,
+            type: "MANUAL_TOPUP",
+            hoursDelta: new Prisma.Decimal(input.totalHours),
+            balanceAfter: new Prisma.Decimal(input.totalHours),
+            reason: "initial purchase",
+            performedById,
+            performedByName: performerName,
+          },
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -143,6 +180,7 @@ export async function createSubscription(
             targetUserId: input.userId,
             totalHours: input.totalHours,
             pricePaid: input.pricePaid,
+            paymentMethod: input.paymentMethod,
             validFrom: validFrom.toISOString(),
             validTo: validTo.toISOString(),
           },
@@ -151,7 +189,49 @@ export async function createSubscription(
 
       return sub;
     });
-    return result;
+
+    if (!isOnline) return result;
+
+    try {
+      const payment = await createOnlinePayment({
+        subjectType: "SUBSCRIPTION",
+        subjectId: result.id,
+        moduleSlug: MODULE_SLUG,
+        amount: input.pricePaid,
+        description: `Абонемент Плей Парк: ${input.totalHours} ч`,
+        userId: input.userId,
+        createdById: performedById,
+        customerEmail: targetUser.email,
+        customerPhone: targetUser.phone,
+        receiptItems: [
+          {
+            description: `Абонемент Плей Парк: ${input.totalHours} ч`,
+            amount: input.pricePaid,
+          },
+        ],
+        returnUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/payments/{paymentId}`,
+        metadata: { subscriptionId: result.id },
+      });
+      return {
+        id: result.id,
+        payment: { id: payment.id, confirmationUrl: payment.confirmationUrl },
+      };
+    } catch (paymentErr) {
+      // Платёж не создан — незачем держать пасс в PENDING_PAYMENT.
+      await prisma.subscription.update({
+        where: { id: result.id },
+        data: {
+          status: "CANCELLED",
+          cancelReason: "Платёж не создан",
+          cancelledAt: new Date(),
+          cancelledById: performedById,
+        },
+      });
+      if (paymentErr instanceof PaymentError) {
+        throw new SubscriptionError(paymentErr.code, paymentErr.message);
+      }
+      throw paymentErr;
+    }
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&

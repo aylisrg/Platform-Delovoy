@@ -166,4 +166,5 @@ export type BookingBill = {
   items: BookingItemSnapshotWithSubtotal[];
   itemsTotal: number;
   totalBill: number;
+  onlinePaidAmount: number; // уже оплачено онлайн (ЮKassa) — вычитается из суммы к приёму
 };
