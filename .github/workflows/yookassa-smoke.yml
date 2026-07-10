@@ -1,0 +1,41 @@
+name: YooKassa Smoke Test
+
+# Ручной боевой смоук интеграции ЮKassa: запускает scripts/dev-yookassa-smoke.ts
+# внутри app-контейнера на VPS (боевые ключи берутся из серверного .env,
+# наружу не выходят). Сценарий:
+#   1. command="create"        → создаёт платёж 10 ₽, в логе — ссылка на оплату
+#   2. владелец оплачивает по ссылке (карта/СБП)
+#   3. command="check <id>"    → статус платежа
+#   4. command="refund <id>"   → полный возврат + контрольный статус
+# Логи содержат только id платежа и confirmation_url — секретов в них нет.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Команда: create | check <paymentId> | refund <paymentId>'
+        required: true
+        default: "create"
+
+jobs:
+  smoke:
+    name: Run YooKassa smoke command
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run smoke script in app container
+        uses: appleboy/ssh-action@v1
+        env:
+          SMOKE_CMD: ${{ inputs.command }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: SMOKE_CMD
+          script: |
+            set -e
+            cd /opt/delovoy-park
+            # shellcheck disable=SC2086 — команда состоит из подкоманды и id,
+            # разбиение по словам здесь намеренное; запуск доступен только
+            # владельцу репозитория (workflow_dispatch + environment).
+            docker compose exec -T app npx tsx scripts/dev-yookassa-smoke.ts $SMOKE_CMD
