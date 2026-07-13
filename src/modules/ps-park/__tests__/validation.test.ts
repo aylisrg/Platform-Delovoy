@@ -9,7 +9,33 @@ import {
   timelineQuerySchema,
   analyticsQuerySchema,
   moduleSettingsSchema,
+  PS_PARK_CHANNEL_EVENT_TYPES,
 } from "@/modules/ps-park/validation";
+
+describe("PS Park Telegram-канал", () => {
+  it("PS_PARK_CHANNEL_EVENT_TYPES содержит booking.paid и не содержит booking.created", () => {
+    const types = PS_PARK_CHANNEL_EVENT_TYPES as readonly string[];
+    expect(types).toContain("booking.paid");
+    expect(types).not.toContain("booking.created");
+  });
+
+  it("moduleSettingsSchema принимает telegramChannel* поля", () => {
+    const parsed = moduleSettingsSchema.safeParse({
+      telegramChannelEnabled: true,
+      telegramChannelName: "Плей Парк",
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid", "booking.completed"],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("moduleSettingsSchema отклоняет неизвестный тип события", () => {
+    const parsed = moduleSettingsSchema.safeParse({
+      telegramChannelEvents: ["booking.created"],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
 
 describe("createTableSchema", () => {
   it("accepts valid input with name only", () => {

@@ -86,6 +86,8 @@ import {
   syncPaymentByProviderId,
   refundPayment,
   autoRefundOnCancellation,
+  getBookingPaymentSummaries,
+  getBookingPaymentDetail,
 } from "../service";
 
 function paymentRow(overrides: Partial<Payment> = {}): Payment {
@@ -553,5 +555,120 @@ describe("активация абонемента по оплате", () => {
         data: expect.objectContaining({ level: "CRITICAL" }),
       })
     );
+  });
+});
+
+function pay(overrides: Partial<Payment> = {}): Payment {
+  return {
+    id: "p" + Math.random().toString(36).slice(2, 7),
+    provider: "yookassa",
+    providerPaymentId: null,
+    status: "SUCCEEDED",
+    amount: 1000 as never,
+    refundedAmount: 0 as never,
+    currency: "RUB",
+    subjectType: "BOOKING",
+    subjectId: "book1",
+    moduleSlug: "gazebos",
+    userId: null,
+    createdById: null,
+    confirmationUrl: null,
+    description: "d",
+    idempotenceKey: "k" + Math.random().toString(36).slice(2, 7),
+    paymentMethodType: "bank_card",
+    cancellationReason: null,
+    customerEmail: null,
+    customerPhone: null,
+    isTest: true,
+    metadata: null,
+    paidAt: new Date("2026-07-01T10:00:00.000Z"),
+    expiresAt: null,
+    createdAt: new Date("2026-07-01T09:00:00.000Z"),
+    updatedAt: new Date(),
+    ...overrides,
+  } as Payment;
+}
+
+describe("getBookingPaymentSummaries", () => {
+  it("пустой вход — пустая Map без запроса к БД", async () => {
+    const res = await getBookingPaymentSummaries([]);
+    expect(res.size).toBe(0);
+    expect(prisma.payment.findMany).not.toHaveBeenCalled();
+  });
+
+  it("один батч-запрос по subjectId IN [...] с subjectType=BOOKING", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([
+      pay({ subjectId: "b1", status: "SUCCEEDED" }),
+    ] as never);
+
+    await getBookingPaymentSummaries(["b1", "b2"]);
+
+    expect(prisma.payment.findMany).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(prisma.payment.findMany).mock.calls[0][0];
+    expect(arg?.where).toMatchObject({
+      subjectType: "BOOKING",
+      subjectId: { in: ["b1", "b2"] },
+    });
+  });
+
+  it("своды статусов: PAID / AWAITING / FAILED / REFUNDED / PARTIALLY_REFUNDED", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([
+      pay({ subjectId: "paid", status: "SUCCEEDED" }),
+      pay({ subjectId: "await", status: "PENDING" }),
+      pay({ subjectId: "await", status: "WAITING_FOR_CAPTURE" }),
+      pay({ subjectId: "fail", status: "CANCELED" }),
+      pay({ subjectId: "ref", status: "REFUNDED", refundedAmount: 1000 as never }),
+      // частичный: успешный + возврат
+      pay({ subjectId: "part", status: "SUCCEEDED" }),
+      pay({ subjectId: "part", status: "REFUNDED" }),
+      // одиночный PARTIALLY_REFUNDED
+      pay({ subjectId: "part2", status: "PARTIALLY_REFUNDED" }),
+    ] as never);
+
+    const res = await getBookingPaymentSummaries([
+      "paid", "await", "fail", "ref", "part", "part2",
+    ]);
+    expect(res.get("paid")?.status).toBe("PAID");
+    expect(res.get("await")?.status).toBe("AWAITING");
+    expect(res.get("fail")?.status).toBe("FAILED");
+    expect(res.get("ref")?.status).toBe("REFUNDED");
+    expect(res.get("part")?.status).toBe("PARTIALLY_REFUNDED");
+    expect(res.get("part2")?.status).toBe("PARTIALLY_REFUNDED");
+  });
+
+  it("бронь без платежей отсутствует в Map (NONE трактуется вызывающим)", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([] as never);
+    const res = await getBookingPaymentSummaries(["b1"]);
+    expect(res.has("b1")).toBe(false);
+  });
+
+  it("PAID: agregat amount = сумма успешных, paymentMethodType из основного платежа", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([
+      pay({ subjectId: "b1", status: "SUCCEEDED", amount: 600 as never, paymentMethodType: "sbp" }),
+      pay({ subjectId: "b1", status: "SUCCEEDED", amount: 400 as never, paymentMethodType: "bank_card" }),
+    ] as never);
+    const res = await getBookingPaymentSummaries(["b1"]);
+    expect(res.get("b1")?.status).toBe("PAID");
+    expect(res.get("b1")?.amount).toBe("1000.00");
+    expect(res.get("b1")?.paymentMethodType).toBe("sbp");
+  });
+});
+
+describe("getBookingPaymentDetail", () => {
+  it("нет платежей → null", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([] as never);
+    expect(await getBookingPaymentDetail("b1")).toBeNull();
+  });
+
+  it("возвращает агрегат + список платежей с возвратами", async () => {
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([
+      { ...pay({ subjectId: "b1", status: "SUCCEEDED", amount: 1000 as never }), refunds: [] },
+    ] as never);
+    const detail = await getBookingPaymentDetail("b1");
+    expect(detail?.status).toBe("PAID");
+    expect(detail?.amount).toBe("1000.00");
+    expect(detail?.payments).toHaveLength(1);
+    const arg = vi.mocked(prisma.payment.findMany).mock.calls[0][0];
+    expect(arg?.include).toMatchObject({ refunds: true });
   });
 });

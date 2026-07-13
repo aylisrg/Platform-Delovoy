@@ -20,13 +20,20 @@ export async function GET() {
     });
     if (!moduleRecord) return apiNotFound("Модуль не найден");
 
-    return apiResponse(moduleRecord.config ?? {
+    const defaults = {
       openHour: 8,
       closeHour: 23,
       minBookingHours: 1,
       slotRoundingMinutes: 30,
       sessionAlertMinutes: 10,
-    });
+      telegramChannelEnabled: false,
+      telegramChannelName: "",
+      telegramChannelId: "",
+      telegramChannelEvents: [] as string[],
+    };
+    const config = (moduleRecord.config as Record<string, unknown>) ?? {};
+
+    return apiResponse({ ...defaults, ...config });
   } catch {
     return apiServerError();
   }

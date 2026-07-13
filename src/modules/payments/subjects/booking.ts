@@ -129,6 +129,8 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
       }
     }
 
+    // Клиенту — «Бронирование подтверждено» (DM). Только gazebos: у ps-park
+    // статус брони при оплате счёта не меняется.
     enqueueNotification({
       type: "booking.confirmed",
       moduleSlug: booking.moduleSlug,
@@ -138,6 +140,28 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
       data: { resourceName: resource?.name || "", ...times },
     });
   }
+
+  // Канал-only событие «бронь оплачена» — для обоих модулей. Заменяет
+  // premature booking.created в выделенном Telegram-канале: шлётся строго
+  // после успешной онлайн-оплаты и несёт ссылку на бронь в админке
+  // (adminUrl строится в renderChannelMessage по moduleSlug + bookingId).
+  enqueueNotification({
+    type: "booking.paid",
+    moduleSlug: booking.moduleSlug,
+    entityId: booking.id,
+    userId: booking.userId ?? undefined,
+    actor: "admin",
+    data: {
+      resourceName: resource?.name || "",
+      ...times,
+      clientName: booking.clientName || "",
+      amount: Number(payment.amount).toLocaleString("ru-RU", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+      bookingId: booking.id,
+    },
+  });
 }
 
 export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promise<void> {

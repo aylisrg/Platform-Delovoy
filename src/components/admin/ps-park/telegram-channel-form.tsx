@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { GAZEBO_CHANNEL_EVENTS } from "@/modules/gazebos/validation";
+import { PS_PARK_CHANNEL_EVENTS } from "@/modules/ps-park/validation";
 
 // Известные типы канала — при загрузке отбрасываем устаревшие сохранённые
-// значения (напр. booking.created), иначе strict z.enum отклонит сохранение.
-const KNOWN_EVENT_TYPES = new Set<string>(GAZEBO_CHANNEL_EVENTS.map((e) => e.type));
+// значения, иначе strict z.enum отклонит сохранение.
+const KNOWN_EVENT_TYPES = new Set<string>(PS_PARK_CHANNEL_EVENTS.map((e) => e.type));
 
 type ChannelState = {
   telegramChannelEnabled: boolean;
@@ -22,7 +22,7 @@ const EMPTY: ChannelState = {
   telegramChannelEvents: [],
 };
 
-export function GazeboTelegramChannelForm() {
+export function PSParkTelegramChannelForm() {
   const [state, setState] = useState<ChannelState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,7 +33,7 @@ export function GazeboTelegramChannelForm() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/gazebos/settings");
+        const res = await fetch("/api/ps-park/settings");
         const json = await res.json();
         if (json.success) {
           const c = json.data as Partial<ChannelState>;
@@ -73,7 +73,7 @@ export function GazeboTelegramChannelForm() {
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch("/api/gazebos/settings", {
+      const res = await fetch("/api/ps-park/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -101,7 +101,7 @@ export function GazeboTelegramChannelForm() {
     setError(null);
     try {
       const chatId = state.telegramChannelId.trim();
-      const res = await fetch("/api/gazebos/settings/test", {
+      const res = await fetch("/api/ps-park/settings/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(chatId ? { chatId } : {}),
@@ -131,9 +131,9 @@ export function GazeboTelegramChannelForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold text-zinc-900">Telegram-канал беседок</h2>
+        <h2 className="text-lg font-semibold text-zinc-900">Telegram-канал Плей Парка</h2>
         <p className="text-sm text-zinc-500 mt-1">
-          Отдельный канал/группа для уведомлений только по беседкам. Используется
+          Отдельный канал/группа для уведомлений об оплаченных сессиях. Используется
           тот же бот платформы — добавьте его в группу/канал с правом отправки
           сообщений и укажите её ID или @username ниже.
         </p>
@@ -166,7 +166,7 @@ export function GazeboTelegramChannelForm() {
             value={state.telegramChannelName}
             onChange={(e) => update("telegramChannelName", e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            placeholder="Беседки — уведомления"
+            placeholder="Плей Парк — уведомления"
           />
         </label>
         <label className="block">
@@ -178,7 +178,7 @@ export function GazeboTelegramChannelForm() {
             value={state.telegramChannelId}
             onChange={(e) => update("telegramChannelId", e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            placeholder="-1001234567890 или @gazebos_channel"
+            placeholder="-1001234567890 или @pspark_channel"
           />
         </label>
       </div>
@@ -186,7 +186,7 @@ export function GazeboTelegramChannelForm() {
       <div className="rounded-lg border border-zinc-200 p-4 space-y-3">
         <p className="font-medium text-zinc-900">Какие уведомления слать в канал</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {GAZEBO_CHANNEL_EVENTS.map((ev) => (
+          {PS_PARK_CHANNEL_EVENTS.map((ev) => (
             <label key={ev.type} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"

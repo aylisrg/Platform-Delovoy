@@ -69,6 +69,29 @@ export const analyticsQuerySchema = z.object({
   period: z.enum(["week", "month", "quarter"]).default("month"),
 });
 
+/**
+ * Типы событий выделенного Telegram-канала PS Park (зеркало gazebos).
+ * В канал шлём только «оплаченные» сессии (booking.paid) + сервисные события.
+ */
+export const PS_PARK_CHANNEL_EVENT_TYPES = [
+  "booking.paid",
+  "booking.cancelled",
+  "booking.completed",
+  "booking.reminder",
+] as const;
+
+export type PSParkChannelEventType = (typeof PS_PARK_CHANNEL_EVENT_TYPES)[number];
+
+export const PS_PARK_CHANNEL_EVENTS: {
+  type: PSParkChannelEventType;
+  label: string;
+}[] = [
+  { type: "booking.paid", label: "Оплачено онлайн" },
+  { type: "booking.cancelled", label: "Сессия отменена" },
+  { type: "booking.completed", label: "Сессия завершена" },
+  { type: "booking.reminder", label: "Напоминание (за 1 час)" },
+];
+
 export const moduleSettingsSchema = z.object({
   openHour: z.number().int().min(0).max(23).optional(),
   closeHour: z.number().int().min(0).max(23).optional(),
@@ -76,4 +99,16 @@ export const moduleSettingsSchema = z.object({
   slotRoundingMinutes: z.number().int().min(1).max(60).optional(),
   sessionAlertMinutes: z.number().int().min(1).max(60).optional(),
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
+  // Выделенный Telegram-канал PS Park (хранится в Module.config).
+  telegramChannelEnabled: z.boolean().optional(),
+  telegramChannelName: z.string().max(200).optional(),
+  telegramChannelId: z.string().max(64).optional(), // пустая строка очищает
+  telegramChannelEvents: z
+    .array(z.enum(PS_PARK_CHANNEL_EVENT_TYPES))
+    .optional(),
+});
+
+/** Тест-сообщение в канал: chatId для проверки значения до сохранения. */
+export const channelTestMessageSchema = z.object({
+  chatId: z.string().max(64).optional(),
 });

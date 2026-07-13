@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import type { BookingPaymentStatus } from "@/modules/payments/types";
 import {
   DeleteConfirmDialog,
   deleteWithPassword,
@@ -37,6 +39,7 @@ type Booking = {
   clientName: string | null;
   clientPhone: string | null;
   resourceName: string | null;
+  paymentStatus: BookingPaymentStatus;
 };
 
 export function PSParkBookingHistoryTable() {
@@ -79,6 +82,7 @@ export function PSParkBookingHistoryTable() {
           clientName: b.clientName ?? (b.user as Record<string, unknown>)?.name ?? null,
           clientPhone: b.clientPhone ?? (b.user as Record<string, unknown>)?.phone ?? null,
           resourceName: (b.resource as Record<string, unknown>)?.name ?? null,
+          paymentStatus: (b.paymentStatus as BookingPaymentStatus) ?? "NONE",
         })));
         setTotal(json.meta?.total ?? 0);
       }
@@ -150,6 +154,7 @@ export function PSParkBookingHistoryTable() {
                 <th className="pb-3 font-medium">Клиент</th>
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
+                <th className="pb-3 font-medium">Оплата</th>
                 {isSuperAdmin && <th className="pb-3 font-medium text-right">Действия</th>}
               </tr>
             </thead>
@@ -165,6 +170,9 @@ export function PSParkBookingHistoryTable() {
                     <Badge variant={statusVariant[b.status] ?? "default"}>
                       {statusLabel[b.status] ?? b.status}
                     </Badge>
+                  </td>
+                  <td className="py-3">
+                    <BookingPaymentBadge status={b.paymentStatus} />
                   </td>
                   {isSuperAdmin && (
                     <td className="py-3 text-right">

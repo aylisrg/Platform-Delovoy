@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { hasRole, hasAdminSectionAccess } from "@/lib/permissions";
 import { getSessionDetail } from "@/modules/ps-park/service";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
 import {
   formatDate as formatDateUnified,
   formatTime as formatTimeUnified,
@@ -246,6 +247,27 @@ export default async function SessionDetailPage({
                 {formatMoney(payment.cardAmount)}
               </p>
             </div>
+          </div>
+        )}
+
+        {payment.online && (
+          <div className="mt-3 rounded-lg bg-green-50 border border-green-100 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-2 text-green-700">
+                💳 Онлайн-оплата (ЮKassa)
+                <BookingPaymentBadge status={payment.online.status} />
+              </span>
+              {payment.online.amount > 0 && (
+                <span className="font-semibold tabular-nums text-green-900">
+                  {formatMoney(payment.online.amount)}
+                </span>
+              )}
+            </div>
+            {payment.online.paidAt && (
+              <p className="text-xs text-green-600 mt-1">
+                {formatDateTime(payment.online.paidAt)}
+              </p>
+            )}
           </div>
         )}
 

@@ -58,3 +58,38 @@ export type PublicPaymentStatus = {
   status: Payment["status"];
   confirmationUrl: string | null;
 };
+
+/**
+ * Свёрнутый статус оплаты брони для админ-списков.
+ * NONE (нет ни одного Payment) отделён от FAILED (платёж был, но CANCELED):
+ * POS-бронь, оплаченная наличными, не должна ложно показываться «Не оплачено».
+ */
+export type BookingPaymentStatus =
+  | "PAID"
+  | "AWAITING"
+  | "PARTIALLY_REFUNDED"
+  | "REFUNDED"
+  | "FAILED"
+  | "NONE";
+
+/** Агрегат оплаты одной брони для бейджа в списке. */
+export type BookingPaymentSummary = {
+  bookingId: string;
+  status: BookingPaymentStatus;
+  /** Сумма успешно оплаченного онлайн (Decimal → строка). */
+  amount: string;
+  /** Сумма возвратов (Decimal → строка). */
+  refundedAmount: string;
+  paidAt: string | null;
+  paymentMethodType: string | null;
+};
+
+/** Детальная оплата одной брони для страницы брони. */
+export type BookingPaymentDetail = {
+  status: BookingPaymentStatus;
+  amount: string;
+  refundedAmount: string;
+  paidAt: string | null;
+  paymentMethodType: string | null;
+  payments: PaymentWithRefunds[];
+};

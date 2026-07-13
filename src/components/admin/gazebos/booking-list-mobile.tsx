@@ -2,6 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "./booking-actions";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import type { BookingPaymentStatus } from "@/modules/payments/types";
 import type { BookingStatus } from "@prisma/client";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
 
@@ -31,6 +33,7 @@ export type GazeboMobileBookingRow = {
   user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
   metadata?: unknown;
+  paymentStatus?: BookingPaymentStatus;
 };
 
 type Props = {
@@ -76,9 +79,12 @@ export function GazeboBookingListMobile({ bookings, resourceMap, emphasizePendin
                   {formatTime(b.endTime)}
                 </p>
               </div>
-              <Badge variant={statusVariant[b.status] ?? "default"}>
-                {statusLabel[b.status] ?? b.status}
-              </Badge>
+              <div className="flex flex-col items-end gap-1">
+                <Badge variant={statusVariant[b.status] ?? "default"}>
+                  {statusLabel[b.status] ?? b.status}
+                </Badge>
+                <BookingPaymentBadge status={b.paymentStatus} />
+              </div>
             </div>
 
             {phone && (

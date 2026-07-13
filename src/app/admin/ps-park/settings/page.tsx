@@ -1,4 +1,5 @@
 import { ModuleSettings } from "@/components/admin/shared/module-settings";
+import { PSParkTelegramChannelForm } from "@/components/admin/ps-park/telegram-channel-form";
 
 export const dynamic = "force-dynamic";
 
@@ -11,5 +12,12 @@ const FIELDS = [
 ];
 
 export default function PSParkSettingsPage() {
-  return <ModuleSettings moduleSlug="ps-park" fields={FIELDS} />;
+  return (
+    <div className="space-y-8">
+      <ModuleSettings moduleSlug="ps-park" fields={FIELDS} />
+      <div className="border-t border-zinc-200 pt-8">
+        <PSParkTelegramChannelForm />
+      </div>
+    </div>
+  );
 }

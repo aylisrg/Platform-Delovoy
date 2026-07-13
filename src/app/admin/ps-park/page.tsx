@@ -12,6 +12,7 @@ import { BookingListMobile } from "@/components/admin/ps-park/booking-list-mobil
 import { ShiftPanel } from "@/components/admin/ps-park/shift-panel";
 import { ActiveSessionsPanel } from "@/components/admin/ps-park/active-sessions-panel";
 import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
+import { getBookingPaymentSummaries } from "@/modules/payments/service";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import { BookingHistoryTable, type HistoryBooking } from "@/components/admin/ps-park/booking-history-table";
@@ -101,6 +102,11 @@ export default async function PSParkManagerPage() {
       where: { moduleSlug: "ps-park", status: "PENDING" },
     }),
   ]);
+
+  // Статус оплаты для истории (батч-запрос по завершённым/отменённым).
+  const historyPaymentSummaries = await getBookingPaymentSummaries(
+    recentCompleted.map((b) => b.id)
+  );
 
   const resourceMap = new Map(resources.map((r) => [r.id, r.name]));
 
@@ -248,6 +254,7 @@ export default async function PSParkManagerPage() {
                   userPhone: b.user?.phone ?? null,
                   resourceId: b.resourceId,
                   hasBill: b.status === "COMPLETED",
+                  paymentStatus: historyPaymentSummaries.get(b.id)?.status ?? "NONE",
                 }))}
                 resourceMap={Object.fromEntries(resourceMap)}
               />

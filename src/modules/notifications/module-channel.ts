@@ -19,24 +19,68 @@ import type { NotificationEvent } from "./types";
 
 type TemplateFn = (d: Record<string, unknown>) => string;
 
+/** Экранирование для parse_mode=HTML (имена/названия из пользовательского ввода). */
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Абсолютная ссылка на конкретную бронь в админке. Единый источник знания о
+ * форме админ-маршрута по модулю: gazebos → страница брони, ps-park → сессия.
+ */
+function adminBookingUrl(moduleSlug: string, bookingId: unknown): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const id = encodeURIComponent(String(bookingId ?? ""));
+  const path =
+    moduleSlug === "ps-park"
+      ? `/admin/ps-park/sessions/${id}`
+      : `/admin/gazebos/bookings/${id}`;
+  return `${base}${path}`;
+}
+
+/** HTML-ссылка «Открыть в панели» на бронь (пусто, если bookingId неизвестен). */
+function adminLink(moduleSlug: string, d: Record<string, unknown>): string {
+  if (!d.bookingId) return "";
+  return `\n\n<a href="${adminBookingUrl(moduleSlug, d.bookingId)}">Открыть в панели</a>`;
+}
+
 /**
  * HTML-formatted channel templates per module + event type.
- * Currently only gazebos defines a channel feed.
+ *
+ * В выделенный канал попадают только «оплаченные» брони: событие
+ * `booking.paid` шлётся строго после успешной онлайн-оплаты и несёт ссылку
+ * на бронь. `booking.created`/`booking.confirmed` намеренно НЕ имеют шаблона —
+ * так даже старый сохранённый `telegramChannelEvents` не запостит неоплаченную
+ * бронь (render → null) и исключается двойной пост confirmed+paid.
  */
 const channelTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
-    "booking.created": (d) =>
-      `🆕 <b>Новая бронь беседки</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}`,
-    "booking.confirmed": (d) =>
-      `✅ <b>Бронь подтверждена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+    "booking.paid": (d) =>
+      `💳 <b>Бронь оплачена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("gazebos", d)}`,
     "booking.cancelled": (d) =>
-      `❌ <b>Бронь отменена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}`,
+      `❌ <b>Бронь отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${adminLink("gazebos", d)}`,
     "booking.completed": (d) =>
-      `🏁 <b>Бронь завершена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+      `🏁 <b>Бронь завершена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("gazebos", d)}`,
     "booking.deleted": (d) =>
-      `🗑 <b>Бронь удалена</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.userName ? `\nКлиент: ${d.userName}` : ""}`,
+      `🗑 <b>Бронь удалена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}`,
     "booking.reminder": (d) =>
-      `⏰ <b>Напоминание</b>\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+      `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+  },
+  "ps-park": {
+    // «Онлайн-оплата», а не «оплачена»: счёт ps-park может оплачиваться
+    // частями (несколько платежей), поэтому каждое событие — это принятый
+    // онлайн-платёж, а не факт полной оплаты сессии.
+    "booking.paid": (d) =>
+      `💳 <b>Онлайн-оплата сессии</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("ps-park", d)}`,
+    "booking.cancelled": (d) =>
+      `❌ <b>Сессия отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
+    "booking.completed": (d) =>
+      `🏁 <b>Сессия завершена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
+    "booking.reminder": (d) =>
+      `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
   },
 };
 

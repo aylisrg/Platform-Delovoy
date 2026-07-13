@@ -8,7 +8,33 @@ import {
   timelineQuerySchema,
   analyticsQuerySchema,
   moduleSettingsSchema,
+  GAZEBO_CHANNEL_EVENT_TYPES,
 } from "@/modules/gazebos/validation";
+
+describe("GAZEBO_CHANNEL_EVENT_TYPES", () => {
+  it("канал шлёт booking.paid, а booking.created/confirmed исключены", () => {
+    const types = GAZEBO_CHANNEL_EVENT_TYPES as readonly string[];
+    expect(types).toContain("booking.paid");
+    expect(types).not.toContain("booking.created");
+    expect(types).not.toContain("booking.confirmed");
+  });
+
+  it("moduleSettingsSchema принимает telegramChannelEvents с booking.paid", () => {
+    const parsed = moduleSettingsSchema.safeParse({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid", "booking.cancelled"],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("moduleSettingsSchema отклоняет устаревший booking.created", () => {
+    const parsed = moduleSettingsSchema.safeParse({
+      telegramChannelEvents: ["booking.created"],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
 
 describe("createResourceSchema", () => {
   it("accepts valid input with required fields only", () => {
@@ -260,7 +286,7 @@ describe("moduleSettingsSchema", () => {
       telegramChannelEnabled: true,
       telegramChannelName: "Беседки",
       telegramChannelId: "-1001234567890",
-      telegramChannelEvents: ["booking.created", "booking.deleted"],
+      telegramChannelEvents: ["booking.paid", "booking.deleted"],
     });
     expect(result.success).toBe(true);
   });

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/db";
 import { getTimeline } from "@/modules/gazebos/service";
+import { getBookingPaymentSummaries } from "@/modules/payments/service";
 import { GazeboTimelineGrid } from "@/components/admin/gazebos/timeline-grid";
 import { GazeboMobileTimeline } from "@/components/admin/gazebos/mobile-timeline";
 import { GazeboBookingListMobile } from "@/components/admin/gazebos/booking-list-mobile";
@@ -55,6 +56,15 @@ export default async function GazebosSchedulePage() {
   ]);
 
   const resourceMap = new Map(timeline.resources.map((r) => [r.id, r.name]));
+
+  // Статус оплаты для карточек ожидающих броней (батч-запрос).
+  const paymentSummaries = await getBookingPaymentSummaries(
+    pendingBookings.map((b) => b.id)
+  );
+  const pendingBookingsWithPayment = pendingBookings.map((b) => ({
+    ...b,
+    paymentStatus: paymentSummaries.get(b.id)?.status ?? "NONE",
+  }));
 
   return (
     <>
@@ -168,7 +178,7 @@ export default async function GazebosSchedulePage() {
             {/* Mobile cards */}
             <div className="lg:hidden">
               <GazeboBookingListMobile
-                bookings={pendingBookings}
+                bookings={pendingBookingsWithPayment}
                 resourceMap={resourceMap}
                 emphasizePending
               />
