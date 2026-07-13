@@ -49,9 +49,16 @@ describe("EVENT_ROUTING", () => {
     });
   });
 
+  it("booking.paid is channel-only (no client, no admin via notify)", () => {
+    expect(EVENT_ROUTING["booking.paid"]).toEqual({
+      client: false,
+      admin: false,
+    });
+  });
+
   it("all event types have routing defined", () => {
     const expectedEvents = [
-      "booking.created", "booking.confirmed", "booking.cancelled", "booking.reminder",
+      "booking.created", "booking.confirmed", "booking.cancelled", "booking.reminder", "booking.paid",
       "order.placed", "order.preparing", "order.ready", "order.delivered", "order.cancelled",
       "contract.created", "contract.expiring",
     ];

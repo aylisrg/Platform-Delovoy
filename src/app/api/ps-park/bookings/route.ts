@@ -2,9 +2,12 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
 import { listBookings } from "@/modules/ps-park/service";
 import { psBookingFilterSchema } from "@/modules/ps-park/validation";
+import { getBookingPaymentSummaries } from "@/modules/payments/service";
 
 /**
- * GET /api/ps-park/bookings — list bookings with optional filters
+ * GET /api/ps-park/bookings — list bookings with optional filters.
+ * Каждая бронь обогащается derived-статусом оплаты (один батч-запрос) для
+ * бейджа в админ-таблице.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +18,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { bookings, total } = await listBookings(parsed.data);
-    return apiResponse(bookings, { total });
+    const summaries = await getBookingPaymentSummaries(bookings.map((b) => b.id));
+    const enriched = bookings.map((b) => ({
+      ...b,
+      paymentStatus: summaries.get(b.id)?.status ?? "NONE",
+    }));
+    return apiResponse(enriched, { total });
   } catch {
     return apiServerError();
   }

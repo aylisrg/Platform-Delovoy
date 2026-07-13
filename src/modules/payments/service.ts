@@ -17,6 +17,9 @@ import {
   PaymentError,
   type AutoRefundResult,
   type AutoRefundTrigger,
+  type BookingPaymentDetail,
+  type BookingPaymentStatus,
+  type BookingPaymentSummary,
   type CreateOnlinePaymentInput,
   type PublicPaymentStatus,
   type ReconcileReport,
@@ -656,6 +659,116 @@ export async function listPayments(query: {
     prisma.payment.count({ where }),
   ]);
   return { items, total };
+}
+
+// === Статус оплаты по броням (для админ-списков и страницы брони) ===
+
+/**
+ * Свод набора платежей одной брони в компактный статус.
+ * У ps-park на одну бронь может быть несколько платежей (частичная оплата
+ * счёта), поэтому агрегируем по всему набору, а не берём последний.
+ */
+function derivePaymentStatus(payments: Payment[]): BookingPaymentStatus {
+  if (payments.length === 0) return "NONE";
+  const hasSucceeded = payments.some((p) => p.status === "SUCCEEDED");
+  const hasPartial = payments.some((p) => p.status === "PARTIALLY_REFUNDED");
+  const hasRefunded = payments.some((p) => p.status === "REFUNDED");
+  const hasPending = payments.some(
+    (p) => p.status === "PENDING" || p.status === "WAITING_FOR_CAPTURE"
+  );
+
+  if (hasRefunded && !hasSucceeded && !hasPartial) return "REFUNDED";
+  if (hasPartial || (hasRefunded && hasSucceeded)) return "PARTIALLY_REFUNDED";
+  if (hasSucceeded) return "PAID";
+  if (hasPending) return "AWAITING";
+  return "FAILED"; // остались только CANCELED
+}
+
+/** Наиболее релевантный платёж набора для отображения способа/даты/сумм. */
+function primaryPayment(payments: Payment[]): Payment | null {
+  if (payments.length === 0) return null;
+  const order: Payment["status"][] = [
+    "SUCCEEDED",
+    "PARTIALLY_REFUNDED",
+    "REFUNDED",
+    "WAITING_FOR_CAPTURE",
+    "PENDING",
+    "CANCELED",
+  ];
+  const byRank = [...payments].sort(
+    (a, b) => order.indexOf(a.status) - order.indexOf(b.status)
+  );
+  return byRank[0];
+}
+
+function summarize(bookingId: string, payments: Payment[]): BookingPaymentSummary {
+  const status = derivePaymentStatus(payments);
+  const succeededTotal = payments
+    .filter((p) => ["SUCCEEDED", "PARTIALLY_REFUNDED", "REFUNDED"].includes(p.status))
+    .reduce((sum, p) => sum + decimalToNumber(p.amount), 0);
+  const refundedTotal = payments.reduce(
+    (sum, p) => sum + decimalToNumber(p.refundedAmount),
+    0
+  );
+  const primary = primaryPayment(payments);
+  return {
+    bookingId,
+    status,
+    amount: succeededTotal.toFixed(2),
+    refundedAmount: refundedTotal.toFixed(2),
+    paidAt: primary?.paidAt ? primary.paidAt.toISOString() : null,
+    paymentMethodType: primary?.paymentMethodType ?? null,
+  };
+}
+
+/**
+ * Батч-агрегация статуса оплаты по списку броней — один запрос по
+ * полиморфной связи (индекс @@index([subjectType, subjectId])). Пустой вход —
+ * без запроса. Брони без платежей в Map отсутствуют (трактуются как NONE).
+ */
+export async function getBookingPaymentSummaries(
+  bookingIds: string[]
+): Promise<Map<string, BookingPaymentSummary>> {
+  const result = new Map<string, BookingPaymentSummary>();
+  if (bookingIds.length === 0) return result;
+
+  const payments = await prisma.payment.findMany({
+    where: { subjectType: "BOOKING", subjectId: { in: bookingIds } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const byBooking = new Map<string, Payment[]>();
+  for (const payment of payments) {
+    const list = byBooking.get(payment.subjectId) ?? [];
+    list.push(payment);
+    byBooking.set(payment.subjectId, list);
+  }
+  for (const [bookingId, list] of byBooking) {
+    result.set(bookingId, summarize(bookingId, list));
+  }
+  return result;
+}
+
+/** Детальная оплата одной брони (с возвратами) для страницы брони. */
+export async function getBookingPaymentDetail(
+  bookingId: string
+): Promise<BookingPaymentDetail | null> {
+  const payments = await prisma.payment.findMany({
+    where: { subjectType: "BOOKING", subjectId: bookingId },
+    include: { refunds: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (payments.length === 0) return null;
+
+  const summary = summarize(bookingId, payments);
+  return {
+    status: summary.status,
+    amount: summary.amount,
+    refundedAmount: summary.refundedAmount,
+    paidAt: summary.paidAt,
+    paymentMethodType: summary.paymentMethodType,
+    payments,
+  };
 }
 
 /**

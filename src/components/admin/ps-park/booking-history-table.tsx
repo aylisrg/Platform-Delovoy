@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
 import { CallButton } from "@/components/admin/telephony/call-button";
 import type { BookingBill } from "@/modules/ps-park/types";
+import type { BookingPaymentStatus } from "@/modules/payments/types";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
 const statusLabel: Record<string, string> = {
@@ -46,6 +48,7 @@ export type HistoryBooking = {
   userPhone: string | null;
   resourceId: string;
   hasBill: boolean;
+  paymentStatus?: BookingPaymentStatus;
 };
 
 type Props = {
@@ -138,6 +141,7 @@ export function BookingHistoryTable({ bookings, resourceMap }: Props) {
                         {isLoading ? "..." : "чек"}
                       </span>
                     )}
+                    <BookingPaymentBadge status={b.paymentStatus} />
                   </div>
                 </td>
                 <td className="py-3" onClick={(e) => e.stopPropagation()}>

@@ -29,6 +29,8 @@ import {
   debitFromSession,
   SubscriptionDebitError,
 } from "@/modules/subscriptions/debit";
+import { getBookingPaymentSummaries } from "@/modules/payments/service";
+import type { BookingPaymentStatus } from "@/modules/payments/types";
 import type {
   CreatePSBookingInput,
   AdminCreatePSBookingInput,
@@ -1995,6 +1997,12 @@ export type SessionDetailDTO = {
       transactionId: string;
     } | null;
     financialTransactionId: string | null;
+    /** Онлайн-оплата (ЮKassa): накопленная сумма и статус, если была. */
+    online: {
+      amount: number;
+      status: BookingPaymentStatus;
+      paidAt: string | null;
+    } | null;
   };
 };
 
@@ -2004,30 +2012,32 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
   });
   if (!booking) return null;
 
-  const [user, resource, orders, financialTx, subTx] = await Promise.all([
-    booking.userId
-      ? prisma.user.findUnique({
-          where: { id: booking.userId },
-          select: { id: true, name: true, phone: true, email: true },
-        })
-      : Promise.resolve(null),
-    prisma.resource.findUnique({
-      where: { id: booking.resourceId },
-      select: { id: true, name: true, pricePerHour: true },
-    }),
-    prisma.order.findMany({
-      where: { bookingId: id },
-      include: { items: true },
-      orderBy: { createdAt: "asc" },
-    }),
-    prisma.financialTransaction.findFirst({
-      where: { bookingId: id, type: "SESSION_PAYMENT" },
-      orderBy: { createdAt: "asc" },
-    }),
-    prisma.subscriptionTransaction.findFirst({
-      where: { bookingId: id, type: "CHARGE" },
-    }),
-  ]);
+  const [user, resource, orders, financialTx, subTx, paymentSummaries] =
+    await Promise.all([
+      booking.userId
+        ? prisma.user.findUnique({
+            where: { id: booking.userId },
+            select: { id: true, name: true, phone: true, email: true },
+          })
+        : Promise.resolve(null),
+      prisma.resource.findUnique({
+        where: { id: booking.resourceId },
+        select: { id: true, name: true, pricePerHour: true },
+      }),
+      prisma.order.findMany({
+        where: { bookingId: id },
+        include: { items: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.financialTransaction.findFirst({
+        where: { bookingId: id, type: "SESSION_PAYMENT" },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.subscriptionTransaction.findFirst({
+        where: { bookingId: id, type: "CHARGE" },
+      }),
+      getBookingPaymentSummaries([id]),
+    ]);
 
   const menuItemIds = Array.from(
     new Set(orders.flatMap((o) => o.items.map((i) => i.menuItemId)))
@@ -2050,6 +2060,9 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
 
   const cash = Number(booking.cashAmount ?? 0);
   const card = Number(booking.cardAmount ?? 0);
+
+  const onlineSummary = paymentSummaries.get(id);
+  const onlineAmount = onlineSummary ? Number(onlineSummary.amount) : 0;
 
   let method: SessionDetailPaymentMethod;
   if (subTx) method = "SUBSCRIPTION";
@@ -2115,6 +2128,14 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
           }
         : null,
       financialTransactionId: financialTx?.id ?? null,
+      online:
+        onlineSummary && onlineAmount > 0
+          ? {
+              amount: onlineAmount,
+              status: onlineSummary.status as BookingPaymentStatus,
+              paidAt: onlineSummary.paidAt,
+            }
+          : null,
     },
   };
 }

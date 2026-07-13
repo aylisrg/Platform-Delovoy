@@ -10,8 +10,8 @@ import { prisma } from "@/lib/db";
 import { dispatchModuleChannel } from "../module-channel";
 import type { NotificationEvent } from "../types";
 
-const baseEvent: NotificationEvent = {
-  type: "booking.created",
+const paidEvent: NotificationEvent = {
+  type: "booking.paid",
   moduleSlug: "gazebos",
   entityId: "b1",
   actor: "admin",
@@ -20,7 +20,9 @@ const baseEvent: NotificationEvent = {
     date: "2026-07-01",
     startTime: "10:00",
     endTime: "14:00",
-    userName: "Иванов",
+    clientName: "Иванов",
+    amount: "1 500,00",
+    bookingId: "b1",
   },
 };
 
@@ -30,9 +32,16 @@ function mockConfig(config: Record<string, unknown> | null) {
   );
 }
 
+function sentBody() {
+  return JSON.parse(
+    (vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://delovoy-park.ru");
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     text: async () => "",
@@ -44,14 +53,14 @@ afterEach(() => {
 });
 
 describe("dispatchModuleChannel", () => {
-  it("sends to Telegram when enabled, event toggled on, and chatId present", async () => {
+  it("постит booking.paid (gazebos) один раз со ссылкой на бронь", async () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "-1001234567890",
-      telegramChannelEvents: ["booking.created", "booking.cancelled"],
+      telegramChannelEvents: ["booking.paid", "booking.cancelled"],
     });
 
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = vi.mocked(global.fetch).mock.calls[0];
@@ -60,16 +69,80 @@ describe("dispatchModuleChannel", () => {
     expect(body.chat_id).toBe("-1001234567890");
     expect(body.parse_mode).toBe("HTML");
     expect(body.text).toContain("Беседка №1");
+    expect(body.text).toContain("оплачена");
+    // Ссылка «Открыть в панели» на конкретную бронь беседки.
+    expect(body.text).toContain(
+      '<a href="https://delovoy-park.ru/admin/gazebos/bookings/b1">'
+    );
+    expect(body.text).toContain("http");
+  });
+
+  it("постит booking.paid (ps-park) со ссылкой на сессию", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid"],
+    });
+
+    await dispatchModuleChannel({
+      ...paidEvent,
+      moduleSlug: "ps-park",
+      data: { ...paidEvent.data, resourceName: "Стол 1" },
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(sentBody().text).toContain(
+      '<a href="https://delovoy-park.ru/admin/ps-park/sessions/b1">'
+    );
+  });
+
+  it("booking.created больше НЕ постится в канал (шаблон удалён)", async () => {
+    // Даже если старый сохранённый конфиг всё ещё содержит booking.created.
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.created", "booking.paid"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, type: "booking.created" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("booking.confirmed больше НЕ постится (нет двойного поста с booking.paid)", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.confirmed", "booking.paid"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, type: "booking.confirmed" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("экранирует HTML в названии ресурса и имени клиента", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid"],
+    });
+
+    await dispatchModuleChannel({
+      ...paidEvent,
+      data: { ...paidEvent.data, resourceName: "<b>x</b>", clientName: "A & B" },
+    });
+    const text = sentBody().text as string;
+    expect(text).toContain("&lt;b&gt;x&lt;/b&gt;");
+    expect(text).toContain("A &amp; B");
   });
 
   it("skips when the channel is disabled", async () => {
     mockConfig({
       telegramChannelEnabled: false,
       telegramChannelId: "-100",
-      telegramChannelEvents: ["booking.created"],
+      telegramChannelEvents: ["booking.paid"],
     });
 
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -80,7 +153,7 @@ describe("dispatchModuleChannel", () => {
       telegramChannelEvents: ["booking.cancelled"],
     });
 
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -88,16 +161,16 @@ describe("dispatchModuleChannel", () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "   ",
-      telegramChannelEvents: ["booking.created"],
+      telegramChannelEvents: ["booking.paid"],
     });
 
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("skips when there is no config at all", async () => {
     mockConfig(null);
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -105,11 +178,11 @@ describe("dispatchModuleChannel", () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "-100",
-      telegramChannelEvents: ["booking.created"],
+      telegramChannelEvents: ["booking.paid"],
       telegramBotToken: "override-token",
     });
 
-    await dispatchModuleChannel(baseEvent);
+    await dispatchModuleChannel(paidEvent);
     const [url] = vi.mocked(global.fetch).mock.calls[0];
     expect(String(url)).toContain("/botoverride-token/sendMessage");
   });
@@ -118,25 +191,22 @@ describe("dispatchModuleChannel", () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "-100",
-      telegramChannelEvents: ["booking.created"],
+      telegramChannelEvents: ["booking.paid"],
     });
     global.fetch = vi.fn().mockRejectedValue(new Error("network")) as never;
 
-    await expect(dispatchModuleChannel(baseEvent)).resolves.toBeUndefined();
+    await expect(dispatchModuleChannel(paidEvent)).resolves.toBeUndefined();
   });
 
-  it("sends a template for the new booking.deleted event", async () => {
+  it("sends a template for the booking.deleted event (gazebos)", async () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "-100",
       telegramChannelEvents: ["booking.deleted"],
     });
 
-    await dispatchModuleChannel({ ...baseEvent, type: "booking.deleted" });
+    await dispatchModuleChannel({ ...paidEvent, type: "booking.deleted" });
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(
-      (vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string
-    );
-    expect(body.text).toContain("удалена");
+    expect(sentBody().text).toContain("удалена");
   });
 });

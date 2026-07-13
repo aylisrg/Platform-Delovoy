@@ -62,9 +62,11 @@ export const analyticsQuerySchema = z.object({
  * channel. Single source of truth for the validation schema, the admin UI
  * checkboxes, and the channel dispatcher templates.
  */
+// В канал шлём только «оплаченные» брони (booking.paid) — booking.created/
+// booking.confirmed убраны, чтобы неоплаченные (PENDING) брони не попадали
+// в канал и не было двойного поста confirmed+paid.
 export const GAZEBO_CHANNEL_EVENT_TYPES = [
-  "booking.created",
-  "booking.confirmed",
+  "booking.paid",
   "booking.cancelled",
   "booking.completed",
   "booking.deleted",
@@ -77,8 +79,7 @@ export const GAZEBO_CHANNEL_EVENTS: {
   type: GazeboChannelEventType;
   label: string;
 }[] = [
-  { type: "booking.created", label: "Новая бронь" },
-  { type: "booking.confirmed", label: "Бронь подтверждена" },
+  { type: "booking.paid", label: "Оплачено онлайн" },
   { type: "booking.cancelled", label: "Бронь отменена" },
   { type: "booking.completed", label: "Бронь завершена" },
   { type: "booking.deleted", label: "Бронь удалена" },

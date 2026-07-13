@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import type { BookingPaymentStatus } from "@/modules/payments/types";
 import {
   DeleteConfirmDialog,
   deleteWithPassword,
@@ -20,6 +23,7 @@ type HistoryBooking = {
   clientPhone: string | null;
   resourceName: string | null;
   metadata: Record<string, unknown> | null;
+  paymentStatus: BookingPaymentStatus;
   isGuest: boolean;
 };
 
@@ -82,6 +86,7 @@ export function GazeboBookingHistoryTable() {
           clientPhone: b.clientPhone ?? (b.user as Record<string, unknown>)?.phone ?? null,
           resourceName: (b.resource as Record<string, unknown>)?.name ?? null,
           metadata: b.metadata as Record<string, unknown> | null,
+          paymentStatus: (b.paymentStatus as BookingPaymentStatus) ?? "NONE",
           isGuest: !b.userId,
         })));
         setTotal(json.meta?.total ?? 0);
@@ -164,6 +169,7 @@ export function GazeboBookingHistoryTable() {
                 <th className="pb-3 font-medium">Клиент</th>
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
+                <th className="pb-3 font-medium">Оплата</th>
                 {canDelete && <th className="pb-3 font-medium text-right">Действия</th>}
               </tr>
             </thead>
@@ -174,7 +180,14 @@ export function GazeboBookingHistoryTable() {
                   <td className="py-3 text-zinc-600">
                     {formatTime(b.startTime)} — {formatTime(b.endTime)}
                   </td>
-                  <td className="py-3 text-zinc-600">{b.resourceName ?? "—"}</td>
+                  <td className="py-3 text-zinc-600">
+                    <Link
+                      href={`/admin/gazebos/bookings/${b.id}`}
+                      className="text-emerald-700 hover:underline"
+                    >
+                      {b.resourceName ?? "—"}
+                    </Link>
+                  </td>
                   <td className="py-3 text-zinc-600">
                     <span className="inline-flex items-center gap-2">
                       {b.clientName ?? "—"}
@@ -188,6 +201,9 @@ export function GazeboBookingHistoryTable() {
                     <Badge variant={statusVariant[b.status] ?? "default"}>
                       {statusLabel[b.status] ?? b.status}
                     </Badge>
+                  </td>
+                  <td className="py-3">
+                    <BookingPaymentBadge status={b.paymentStatus} />
                   </td>
                   {canDelete && (
                     <td className="py-3 text-right">

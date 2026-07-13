@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
 import type { TimelineBooking } from "@/modules/gazebos/types";
 import {
   DISCOUNT_REASONS,
@@ -38,6 +39,8 @@ export function GazeboBookingDetailCard({
   const meta = booking.metadata as Record<string, unknown> | null;
   const guestCount = meta?.guestCount as number | undefined;
   const comment = meta?.comment as string | undefined;
+  // В таймлайне статус оплаты выводим из снапшота брони (онлайн-предоплата).
+  const onlinePaid = Number(meta?.onlinePaidAmount ?? 0);
 
   const start = new Date(booking.startTime);
   const end = new Date(booking.endTime);
@@ -123,6 +126,7 @@ export function GazeboBookingDetailCard({
           }`}>
             {isActiveNow ? "Отдыхает" : isPending ? "Ожидает" : "Подтверждена"}
           </span>
+          {onlinePaid > 0 && <BookingPaymentBadge status="PAID" />}
         </div>
         <button
           onClick={onClose}
