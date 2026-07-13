@@ -254,12 +254,14 @@ export default async function SessionDetailPage({
           <div className="mt-3 rounded-lg bg-green-50 border border-green-100 p-3 text-sm">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-2 text-green-700">
-                💳 Оплачено онлайн (ЮKassa)
+                💳 Онлайн-оплата (ЮKassa)
                 <BookingPaymentBadge status={payment.online.status} />
               </span>
-              <span className="font-semibold tabular-nums text-green-900">
-                {formatMoney(payment.online.amount)}
-              </span>
+              {payment.online.amount > 0 && (
+                <span className="font-semibold tabular-nums text-green-900">
+                  {formatMoney(payment.online.amount)}
+                </span>
+              )}
             </div>
             {payment.online.paidAt && (
               <p className="text-xs text-green-600 mt-1">

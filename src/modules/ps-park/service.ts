@@ -2063,6 +2063,10 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
 
   const onlineSummary = paymentSummaries.get(id);
   const onlineAmount = onlineSummary ? Number(onlineSummary.amount) : 0;
+  // Показываем онлайн-блок при любом значимом статусе, включая AWAITING
+  // (у ожидающего платежа amount = 0 — гейт по сумме его бы скрыл). FAILED
+  // (все платежи истекли/отменены) и отсутствие платежей не показываем.
+  const showOnline = Boolean(onlineSummary && onlineSummary.status !== "FAILED");
 
   let method: SessionDetailPaymentMethod;
   if (subTx) method = "SUBSCRIPTION";
@@ -2129,7 +2133,7 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
         : null,
       financialTransactionId: financialTx?.id ?? null,
       online:
-        onlineSummary && onlineAmount > 0
+        showOnline && onlineSummary
           ? {
               amount: onlineAmount,
               status: onlineSummary.status as BookingPaymentStatus,

@@ -70,8 +70,11 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
       `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
   },
   "ps-park": {
+    // «Онлайн-оплата», а не «оплачена»: счёт ps-park может оплачиваться
+    // частями (несколько платежей), поэтому каждое событие — это принятый
+    // онлайн-платёж, а не факт полной оплаты сессии.
     "booking.paid": (d) =>
-      `💳 <b>Сессия оплачена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("ps-park", d)}`,
+      `💳 <b>Онлайн-оплата сессии</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("ps-park", d)}`,
     "booking.cancelled": (d) =>
       `❌ <b>Сессия отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
     "booking.completed": (d) =>
