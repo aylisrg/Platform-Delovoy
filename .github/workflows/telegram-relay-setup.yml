@@ -101,12 +101,17 @@ jobs:
 
             sleep 2
             echo "=== Самопроверка с Hetzner ==="
+            # curl может упасть с сетевой ошибкой (не HTTP-кодом) — под set -e это
+            # убьёт скрипт раньше диагностики ниже, поэтому гасим код возврата сами.
             CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
               -x "http://${TG_USER}:${TG_PASS}@127.0.0.1:${PROXY_PORT}" \
-              https://api.telegram.org)
+              https://api.telegram.org 2>/tmp/curl_selfcheck.log) || CODE="000"
             echo "HTTP через прокси: $CODE"
             if [ "$CODE" = "000" ]; then
               echo "::error::Прокси не отвечает"
+              echo "--- curl stderr ---"
+              cat /tmp/curl_selfcheck.log 2>/dev/null || true
+              echo "--- docker logs tg-proxy ---"
               docker logs tg-proxy --tail 30
               exit 1
             fi
