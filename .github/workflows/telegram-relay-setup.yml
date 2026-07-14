@@ -66,28 +66,39 @@ jobs:
             TG_USER=$(cut -d: -f1 credentials)
             TG_PASS=$(cut -d: -f2 credentials)
 
-            cat > 3proxy.cfg <<EOF
-            daemon
-            maxconn 100
-            nserver 1.1.1.1
-            nserver 8.8.8.8
-            nscache 65536
-            timeouts 1 5 30 60 180 1800 15 60
-            auth strong
-            users ${TG_USER}:CL:${TG_PASS}
-            allow ${TG_USER}
-            proxy -p${PROXY_PORT}
+            # tinyproxy вместо 3proxy: 3proxy на этом хосте падает при старте
+            # ("Error fetching MD4") — известная несовместимость с OpenSSL 3.x
+            # без legacy-провайдера, воспроизводится даже при auth CL (cleartext).
+            # tinyproxy делает BasicAuth без хеширования — этой проблемы нет.
+            cat > tinyproxy.conf <<EOF
+            Port ${PROXY_PORT}
+            Listen 0.0.0.0
+            Timeout 30
+            LogFile "/dev/stdout"
+            LogLevel Info
+            PidFile "/tmp/tinyproxy.pid"
+            MaxClients 20
+            StartServers 3
+            MinSpareServers 2
+            MaxSpareServers 5
+            DisableViaHeader Yes
+            Allow 0.0.0.0/0
+            BasicAuth ${TG_USER} ${TG_PASS}
+            ConnectPort 443
+            ConnectPort 80
             EOF
 
             docker rm -f tg-proxy >/dev/null 2>&1 || true
             # Один -p на все интерфейсы: биндить ещё и 127.0.0.1 на тот же порт
             # нельзя — сокет 0.0.0.0:PORT уже покрывает loopback, второй bind
-            # даёт EADDRINUSE. Доступ извне ограничивается firewall'ом ниже.
+            # даёт EADDRINUSE. Доступ извне ограничивается firewall'ом ниже и
+            # BasicAuth в tinyproxy.
             docker run -d --name tg-proxy \
               --restart always \
               -p ${PROXY_PORT}:${PROXY_PORT} \
-              -v /opt/tg-proxy/3proxy.cfg:/etc/3proxy/3proxy.cfg:ro \
-              tarampampam/3proxy:latest
+              -v /opt/tg-proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro \
+              alpine:3.20 \
+              sh -c "apk add --no-cache tinyproxy >/tmp/apk.log 2>&1 && exec tinyproxy -d -c /etc/tinyproxy/tinyproxy.conf"
 
             # Firewall: порт прокси открыт только с IP прод-VPS.
             if command -v ufw >/dev/null; then
@@ -99,13 +110,24 @@ jobs:
               fi
             fi
 
-            sleep 2
             echo "=== Самопроверка с Hetzner ==="
-            # curl может упасть с сетевой ошибкой (не HTTP-кодом) — под set -e это
-            # убьёт скрипт раньше диагностики ниже, поэтому гасим код возврата сами.
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-              -x "http://${TG_USER}:${TG_PASS}@127.0.0.1:${PROXY_PORT}" \
-              https://api.telegram.org 2>/tmp/curl_selfcheck.log) || CODE="000"
+            # apk add внутри контейнера при первом старте может занять больше
+            # пары секунд — поллим готовность вместо фиксированного sleep.
+            CODE="000"
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              sleep 2
+              # curl может упасть с сетевой ошибкой (не HTTP-кодом) — под set -e
+              # это убьёт скрипт раньше диагностики ниже, гасим код возврата сами.
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+                -x "http://${TG_USER}:${TG_PASS}@127.0.0.1:${PROXY_PORT}" \
+                https://api.telegram.org 2>/tmp/curl_selfcheck.log) || CODE="000"
+              [ "$CODE" != "000" ] && break
+              docker inspect -f '{{.State.Running}}' tg-proxy 2>/dev/null | grep -q true || {
+                echo "::error::Контейнер tg-proxy не запущен"
+                docker logs tg-proxy --tail 30 2>&1 || true
+                exit 1
+              }
+            done
             echo "HTTP через прокси: $CODE"
             if [ "$CODE" = "000" ]; then
               echo "::error::Прокси не отвечает"
@@ -115,7 +137,7 @@ jobs:
               docker logs tg-proxy --tail 30
               exit 1
             fi
-            echo "✅ 3proxy поднят и отвечает"
+            echo "✅ tinyproxy поднят и отвечает"
 
   wire-vps:
     name: "2/3 — Прописать на прод-VPS"
