@@ -254,19 +254,30 @@ Actions → **Telegram Diagnose** → Run workflow (chat_id по умолчан�
 (deploy.yml сам занесёт их в `/opt/delovoy-park/.env`; пустые секреты
 пропускаются), либо вписать в `.env` на сервере и `docker compose up -d app bot`:
 
-1. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси (напр. squid/3proxy на
-   Hetzner-сервере агента, доступ только с IP VPS). SOCKS не поддерживается.
-2. `TELEGRAM_API_ROOT` — релей Bot API:
+1. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси. **Развёрнуто и используется:**
+   3proxy в Docker на Hetzner-сервере агента (тот же бокс, где `platform-delovoy-agent`),
+   порт открыт firewall'ом только для IP прод-VPS. Поднимается/переустанавливается
+   идемпотентно workflow'ом **Telegram Relay Setup** (`.github/workflows/telegram-relay-setup.yml`,
+   `Actions → Telegram Relay Setup → Run workflow`) — он же прописывает
+   `TELEGRAM_PROXY_URL` в `/opt/delovoy-park/.env` и перезапускает `app`/`bot`.
+   Credentials лежат на Hetzner-сервере в `/opt/tg-proxy/credentials` (не в репо).
+   SOCKS не поддерживается — для него нужен вариант 2.
+2. `TELEGRAM_API_ROOT` — релей Bot API (альтернатива/резерв, не развёрнут):
    - **Cloudflare Worker** (бесплатно): worker, проксирующий
      `https://api.telegram.org${url.pathname}${url.search}` c методом/телом as-is;
    - **nginx на Hetzner**: `location ~ ^/bot { proxy_pass https://api.telegram.org; proxy_ssl_server_name on; }`
      + allowlist по IP VPS. ⚠️ В URI содержится токен бота — на релее
      отключить логирование URI (`access_log off`).
 
+⚠️ Ограничение обхода: shell-скрипты (`scripts/backup-db.sh`, `scripts/staging-refresh.sh`)
+уважают только `TELEGRAM_API_ROOT`, не `TELEGRAM_PROXY_URL` — их алерты идут
+по прямому пути и при `FULL_BLOCK` не доставляются, пока не настроен вариант 2.
+
 ### Шаг 3 — Проверка
 
-Повторно запустить **Telegram Diagnose** (ожидаем `OK` + сообщение с VPS),
-затем из админки `POST /api/admin/telegram/test-owner`.
+Повторно запустить **Telegram Diagnose** — при активном обходе основной
+вердикт останется `FULL_BLOCK`, но появится строка `BYPASS: OK` и сообщение
+уйдёт через прокси/релей. Затем из админки `POST /api/admin/telegram/test-owner`.
 
 ---
 

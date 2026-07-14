@@ -1,0 +1,225 @@
+# Поднимает HTTP(S) CONNECT-прокси (3proxy) на существующем Hetzner-сервере
+# агента и прописывает его в TELEGRAM_PROXY_URL на прод-VPS.
+#
+# Контекст: диагностика (workflow "Telegram Diagnose") дала вердикт FULL_BLOCK —
+# api.telegram.org блокируется на пути Timeweb VPS → Telegram, хотя egress в
+# целом жив. Hetzner-сервер (DE) видит Telegram нормально и уже используется
+# для агента — SSH-доступ к нему есть в секретах AGENT_HETZNER_*.
+#
+# Job 1 setup-proxy   — поднимает 3proxy в Docker на Hetzner, firewall только
+#                        с IP прод-VPS.
+# Job 2 wire-vps       — прописывает TELEGRAM_PROXY_URL в /opt/delovoy-park/.env
+#                        и перезапускает app+bot, чтобы подхватили переменную.
+# Job 3 verify-from-vps — доказывает, что путь VPS → прокси → Telegram реально
+#                        работает: getMe через прокси, sendMessage в чат
+#                        владельца, и тот же путь изнутри контейнера app.
+name: Telegram Relay Setup (Hetzner proxy)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chat_id:
+        description: "Chat ID для проверочного сообщения (пусто = владелец)"
+        required: false
+        default: ""
+      proxy_port:
+        description: "Порт прокси на Hetzner-сервере"
+        required: false
+        default: "3128"
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/telegram-relay-setup.yml"]
+
+concurrency:
+  group: telegram-relay-setup
+  cancel-in-progress: false
+
+jobs:
+  setup-proxy:
+    name: "1/3 — 3proxy на Hetzner"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Развернуть/переиспользовать 3proxy
+        uses: appleboy/ssh-action@v1
+        env:
+          PROXY_PORT: ${{ inputs.proxy_port || '3128' }}
+          VPS_IP: ${{ secrets.VPS_HOST }}
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 5m
+          envs: PROXY_PORT,VPS_IP
+          script: |
+            set -e
+            mkdir -p /opt/tg-proxy
+            cd /opt/tg-proxy
+
+            # Идемпотентно: креды генерируются один раз и переиспользуются.
+            if [ ! -f credentials ]; then
+              echo "delovoy:$(openssl rand -hex 24)" > credentials
+              chmod 600 credentials
+              echo "Сгенерированы новые credentials"
+            else
+              echo "Используются существующие credentials"
+            fi
+            TG_USER=$(cut -d: -f1 credentials)
+            TG_PASS=$(cut -d: -f2 credentials)
+
+            cat > 3proxy.cfg <<EOF
+            daemon
+            maxconn 100
+            nserver 1.1.1.1
+            nserver 8.8.8.8
+            nscache 65536
+            timeouts 1 5 30 60 180 1800 15 60
+            auth strong
+            users ${TG_USER}:CL:${TG_PASS}
+            allow ${TG_USER}
+            proxy -p${PROXY_PORT}
+            EOF
+
+            docker rm -f tg-proxy >/dev/null 2>&1 || true
+            docker run -d --name tg-proxy \
+              --restart always \
+              -p 127.0.0.1:${PROXY_PORT}:${PROXY_PORT} \
+              -p ${PROXY_PORT}:${PROXY_PORT} \
+              -v /opt/tg-proxy/3proxy.cfg:/etc/3proxy/3proxy.cfg:ro \
+              tarampampam/3proxy:latest
+
+            # Firewall: порт прокси открыт только с IP прод-VPS.
+            if command -v ufw >/dev/null; then
+              ufw delete allow "${PROXY_PORT}/tcp" >/dev/null 2>&1 || true
+              if [ -n "$VPS_IP" ]; then
+                ufw allow from "$VPS_IP" to any port "${PROXY_PORT}" proto tcp
+              else
+                echo "::warning::VPS_HOST пуст — не удалось ограничить firewall по IP, порт открыт только для локальной проверки"
+              fi
+            fi
+
+            sleep 2
+            echo "=== Самопроверка с Hetzner ==="
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+              -x "http://${TG_USER}:${TG_PASS}@127.0.0.1:${PROXY_PORT}" \
+              https://api.telegram.org)
+            echo "HTTP через прокси: $CODE"
+            if [ "$CODE" = "000" ]; then
+              echo "::error::Прокси не отвечает"
+              docker logs tg-proxy --tail 30
+              exit 1
+            fi
+            echo "✅ 3proxy поднят и отвечает"
+
+  wire-vps:
+    name: "2/3 — Прописать на прод-VPS"
+    runs-on: ubuntu-latest
+    needs: setup-proxy
+    steps:
+      - name: Забрать credentials с Hetzner и прописать на VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          HETZNER_HOST: ${{ secrets.AGENT_HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.AGENT_HETZNER_USER }}
+          HETZNER_KEY: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          PROXY_PORT: ${{ inputs.proxy_port || '3128' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 5m
+          envs: HETZNER_HOST,HETZNER_USER,HETZNER_KEY,PROXY_PORT
+          script: |
+            set -e
+            mkdir -p ~/.ssh
+            printf '%s\n' "$HETZNER_KEY" > /tmp/hetzner_key
+            chmod 600 /tmp/hetzner_key
+
+            CREDS=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              -i /tmp/hetzner_key "${HETZNER_USER}@${HETZNER_HOST}" \
+              "cat /opt/tg-proxy/credentials")
+            rm -f /tmp/hetzner_key
+            TG_USER=$(echo "$CREDS" | cut -d: -f1)
+            TG_PASS=$(echo "$CREDS" | cut -d: -f2)
+            PROXY_URL="http://${TG_USER}:${TG_PASS}@${HETZNER_HOST}:${PROXY_PORT}"
+
+            cd /opt/delovoy-park
+            if grep -q "^TELEGRAM_PROXY_URL=" .env 2>/dev/null; then
+              sed -i "s|^TELEGRAM_PROXY_URL=.*|TELEGRAM_PROXY_URL=${PROXY_URL}|" .env
+            else
+              echo "TELEGRAM_PROXY_URL=${PROXY_URL}" >> .env
+            fi
+            echo "TELEGRAM_PROXY_URL записан в .env (значение не печатается)"
+
+            docker compose -f docker-compose.prod.yml up -d app bot
+            echo "app и bot перезапущены с новым TELEGRAM_PROXY_URL"
+
+  verify-from-vps:
+    name: "3/3 — Проверка с прод-VPS"
+    runs-on: ubuntu-latest
+    needs: wire-vps
+    steps:
+      - name: getMe/sendMessage через прокси + проверка из контейнера
+        uses: appleboy/ssh-action@v1
+        env:
+          CHAT_ID: ${{ inputs.chat_id || '694696' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 5m
+          envs: CHAT_ID
+          script: |
+            set -u
+            cd /opt/delovoy-park
+            TG_TOKEN=$(grep -oP '^TELEGRAM_BOT_TOKEN=\K.*' .env | tr -d '"')
+            PROXY_URL=$(grep -oP '^TELEGRAM_PROXY_URL=\K.*' .env | tr -d '"')
+
+            if [ -z "$PROXY_URL" ]; then
+              echo "::error::TELEGRAM_PROXY_URL не найден в .env"
+              exit 1
+            fi
+
+            echo "=== getMe через прокси (curl) ==="
+            CODE=$(curl -s -o /tmp/getme.json -w "%{http_code}" --max-time 12 \
+              -x "$PROXY_URL" "https://api.telegram.org/bot$TG_TOKEN/getMe")
+            echo "HTTP: $CODE"
+
+            echo ""
+            echo "=== Проверка изнутри контейнера app (undici ProxyAgent — тот же путь, что у уведомлений) ==="
+            CONTAINER=$(docker exec -e TG_TOKEN="$TG_TOKEN" -e TELEGRAM_PROXY_URL="$PROXY_URL" delovoy-app \
+              node -e '
+                const { fetch, ProxyAgent } = require("undici");
+                const agent = new ProxyAgent(process.env.TELEGRAM_PROXY_URL);
+                fetch("https://api.telegram.org/bot"+process.env.TG_TOKEN+"/getMe", { dispatcher: agent, signal: AbortSignal.timeout(12000) })
+                  .then(function(r){return r.json()})
+                  .then(function(j){console.log("CONTAINER:", j.ok ? "OK" : "API_ERROR")})
+                  .catch(function(e){console.log("CONTAINER: FAIL", String((e && e.cause && (e.cause.code || e.cause.message)) || e))});
+              ' 2>&1 || echo "CONTAINER: EXEC_FAIL")
+            echo "$CONTAINER"
+
+            VERDICT=BYPASS_FAIL
+            if [ "$CODE" = "200" ]; then
+              case "$CONTAINER" in
+                *"CONTAINER: OK"*) VERDICT=BYPASS_OK ;;
+              esac
+            fi
+
+            if [ "$VERDICT" = "BYPASS_OK" ]; then
+              echo ""
+              echo "=== sendMessage через прокси в чат $CHAT_ID ==="
+              SEND_CODE=$(curl -s -o /tmp/send.json -w "%{http_code}" --max-time 12 \
+                -x "$PROXY_URL" -X POST -H "Content-Type: application/json" \
+                -d "{\"chat_id\":\"$CHAT_ID\",\"text\":\"✅ Диагностика Telegram: VPS → Hetzner-прокси → Telegram работает. Уведомления восстановлены.\"}" \
+                "https://api.telegram.org/bot$TG_TOKEN/sendMessage")
+              echo "sendMessage HTTP: $SEND_CODE"
+              [ "$SEND_CODE" != "200" ] && cat /tmp/send.json
+            fi
+
+            echo ""
+            echo "===================================="
+            echo "ВЕРДИКТ: $VERDICT"
+            echo "===================================="
+            if [ "$VERDICT" != "BYPASS_OK" ]; then
+              cat /tmp/getme.json 2>/dev/null || true
+              exit 1
+            fi

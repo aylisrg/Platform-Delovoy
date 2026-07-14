@@ -242,3 +242,32 @@ jobs:
               NETWORK_DOWN) echo "Весь egress сломан — тикет в Timeweb." ;;
               CONTAINER_ONLY_FAIL) echo "Хост видит Telegram, контейнер — нет. Docker DNS/MTU (runbook)." ;;
             esac
+
+            # Если прямой путь не OK, но настроен обход — проверяем его отдельно,
+            # чтобы вердикт диагностики отражал реальный путь доставки уведомлений
+            # (см. workflow "Telegram Relay Setup" — поднимает прокси на Hetzner).
+            if [ "$VERDICT" != "OK" ]; then
+              PROXY_URL=$(grep -oP '^TELEGRAM_PROXY_URL=\K.*' /opt/delovoy-park/.env 2>/dev/null | tr -d '"' || true)
+              API_ROOT=$(grep -oP '^TELEGRAM_API_ROOT=\K.*' /opt/delovoy-park/.env 2>/dev/null | tr -d '"' || true)
+              if [ -n "$PROXY_URL" ] || [ -n "$API_ROOT" ]; then
+                echo ""
+                echo "=== Обход (TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT задан в .env) ==="
+                if [ -n "$PROXY_URL" ]; then
+                  BCODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -x "$PROXY_URL" \
+                    "https://api.telegram.org/bot$TG_TOKEN/getMe" 2>/dev/null || true)
+                  echo "Через TELEGRAM_PROXY_URL: HTTP=$BCODE"
+                else
+                  BCODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 \
+                    "${API_ROOT%/}/bot$TG_TOKEN/getMe" 2>/dev/null || true)
+                  echo "Через TELEGRAM_API_ROOT: HTTP=$BCODE"
+                fi
+                if [ "$BCODE" = "200" ]; then
+                  echo "BYPASS: OK — уведомления идут через обход, несмотря на прямую блокировку"
+                else
+                  echo "BYPASS: FAIL — обход настроен, но тоже не отвечает (HTTP=$BCODE)"
+                fi
+              else
+                echo ""
+                echo "BYPASS: NOT_CONFIGURED — TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT не заданы"
+              fi
+            fi
