@@ -179,7 +179,10 @@ jobs:
             fi
             echo "TELEGRAM_PROXY_URL записан в .env (значение не печатается)"
 
-            docker compose -f docker-compose.prod.yml up -d app bot
+            # deploy.yml синкает файл под именем docker-compose.prod.yml, но
+            # переименовывает в docker-compose.yml на сервере (mv после sync) —
+            # используем дефолтное имя, которое docker compose находит сам.
+            docker compose up -d app bot
             echo "app и bot перезапущены с новым TELEGRAM_PROXY_URL"
 
   verify-from-vps:
