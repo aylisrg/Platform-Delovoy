@@ -218,14 +218,22 @@ jobs:
 
             echo ""
             echo "=== Проверка изнутри контейнера app (undici ProxyAgent — тот же путь, что у уведомлений) ==="
+            # await import("undici"), а не require(...) — воспроизводим ТОЧНО тот
+            # способ загрузки модуля, что использует src/lib/telegram/client.ts,
+            # т.к. require() и dynamic import() у undici могут вести себя по-разному.
             CONTAINER=$(docker exec -e TG_TOKEN="$TG_TOKEN" -e TELEGRAM_PROXY_URL="$PROXY_URL" delovoy-app \
               node -e '
-                const { fetch, ProxyAgent } = require("undici");
-                const agent = new ProxyAgent(process.env.TELEGRAM_PROXY_URL);
-                fetch("https://api.telegram.org/bot"+process.env.TG_TOKEN+"/getMe", { dispatcher: agent, signal: AbortSignal.timeout(12000) })
-                  .then(function(r){return r.json()})
-                  .then(function(j){console.log("CONTAINER:", j.ok ? "OK" : "API_ERROR")})
-                  .catch(function(e){console.log("CONTAINER: FAIL", String((e && e.cause && (e.cause.code || e.cause.message)) || e))});
+                (async () => {
+                  try {
+                    const undici = await import("undici");
+                    const agent = new undici.ProxyAgent(process.env.TELEGRAM_PROXY_URL);
+                    const r = await undici.fetch("https://api.telegram.org/bot"+process.env.TG_TOKEN+"/getMe", { dispatcher: agent, signal: AbortSignal.timeout(12000) });
+                    const j = await r.json();
+                    console.log("CONTAINER:", j.ok ? "OK" : "API_ERROR");
+                  } catch (e) {
+                    console.log("CONTAINER: FAIL", String((e && e.cause && (e.cause.code || e.cause.message)) || (e && e.message) || e));
+                  }
+                })();
               ' 2>&1 || echo "CONTAINER: EXEC_FAIL")
             echo "$CONTAINER"
 
