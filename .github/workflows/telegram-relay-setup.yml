@@ -80,9 +80,11 @@ jobs:
             EOF
 
             docker rm -f tg-proxy >/dev/null 2>&1 || true
+            # Один -p на все интерфейсы: биндить ещё и 127.0.0.1 на тот же порт
+            # нельзя — сокет 0.0.0.0:PORT уже покрывает loopback, второй bind
+            # даёт EADDRINUSE. Доступ извне ограничивается firewall'ом ниже.
             docker run -d --name tg-proxy \
               --restart always \
-              -p 127.0.0.1:${PROXY_PORT}:${PROXY_PORT} \
               -p ${PROXY_PORT}:${PROXY_PORT} \
               -v /opt/tg-proxy/3proxy.cfg:/etc/3proxy/3proxy.cfg:ro \
               tarampampam/3proxy:latest
