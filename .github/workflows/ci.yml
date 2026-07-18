@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 10
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
       - run: npm run lint
 
@@ -41,7 +41,7 @@ jobs:
     timeout-minutes: 10
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
       - run: npm test
 
@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 10
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
       - run: npx tsc --noEmit
 
@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 5
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
       - name: npm audit
         run: npm audit --audit-level=high
@@ -79,7 +79,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
