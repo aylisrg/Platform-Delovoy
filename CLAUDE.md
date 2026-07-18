@@ -179,6 +179,10 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 - Mock DB/Redis: `vi.mock('@/lib/db')` — no real DB in unit tests
 - `npm test` must stay green after every change
 
+### VPS / infra facts
+- **Перед любыми инфраструктурными выводами или изменениями — получи живые факты о сервере**, не доверяй цифрам из документации (они справочные и устаревают): `timeweb-manage.yml → server-status` (фактический тариф/CPU/RAM), `ops-diagnose` (память, рестарты, OOM-события, cron, TZ), `server-logs` (контейнеры, логи).
+- Изменил тариф/топологию сервера — обнови DEPLOYMENT.md в том же PR. Автоматический синк фактов: issue #358.
+
 ### Security
 - Never return passwords, tokens, or internal IDs in public API responses
 - All mutations logged to `AuditLog`

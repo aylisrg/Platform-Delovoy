@@ -42,6 +42,14 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+vi.mock("@/lib/redis", () => ({
+  redis: {
+    get: vi.fn(),
+    setex: vi.fn(),
+  },
+  redisAvailable: false,
+}));
+
 import {
   getSystemMap,
   getAggregateAnalytics,
@@ -51,6 +59,13 @@ import {
 } from "@/modules/monitoring/architect-service";
 import { prisma } from "@/lib/db";
 import { logAudit, log } from "@/lib/logger";
+import * as redisModule from "@/lib/redis";
+import { redis } from "@/lib/redis";
+
+/** Toggle the mocked redisAvailable flag (it's a plain module export). */
+function setRedisAvailable(value: boolean) {
+  (redisModule as { redisAvailable: boolean }).redisAvailable = value;
+}
 
 const mockModule = (overrides = {}) => ({
   id: "module-1",
@@ -68,6 +83,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("fetch", vi.fn());
   process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  // Default: Redis off so getSystemMap computes live (matches existing tests).
+  setRedisAvailable(false);
+  vi.mocked(redis.get).mockResolvedValue(null);
+  vi.mocked(redis.setex).mockResolvedValue("OK");
 });
 
 // ─── getSystemMap ─────────────────────────────────────────────────────────────
@@ -143,6 +162,91 @@ describe("getSystemMap", () => {
     const result = await getSystemMap();
     expect(result).toHaveLength(2);
     expect(result.every((m) => m.healthStatus === "healthy")).toBe(true);
+  });
+
+  it("returns cached snapshot without fetching or querying DB on cache hit", async () => {
+    setRedisAvailable(true);
+    const cachedEntry = {
+      id: "cached-1",
+      slug: "cafe",
+      name: "Кафе",
+      description: null,
+      isActive: true,
+      healthStatus: "healthy",
+      metrics: {},
+      lastChecked: "2026-07-18T00:00:00.000Z",
+    };
+    vi.mocked(redis.get).mockResolvedValue(JSON.stringify([cachedEntry]));
+
+    const result = await getSystemMap();
+
+    expect(result).toEqual([cachedEntry]);
+    expect(redis.get).toHaveBeenCalledWith("monitoring:system-map");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(prisma.module.findMany).not.toHaveBeenCalled();
+    expect(redis.setex).not.toHaveBeenCalled();
+  });
+
+  it("computes live and writes cache with setex on cache miss", async () => {
+    setRedisAvailable(true);
+    vi.mocked(redis.get).mockResolvedValue(null);
+    vi.mocked(prisma.module.findMany).mockResolvedValue([mockModule()] as never);
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { status: "healthy" } }),
+    } as Response);
+
+    const result = await getSystemMap();
+
+    expect(result).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(redis.setex).toHaveBeenCalledWith(
+      "monitoring:system-map",
+      30,
+      JSON.stringify(result)
+    );
+  });
+
+  it("fails open to live compute when Redis read throws", async () => {
+    setRedisAvailable(true);
+    vi.mocked(redis.get).mockRejectedValue(new Error("redis down"));
+    vi.mocked(prisma.module.findMany).mockResolvedValue([mockModule()] as never);
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { status: "healthy" } }),
+    } as Response);
+
+    const result = await getSystemMap();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].healthStatus).toBe("healthy");
+  });
+
+  it("probes health in batches of at most 3 concurrent fetches", async () => {
+    const modules = Array.from({ length: 7 }, (_, i) =>
+      mockModule({ id: `m${i}`, slug: `mod-${i}`, name: `Module ${i}` })
+    );
+    vi.mocked(prisma.module.findMany).mockResolvedValue(modules as never);
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    vi.mocked(fetch).mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Yield to let other in-batch promises start before resolving.
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return {
+        ok: true,
+        json: async () => ({ data: { status: "healthy" } }),
+      } as Response;
+    });
+
+    const result = await getSystemMap();
+
+    expect(result).toHaveLength(7);
+    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(maxInFlight).toBeLessThanOrEqual(3);
   });
 });
 
