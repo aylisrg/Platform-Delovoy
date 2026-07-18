@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { redis, redisAvailable } from "@/lib/redis";
 import { normalizePhone } from "@/lib/phone";
 import type {
   ClientSummary,
@@ -38,6 +39,18 @@ const MODULE_NAMES: Record<string, string> = {
 
 const BOOKING_MODULES = ["gazebos", "ps-park"] as const;
 const ORDER_MODULES = ["cafe"] as const;
+
+// Prod memory guards for the unbounded scans in this module.
+// Computed sorts (totalSpent / lastActivity) and the stats top-spenders
+// aggregation can't be paginated in SQL, so we scan at most CLIENTS_SCAN_CAP
+// users (newest first) and cap each user's nested relations at
+// RELATION_SCAN_CAP to avoid pulling a whole booking/order history into memory.
+const CLIENTS_SCAN_CAP = 1000;
+const RELATION_SCAN_CAP = 500;
+
+// TTL (seconds) for the cached getClientStats() payload.
+const STATS_CACHE_KEY = "clients:stats";
+const STATS_CACHE_TTL = 300;
 
 /**
  * F8 RBAC — guard for "manager can only see guests of their own modules".
@@ -167,43 +180,78 @@ export async function listClients(
     }
   }
 
+  // `createdAt`/`name` (and the default) are DB-sortable, so paginate in SQL and
+  // load nested relations for a single page only. `totalSpent`/`lastActivity`
+  // are computed in JS and can't be pushed down — for those we scan a bounded
+  // window (CLIENTS_SCAN_CAP users, newest first) with capped nested relations.
+  const isComputedSort = sortBy === "totalSpent" || sortBy === "lastActivity";
+
+  const baseUserFields = {
+    id: true,
+    name: true,
+    email: true,
+    phone: true,
+    image: true,
+    telegramId: true,
+    vkId: true,
+    createdAt: true,
+    accounts: { select: { provider: true } },
+  } as const;
+
+  const bookingFields = {
+    id: true,
+    moduleSlug: true,
+    status: true,
+    startTime: true,
+    endTime: true,
+    resourceId: true,
+    createdAt: true,
+  } as const;
+
+  const orderFields = {
+    id: true,
+    moduleSlug: true,
+    status: true,
+    totalAmount: true,
+    createdAt: true,
+  } as const;
+
+  // Two concrete queries (rather than one union-typed args object) so Prisma
+  // can infer the row payload type for each path.
   const [users, total] = await Promise.all([
-    prisma.user.findMany({
-      where: userWhere,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        image: true,
-        telegramId: true,
-        vkId: true,
-        createdAt: true,
-        accounts: {
-          select: { provider: true },
-        },
-        bookings: {
+    isComputedSort
+      ? prisma.user.findMany({
+          where: userWhere,
           select: {
-            id: true,
-            moduleSlug: true,
-            status: true,
-            startTime: true,
-            endTime: true,
-            resourceId: true,
-            createdAt: true,
+            ...baseUserFields,
+            bookings: {
+              select: bookingFields,
+              take: RELATION_SCAN_CAP,
+              orderBy: { createdAt: "desc" },
+            },
+            orders: {
+              select: orderFields,
+              take: RELATION_SCAN_CAP,
+              orderBy: { createdAt: "desc" },
+            },
           },
-        },
-        orders: {
+          orderBy: { createdAt: "desc" },
+          take: CLIENTS_SCAN_CAP,
+        })
+      : prisma.user.findMany({
+          where: userWhere,
           select: {
-            id: true,
-            moduleSlug: true,
-            status: true,
-            totalAmount: true,
-            createdAt: true,
+            ...baseUserFields,
+            bookings: { select: bookingFields },
+            orders: { select: orderFields },
           },
-        },
-      },
-    }),
+          orderBy:
+            sortBy === "name"
+              ? { name: sortOrder }
+              : { createdAt: sortOrder },
+          skip: offset,
+          take: limit,
+        }),
     prisma.user.count({ where: userWhere }),
   ]);
 
@@ -315,13 +363,20 @@ export async function listClients(
     };
   });
 
-  // Sort by computed fields
+  // DB-sortable path: `findMany` already applied orderBy + skip + take, so the
+  // aggregated array IS the requested page — return it unsliced.
+  if (!isComputedSort) {
+    return { clients, total };
+  }
+
+  // Computed-sort path: order the bounded scan window in JS, then page it.
   clients.sort((a, b) => {
     const dir = sortOrder === "asc" ? 1 : -1;
     switch (sortBy) {
       case "totalSpent":
         return (a.totalSpent - b.totalSpent) * dir;
-      case "lastActivity": {
+      case "lastActivity":
+      default: {
         const aTime = a.lastActivityAt
           ? new Date(a.lastActivityAt).getTime()
           : 0;
@@ -330,15 +385,6 @@ export async function listClients(
           : 0;
         return (aTime - bTime) * dir;
       }
-      case "name":
-        return (a.name ?? "").localeCompare(b.name ?? "", "ru") * dir;
-      case "createdAt":
-      default:
-        return (
-          (new Date(a.createdAt).getTime() -
-            new Date(b.createdAt).getTime()) *
-          dir
-        );
     }
   });
 
@@ -364,6 +410,8 @@ export async function getClientDetail(
       birthday: true,
       notes: true,
       createdAt: true,
+      // Exact totals regardless of the nested `take` caps below.
+      _count: { select: { bookings: true, orders: true } },
       accounts: {
         select: { provider: true },
       },
@@ -379,6 +427,7 @@ export async function getClientDetail(
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },
+        take: RELATION_SCAN_CAP,
       },
       orders: {
         select: {
@@ -391,6 +440,7 @@ export async function getClientDetail(
           items: { select: { id: true } },
         },
         orderBy: { createdAt: "desc" },
+        take: RELATION_SCAN_CAP,
       },
     },
   });
@@ -595,8 +645,8 @@ export async function getClientDetail(
     createdAt: user.createdAt.toISOString(),
     modulesUsed,
     totalSpent: Math.round(totalSpent * 100) / 100,
-    bookingCount: user.bookings.length,
-    orderCount: user.orders.length,
+    bookingCount: user._count.bookings,
+    orderCount: user._count.orders,
     lastActivityAt,
     authProviders: getAuthProviders(user),
     bookings,
@@ -607,6 +657,17 @@ export async function getClientDetail(
 }
 
 export async function getClientStats(): Promise<ClientStats> {
+  // Cache the whole payload for 5 minutes. Fail-open: any Redis hiccup falls
+  // through to live computation (never throws on the read path).
+  if (redisAvailable) {
+    try {
+      const cached = await redis.get(STATS_CACHE_KEY);
+      if (cached) return JSON.parse(cached) as ClientStats;
+    } catch {
+      // Cache miss / Redis error — compute live.
+    }
+  }
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const weekStart = new Date(now);
@@ -622,27 +683,19 @@ export async function getClientStats(): Promise<ClientStats> {
     }),
   ]);
 
-  // Active this month: users with bookings or orders created this month
-  const [activeBookers, activeOrderers] = await Promise.all([
-    prisma.booking.findMany({
-      where: { createdAt: { gte: monthStart } },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
-    prisma.order.findMany({
-      where: { createdAt: { gte: monthStart } },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
-  ]);
+  // Active this month: distinct users with a booking OR order this month.
+  // Counted in SQL (UNION + COUNT(DISTINCT)) instead of scanning every row.
+  const activeRows = await prisma.$queryRaw<Array<{ count: number }>>`
+    SELECT COUNT(DISTINCT "userId")::int AS count FROM (
+      SELECT "userId" FROM "Booking" WHERE "createdAt" >= ${monthStart}
+      UNION
+      SELECT "userId" FROM "Order" WHERE "createdAt" >= ${monthStart}
+    ) AS active
+  `;
+  const activeThisMonth = activeRows[0]?.count ?? 0;
 
-  const activeUserIds = new Set([
-    ...activeBookers.map((b) => b.userId),
-    ...activeOrderers.map((o) => o.userId),
-  ]);
-  const activeThisMonth = activeUserIds.size;
-
-  // Top spenders: fetch all users with completed bookings / delivered orders
+  // Top spenders: bounded scan of users with completed bookings / delivered
+  // orders (newest first), each with capped nested relations.
   const usersWithActivity = await prisma.user.findMany({
     where: {
       role: "USER",
@@ -657,12 +710,18 @@ export async function getClientStats(): Promise<ClientStats> {
       bookings: {
         where: { status: "COMPLETED" },
         select: { startTime: true, endTime: true, resourceId: true },
+        take: RELATION_SCAN_CAP,
+        orderBy: { createdAt: "desc" },
       },
       orders: {
         where: { status: "DELIVERED" },
         select: { totalAmount: true },
+        take: RELATION_SCAN_CAP,
+        orderBy: { createdAt: "desc" },
       },
     },
+    orderBy: { createdAt: "desc" },
+    take: CLIENTS_SCAN_CAP,
   });
 
   const resources = await prisma.resource.findMany({
@@ -695,44 +754,41 @@ export async function getClientStats(): Promise<ClientStats> {
 
   const topSpenders = spenders.slice(0, 5);
 
-  // Module breakdown: count distinct users per module
-  const [gazeboUsers, psParkUsers, cafeUsers] = await Promise.all([
-    prisma.booking.findMany({
-      where: { moduleSlug: "gazebos" },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
-    prisma.booking.findMany({
-      where: { moduleSlug: "ps-park" },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
-    prisma.order.findMany({
-      where: { moduleSlug: "cafe" },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
+  // Module breakdown: distinct users per module, counted in SQL.
+  const [gazeboRows, psParkRows, cafeRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(DISTINCT "userId")::int AS count
+      FROM "Booking" WHERE "moduleSlug" = 'gazebos'
+    `,
+    prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(DISTINCT "userId")::int AS count
+      FROM "Booking" WHERE "moduleSlug" = 'ps-park'
+    `,
+    prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(DISTINCT "userId")::int AS count
+      FROM "Order" WHERE "moduleSlug" = 'cafe'
+    `,
   ]);
 
   const moduleBreakdown = [
     {
       moduleSlug: "gazebos",
       moduleName: "Барбекю Парк",
-      clientCount: gazeboUsers.length,
+      clientCount: gazeboRows[0]?.count ?? 0,
     },
     {
       moduleSlug: "ps-park",
       moduleName: "Плей Парк",
-      clientCount: psParkUsers.length,
+      clientCount: psParkRows[0]?.count ?? 0,
     },
     {
       moduleSlug: "cafe",
       moduleName: "Кафе",
-      clientCount: cafeUsers.length,
+      clientCount: cafeRows[0]?.count ?? 0,
     },
   ];
 
-  return {
+  const result: ClientStats = {
     totalClients,
     newThisMonth,
     newThisWeek,
@@ -740,6 +796,17 @@ export async function getClientStats(): Promise<ClientStats> {
     topSpenders,
     moduleBreakdown,
   };
+
+  // Fail-open cache write.
+  if (redisAvailable) {
+    try {
+      await redis.setex(STATS_CACHE_KEY, STATS_CACHE_TTL, JSON.stringify(result));
+    } catch {
+      // Ignore cache write errors.
+    }
+  }
+
+  return result;
 }
 
 // === Client CRUD (F4 ADR 2026-05-04-clients-guest-cards-crud) ===
@@ -921,6 +988,7 @@ export async function upsertClientByPhone(
   const all = await prisma.user.findMany({
     where: { phoneNormalized: normalized, role: "USER", mergedIntoUserId: null },
     orderBy: { createdAt: "asc" },
+    take: 20,
     select: { id: true },
   });
   if (all.length > 1) {
@@ -1421,5 +1489,5 @@ export async function mergeClients(
       deletedUserId: secondaryId,
       tombstonedUserId: secondaryId,
     };
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
 }
