@@ -19,6 +19,7 @@ on:
           - server-start           # Включить сервер
           - server-logs            # Логи контейнеров (через SSH)
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
+          - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -237,6 +238,64 @@ jobs:
             echo ""
             echo "=== Containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}"
+
+      - name: Full Diagnose (via SSH)
+        if: inputs.action == 'ops-diagnose'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== Time / Uptime ==="
+            timedatectl 2>/dev/null || date
+            uptime
+
+            echo ""
+            echo "=== Memory ==="
+            free -m
+            echo ""
+            swapon --show || echo "No swap"
+
+            echo ""
+            echo "=== Disk ==="
+            df -h /
+
+            echo ""
+            echo "=== Containers (all) ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+
+            echo ""
+            echo "=== Restart / OOM state per container ==="
+            for C in $(docker ps -a --format '{{.Names}}'); do
+              docker inspect "$C" --format "$C: restarts={{.RestartCount}} oomkilled={{.State.OOMKilled}} status={{.State.Status}} started={{.State.StartedAt}}" 2>/dev/null
+            done
+
+            echo ""
+            echo "=== Kernel OOM events (dmesg) ==="
+            $SUDO dmesg -T 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -30 || echo "No OOM lines in dmesg (or dmesg unavailable)"
+
+            echo ""
+            echo "=== journalctl OOM (last 7 days) ==="
+            $SUDO journalctl --since "7 days ago" -k 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -30 || echo "No OOM lines in journal"
+
+            echo ""
+            echo "=== App logs (last 100) ==="
+            docker logs --tail 100 delovoy-app 2>&1 | tail -100 || echo "No delovoy-app container"
+
+            echo ""
+            echo "=== Crontab (root/current user) ==="
+            crontab -l 2>/dev/null || echo "No crontab"
+            echo ""
+            echo "=== /etc/cron.d ==="
+            ls -la /etc/cron.d/ 2>/dev/null && $SUDO cat /etc/cron.d/* 2>/dev/null || true
+
+            echo ""
+            echo "=== Top memory processes ==="
+            ps aux --sort=-%mem | head -12
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'

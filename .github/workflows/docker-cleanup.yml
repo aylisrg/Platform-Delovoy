@@ -1,9 +1,11 @@
 name: Docker Cleanup on VPS
 
 on:
-  # Run daily at midnight MSK (21:00 UTC)
+  # Weekly (Sunday 22:00 UTC = 01:00 MSK Monday). Daily prune was overkill:
+  # disk sits at ~21% and the run is a CPU/IO burst on the prod box; the
+  # after-deploy trigger below covers real image churn.
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "0 22 * * 0"
   # Run after every deploy
   workflow_run:
     workflows: ["Deploy to Production"]

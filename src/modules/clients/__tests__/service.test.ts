@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => ({
     mergeCandidate: {
       upsert: vi.fn(),
     },
+    $queryRaw: vi.fn(),
     // mergeClients tests inject their own implementation per-test.
     $transaction: vi.fn(),
   },
@@ -35,6 +36,11 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/permissions", () => ({
   getUserAdminSections: vi.fn(),
   hasAdminSectionAccess: vi.fn(),
+}));
+
+vi.mock("@/lib/redis", () => ({
+  redis: { get: vi.fn(), setex: vi.fn() },
+  redisAvailable: true,
 }));
 
 import {
@@ -51,6 +57,8 @@ import {
 } from "@/modules/clients/service";
 import { prisma } from "@/lib/db";
 import { getUserAdminSections } from "@/lib/permissions";
+import { redis } from "@/lib/redis";
+import type { ClientStats } from "@/modules/clients/types";
 
 const mockDate = (str: string) => new Date(str);
 
@@ -94,6 +102,9 @@ const mockUser = (overrides = {}) => ({
   accounts: [] as { provider: string }[],
   bookings: [mockBooking()],
   orders: [mockOrder()],
+  // getClientDetail derives bookingCount/orderCount from `_count` (exact even
+  // when nested lists are capped). listClients ignores this field.
+  _count: { bookings: 1, orders: 1 },
   ...overrides,
 });
 
@@ -238,18 +249,67 @@ describe("listClients", () => {
     );
   });
 
-  it("paginates results", async () => {
-    const users = Array.from({ length: 5 }, (_, i) =>
+  it("paginates DB-sortable sorts in SQL (take/skip/orderBy pushed down)", async () => {
+    // Default sort is `createdAt` — DB-sortable, so findMany returns the page.
+    const page = Array.from({ length: 2 }, (_, i) =>
       mockUser({ id: `user-${i}`, bookings: [], orders: [] })
     );
-    vi.mocked(prisma.user.findMany).mockResolvedValue(users as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue(page as never);
     vi.mocked(prisma.user.count).mockResolvedValue(5 as never);
     vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
 
     const result = await listClients({ limit: 2, offset: 1 });
 
+    // total is the real DB count, not the page length.
     expect(result.clients).toHaveLength(2);
     expect(result.total).toBe(5);
+    // Pagination + ordering pushed into the query itself.
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 1,
+        take: 2,
+        orderBy: { createdAt: "desc" },
+      })
+    );
+  });
+
+  it("pushes orderBy: name for the name sort", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listClients({ sortBy: "name", sortOrder: "asc" });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { name: "asc" },
+        skip: 0,
+        take: 50,
+      })
+    );
+  });
+
+  it("computed sort (totalSpent) applies scan caps instead of SQL pagination", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listClients({ sortBy: "totalSpent" });
+
+    const args = vi.mocked(prisma.user.findMany).mock.calls[0][0] as {
+      take: number;
+      skip?: number;
+      select: {
+        bookings: { take: number };
+        orders: { take: number };
+      };
+    };
+    // Bounded user scan, no SQL skip (paging happens in JS afterwards).
+    expect(args.take).toBe(1000);
+    expect(args.skip).toBeUndefined();
+    // Nested relations capped too.
+    expect(args.select.bookings.take).toBe(500);
+    expect(args.select.orders.take).toBe(500);
   });
 
   it("only counts COMPLETED bookings and DELIVERED orders as spent", async () => {
@@ -391,20 +451,40 @@ describe("getClientStats", () => {
     vi.clearAllMocks();
   });
 
-  it("returns aggregate stats", async () => {
+  it("returns the cached payload when redis has clients:stats (no DB hit)", async () => {
+    const cached: ClientStats = {
+      totalClients: 42,
+      newThisMonth: 4,
+      newThisWeek: 1,
+      activeThisMonth: 7,
+      topSpenders: [],
+      moduleBreakdown: [],
+    };
+    vi.mocked(redis.get).mockResolvedValue(JSON.stringify(cached) as never);
+
+    const result = await getClientStats();
+
+    expect(result).toEqual(cached);
+    expect(redis.get).toHaveBeenCalledWith("clients:stats");
+    // Cache hit short-circuits — no computation.
+    expect(prisma.user.count).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("computes distinct counts via $queryRaw and setex-caches on miss", async () => {
+    vi.mocked(redis.get).mockResolvedValue(null as never);
+
     vi.mocked(prisma.user.count)
       .mockResolvedValueOnce(100 as never) // totalClients
       .mockResolvedValueOnce(10 as never) // newThisMonth
       .mockResolvedValueOnce(3 as never); // newThisWeek
 
-    vi.mocked(prisma.booking.findMany)
-      .mockResolvedValueOnce([{ userId: "u1" }, { userId: "u2" }] as never) // activeBookers
-      .mockResolvedValueOnce([{ userId: "u1" }] as never) // gazeboUsers
-      .mockResolvedValueOnce([{ userId: "u2" }] as never); // psParkUsers
-
-    vi.mocked(prisma.order.findMany)
-      .mockResolvedValueOnce([{ userId: "u1" }] as never) // activeOrderers
-      .mockResolvedValueOnce([{ userId: "u1" }, { userId: "u3" }] as never); // cafeUsers
+    // 4 raw distinct-count queries: activeThisMonth, gazebos, ps-park, cafe.
+    vi.mocked(prisma.$queryRaw)
+      .mockResolvedValueOnce([{ count: 2 }] as never) // activeThisMonth (union)
+      .mockResolvedValueOnce([{ count: 1 }] as never) // gazebos
+      .mockResolvedValueOnce([{ count: 4 }] as never) // ps-park
+      .mockResolvedValueOnce([{ count: 3 }] as never); // cafe
 
     // usersWithActivity for top spenders
     vi.mocked(prisma.user.findMany).mockResolvedValue([
@@ -423,10 +503,42 @@ describe("getClientStats", () => {
     expect(result.totalClients).toBe(100);
     expect(result.newThisMonth).toBe(10);
     expect(result.newThisWeek).toBe(3);
-    expect(result.activeThisMonth).toBe(2); // u1, u2 unique
+    expect(result.activeThisMonth).toBe(2); // from the UNION distinct-count query
     expect(result.topSpenders).toHaveLength(1);
     expect(result.topSpenders[0].totalSpent).toBe(5000);
     expect(result.moduleBreakdown).toHaveLength(3);
+    expect(result.moduleBreakdown[0].clientCount).toBe(1); // gazebos
+    expect(result.moduleBreakdown[1].clientCount).toBe(4); // ps-park
+    expect(result.moduleBreakdown[2].clientCount).toBe(3); // cafe
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
+    // Result cached for 5 minutes.
+    expect(redis.setex).toHaveBeenCalledWith(
+      "clients:stats",
+      300,
+      expect.any(String)
+    );
+  });
+
+  it("caps the top-spenders scan at 1000 users with 500-row nested relations", async () => {
+    vi.mocked(redis.get).mockResolvedValue(null as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([{ count: 0 }] as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await getClientStats();
+
+    const args = vi.mocked(prisma.user.findMany).mock.calls[0][0] as {
+      take: number;
+      select: {
+        bookings: { take: number };
+        orders: { take: number };
+      };
+    };
+    expect(args.take).toBe(1000);
+    expect(args.select.bookings.take).toBe(500);
+    expect(args.select.orders.take).toBe(500);
   });
 });
 
@@ -801,6 +913,19 @@ describe("mergeClients", () => {
     });
     await expect(mergeClients("primary", "secondary", "admin-1")).rejects.toThrow(/не является клиентом/);
   });
+
+  it("passes timeout/maxWait options to $transaction", async () => {
+    installTx({
+      user: [makeUser({ id: "primary" }), makeUser({ id: "secondary" })],
+    });
+
+    await mergeClients("primary", "secondary", "admin-1");
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: 30_000,
+      maxWait: 10_000,
+    });
+  });
 });
 
 // ===== F4 ADR — createClient / updateClient / upsertClientByPhone =====
@@ -1011,6 +1136,18 @@ describe("upsertClientByPhone (F4)", () => {
     await expect(
       upsertClientByPhone("not-a-phone", { source: "ps_park_booking" })
     ).rejects.toBeInstanceOf(ClientError);
+  });
+
+  it("bounds the post-create duplicate scan with take: 20", async () => {
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: "new-5" } as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "new-5" }] as never);
+
+    await upsertClientByPhone("89991234567", { source: "ps_park_booking" });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 20 })
+    );
   });
 });
 

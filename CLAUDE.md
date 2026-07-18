@@ -179,6 +179,10 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 - Mock DB/Redis: `vi.mock('@/lib/db')` — no real DB in unit tests
 - `npm test` must stay green after every change
 
+### VPS / infra facts
+- **Перед любыми инфраструктурными выводами или изменениями — получи живые факты о сервере**, не доверяй цифрам из документации (они справочные и устаревают): `timeweb-manage.yml → server-status` (фактический тариф/CPU/RAM), `ops-diagnose` (память, рестарты, OOM-события, cron, TZ), `server-logs` (контейнеры, логи).
+- Изменил тариф/топологию сервера — обнови DEPLOYMENT.md в том же PR. Автоматический синк фактов: issue #358.
+
 ### Security
 - Never return passwords, tokens, or internal IDs in public API responses
 - All mutations logged to `AuditLog`
@@ -189,7 +193,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 ## Monitoring
 
-**Level 1 — Infrastructure (every 30s):** `GET /api/health` — DB, Redis, disk. Log `CRITICAL` to `SystemEvent` on failure; Telegram alert after 2 consecutive failures.
+**Level 1 — Infrastructure:** `GET /api/health` — DB, Redis, memory, event-loop lag. Log `CRITICAL` to `SystemEvent` on failure. External vantage: `.github/workflows/site-watchdog.yml` probes the public site every ~5 min, auto-remediates via SSH (`scripts/watchdog-remediate.sh`), alerts Telegram, and tracks incidents as `site-down` issues.
 
 **Level 2 — Module health:** `GET /api/{module}/health` — req/hr, avg response time, last error. Alert on 5xx spike.
 

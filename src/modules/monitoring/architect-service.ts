@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { redis, redisAvailable } from "@/lib/redis";
 import { logAudit, log } from "@/lib/logger";
 import { getEventStats } from "./service";
 import type {
@@ -58,39 +59,89 @@ async function fetchModuleHealth(
   }
 }
 
-export async function getSystemMap(): Promise<ModuleMapEntry[]> {
+const SYSTEM_MAP_CACHE_KEY = "monitoring:system-map";
+const SYSTEM_MAP_CACHE_TTL = 30; // seconds
+const HEALTH_PROBE_BATCH_SIZE = 3;
+
+/**
+ * Run an async mapper over `items` in sequential batches of `size`.
+ * Каждый батч выполняется параллельно (Promise.all), но следующий батч
+ * стартует только после завершения предыдущего — так одновременно
+ * летит не более `size` health-проб, а не ~25 сразу против самого app.
+ */
+async function mapInBatches<T, R>(
+  items: T[],
+  size: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    const batch = items.slice(i, i + size);
+    const batchResults = await Promise.all(batch.map(mapper));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+async function computeSystemMap(): Promise<ModuleMapEntry[]> {
   const modules = await prisma.module.findMany({
     orderBy: { name: "asc" },
   });
 
-  const results = await Promise.all(
-    modules.map(async (mod) => {
-      const lastChecked = new Date().toISOString();
-      if (!mod.isActive) {
-        return {
-          id: mod.id,
-          slug: mod.slug,
-          name: mod.name,
-          description: mod.description,
-          isActive: false,
-          healthStatus: "offline" as HealthStatus,
-          metrics: {},
-          lastChecked,
-        };
-      }
-      const { status, metrics } = await fetchModuleHealth(mod.slug);
+  return mapInBatches(modules, HEALTH_PROBE_BATCH_SIZE, async (mod) => {
+    const lastChecked = new Date().toISOString();
+    if (!mod.isActive) {
       return {
         id: mod.id,
         slug: mod.slug,
         name: mod.name,
         description: mod.description,
-        isActive: mod.isActive,
-        healthStatus: status,
-        metrics,
+        isActive: false,
+        healthStatus: "offline" as HealthStatus,
+        metrics: {},
         lastChecked,
       };
-    })
-  );
+    }
+    const { status, metrics } = await fetchModuleHealth(mod.slug);
+    return {
+      id: mod.id,
+      slug: mod.slug,
+      name: mod.name,
+      description: mod.description,
+      isActive: mod.isActive,
+      healthStatus: status,
+      metrics,
+      lastChecked,
+    };
+  });
+}
+
+export async function getSystemMap(): Promise<ModuleMapEntry[]> {
+  // Snapshot cache: избегаем HTTP fan-out против самого app на каждый запрос.
+  if (redisAvailable) {
+    try {
+      const cached = await redis.get(SYSTEM_MAP_CACHE_KEY);
+      if (cached) {
+        return JSON.parse(cached) as ModuleMapEntry[];
+      }
+    } catch {
+      // Cache read failed — fail-open to live compute.
+    }
+  }
+
+  const results = await computeSystemMap();
+
+  if (redisAvailable) {
+    try {
+      await redis.setex(
+        SYSTEM_MAP_CACHE_KEY,
+        SYSTEM_MAP_CACHE_TTL,
+        JSON.stringify(results)
+      );
+    } catch {
+      // Cache write failed — result is still returned live.
+    }
+  }
 
   return results;
 }
