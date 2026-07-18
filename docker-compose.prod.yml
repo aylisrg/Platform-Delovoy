@@ -64,16 +64,19 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
+      # connection_limit ограничивает пул Prisma: Postgres живёт в 512M и
+      # дефолтный пул (num_cpus*2+1 на процесс) при бурсте выедает его память.
+      # pool_timeout=20 — при исчерпании пула ждём, а не падаем сразу (P2024).
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park?connection_limit=10&pool_timeout=20"
       REDIS_URL: "redis://redis:6379"
       NODE_ENV: "production"
       NEXTAUTH_URL: "https://delovoy-park.ru"
       NEXT_PUBLIC_APP_URL: "https://delovoy-park.ru"
       AUTH_TRUST_HOST: "true"
-      # Куча V8 должна знать про cgroup-лимит 1G, иначе V8 целится в память
+      # Куча V8 должна знать про cgroup-лимит 1.5G, иначе V8 целится в память
       # хоста и контейнер убивается OOM-киллером вместо мягкого GC.
       # ~75% лимита: остальное — стек, буферы, native-память.
-      NODE_OPTIONS: "--max-old-space-size=768"
+      NODE_OPTIONS: "--max-old-space-size=1152"
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,7 +91,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          # Сервер подтверждённо 2 CPU / 4 GB (preset 2453, проверено
+          # 2026-07-18 через Timeweb API) — сумма лимитов ~2.4G из 3.9G.
+          memory: 1536M
     logging:
       driver: json-file
       options:
@@ -107,7 +112,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park"
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park?connection_limit=3&pool_timeout=20"
       REDIS_URL: "redis://redis:6379"
       NODE_ENV: "production"
       NEXT_PUBLIC_APP_URL: "https://delovoy-park.ru"

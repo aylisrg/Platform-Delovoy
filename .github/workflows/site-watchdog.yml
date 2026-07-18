@@ -1,0 +1,276 @@
+name: Site Watchdog
+
+# Внешний надзор за доступностью delovoy-park.ru + авто-восстановление.
+#
+# Каждые ~5 минут проверяет сайт с раннера GitHub (внешняя точка обзора —
+# внутренний поллер бесполезен, когда лежит сам сервер). При недоступности:
+#   1. SSH на VPS → scripts/watchdog-remediate.sh (диагностика + ступенчатое
+#      восстановление: зомби-контейнеры → nginx → restart app → compose up)
+#   2. Telegram-алерт с диагностикой
+#   3. GitHub issue с label `site-down` (дедуп: повторные падения — комментарием)
+# При восстановлении: закрывает открытые site-down issues + ✅ в Telegram.
+#
+# Ручной запуск (workflow_dispatch):
+#   mode=check-only       — только проверка, без вмешательства
+#   mode=remediate        — как по расписанию (default)
+#   mode=force-remediate  — прогнать восстановление даже если сайт жив (drill)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Watchdog mode"
+        required: false
+        default: "remediate"
+        type: choice
+        options:
+          - check-only
+          - remediate
+          - force-remediate
+
+concurrency:
+  group: site-watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  SITE_URL: "https://delovoy-park.ru"
+
+jobs:
+  probe:
+    name: External health probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      healthy: ${{ steps.check.outputs.healthy }}
+      detail: ${{ steps.check.outputs.detail }}
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Resolve mode
+        id: mode
+        run: echo "mode=${{ github.event.inputs.mode || 'remediate' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Probe site (3 attempts)
+        id: check
+        run: |
+          probe() {
+            # $1 = path; echoes "<http_code> <body-status>"
+            local BODY_FILE CODE STATUS
+            BODY_FILE=$(mktemp)
+            CODE=$(curl -sS -o "$BODY_FILE" -w "%{http_code}" --max-time 15 "${SITE_URL}$1" 2>/dev/null || echo "000")
+            STATUS=$(grep -o '"status":"[a-z]*"' "$BODY_FILE" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
+            rm -f "$BODY_FILE"
+            echo "$CODE ${STATUS:-n/a}"
+          }
+
+          HEALTHY=false
+          DETAIL=""
+          for ATTEMPT in 1 2 3; do
+            HEALTH=$(probe /api/health)
+            HOME=$(probe /)
+            H_CODE=${HEALTH%% *}; H_STATUS=${HEALTH##* }
+            HOME_CODE=${HOME%% *}
+            DETAIL="attempt ${ATTEMPT}: /api/health=${H_CODE}(${H_STATUS}) /=${HOME_CODE}"
+            echo "$DETAIL"
+            if [ "$H_CODE" = "200" ] && [ "$HOME_CODE" = "200" ] && { [ "$H_STATUS" = "healthy" ] || [ "$H_STATUS" = "degraded" ]; }; then
+              HEALTHY=true
+              break
+            fi
+            [ "$ATTEMPT" -lt 3 ] && sleep 20
+          done
+
+          echo "healthy=$HEALTHY" >> "$GITHUB_OUTPUT"
+          echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
+
+  remediate:
+    name: Remediate + alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: probe
+    if: >
+      (needs.probe.outputs.healthy == 'false' && needs.probe.outputs.mode != 'check-only')
+      || needs.probe.outputs.mode == 'force-remediate'
+    steps:
+      - name: Checkout (remediation script)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/watchdog-remediate.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Copy remediation script to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "scripts/watchdog-remediate.sh"
+          target: "/opt/delovoy-park/"
+          overwrite: true
+
+      - name: Run remediation on VPS
+        id: fix
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            chmod +x /opt/delovoy-park/scripts/watchdog-remediate.sh
+            /opt/delovoy-park/scripts/watchdog-remediate.sh 2>&1 | tee /tmp/watchdog-report.txt
+            exit 0
+
+      - name: Fetch remediation report
+        id: report
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          capture_stdout: "true"
+          script: |
+            tail -c 50000 /tmp/watchdog-report.txt 2>/dev/null || echo "no report captured (SSH to VPS may have failed)"
+
+      - name: Re-probe after remediation
+        id: recheck
+        run: |
+          sleep 10
+          CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${SITE_URL}/api/health" 2>/dev/null || echo "000")
+          if [ "$CODE" = "200" ]; then
+            echo "recovered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recovered=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Save report to file
+        env:
+          REPORT: ${{ steps.report.outputs.stdout }}
+        run: |
+          printf '%s\n' "$REPORT" > /tmp/report.txt
+          RESULT=$(grep -o 'WATCHDOG_RESULT=[a-z]*' /tmp/report.txt | tail -1 | cut -d= -f2 || true)
+          echo "WATCHDOG_RESULT=${RESULT:-unknown}" >> "$GITHUB_ENV"
+
+      - name: Telegram alert
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          PROBE_DETAIL: ${{ needs.probe.outputs.detail }}
+          RECOVERED: ${{ steps.recheck.outputs.recovered }}
+          RECHECK_CODE: ${{ steps.recheck.outputs.code }}
+          MODE: ${{ needs.probe.outputs.mode }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram secrets not set — skipping alert"
+            exit 0
+          fi
+
+          if [ "$MODE" = "force-remediate" ]; then
+            HEADER="🧪 <b>Site Watchdog: учебная тревога (drill)</b>"
+          elif [ "$RECOVERED" = "true" ]; then
+            HEADER="🛠 <b>Site Watchdog: сайт упал и был АВТОМАТИЧЕСКИ восстановлен</b>"
+          else
+            HEADER="🚨 <b>Site Watchdog: сайт НЕДОСТУПЕН, авто-восстановление не помогло</b>"
+          fi
+
+          SNIPPET=$(tail -c 2500 /tmp/report.txt | sed 's/</\&lt;/g; s/>/\&gt;/g')
+
+          TEXT="${HEADER}"
+          TEXT+=$'\n\n'
+          TEXT+="<b>Проверка:</b> ${PROBE_DETAIL}"$'\n'
+          TEXT+="<b>Результат ремедиации:</b> <code>${WATCHDOG_RESULT}</code>, повторная проверка HTTP ${RECHECK_CODE}"$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"$'\n\n'
+          TEXT+="<pre>${SNIPPET}</pre>"
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true
+
+      - name: Ensure site-down label exists
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "site-down" \
+            --repo "$REPO" \
+            --color "b60205" \
+            --description "Автоматически создан Site Watchdog при недоступности сайта" \
+            2>/dev/null || true
+
+      - name: Open or update site-down issue
+        if: needs.probe.outputs.mode != 'force-remediate'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PROBE_DETAIL: ${{ needs.probe.outputs.detail }}
+          RECOVERED: ${{ steps.recheck.outputs.recovered }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          REPORT=$(head -c 55000 /tmp/report.txt)
+          if [ "$RECOVERED" = "true" ]; then
+            OUTCOME="✅ Авто-восстановление сработало (\`${WATCHDOG_RESULT}\`)."
+          else
+            OUTCOME="🚨 Авто-восстановление НЕ помогло (\`${WATCHDOG_RESULT}\`) — нужно ручное вмешательство (например, \`timeweb-manage.yml → server-reboot\`)."
+          fi
+
+          BODY="## Сайт был недоступен"$'\n\n'
+          BODY+="**Внешняя проверка:** ${PROBE_DETAIL}"$'\n\n'
+          BODY+="${OUTCOME}"$'\n\n'
+          BODY+="[Лог run]($RUN_URL)"$'\n\n'
+          BODY+="<details><summary>Диагностика и ремедиация</summary>"$'\n\n'
+          BODY+='```'$'\n'"${REPORT}"$'\n''```'$'\n\n'"</details>"$'\n\n'
+          BODY+="> Создан автоматически Site Watchdog."
+
+          EXISTING=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+          else
+            gh issue create --repo "$REPO" \
+              --title "Site down: delovoy-park.ru недоступен ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
+              --label "site-down" \
+              --body "$BODY"
+          fi
+
+  recover:
+    name: Close site-down issues on recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: probe
+    if: needs.probe.outputs.healthy == 'true' && needs.probe.outputs.mode != 'force-remediate'
+    steps:
+      - name: Close open site-down issues (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          ISSUES=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number --jq '.[].number')
+          [ -z "$ISSUES" ] && { echo "No open site-down issues — nothing to do"; exit 0; }
+
+          for ISSUE in $ISSUES; do
+            gh issue close "$ISSUE" --repo "$REPO" \
+              --comment "Сайт снова доступен (внешняя проверка прошла). Закрыто автоматически Site Watchdog."
+          done
+
+          if [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT_ID}" \
+              -d "parse_mode=HTML" \
+              --data-urlencode "text=✅ <b>Site Watchdog:</b> delovoy-park.ru снова доступен." \
+              -o /dev/null || true
+          fi

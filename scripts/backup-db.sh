@@ -87,7 +87,7 @@ insert_backup_log() {
   local uuid
   uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
 
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+  run_psql "
     INSERT INTO \"BackupLog\" (
       \"id\", \"type\", \"status\", \"sizeBytes\", \"storagePath\",
       \"durationMs\", \"error\", \"createdAt\", \"completedAt\"
@@ -98,11 +98,41 @@ insert_backup_log() {
   " > /dev/null 2>&1 || log "WARN: failed to INSERT BackupLog (DB unreachable?)"
 }
 
-log "Starting ${BACKUP_TYPE} backup of ${DB_NAME}…"
+# --- DB access mode ---
+# На VPS-хосте pg_dump/psql не установлены, а Postgres живёт в контейнере
+# без опубликованного порта — тогда работаем через docker exec. В окружениях
+# с прямым доступом (compose-профиль backup, CI) используется DATABASE_URL.
+PG_CONTAINER="${PG_CONTAINER:-delovoy-postgres}"
+DB_USER="${DB_USER:-delovoy}"
+if command -v pg_dump > /dev/null 2>&1 && [ -z "${FORCE_DOCKER_PG:-}" ]; then
+  PG_MODE="direct"
+else
+  PG_MODE="docker"
+fi
+
+run_pg_dump() {
+  if [ "$PG_MODE" = "direct" ]; then
+    pg_dump "$DATABASE_URL" --no-owner --no-privileges --format=custom -Z 3 -f "$BACKUP_FILE"
+  else
+    docker exec -i "$PG_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" \
+      --no-owner --no-privileges --format=custom -Z 3 > "$BACKUP_FILE" \
+      || { rm -f "$BACKUP_FILE"; return 1; }
+  fi
+}
+
+run_psql() {
+  if [ "$PG_MODE" = "direct" ]; then
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "$1"
+  else
+    docker exec -i "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "$1"
+  fi
+}
+
+log "Starting ${BACKUP_TYPE} backup of ${DB_NAME}… (pg mode: ${PG_MODE})"
 START_TIME=$SECONDS
 
 # --- Dump ---
-if ! pg_dump "$DATABASE_URL" --no-owner --no-privileges --format=custom -Z 9 -f "$BACKUP_FILE"; then
+if ! run_pg_dump; then
   ERR_MSG="pg_dump failed for ${DB_NAME}"
   log "ERROR: $ERR_MSG"
   tg_alert "🚨 CRITICAL:" "Бекап ${BACKUP_TYPE} БД ${DB_NAME} упал на pg_dump"

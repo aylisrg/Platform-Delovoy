@@ -337,13 +337,16 @@ jobs:
 
             echo "Secrets synced to .env"
 
-      - name: Sync docker-compose.prod.yml to server
+      - name: Sync docker-compose.prod.yml and ops scripts to server
         uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
+          # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
+          # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh"
           target: "/opt/delovoy-park/"
           overwrite: true
 
@@ -490,6 +493,27 @@ jobs:
               (crontab -l 2>/dev/null; echo "$RECONCILE_ENTRY") | crontab -
               echo "✅ payments-reconcile cron installed (every 10 minutes)"
             fi
+
+      - name: Ensure daily DB backup cron is registered
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Ежедневный бэкап БД. 01:30 UTC = 04:30 MSK — вне окна прочих
+            # ночных задач (сервер живёт в UTC, проверено ops-diagnose).
+            # Аудит 2026-07-18 показал, что cron бэкапа вообще не был
+            # зарегистрирован — деплой теперь гарантирует его наличие.
+            BACKUP_ENTRY="30 1 * * * /opt/delovoy-park/scripts/cron-backup.sh >> /var/log/delovoy-backup.log 2>&1"
+            if crontab -l 2>/dev/null | grep -q 'cron-backup.sh'; then
+              echo "✅ daily backup cron already registered"
+            else
+              (crontab -l 2>/dev/null; echo "$BACKUP_ENTRY") | crontab -
+              echo "✅ daily backup cron installed (01:30 UTC / 04:30 MSK)"
+            fi
+            chmod +x /opt/delovoy-park/scripts/cron-backup.sh /opt/delovoy-park/scripts/backup-db.sh 2>/dev/null || true
 
       - name: Verify deployment + smoke tests
         if: ${{ !inputs.skip_smoke_tests }}

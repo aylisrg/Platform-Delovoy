@@ -20,4 +20,10 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 export BACKUP_TYPE="${BACKUP_TYPE:-DAILY}"
-exec "${REPO_DIR}/scripts/backup-db.sh"
+# nice/ionice: pg_dump не должен конкурировать за CPU/IO с приложением —
+# бэкап на нагруженном сервере уже приводил к деградации (см. инцидент 2026-07-06).
+if command -v ionice > /dev/null 2>&1; then
+  exec nice -n 19 ionice -c3 "${REPO_DIR}/scripts/backup-db.sh"
+else
+  exec nice -n 19 "${REPO_DIR}/scripts/backup-db.sh"
+fi

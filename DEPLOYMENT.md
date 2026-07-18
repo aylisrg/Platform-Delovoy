@@ -158,6 +158,10 @@ docker compose logs -f agent  # должно быть "Bot is running, waiting f
 
 - **Перед каждым деплоем** — полный дамп PostgreSQL
 - Хранение: `/opt/backups/db-YYYYMMDD-HHMMSS.sql.gz`
+- **Ежедневный бэкап** — cron `30 1 * * *` UTC (04:30 MSK) запускает
+  `/opt/delovoy-park/scripts/cron-backup.sh` (регистрируется автоматически
+  шагом деплоя; `pg_dump` через `docker exec`, `nice/ionice`, GFS-ротация,
+  S3-загрузка, запись в `BackupLog`)
 - Автоочистка: cron удаляет бэкапы старше 30 дней
 - Ручной бэкап:
   ```bash
@@ -195,6 +199,27 @@ Prisma `db push` выполняется автоматически при ста
 1. `https://delovoy-park.ru/api/health` — должен вернуть `{"success": true}`
 2. Основные страницы: `/`, `/cafe`, `/ps-park`, `/gazebos`, `/rental`
 3. Логи: `ssh deploy@VPS "docker logs delovoy-app --tail 50"`
+
+### Site Watchdog — постоянный внешний надзор + авто-восстановление
+
+Workflow `.github/workflows/site-watchdog.yml` каждые ~5 минут проверяет
+`https://delovoy-park.ru` (главная + `/api/health`) с раннера GitHub.
+При недоступности: SSH на VPS → `scripts/watchdog-remediate.sh`
+(диагностика + ступенчатое восстановление: зомби-контейнеры → nginx →
+`docker restart delovoy-app` → `docker compose up -d`), Telegram-алерт с
+диагностикой и GitHub issue с label `site-down` (закрывается автоматически
+при восстановлении). Перезагрузка всего сервера — только вручную:
+`timeweb-manage.yml → server-reboot`.
+
+Ручной запуск: Actions → Site Watchdog → Run workflow
+(`check-only` — только проверка, `force-remediate` — учебный прогон
+восстановления).
+
+### Прод-сервер (проверено 2026-07-18 через Timeweb API)
+
+`delovoy-park-prod` (id 7548623): **2 CPU / 4 GB RAM / 48 GB NVMe**,
+preset 2453, Ubuntu, локация ru-1, TZ = UTC. Диагностика без захода в
+панель: `timeweb-manage.yml → server-status | server-logs | ops-diagnose`.
 
 ---
 
