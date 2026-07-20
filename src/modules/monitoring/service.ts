@@ -1,5 +1,27 @@
 import { prisma } from "@/lib/db";
 import type { EventLevel } from "@prisma/client";
+import type { ClientErrorInput } from "./validation";
+
+/**
+ * Пишет ошибку клиентского бикона в SystemEvent (level WARNING, source
+ * "client-beacon"). Даёт мониторингу видеть, что именно падает в браузерах
+ * пользователей (инцидент 2026-07-20: клиентские причины «вечной загрузки»
+ * были невидимы серверным пробам).
+ */
+export async function logClientError(input: ClientErrorInput) {
+  await prisma.systemEvent.create({
+    data: {
+      level: "WARNING",
+      source: "client-beacon",
+      message: input.message,
+      metadata: {
+        beaconSource: input.source,
+        ...(input.url ? { url: input.url } : {}),
+        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+      },
+    },
+  });
+}
 
 export async function getRecentEvents(options?: {
   level?: EventLevel;

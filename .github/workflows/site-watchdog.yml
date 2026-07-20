@@ -48,6 +48,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       healthy: ${{ steps.check.outputs.healthy }}
+      slow: ${{ steps.check.outputs.slow }}
       detail: ${{ steps.check.outputs.detail }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
@@ -69,23 +70,85 @@ jobs:
           }
 
           HEALTHY=false
+          SLOW=false
           DETAIL=""
           for ATTEMPT in 1 2 3; do
             HEALTH=$(probe /api/health)
-            HOME=$(probe /)
             H_CODE=${HEALTH%% *}; H_STATUS=${HEALTH##* }
-            HOME_CODE=${HOME%% *}
-            DETAIL="attempt ${ATTEMPT}: /api/health=${H_CODE}(${H_STATUS}) /=${HOME_CODE}"
+
+            # Главная: код + время ответа + реальный чанк из HTML.
+            # Инцидент 2026-07-20: проба «/ отдал 200» слепа к битой связке
+            # HTML↔ассеты (404 на чанки = «вечная загрузка» у пользователей)
+            # и к деградации скорости (14 секунд — тоже «не грузится»).
+            HOME_FILE=$(mktemp)
+            HOME_METRICS=$(curl -sS -o "$HOME_FILE" -w "%{http_code} %{time_total}" --max-time 15 "${SITE_URL}/" 2>/dev/null || echo "000 99")
+            HOME_CODE=${HOME_METRICS%% *}
+            HOME_TIME=${HOME_METRICS##* }
+
+            CHUNK_CODE="skip"
+            CHUNK_PATH=$(grep -oE '/_next/static/[^"\\ ]+\.(js|css)' "$HOME_FILE" 2>/dev/null | head -1 || true)
+            if [ -n "$CHUNK_PATH" ]; then
+              CHUNK_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "${SITE_URL}${CHUNK_PATH}" 2>/dev/null || echo "000")
+            fi
+            rm -f "$HOME_FILE"
+
+            DETAIL="attempt ${ATTEMPT}: /api/health=${H_CODE}(${H_STATUS}) /=${HOME_CODE} (${HOME_TIME}s) chunk=${CHUNK_CODE}"
             echo "$DETAIL"
-            if [ "$H_CODE" = "200" ] && [ "$HOME_CODE" = "200" ] && { [ "$H_STATUS" = "healthy" ] || [ "$H_STATUS" = "degraded" ]; }; then
+
+            CHUNK_OK=false
+            { [ "$CHUNK_CODE" = "200" ] || [ "$CHUNK_CODE" = "skip" ]; } && CHUNK_OK=true
+
+            if [ "$H_CODE" = "200" ] && [ "$HOME_CODE" = "200" ] && [ "$CHUNK_OK" = "true" ] && { [ "$H_STATUS" = "healthy" ] || [ "$H_STATUS" = "degraded" ]; }; then
               HEALTHY=true
+              # Порог скорости: > 5с на главную — сайт «жив», но для
+              # пользователя неотличим от лежащего. Алерт без ремедиации.
+              if awk "BEGIN{exit !($HOME_TIME > 5)}"; then
+                SLOW=true
+              fi
               break
             fi
             [ "$ATTEMPT" -lt 3 ] && sleep 20
           done
 
           echo "healthy=$HEALTHY" >> "$GITHUB_OUTPUT"
+          echo "slow=$SLOW" >> "$GITHUB_OUTPUT"
           echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
+
+  # Сайт жив, но главная отвечает дольше порога — предупреждение без
+  # ремедиации (рестарт здорового приложения сам создаёт даунтайм).
+  notify-slow:
+    name: Degradation alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: probe
+    if: >
+      needs.probe.outputs.healthy == 'true'
+      && needs.probe.outputs.slow == 'true'
+      && needs.probe.outputs.mode != 'force-remediate'
+    steps:
+      - name: Telegram warning
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          PROBE_DETAIL: ${{ needs.probe.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram secrets not set — skipping alert"
+            exit 0
+          fi
+          TEXT="⚠️ <b>Site Watchdog: сайт МЕДЛЕННЫЙ (>5с на главную)</b>"
+          TEXT+=$'\n\n'
+          TEXT+="<b>Проверка:</b> ${PROBE_DETAIL}"$'\n'
+          TEXT+="Ремедиация не запускалась (сайт отвечает). Если повторяется — смотреть нагрузку/память на VPS."$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true
 
   remediate:
     name: Remediate + alert
