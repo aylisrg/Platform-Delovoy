@@ -4,9 +4,11 @@ import { MenuList } from "@/components/public/cafe/menu-list";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
-// Menu/categories are not per-user and not second-critical — cache the page
-// (ISR) and revalidate periodically instead of full SSR on every request.
-export const revalidate = 600;
+// Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
+// этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
+// отдавалась бы «пустая» витрина. Возврат к SSR; кэширование — отдельной
+// задачей (use cache / build-time data).
+export const dynamic = "force-dynamic";
 
 const APP_URL = "https://delovoy-park.ru";
 

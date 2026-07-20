@@ -4,9 +4,11 @@ import { RentalPageContent } from "@/components/public/rental/rental-page-conten
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
-// Office listings are not per-user and not second-critical — cache the page
-// (ISR) and revalidate periodically instead of full SSR on every request.
-export const revalidate = 600;
+// Офисы живут в БД: ISR (revalidate) заставляет Next пререндерить страницу на
+// этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
+// отдавался бы «пустой» список офисов. Возврат к SSR; кэширование — отдельной
+// задачей (use cache / build-time data).
+export const dynamic = "force-dynamic";
 
 const APP_URL = "https://delovoy-park.ru";
 
