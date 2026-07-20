@@ -1,23 +1,35 @@
 /* Service Worker для админки Делового Парка.
- * Назначение: Web Push (PRD US-5, ADR §Service Worker и PWA).
+ * Назначение: Web Push (PRD US-5, ADR §Service Worker и PWA) + offline shell
+ * для /webapp.
  *
- * НЕ кеширует ассеты и не предоставляет офлайн — это админка, не B2C-витрина.
  * См. ADR §«SW: next-pwa vs ручной public/sw.js» — выбран ручной минимальный вариант.
  *
  * При обновлении бамп SW_VERSION → браузер увидит изменение байтов и активирует
  * новую версию. clients.claim() в activate — чтобы новая версия немедленно
  * брала контроль над уже открытыми вкладками админки.
+ *
+ * Инцидент 2026-07-20 (docs/incidents/): кэш ассетов был бессрочным и
+ * безлимитным — каждый деплой добавлял полный набор чанков, кэш рос до квоты
+ * браузера (iOS Safari), после чего caches.open/put падал и respondWith
+ * реджектился → страница оставалась без ассетов («вечная загрузка») до ручной
+ * очистки данных сайта. Поэтому: кэш версионирован по SW_VERSION (старые
+ * удаляются в activate), ограничен по числу записей, а ЛЮБАЯ ошибка кэша
+ * деградирует в обычный fetch — кэш никогда не должен ломать страницу.
  */
 
-const SW_VERSION = "1.1.0";
+const SW_VERSION = "1.2.0";
 
-const WEBAPP_SHELL_CACHE = "webapp-shell-v1";
+const WEBAPP_SHELL_CACHE = "webapp-shell-" + SW_VERSION;
 const WEBAPP_SHELL_URLS = [
   "/webapp",
   "/webapp/messenger",
   "/webapp/offline",
   "/icons/webapp-192.png",
 ];
+
+// Потолок записей в кэше статики: ~2 полных набора чанков одного билда.
+// Больше и не нужно — ассеты content-hashed, старые билды мертвы после деплоя.
+const MAX_CACHE_ENTRIES = 60;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -29,13 +41,89 @@ self.addEventListener("install", (event) => {
           // Shell resources may not exist yet in dev — skip silently.
         }),
       ),
-    ]),
+    ]).catch(() => {
+      // Даже сбой прекэша не должен блокировать установку новой версии SW.
+    }),
   );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    Promise.all([self.clients.claim(), deleteStaleCaches(caches)]).catch(() => {
+      // Ошибка чистки не должна мешать активации.
+    }),
+  );
 });
+
+/**
+ * Удаляет все кэши origin, кроме кэша текущей версии SW.
+ * Именно это сносит раздутые кэши старых версий у уже поражённых устройств.
+ */
+async function deleteStaleCaches(cachesObj) {
+  const names = await cachesObj.keys();
+  await Promise.all(
+    names
+      .filter((name) => name !== WEBAPP_SHELL_CACHE)
+      .map((name) => cachesObj.delete(name)),
+  );
+}
+
+/**
+ * Держит кэш в пределах maxEntries, удаляя самые старые записи
+ * (cache.keys() возвращает записи в порядке вставки).
+ */
+async function trimCache(cache, maxEntries) {
+  const keys = await cache.keys();
+  const excess = keys.length - maxEntries;
+  for (let i = 0; i < excess; i++) {
+    await cache.delete(keys[i]);
+  }
+}
+
+/**
+ * Cache-first для content-hashed статики с деградацией в сеть.
+ * Инвариант: НИКАКАЯ ошибка кэша (quota, эвикция, приватный режим) не должна
+ * уронить запрос — в худшем случае отвечает обычный fetch.
+ */
+async function staticAssetResponse(cachesObj, request, fetchFn) {
+  try {
+    const cache = await cachesObj.open(WEBAPP_SHELL_CACHE);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    const response = await fetchFn(request);
+    if (response.ok) {
+      try {
+        await cache.put(request, response.clone());
+        await trimCache(cache, MAX_CACHE_ENTRIES);
+      } catch {
+        // Quota/эвикция — некритично, ответ уже есть.
+      }
+    }
+    return response;
+  } catch {
+    return fetchFn(request);
+  }
+}
+
+/**
+ * Network-first для навигаций /webapp с офлайн-фолбэком.
+ * Ошибки кэша в фолбэке тоже не должны маскировать исходную сетевую ошибку
+ * бесполезным реджектом — отдаём 503.
+ */
+async function webappNavigationResponse(cachesObj, request, fetchFn) {
+  try {
+    return await fetchFn(request);
+  } catch {
+    try {
+      const cache = await cachesObj.open(WEBAPP_SHELL_CACHE);
+      const offline = await cache.match("/webapp/offline");
+      if (offline) return offline;
+    } catch {
+      // Кэш недоступен — падаем в 503 ниже.
+    }
+    return new Response("Offline", { status: 503 });
+  }
+}
 
 /**
  * Push event — рендер уведомления.
@@ -183,7 +271,8 @@ self.addEventListener("pushsubscriptionchange", (event) => {
  *
  * Strategy by path:
  *   /webapp/* navigation → network-first, fallback /webapp/offline
- *   /_next/static/*      → cache-first (immutable hashed assets)
+ *   /_next/static/*      → cache-first (immutable hashed assets), сеть при
+ *                          любой ошибке кэша
  *   /api/*               → network-only (never cache auth/data)
  *   /admin/*             → network-only (admin is not a PWA)
  *   everything else      → network
@@ -196,29 +285,13 @@ self.addEventListener("fetch", (event) => {
 
   // Static Next.js assets — cache first (they're content-hashed).
   if (pathname.startsWith("/_next/static/")) {
-    event.respondWith(
-      caches.open(WEBAPP_SHELL_CACHE).then(async (cache) => {
-        const cached = await cache.match(event.request);
-        if (cached) return cached;
-        const response = await fetch(event.request);
-        if (response.ok) cache.put(event.request, response.clone());
-        return response;
-      }),
-    );
+    event.respondWith(staticAssetResponse(caches, event.request, fetch));
     return;
   }
 
   // Webapp navigation — network-first with offline fallback.
   if (pathname.startsWith("/webapp") && event.request.mode === "navigate") {
-    event.respondWith(
-      fetch(event.request).catch(async () => {
-        const cache = await caches.open(WEBAPP_SHELL_CACHE);
-        return (
-          (await cache.match("/webapp/offline")) ||
-          new Response("Offline", { status: 503 })
-        );
-      }),
-    );
+    event.respondWith(webappNavigationResponse(caches, event.request, fetch));
     return;
   }
 
@@ -272,3 +345,14 @@ function arrayBufferToBase64Url(buf) {
 
 // Версия — чтобы при `view-source:/sw.js` было ясно, какая версия активна.
 self.SW_VERSION = SW_VERSION;
+
+// Экспорт для юнит-тестов (vm-окружение; в браузере просто лишнее поле self).
+self.__testables = {
+  SW_VERSION,
+  WEBAPP_SHELL_CACHE,
+  MAX_CACHE_ENTRIES,
+  deleteStaleCaches,
+  trimCache,
+  staticAssetResponse,
+  webappNavigationResponse,
+};

@@ -4,6 +4,7 @@ import Script from "next/script";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { StagingBanner } from "@/components/StagingBanner";
 import { ClientErrorBeacon } from "@/components/ClientErrorBeacon";
+import { ChunkReloadGuard } from "@/components/ChunkReloadGuard";
 import "./globals.css";
 
 const YM_ID = 73068007;
@@ -122,6 +123,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ClientErrorBeacon />
+        <ChunkReloadGuard />
         <StagingBanner />
         <SessionProvider>
           {children}
