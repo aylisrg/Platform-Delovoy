@@ -20,6 +20,7 @@ on:
           - server-logs            # Логи контейнеров (через SSH)
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
+          - ops-add-ip             # Прописать дополнительный IP в ОС (ip_address input)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -42,6 +43,9 @@ on:
           - custom-api             # Любой API-вызов
       server_id:
         description: "Server ID (auto-detect if empty)"
+        required: false
+      ip_address:
+        description: "IP address (for ops-add-ip)"
         required: false
       domain:
         description: "Domain (for DNS actions)"
@@ -238,6 +242,57 @@ jobs:
             echo ""
             echo "=== Containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}"
+
+      # Дополнительный IP от Timeweb маршрутизируется гипервизором на VM, но
+      # гость должен сам поднять его на интерфейсе. Рантайм — ip addr add
+      # (мгновенно, без разрыва); персистентность — systemd-юнит, а НЕ
+      # netplan: `netplan apply` рвёт сеть живого сервера, а drop-in со
+      # списком addresses при merge ЗАМЕНЯЕТ адреса и может снести основной
+      # IP на ребуте. Идемпотентно. Инцидент: docs/incidents/2026-07-20.
+      - name: Add secondary IP (via SSH)
+        if: inputs.action == 'ops-add-ip'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+            IP="${{ inputs.ip_address }}"
+            if [ -z "$IP" ]; then echo "ERROR: ip_address input required"; exit 1; fi
+            case "$IP" in
+              *[!0-9.]*) echo "ERROR: not an IPv4: $IP"; exit 1 ;;
+            esac
+            DEV=$(ip -o -4 route show default | awk '{print $5}' | head -1)
+            echo "interface: $DEV"
+            if ip -4 addr show dev "$DEV" | grep -qF "inet $IP/"; then
+              echo "IP $IP уже на $DEV"
+            else
+              $SUDO ip addr add "$IP/32" dev "$DEV"
+              echo "IP $IP/32 добавлен на $DEV (runtime)"
+            fi
+            $SUDO tee /etc/systemd/system/secondary-ip.service > /dev/null <<UNIT
+            [Unit]
+            Description=Attach secondary public IP (Timeweb additional IP)
+            After=network-online.target
+            Wants=network-online.target
+
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/sh -c '/usr/sbin/ip addr add $IP/32 dev $DEV || true'
+
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+            $SUDO systemctl daemon-reload
+            $SUDO systemctl enable secondary-ip.service
+            echo "--- итоговые адреса на $DEV ---"
+            ip -4 addr show dev "$DEV" | grep inet
+            echo "--- локальная проверка nginx на новом IP ---"
+            curl -sk -o /dev/null -m 10 -w "https://$IP → HTTP %{http_code}\n" "https://$IP/" || true
 
       - name: Full Diagnose (via SSH)
         if: inputs.action == 'ops-diagnose'
