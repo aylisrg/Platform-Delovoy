@@ -172,7 +172,7 @@ docker compose logs -f agent  # должно быть "Bot is running, waiting f
 
 ## Правило №5: Миграции БД — осторожно
 
-Prisma `db push` выполняется автоматически при старте контейнера (в `docker-entrypoint.sh`).
+`prisma migrate deploy` выполняется автоматически в deploy.yml **до подмены контейнера** (`docker compose run --rm app npx prisma migrate deploy` новым образом, пока старый app обслуживает трафик). Провал миграции = деплой отменён, работающее приложение не тронуто. В `docker-entrypoint.sh` миграций больше нет — они держали порт 3000 мёртвым 1–3 минуты на каждом старте (инцидент 2026-07-20).
 
 **Безопасные изменения** (деплоятся автоматически):
 - Добавление нового поля с дефолтом
@@ -461,7 +461,7 @@ ssh deploy@YOUR_VPS "zcat /opt/backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compos
 docker-compose.yml          # Для локальной разработки
 docker-compose.prod.yml     # Для продакшна (Timeweb VPS)
 Dockerfile                  # Multi-stage build
-docker-entrypoint.sh        # Startup: prisma generate → db push → seed → start
+docker-entrypoint.sh        # Startup: crash-loop guard → start (миграции/сид — в deploy.yml)
 
 scripts/
 ├── setup-vps.sh            # Первоначальная настройка VPS

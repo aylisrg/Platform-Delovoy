@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 
+# One-off команды (docker compose run --rm app <cmd>) — выполняем и выходим,
+# не трогая сервер. Так deploy.yml применяет миграции НОВЫМ образом до подмены
+# контейнера, пока старый app продолжает обслуживать трафик.
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+
 echo "=== Delovoy Park — Container Startup ==="
 
 # --- Crash loop protection ---
@@ -16,64 +23,14 @@ if [ -f "$CRASH_MARKER" ]; then
 fi
 touch "$CRASH_MARKER"
 
-# --- 1. Generate Prisma Client (ensure it matches current schema) ---
-echo "[1/4] Generating Prisma Client..."
-npx prisma generate 2>&1 || echo "  WARNING: prisma generate failed, using pre-built client."
+# Здесь сознательно НЕТ prisma generate / migrate / seed.
+# Инцидент 2026-07-20 (docs/incidents/2026-07-06-availability-diagnosis.md):
+# они держали порт 3000 мёртвым 1–3 минуты при КАЖДОМ старте контейнера
+# (деплой, рестарт вотчдога, краш) — «сайт отвечает, но грузится вечно».
+# Prisma-клиент генерируется на build-стадии образа (postinstall при
+# npm install); миграции применяет deploy.yml ДО подмены контейнера
+# (docker compose run --rm app npx prisma migrate deploy); сид — deploy.yml
+# после health-check и workflow run-seed.yml.
 
-# --- 2. Database migration (safe, never drops data) ---
-echo "[2/4] Running database migrations..."
-# On first run with migrations, mark existing schema as already applied
-if ! npx prisma migrate status 2>&1 | grep -q "Database schema is up to date"; then
-    echo "  Resolving baseline migration..."
-    npx prisma migrate resolve --applied 0_init 2>&1 || true
-fi
-if npx prisma migrate deploy 2>&1; then
-    echo "  Migrations applied successfully."
-else
-    echo "  WARNING: prisma migrate deploy failed."
-    echo "  Trying safe schema push (no data loss)..."
-    npx prisma db push 2>&1 || echo "  WARNING: prisma db push also failed. Starting with existing schema."
-fi
-
-# --- 3. Conditional seed ---
-echo "[3/4] Checking if database needs seeding..."
-NEEDS_SEED=$(node -e "
-  const { PrismaClient } = require('@prisma/client');
-  const p = new PrismaClient();
-  p.user.count()
-    .then(c => { console.log(c === 0 ? 'yes' : 'no'); return p.\$disconnect(); })
-    .catch(() => { console.log('yes'); return p.\$disconnect(); });
-" 2>/dev/null || echo "skip")
-
-if [ "$NEEDS_SEED" = "yes" ]; then
-    echo "  No users found. Running seed..."
-    npx tsx scripts/seed.ts 2>&1 || echo "  Warning: seed failed (non-fatal)"
-elif [ "$NEEDS_SEED" = "skip" ]; then
-    echo "  Could not check seed status, skipping seed."
-else
-    echo "  Database already has data, skipping seed."
-fi
-
-# --- 4. Restore rental data (one-time, remove after deploy) ---
-RENTAL_SEED_MARKER="/tmp/.rental-seed-done"
-if [ ! -f "$RENTAL_SEED_MARKER" ]; then
-    RENTAL_COUNT=$(node -e "
-      const { PrismaClient } = require('@prisma/client');
-      const p = new PrismaClient();
-      p.office.count()
-        .then(c => { console.log(c); return p.\$disconnect(); })
-        .catch(() => { console.log('0'); return p.\$disconnect(); });
-    " 2>/dev/null || echo "0")
-
-    if [ "$RENTAL_COUNT" -lt 10 ] 2>/dev/null; then
-        echo "  Rental data missing ($RENTAL_COUNT offices). Restoring from seed-rental.json..."
-        npx tsx scripts/seed-rental.ts 2>&1 || echo "  Warning: rental seed failed (non-fatal)"
-    else
-        echo "  Rental data OK ($RENTAL_COUNT offices), skipping restore."
-    fi
-    touch "$RENTAL_SEED_MARKER"
-fi
-
-# --- 5. Start server ---
-echo "[5/5] Starting Next.js server..."
+echo "Starting Next.js server..."
 exec su-exec nextjs node server.js

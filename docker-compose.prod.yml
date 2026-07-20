@@ -50,7 +50,9 @@ services:
         max-file: "3"
 
   app:
-    image: ghcr.io/aylisrg/platform-delovoy:latest
+    # DEPLOY_IMAGE переопределяется только при откате (deploy.yml: rollback
+    # на локальный image ID предыдущего билда); обычный деплой — :latest.
+    image: ${DEPLOY_IMAGE:-ghcr.io/aylisrg/platform-delovoy:latest}
     container_name: delovoy-app
     # unless-stopped, НЕ on-failure:N — иначе после N быстрых крашей (OOM,
     # недоступная БД на старте) Docker перестаёт поднимать app и сайт лежит
