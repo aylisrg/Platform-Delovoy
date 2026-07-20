@@ -98,8 +98,17 @@ server {
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 
-    # Static files — cache aggressively
+    # Static files — cache aggressively.
+    # static-archive: диск с билдами последних деплоев (см.
+    # scripts/apply-nginx-static-archive.sh) — старые вкладки после деплоя
+    # не ловят 404 на чанки; фолбэк — приложение.
     location /_next/static/ {
+        root /opt/delovoy-park/static-archive;
+        try_files $uri @next_static_app;
+        expires 365d;
+        add_header Cache-Control "public, immutable";
+    }
+    location @next_static_app {
         proxy_pass http://127.0.0.1:3000;
         expires 365d;
         add_header Cache-Control "public, immutable";

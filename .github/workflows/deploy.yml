@@ -346,7 +346,7 @@ jobs:
           # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
           # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
           # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
-          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh"
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh"
           target: "/opt/delovoy-park/"
           overwrite: true
 
@@ -387,8 +387,24 @@ jobs:
             fi
 
             echo "=== Save current image for rollback ==="
-            CURRENT_IMAGE=$(docker inspect --format='{{.Config.Image}}' delovoy-park-app-1 2>/dev/null || echo "")
+            # Имя контейнера — delovoy-app (container_name в compose), не
+            # compose-дефолт delovoy-park-app-1: со старым именем inspect
+            # всегда падал и rollback молча оставался без образа.
+            # Берём image ID ({{.Image}}), а не тег: .Config.Image вернул бы
+            # ":latest", и откат снова поднял бы только что сломавшийся образ.
+            # Образ прошлого билда остаётся локально — pull не нужен.
+            CURRENT_IMAGE=$(docker inspect --format='{{.Image}}' delovoy-app 2>/dev/null || echo "")
             echo "Current image: ${CURRENT_IMAGE:-none}"
+
+            echo "=== Apply pending DB migrations (new image; old app keeps serving) ==="
+            # Миграции идут ДО подмены контейнера: провал = деплой отменён,
+            # работающее приложение не тронуто. Раньше миграции жили в
+            # entrypoint и держали порт 3000 мёртвым 1–3 минуты на каждом
+            # старте (инцидент 2026-07-20). prisma migrate deploy идемпотентен;
+            # пред-миграционный бэкап снят выше (pg_dump → /opt/backups).
+            docker compose run --rm --no-deps app npx prisma migrate deploy \
+              && echo "✅ Migrations applied" \
+              || { echo "❌ Migration failed — aborting deploy, old app untouched"; exit 1; }
 
             echo "=== Rolling deploy ==="
             docker compose up -d --no-deps app
@@ -406,13 +422,22 @@ jobs:
             done
 
             if [ "$HEALTHY" = true ]; then
-              echo "=== Apply pending DB migrations ==="
-              # prisma migrate deploy is idempotent — safe to run on every deploy.
-              # Pre-migration backup already taken above (pg_dump → /opt/backups).
-              # Failure here is a deploy failure — app code and DB schema must stay in sync.
-              docker compose exec -T app npx prisma migrate deploy \
-                && echo "✅ Migrations applied" \
-                || { echo "❌ Migration failed"; exit 1; }
+              echo "=== Archive build static assets ==="
+              # Копим content-hashed статику последних билдов на хосте: nginx
+              # отдаёт её с диска (scripts/apply-nginx-static-archive.sh), и
+              # открытые до деплоя вкладки не ловят 404 на чанки старого билда.
+              # Провал шага не фатален — статика просто проксируется в app.
+              ARCHIVE=/opt/delovoy-park/static-archive/_next/static
+              mkdir -p "$ARCHIVE"
+              if docker cp delovoy-app:/app/.next/static/. "$ARCHIVE/"; then
+                chmod -R a+rX "$ARCHIVE" || true
+                find "$ARCHIVE" -type f -mtime +14 -delete || true
+                find "$ARCHIVE" -type d -empty -delete || true
+                sh scripts/apply-nginx-static-archive.sh \
+                  || echo "⚠️ nginx static-archive not applied — static keeps proxying to app"
+              else
+                echo "⚠️ docker cp failed — static archive skipped"
+              fi
 
               echo "=== Run unified seed pipeline ==="
               # Idempotent reference-data seed (modules, boards, categories, demo offices, etc).
