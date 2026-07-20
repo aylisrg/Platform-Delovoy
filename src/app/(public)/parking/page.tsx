@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getParkingInfo } from "@/modules/parking/service";
+import Link from "next/link";
+import { getParkingInfo, getParkingPricing } from "@/modules/parking/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@landing/components/navbar";
@@ -64,8 +65,11 @@ export const metadata: Metadata = {
   },
 };
 
+const fmtRub = (n: number) => n.toLocaleString("ru-RU") + " ₽";
+
 export default function ParkingPage() {
   const info = getParkingInfo();
+  const pricing = getParkingPricing();
 
   return (
     <>
@@ -133,6 +137,42 @@ export default function ParkingPage() {
                     </li>
                   ))}
                 </ul>
+              </CardContent>
+            </Card>
+
+            {/* Платная охраняемая автостоянка (гости барбекю-парка) */}
+            <Card>
+              <CardContent>
+                <h2 className="text-lg font-semibold text-zinc-900 mb-2">
+                  Платная охраняемая автостоянка
+                </h2>
+                <p className="text-sm text-zinc-600 mb-4">
+                  Для гостей{" "}
+                  <Link href="/gazebos" className="text-blue-600 hover:underline">
+                    барбекю-парка
+                  </Link>{" "}
+                  — оставить машину под охраной на ночь ({pricing.nightWindow}).
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-100 text-left text-zinc-500">
+                        <th className="pb-2 font-medium">Транспорт</th>
+                        <th className="pb-2 font-medium text-right">Ночь</th>
+                        <th className="pb-2 font-medium text-right">Далее, сутки</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricing.tariffs.map((t) => (
+                        <tr key={t.vehicle} className="border-b border-zinc-50">
+                          <td className="py-2.5 text-zinc-900">{t.vehicle}</td>
+                          <td className="py-2.5 text-zinc-600 text-right tabular-nums">{fmtRub(t.nightPrice)}</td>
+                          <td className="py-2.5 text-zinc-600 text-right tabular-nums">{fmtRub(t.dayPrice)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
 

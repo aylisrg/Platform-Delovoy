@@ -1,20 +1,7 @@
+import { buildPublicPriceRows } from "@/modules/gazebos/pricing";
+import type { GazeboResource } from "@/modules/gazebos/types";
+
 const ACCENT = "#16A34A";
-
-type Row = {
-  name: string;
-  capacity: string;
-  weekdayHour: number;
-  weekdayDay: number;
-  weekendHour: number;
-  weekendDay: number;
-  note?: string;
-};
-
-const PRICES: Row[] = [
-  { name: "Беседка №1", capacity: "до 20 чел.", weekdayHour: 1100, weekdayDay: 11000, weekendHour: 1400, weekendDay: 14000 },
-  { name: "Беседки №2, 3, 4", capacity: "до 12 чел.", weekdayHour: 800, weekdayDay: 7000, weekendHour: 1000, weekendDay: 10000 },
-  { name: "Беседка №5", capacity: "до 30 чел.", weekdayHour: 1400, weekdayDay: 13000, weekendHour: 1900, weekendDay: 16000, note: "интернет + ТВ" },
-];
 
 const EXTRAS: Array<{ name: string; price: string }> = [
   { name: "Уголь, 3 кг", price: "400 ₽" },
@@ -33,8 +20,11 @@ const EXTRAS: Array<{ name: string; price: string }> = [
 ];
 
 const fmt = (n: number) => n.toLocaleString("ru-RU") + " ₽";
+const fmtCapacity = (c: number | null) => (c != null ? `до ${c} чел.` : "—");
 
-export function PricingSection() {
+export function PricingSection({ resources }: { resources: GazeboResource[] }) {
+  const prices = buildPublicPriceRows(resources);
+
   return (
     <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">
       <div className="max-w-[1200px] mx-auto">
@@ -64,7 +54,7 @@ export function PricingSection() {
               </tr>
             </thead>
             <tbody className="text-[#1d1d1f]">
-              {PRICES.map((row, i) => (
+              {prices.map((row, i) => (
                 <tr key={row.name} className={i > 0 ? "border-t border-black/[0.04]" : ""}>
                   <td className="px-5 py-4">
                     <div className="font-medium">{row.name}</div>
@@ -72,7 +62,7 @@ export function PricingSection() {
                       <div className="text-xs text-[#86868b] mt-0.5">{row.note}</div>
                     )}
                   </td>
-                  <td className="px-5 py-4 text-[#86868b]">{row.capacity}</td>
+                  <td className="px-5 py-4 text-[#86868b]">{fmtCapacity(row.capacity)}</td>
                   <td className="px-5 py-4 text-right tabular-nums">{fmt(row.weekdayHour)}</td>
                   <td className="px-5 py-4 text-right tabular-nums">{fmt(row.weekdayDay)}</td>
                   <td className="px-5 py-4 text-right tabular-nums">{fmt(row.weekendHour)}</td>
@@ -85,7 +75,7 @@ export function PricingSection() {
 
         {/* Mobile cards */}
         <div className="md:hidden grid grid-cols-1 gap-4">
-          {PRICES.map((row) => (
+          {prices.map((row) => (
             <div key={row.name} className="bg-[#f5f5f7] rounded-2xl p-5 font-[family-name:var(--font-inter)]">
               <div className="flex items-baseline justify-between gap-3 mb-3">
                 <div>
@@ -94,7 +84,7 @@ export function PricingSection() {
                   </div>
                   {row.note && <div className="text-xs text-[#86868b] mt-0.5">{row.note}</div>}
                 </div>
-                <span className="text-xs text-[#86868b]">{row.capacity}</span>
+                <span className="text-xs text-[#86868b]">{fmtCapacity(row.capacity)}</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -139,6 +129,42 @@ export function PricingSection() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Pizza promo */}
+        <div
+          className="mt-12 rounded-2xl p-6 sm:p-8 font-[family-name:var(--font-inter)]"
+          style={{ backgroundColor: `${ACCENT}12` }}
+        >
+          <h3
+            className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] mb-2 flex items-center gap-2"
+            style={{ fontSize: "clamp(20px, 2.2vw, 26px)", letterSpacing: "-0.5px" }}
+          >
+            🍕 Пицца в подарок к аренде беседки
+          </h3>
+          <p className="text-[#1d1d1f] text-sm sm:text-base leading-relaxed max-w-2xl">
+            Забронируйте беседку и получите пиццу в подарок:
+          </p>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 max-w-2xl">
+            <li className="flex items-start gap-3 bg-white/60 rounded-xl px-4 py-3">
+              <span
+                className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
+                style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
+              >
+                Пн–Пт
+              </span>
+              <span className="text-sm text-[#1d1d1f]">Аренда более 3 часов</span>
+            </li>
+            <li className="flex items-start gap-3 bg-white/60 rounded-xl px-4 py-3">
+              <span
+                className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
+                style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
+              >
+                Сб–Вс
+              </span>
+              <span className="text-sm text-[#1d1d1f]">Аренда более 6 часов</span>
+            </li>
+          </ul>
         </div>
       </div>
     </section>

@@ -4,6 +4,7 @@ import {
   isWeekendDate,
   getResourcePricing,
   calcBookingPrice,
+  buildPublicPriceRows,
 } from "../pricing";
 
 const PL = {
@@ -108,5 +109,68 @@ describe("calcBookingPrice", () => {
     const r = calcBookingPrice(weekday, 10);
     expect(r.total).toBe(11000);
     expect(r.appliedDayRate).toBe(false);
+  });
+});
+
+describe("buildPublicPriceRows", () => {
+  const gazebo1 = {
+    name: "Беседка №1",
+    capacity: 20,
+    pricePerHour: 1100,
+    metadata: { priceList: { weekdayHour: 1100, weekdayDay: 11000, weekendHour: 1500, weekendDay: 14000 } },
+  };
+  const gazebo234 = (n: number) => ({
+    name: `Беседка №${n}`,
+    capacity: 12,
+    pricePerHour: 800,
+    metadata: { priceList: { weekdayHour: 800, weekdayDay: 7000, weekendHour: 1100, weekendDay: 10000 } },
+  });
+  const gazebo5 = {
+    name: "Беседка №5",
+    capacity: 30,
+    pricePerHour: 1400,
+    metadata: {
+      priceList: { weekdayHour: 1400, weekdayDay: 13000, weekendHour: 2000, weekendDay: 16000 },
+      features: ["интернет", "ТВ"],
+    },
+  };
+
+  it("groups gazebos with identical capacity+price into one row", () => {
+    const rows = buildPublicPriceRows([gazebo1, gazebo234(2), gazebo234(3), gazebo234(4), gazebo5]);
+    expect(rows.map((r) => r.name)).toEqual([
+      "Беседка №1",
+      "Беседки №2, 3, 4",
+      "Беседка №5",
+    ]);
+  });
+
+  it("carries weekend rates from metadata priceList (source-of-truth values)", () => {
+    const [row1, row234, row5] = buildPublicPriceRows([gazebo1, gazebo234(2), gazebo234(3), gazebo234(4), gazebo5]);
+    expect(row1.weekendHour).toBe(1500);
+    expect(row234.weekendHour).toBe(1100);
+    expect(row5.weekendHour).toBe(2000);
+    expect(row5.weekendDay).toBe(16000);
+  });
+
+  it("exposes features as a note", () => {
+    const rows = buildPublicPriceRows([gazebo5]);
+    expect(rows[0].note).toBe("интернет + ТВ");
+  });
+
+  it("keeps capacity as the max within a group", () => {
+    const rows = buildPublicPriceRows([gazebo234(2), gazebo234(3)]);
+    expect(rows[0].capacity).toBe(12);
+  });
+
+  it("skips resources without an extractable price", () => {
+    const rows = buildPublicPriceRows([
+      { name: "Беседка №9", capacity: 5, pricePerHour: null, metadata: null },
+    ]);
+    expect(rows).toEqual([]);
+  });
+
+  it("does not group gazebos with different pricing", () => {
+    const rows = buildPublicPriceRows([gazebo1, gazebo5]);
+    expect(rows).toHaveLength(2);
   });
 });

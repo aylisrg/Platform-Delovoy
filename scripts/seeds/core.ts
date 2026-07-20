@@ -155,49 +155,81 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   // У Resource нет составного unique → matchBy (moduleSlug, name).
   // Обновляем ТОЛЬКО googleCalendarId (бизнес-привязка к календарю), всё
   // остальное (capacity, price, description, isActive) могло быть отредактировано.
+  // Значения соответствуют официальному прайс-листу (Приложение к договору
+  // аренды беседки). Полная матрица час/день × Пн-Чт/Пт-Вс лежит в
+  // metadata.priceList — из неё публичная страница строит таблицу цен, а
+  // pricePerHour = будний час («от X ₽/час»). Это только начальные значения
+  // при первом создании: при повторном сидинге обновляется лишь
+  // googleCalendarId, чтобы не затирать правки из админки.
+  const workingHours = { from: "11:00", to: "22:30" };
   const gazebos = [
     {
       moduleSlug: "gazebos",
       name: "Беседка №1",
-      description: "Большая беседка на 12 человек",
-      capacity: 12,
-      pricePerHour: 1500,
+      description: "Большая беседка с отоплением, до 20 человек",
+      capacity: 20,
+      pricePerHour: 1100,
+      metadata: {
+        priceList: { weekdayHour: 1100, weekdayDay: 11000, weekendHour: 1500, weekendDay: 14000 },
+        workingHours,
+        features: [],
+      },
       googleCalendarId:
         "eaefb36cdf5caba883230fa46c17ac4b22b637090e065803e5deeea46de1de18@group.calendar.google.com",
     },
     {
       moduleSlug: "gazebos",
       name: "Беседка №2",
-      description: "Средняя беседка на 8 человек",
-      capacity: 8,
-      pricePerHour: 1000,
+      description: "Беседка с отоплением, до 12 человек",
+      capacity: 12,
+      pricePerHour: 800,
+      metadata: {
+        priceList: { weekdayHour: 800, weekdayDay: 7000, weekendHour: 1100, weekendDay: 10000 },
+        workingHours,
+        features: [],
+      },
       googleCalendarId:
         "1bd7f0bbf9e8b25566be8f25208fdb9ef5b9e7d39a534798599f053a53a62de0@group.calendar.google.com",
     },
     {
       moduleSlug: "gazebos",
       name: "Беседка №3",
-      description: "Малая беседка на 4 человека",
-      capacity: 4,
-      pricePerHour: 700,
+      description: "Беседка с отоплением, до 12 человек",
+      capacity: 12,
+      pricePerHour: 800,
+      metadata: {
+        priceList: { weekdayHour: 800, weekdayDay: 7000, weekendHour: 1100, weekendDay: 10000 },
+        workingHours,
+        features: [],
+      },
       googleCalendarId:
         "c7e4b54bb43b456f2639026c7bb4474fd1b344680110f1c49ae0a036a24b308c@group.calendar.google.com",
     },
     {
       moduleSlug: "gazebos",
       name: "Беседка №4",
-      description: "Средняя беседка на 6 человек",
-      capacity: 6,
-      pricePerHour: 900,
+      description: "Беседка с отоплением, до 12 человек",
+      capacity: 12,
+      pricePerHour: 800,
+      metadata: {
+        priceList: { weekdayHour: 800, weekdayDay: 7000, weekendHour: 1100, weekendDay: 10000 },
+        workingHours,
+        features: [],
+      },
       googleCalendarId:
         "a8d72586159ad865d3b0953367c67576d86579859b9e3a7defb0b748f907e36b@group.calendar.google.com",
     },
     {
       moduleSlug: "gazebos",
       name: "Беседка №5",
-      description: "Малая беседка на 4 человека",
-      capacity: 4,
-      pricePerHour: 700,
+      description: "Большая беседка с отоплением, интернетом и ТВ, до 30 человек",
+      capacity: 30,
+      pricePerHour: 1400,
+      metadata: {
+        priceList: { weekdayHour: 1400, weekdayDay: 13000, weekendHour: 2000, weekendDay: 16000 },
+        workingHours,
+        features: ["интернет", "ТВ"],
+      },
       googleCalendarId:
         "4ef725fad9adba09fb597ddd85bae2110f35df843c627b49b9041b2720e58d53@group.calendar.google.com",
     },
