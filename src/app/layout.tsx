@@ -3,6 +3,7 @@ import { Manrope, Inter } from "next/font/google";
 import Script from "next/script";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { StagingBanner } from "@/components/StagingBanner";
+import { ClientErrorBeacon } from "@/components/ClientErrorBeacon";
 import "./globals.css";
 
 const YM_ID = 73068007;
@@ -120,6 +121,7 @@ export default function RootLayout({
       className={`h-full antialiased ${manrope.variable} ${inter.variable}`}
     >
       <body className="min-h-full flex flex-col">
+        <ClientErrorBeacon />
         <StagingBanner />
         <SessionProvider>
           {children}

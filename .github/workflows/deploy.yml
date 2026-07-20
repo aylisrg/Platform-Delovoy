@@ -346,7 +346,7 @@ jobs:
           # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
           # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
           # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
-          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh"
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh"
           target: "/opt/delovoy-park/"
           overwrite: true
 
@@ -514,6 +514,18 @@ jobs:
               echo "✅ daily backup cron installed (01:30 UTC / 04:30 MSK)"
             fi
             chmod +x /opt/delovoy-park/scripts/cron-backup.sh /opt/delovoy-park/scripts/backup-db.sh 2>/dev/null || true
+
+            # Минутный локальный вотчдог: GitHub cron троттлится до ~1 раза
+            # в час — локальный проб закрывает дыру обнаружения
+            # (инцидент 2026-07-20). Тихий при здоровом сайте.
+            LOCAL_WD_ENTRY="* * * * * /opt/delovoy-park/scripts/local-watchdog.sh >> /var/log/delovoy-local-watchdog.log 2>&1"
+            if crontab -l 2>/dev/null | grep -q 'local-watchdog.sh'; then
+              echo "✅ local watchdog cron already registered"
+            else
+              (crontab -l 2>/dev/null; echo "$LOCAL_WD_ENTRY") | crontab -
+              echo "✅ local watchdog cron installed (every minute)"
+            fi
+            chmod +x /opt/delovoy-park/scripts/local-watchdog.sh /opt/delovoy-park/scripts/watchdog-remediate.sh 2>/dev/null || true
 
       - name: Verify deployment + smoke tests
         if: ${{ !inputs.skip_smoke_tests }}

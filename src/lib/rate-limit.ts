@@ -15,6 +15,9 @@ const CONFIGS = {
   // Web Push subscribe/unsubscribe — защита от Service Worker re-registration
   // loop, который мог бы заспамить эндпоинт. См. ADR §API-контракты.
   "web-push-subscribe": { limit: 10, windowSeconds: 60 } as RateLimitConfig,
+  // Клиентский error-beacon (public, без auth) — жёстче обычного public:
+  // битая страница в цикле ошибок не должна флудить SystemEvent.
+  "client-error": { limit: 10, windowSeconds: 60 } as RateLimitConfig,
 } as const;
 
 // Fail-open — осознанное решение: без Redis запросы пропускаем. Но молчать
