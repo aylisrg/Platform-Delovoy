@@ -140,6 +140,103 @@ export function computeGazeboPricing(
   };
 }
 
+/**
+ * Одна строка публичной таблицы цен. Строится из данных ресурсов в БД
+ * (админка — источник истины), а не из хардкода.
+ */
+export type PublicPriceRow = {
+  /** "Беседка №1" или "Беседки №2, 3, 4" при группировке одинаковых. */
+  name: string;
+  /** Число мест (макс. по группе). */
+  capacity: number | null;
+  weekdayHour: number;
+  weekdayDay: number;
+  weekendHour: number;
+  weekendDay: number;
+  /** Доп. пометка под названием, например "интернет + ТВ". */
+  note?: string;
+};
+
+type ResourceForPricing = {
+  name: string;
+  capacity: number | null;
+  pricePerHour: unknown;
+  metadata: unknown;
+};
+
+const toNumber = (v: unknown): number | null => {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Извлекает features из metadata (для пометки "интернет + ТВ"). */
+function extractFeatures(metadata: unknown): string[] {
+  if (metadata && typeof metadata === "object" && "features" in metadata) {
+    const f = (metadata as { features: unknown }).features;
+    if (Array.isArray(f)) return f.filter((x): x is string => typeof x === "string");
+  }
+  return [];
+}
+
+/** "Беседка №1", "Беседка №12" → "1", "12". Для компактной группировки имён. */
+function extractNumber(name: string): string | null {
+  const m = name.match(/№\s*(\d+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Собирает строки публичного прайса из ресурсов БД. Беседки с одинаковой
+ * вместимостью, ценой и пометкой сливаются в одну строку ("Беседки №2, 3, 4"),
+ * как в официальном прайс-листе. Ресурсы без извлекаемого прайса пропускаются.
+ * Порядок исходного массива сохраняется (ожидается сортировка по имени).
+ */
+export function buildPublicPriceRows(
+  resources: ResourceForPricing[]
+): PublicPriceRow[] {
+  const groups: Array<{ key: string; row: PublicPriceRow; numbers: string[] }> = [];
+
+  for (const r of resources) {
+    const pl = extractPriceList(r.metadata, toNumber(r.pricePerHour));
+    if (!pl) continue;
+    const note = extractFeatures(r.metadata).join(" + ") || undefined;
+    const key = [
+      r.capacity ?? "",
+      pl.weekdayHour,
+      pl.weekdayDay,
+      pl.weekendHour,
+      pl.weekendDay,
+      note ?? "",
+    ].join("|");
+
+    const num = extractNumber(r.name);
+    const existing = groups.find((g) => g.key === key);
+    if (existing && num) {
+      existing.numbers.push(num);
+      existing.row.name = `Беседки №${existing.numbers.join(", ")}`;
+      if (r.capacity != null) {
+        existing.row.capacity = Math.max(existing.row.capacity ?? 0, r.capacity);
+      }
+    } else {
+      groups.push({
+        key,
+        numbers: num ? [num] : [],
+        row: {
+          name: r.name,
+          capacity: r.capacity,
+          weekdayHour: pl.weekdayHour,
+          weekdayDay: pl.weekdayDay,
+          weekendHour: pl.weekendHour,
+          weekendDay: pl.weekendDay,
+          note,
+        },
+      });
+    }
+  }
+
+  return groups.map((g) => g.row);
+}
+
 export function calcBookingPrice(
   pricing: ResourcePricing,
   hours: number

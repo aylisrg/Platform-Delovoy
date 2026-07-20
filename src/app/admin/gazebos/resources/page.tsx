@@ -30,27 +30,44 @@ export default async function GazebosResourcesPage() {
               <tr className="border-b border-zinc-100 text-left text-zinc-500">
                 <th className="pb-3 font-medium">Название</th>
                 <th className="pb-3 font-medium">Вместимость</th>
-                <th className="pb-3 font-medium">Цена/час</th>
+                <th className="pb-3 font-medium">Пн–Чт, час</th>
+                <th className="pb-3 font-medium">Пт–Вс, час</th>
                 <th className="pb-3 font-medium">Статус</th>
                 <th className="pb-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {resources.map((r) => (
-                <tr key={r.id} className="border-b border-zinc-50">
-                  <td className="py-3 text-zinc-900 font-medium">{r.name}</td>
-                  <td className="py-3 text-zinc-600">{r.capacity ?? "—"} чел.</td>
-                  <td className="py-3 text-zinc-600">{r.pricePerHour ? `${Number(r.pricePerHour)} ₽` : "—"}</td>
-                  <td className="py-3">
-                    <Badge variant={r.isActive ? "success" : "default"}>
-                      {r.isActive ? "Активна" : "Отключена"}
-                    </Badge>
-                  </td>
-                  <td className="py-3">
-                    <ResourceEditor resource={{ ...r, pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null }} />
-                  </td>
-                </tr>
-              ))}
+              {resources.map((r) => {
+                const pl = (r.metadata as { priceList?: { weekdayHour?: number; weekendHour?: number } } | null)?.priceList;
+                const weekdayHour = pl?.weekdayHour ?? (r.pricePerHour != null ? Number(r.pricePerHour) : null);
+                const weekendHour = pl?.weekendHour ?? null;
+                return (
+                  <tr key={r.id} className="border-b border-zinc-50">
+                    <td className="py-3 text-zinc-900 font-medium">{r.name}</td>
+                    <td className="py-3 text-zinc-600">{r.capacity ?? "—"} чел.</td>
+                    <td className="py-3 text-zinc-600">{weekdayHour != null ? `${weekdayHour} ₽` : "—"}</td>
+                    <td className="py-3 text-zinc-600">{weekendHour != null ? `${weekendHour} ₽` : "—"}</td>
+                    <td className="py-3">
+                      <Badge variant={r.isActive ? "success" : "default"}>
+                        {r.isActive ? "Активна" : "Отключена"}
+                      </Badge>
+                    </td>
+                    <td className="py-3">
+                      <ResourceEditor
+                        resource={{
+                          id: r.id,
+                          name: r.name,
+                          description: r.description,
+                          capacity: r.capacity,
+                          pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null,
+                          isActive: r.isActive,
+                          metadata: r.metadata,
+                        }}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

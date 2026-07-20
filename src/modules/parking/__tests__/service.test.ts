@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getParkingInfo, MODULE_SLUG } from "@/modules/parking/service";
+import { getParkingInfo, getParkingPricing, MODULE_SLUG } from "@/modules/parking/service";
 
 describe("getParkingInfo", () => {
   it("returns parking info with correct structure", () => {
@@ -29,6 +29,17 @@ describe("getParkingInfo", () => {
 
     expect(info.contacts).toBeDefined();
     expect(info.contacts.phone).toBeDefined();
+  });
+});
+
+describe("getParkingPricing", () => {
+  it("matches the official price list (легковой 200 ₽, грузовой 400 ₽ за ночь)", () => {
+    const pricing = getParkingPricing();
+    expect(pricing.nightWindow).toBe("с 23:00 до 11:00");
+    const car = pricing.tariffs.find((t) => t.vehicle === "Легковой автомобиль");
+    const truck = pricing.tariffs.find((t) => t.vehicle === "Грузовой автомобиль");
+    expect(car).toMatchObject({ nightPrice: 200, dayPrice: 200 });
+    expect(truck).toMatchObject({ nightPrice: 400, dayPrice: 400 });
   });
 });
 

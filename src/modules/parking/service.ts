@@ -1,6 +1,21 @@
-import type { ParkingInfo } from "./types";
+import type { ParkingInfo, ParkingPricing } from "./types";
 
 const MODULE_SLUG = "parking";
+
+/**
+ * Прайс платной охраняемой автостоянки для гостей барбекю-парка.
+ * Источник — официальный прайс-лист (Приложение к договору аренды беседки).
+ * Единый источник для страниц /gazebos и /parking (взаимосвязь контента).
+ */
+export function getParkingPricing(): ParkingPricing {
+  return {
+    nightWindow: "с 23:00 до 11:00",
+    tariffs: [
+      { vehicle: "Легковой автомобиль", nightPrice: 200, dayPrice: 200 },
+      { vehicle: "Грузовой автомобиль", nightPrice: 400, dayPrice: 400 },
+    ],
+  };
+}
 
 /**
  * Returns parking information.

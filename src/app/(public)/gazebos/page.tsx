@@ -5,6 +5,7 @@ import { getPublicPhone } from "@/modules/telephony/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { PricingSection } from "@/components/public/gazebos/pricing-section";
+import { ParkingSection } from "@/components/public/gazebos/parking-section";
 import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
@@ -184,7 +185,10 @@ export default async function GazebosPage() {
         </section>
 
         {/* Pricing & extras */}
-        <PricingSection />
+        <PricingSection resources={resources} />
+
+        {/* Автостоянка */}
+        <ParkingSection />
 
         {/* Booking flow */}
         <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">

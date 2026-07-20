@@ -1,0 +1,40 @@
+name: Apply Gazebo Prices on Production
+
+# Manual one-off trigger. Runs scripts/update-gazebo-prices.ts inside the
+# prod `app` container to write the official price list (capacity, description,
+# pricePerHour + metadata.priceList matrix) into existing Resource rows.
+#
+# Why a separate workflow (not the seed): scripts/seed.ts intentionally does NOT
+# overwrite prices / UI-editable fields on existing gazebos (see seedCore), so it
+# cannot correct price data already in the DB. This script does — run it once
+# after deploying a price change, then let the admin panel manage prices going
+# forward. Idempotent: double run = same state.
+#
+# Requires the corrected script to be deployed first (merge → deploy), otherwise
+# the container still holds the previous values.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  apply-prices:
+    name: Apply gazebo price list
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run price update via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/delovoy-park
+            echo "=== Applying gazebo price list ==="
+            docker compose exec -T app npx tsx scripts/update-gazebo-prices.ts
+            echo "=== Done ==="
