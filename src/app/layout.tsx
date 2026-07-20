@@ -9,13 +9,14 @@ const YM_ID = 73068007;
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-manrope",
   display: "swap",
 });
 
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-inter",
   display: "swap",
 });
@@ -133,10 +134,10 @@ export default function RootLayout({
             k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
             (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
             ym(${YM_ID}, "init", {
-              clickmap: true,
+              clickmap: false,
               trackLinks: true,
               accurateTrackBounce: true,
-              webvisor: true,
+              webvisor: false,
               ecommerce: "dataLayer"
             });
           `}

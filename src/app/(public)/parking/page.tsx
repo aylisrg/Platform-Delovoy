@@ -5,6 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 
+// Static parking info — cache the page (ISR) and revalidate periodically so
+// edits propagate without rebuilding, while still serving from cache.
+export const revalidate = 600;
+
 const APP_URL = "https://delovoy-park.ru";
 
 const jsonLd = {

@@ -18,7 +18,7 @@ export function HeroSectionWithVideo() {
             loop
             muted
             playsInline
-            preload="metadata"
+            preload="none"
             poster="/media/hero-poster.jpg"
             onError={() => setVideoError(true)}
           >
