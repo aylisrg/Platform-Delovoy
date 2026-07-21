@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.7.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.6.0...v2.7.0) (2026-07-21)
+
+
+### Features
+
+* **admin,notifications:** статус оплаты броней + Telegram-канал «только оплаченные» ([#353](https://github.com/aylisrg/Platform-Delovoy/issues/353)) ([0f64401](https://github.com/aylisrg/Platform-Delovoy/commit/0f64401f9803a35587a8758c18085f8cd16b1440))
+* **agent:** persistent tasks, session continuity, system prompt, git sync ([#328](https://github.com/aylisrg/Platform-Delovoy/issues/328)) ([a0409c8](https://github.com/aylisrg/Platform-Delovoy/commit/a0409c880f9a30fcc586d9e17605731afd9d5da3))
+* **gazebos:** ADMIN delete rights + dedicated Telegram channel ([#345](https://github.com/aylisrg/Platform-Delovoy/issues/345)) ([679dd0f](https://github.com/aylisrg/Platform-Delovoy/commit/679dd0fedb2d91f11cf65068be04b2268ba7a0d1))
+* **gazebos:** синхронизация прайса беседок с прайс-листом + автостоянка ([#363](https://github.com/aylisrg/Platform-Delovoy/issues/363)) ([900c51d](https://github.com/aylisrg/Platform-Delovoy/commit/900c51d326c83f249555cbc2627eaa20ba981992))
+* **monitoring:** вотчдог видит то, что видят пользователи + клиентский error-beacon ([#361](https://github.com/aylisrg/Platform-Delovoy/issues/361)) ([8b4e44b](https://github.com/aylisrg/Platform-Delovoy/commit/8b4e44bd20a258625381b97050a2a32c3ee203df))
+* **parking:** отдельная страница услуги «Автостоянка» + раздел в меню ([#365](https://github.com/aylisrg/Platform-Delovoy/issues/365)) ([6dc09e3](https://github.com/aylisrg/Platform-Delovoy/commit/6dc09e36f748a5dc65a4711e13381a5bea64f6c9))
+* send booking reminders to guest bookings via module channel ([#347](https://github.com/aylisrg/Platform-Delovoy/issues/347)) ([f7a794c](https://github.com/aylisrg/Platform-Delovoy/commit/f7a794cfb6c0956a43897aea6b33c8eb3cc13c9c))
+* онлайн-оплата ЮKassa — план + модуль payments (беседки, абонементы, PS Park) ([#349](https://github.com/aylisrg/Platform-Delovoy/issues/349)) ([f809de1](https://github.com/aylisrg/Platform-Delovoy/commit/f809de120707fdaa70fec3da2a0958ea82c39d69))
+
+
+### Bug Fixes
+
+* **agent:** workspace permissions, claude auth path, login action ([#329](https://github.com/aylisrg/Platform-Delovoy/issues/329)) ([880024b](https://github.com/aylisrg/Platform-Delovoy/commit/880024b2a4740a34d20efc2b0c8985bebc350925))
+* always pass --dangerously-skip-permissions to claude runner ([4e73f3e](https://github.com/aylisrg/Platform-Delovoy/commit/4e73f3e71ee7fe63e906c6a2f6f7d62eac436baa))
+* build agent image for linux/arm64 (Hetzner cax11) ([957f708](https://github.com/aylisrg/Platform-Delovoy/commit/957f70855fccf23f3ad977ff6137c69c47a5265f))
+* delete existing SSH key before recreating on Hetzner ([#318](https://github.com/aylisrg/Platform-Delovoy/issues/318)) ([c9c5d25](https://github.com/aylisrg/Platform-Delovoy/commit/c9c5d25347326b01461107286ceb765adcafa3b6))
+* **deploy:** старт контейнера за секунды вместо минут + статика переживает деплой ([#360](https://github.com/aylisrg/Platform-Delovoy/issues/360)) ([24ce211](https://github.com/aylisrg/Platform-Delovoy/commit/24ce211c9316c444e311f5a5208b05732c9d872b))
+* find SSH key by content on Hetzner ([#320](https://github.com/aylisrg/Platform-Delovoy/issues/320)) ([ac91500](https://github.com/aylisrg/Platform-Delovoy/commit/ac91500f7753f438e3c411047af79e272a7cc31b))
+* **gazebos:** report Telegram network failure clearly instead of 500 ([#348](https://github.com/aylisrg/Platform-Delovoy/issues/348)) ([ce5d800](https://github.com/aylisrg/Platform-Delovoy/commit/ce5d80061744211a686f3e83a6c78ec54c9931b5))
+* **notifications:** Telegram недоступен с VPS — таймауты, TELEGRAM_API_ROOT/PROXY_URL, диагностический workflow ([#350](https://github.com/aylisrg/Platform-Delovoy/issues/350)) ([442dc87](https://github.com/aylisrg/Platform-Delovoy/commit/442dc87e6e3332694fad53456abc64f26e9dc6cb))
+* **ops:** устранение периодической недоступности сайта — watchdog c авто-восстановлением, бэкапы, Stage 3 ([#355](https://github.com/aylisrg/Platform-Delovoy/issues/355)) ([4045ca3](https://github.com/aylisrg/Platform-Delovoy/commit/4045ca39fab2a94b2fffe9da31a94d4bbb8e7ece))
+* **payments:** доставка вебхук-секрета и починка регистрации кронов ([#351](https://github.com/aylisrg/Platform-Delovoy/issues/351)) ([86cdc3d](https://github.com/aylisrg/Platform-Delovoy/commit/86cdc3d393033f46242257c4208dd85b15adbfb4))
+* prevent infinite WebApp spinner when Telegram SDK loads late (Safari) ([#341](https://github.com/aylisrg/Platform-Delovoy/issues/341)) ([6dd74f2](https://github.com/aylisrg/Platform-Delovoy/commit/6dd74f2aa09c66f0c3ab193aca076d724ed788cc))
+* replace framer-motion with pure CSS for FadeInSection ([#344](https://github.com/aylisrg/Platform-Delovoy/issues/344)) ([c746595](https://github.com/aylisrg/Platform-Delovoy/commit/c7465958a42db7b4b01b4905e30915cbb716534e))
+* run agent as non-root user to allow --dangerously-skip-permissions ([41462e9](https://github.com/aylisrg/Platform-Delovoy/commit/41462e9a9e19b5cc2fb0de9a440b670747fa3ec1))
+* **sw:** cache never breaks the page — versioned, bounded, fetch fallback ([#359](https://github.com/aylisrg/Platform-Delovoy/issues/359)) ([ba10884](https://github.com/aylisrg/Platform-Delovoy/commit/ba10884dcfc5fd7d6bc7223eb49dd6e1da166ab5))
+
+
+### Performance Improvements
+
+* **public:** вебвизор off, ISR-кэш маркетинговых страниц, ленивые видео, шрифты, rAF-гейт ([#362](https://github.com/aylisrg/Platform-Delovoy/issues/362)) ([75d93e6](https://github.com/aylisrg/Platform-Delovoy/commit/75d93e63d206ed659405b7748342ccda4d9f8966))
+
 ## [2.6.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.5.0...v2.6.0) (2026-05-26)
 
 
