@@ -9,6 +9,7 @@ const navLinks = [
   { label: "Офисы", href: "/rental" },
   { label: "Барбекю Парк", href: "/gazebos" },
   { label: "Плей Парк", href: "/ps-park" },
+  { label: "Автостоянка", href: "/avtostoyanka" },
   { label: "Контакты", href: "/#contacts" },
 ];
 

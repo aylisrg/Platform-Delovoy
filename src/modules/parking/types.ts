@@ -26,3 +26,26 @@ export type ParkingPricing = {
   nightWindow: string;
   tariffs: ParkingTariff[];
 };
+
+/** Преимущество / шаг для страницы автостоянки. */
+export type GuardedParkingItem = {
+  title: string;
+  description: string;
+};
+
+/**
+ * Контент отдельной услуги «Автостоянка» (самостоятельная страница).
+ * Услуга доступна всем, не только гостям барбекю-парка.
+ */
+export type GuardedParkingInfo = {
+  /** Короткий подзаголовок под H1. */
+  tagline: string;
+  /** Режим работы, напр. "Круглосуточно, 7 дней в неделю". */
+  hours: string;
+  /** Адрес площадки. */
+  address: string;
+  /** Преимущества (иконки-карточки). */
+  features: GuardedParkingItem[];
+  /** Шаги «как это работает». */
+  steps: GuardedParkingItem[];
+};
