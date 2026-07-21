@@ -160,7 +160,7 @@ jobs:
       || needs.probe.outputs.mode == 'force-remediate'
     steps:
       - name: Checkout (remediation script)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/watchdog-remediate.sh
           sparse-checkout-cone-mode: false

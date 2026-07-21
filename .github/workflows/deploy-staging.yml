@@ -73,7 +73,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${TARGET_SHA}
 
       # Slow path (fallback): build from source when sha image missing.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.retag.outcome == 'failure'
         with:
           ref: ${{ steps.resolve.outputs.sha }}
