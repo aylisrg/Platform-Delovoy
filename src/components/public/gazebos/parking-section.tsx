@@ -27,11 +27,12 @@ export function ParkingSection() {
             className="font-[family-name:var(--font-manrope)] font-[500] text-[#1d1d1f]"
             style={{ fontSize: "clamp(28px, 3.5vw, 40px)", letterSpacing: "-1px", lineHeight: 1 }}
           >
-            Автостоянка
+            Хотите оставить авто на ночь?
           </h2>
-          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-sm mt-3 max-w-2xl">
-            Охраняемая автостоянка на территории бизнес-парка «Деловой». Оставьте
-            машину под присмотром, пока отдыхаете в беседке.
+          <p className="text-[#86868b] font-[family-name:var(--font-inter)] text-base mt-4 max-w-2xl leading-relaxed">
+            На нашей охраняемой парковке автомобиль будет под присмотром, пока вы
+            отдыхаете в беседке. Видеонаблюдение, освещение, круглосуточный доступ.
+            Вот прайс:
           </p>
         </div>
 
@@ -75,13 +76,16 @@ export function ParkingSection() {
               </table>
             </div>
 
-            <p className="text-[#86868b] text-xs mt-4">
-              Подробнее о парковке бизнес-парка —{" "}
-              <Link href="/parking" className="text-[#1d1d1f] underline underline-offset-2 hover:no-underline">
-                на странице «Парковка»
-              </Link>
-              .
-            </p>
+            <Link
+              href="/avtostoyanka"
+              className="inline-flex items-center gap-2 mt-6 text-sm font-medium rounded-full px-5 py-3 transition-colors"
+              style={{ backgroundColor: `${ACCENT}15`, color: ACCENT }}
+            >
+              Подробнее об автостоянке
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
           </div>
 
           {/* Right: map */}
