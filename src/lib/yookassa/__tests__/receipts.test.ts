@@ -47,6 +47,16 @@ describe("buildReceipt (54-ФЗ)", () => {
     });
   });
 
+  it("paymentSubject: commodity проходит в payment_subject, дефолт — service", () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    const receipt = buildReceipt({ email: "a@b.ru" }, [
+      { description: "Круассан", amount: 180, quantity: 2, paymentSubject: "commodity" },
+      { description: "Аренда беседки", amount: 1500 },
+    ]);
+    expect(receipt?.items[0].payment_subject).toBe("commodity");
+    expect(receipt?.items[1].payment_subject).toBe("service");
+  });
+
   it("обрезает описание позиции до 128 символов", () => {
     process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
     const receipt = buildReceipt({ email: "a@b.ru" }, [

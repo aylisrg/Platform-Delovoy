@@ -69,6 +69,13 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.reminder": (d) =>
       `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
   },
+  cafe: {
+    // QR-чекаут: постим только оплаченные заказы (order.paid шлётся строго
+    // после успешной онлайн-оплаты). order.placed шаблона намеренно нет —
+    // неоплаченные корзины в канал не попадают.
+    "order.paid": (d) =>
+      `☕ <b>Оплачен заказ #${escapeHtml(d.orderNumber)}</b>\n\nСумма: ${d.amount} ₽\nСостав: ${escapeHtml(d.itemsSummary)}\n${d.deliveryTo ? `Принести: ${escapeHtml(d.deliveryTo)}` : "Самообслуживание — выдан у кассы"}\n\n<a href="${(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000") + "/admin/cafe"}">Открыть в панели</a>`,
+  },
   "ps-park": {
     // «Онлайн-оплата», а не «оплачена»: счёт ps-park может оплачиваться
     // частями (несколько платежей), поэтому каждое событие — это принятый

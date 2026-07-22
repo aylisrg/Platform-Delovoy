@@ -27,6 +27,10 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   "order.ready": { client: true, admin: false, category: "order" },
   "order.delivered": { client: true, admin: false, category: "order" },
   "order.cancelled": { client: true, admin: true, category: "order" },
+  // Канал-only «заказ оплачен» (зеркало booking.paid): админ-группа получает
+  // общий payment.succeeded, а выделенный Telegram-канал кафе — подробный
+  // состав заказа через dispatchModuleChannel.
+  "order.paid": { client: false, admin: false },
 
   // Rental contracts (admin-only)
   "contract.created": { client: false, admin: true },
