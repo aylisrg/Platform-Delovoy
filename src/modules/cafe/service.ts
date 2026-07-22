@@ -217,7 +217,7 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
       type: eventMap[status],
       moduleSlug: MODULE_SLUG,
       entityId: id,
-      userId: order.userId,
+      userId: order.userId ?? undefined,
       actor: "admin",
       data: {
         orderNumber: id.slice(-6).toUpperCase(),

@@ -141,7 +141,7 @@ export default async function CafeManagerPage() {
                         {formatTime(order.createdAt)}
                       </td>
                       <td className="py-3 text-zinc-600">
-                        {order.user.name ?? order.user.email ?? "—"}
+                        {order.user?.name ?? order.user?.email ?? "Гость"}
                       </td>
                       <td className="py-3 text-zinc-600">
                         {order.items.map((i) => (
