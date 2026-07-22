@@ -75,6 +75,8 @@ const eslintConfig = defineConfig([
     "landing-delovoy-park.ru/**",
     // Bot — separate process
     "bot/**",
+    // Infra — Cloudflare Worker / serverless relay, separate runtime
+    "infra/**",
     // Claude Code worktrees (parallel branch checkouts)
     ".claude/worktrees/**",
   ]),

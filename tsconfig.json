@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "scripts", "bot", "landing-delovoy-park.ru"]
+  "exclude": ["node_modules", "scripts", "bot", "infra", "landing-delovoy-park.ru"]
 }

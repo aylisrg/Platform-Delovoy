@@ -1,0 +1,19 @@
+# Cloudflare Worker: Telegram Bot API relay.
+# Deploy:  cd infra/telegram-relay && npx wrangler deploy
+# See README.md for the full runbook.
+
+name = "delovoy-tg-relay"
+main = "worker.ts"
+compatibility_date = "2026-07-01"
+
+# workers_dev = true (default) publishes to
+#   https://delovoy-tg-relay.<your-subdomain>.workers.dev
+# A custom route/domain is optional and not required for this to work.
+
+# Secrets are NOT stored here — set them once after the first deploy:
+#   npx wrangler secret put RELAY_SECRET      # required, unguessable
+#   npx wrangler secret put ALLOWED_BOT_ID    # optional, digits before ':' in the bot token
+#
+# Then in GitHub → Secrets → Actions set:
+#   TELEGRAM_API_ROOT = https://delovoy-tg-relay.<your-subdomain>.workers.dev/<RELAY_SECRET>
+# and re-run Deploy (deploy.yml syncs it into /opt/delovoy-park/.env for app + bot).

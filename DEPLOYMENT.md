@@ -250,18 +250,30 @@ Actions → **Telegram Diagnose** → Run workflow (chat_id по умолчан�
 | `NETWORK_DOWN` | Весь egress сломан | Тикет в Timeweb, проверить firewall egress |
 | `FULL_BLOCK` | api.telegram.org блокируется с IP сервера | Включить обход (ниже) |
 
+> ⚠️ `FULL_BLOCK` — это **исходящий** путь сервер→`api.telegram.org`. Это НЕ то
+> же самое, что блокировка **входящего** IP сайта у потребительских операторов
+> («вечный спиннер», инцидент `docs/incidents/2026-07-20-tspu-ip-block.md`,
+> лечится сменой IP / фронтом Cloudflare). Доп. IP уведомления не чинит.
+
 **Обход `FULL_BLOCK`** — задать один из GH Secrets и передеплоить
 (deploy.yml сам занесёт их в `/opt/delovoy-park/.env`; пустые секреты
 пропускаются), либо вписать в `.env` на сервере и `docker compose up -d app bot`:
 
-1. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси (напр. squid/3proxy на
-   Hetzner-сервере агента, доступ только с IP VPS). SOCKS не поддерживается.
-2. `TELEGRAM_API_ROOT` — релей Bot API:
-   - **Cloudflare Worker** (бесплатно): worker, проксирующий
-     `https://api.telegram.org${url.pathname}${url.search}` c методом/телом as-is;
-   - **nginx на Hetzner**: `location ~ ^/bot { proxy_pass https://api.telegram.org; proxy_ssl_server_name on; }`
-     + allowlist по IP VPS. ⚠️ В URI содержится токен бота — на релее
-     отключить логирование URI (`access_log off`).
+1. **`TELEGRAM_API_ROOT` — Cloudflare Worker-релей (рекомендуется: бесплатно,
+   без своего сервера и без доп. IP).** Готовый Worker + пошаговый деплой:
+   [`infra/telegram-relay/`](infra/telegram-relay/README.md). Публикуешь Worker,
+   ставишь секреты `RELAY_SECRET` (+ опц. `ALLOWED_BOT_ID`), затем
+   `TELEGRAM_API_ROOT = https://<worker>.workers.dev/<RELAY_SECRET>` в GH Secrets
+   → redeploy. И `app`, и `bot` начинают ходить в Telegram через чистый edge.
+   Изменений в коде отправки — ноль. Тот же handler переносится на Deno Deploy /
+   Vercel Edge (см. README).
+2. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси (напр. squid/3proxy на
+   не-РФ сервере, доступ только с IP VPS). SOCKS не поддерживается. _Fallback:
+   требует свой сервер._
+3. `TELEGRAM_API_ROOT` через **nginx** на не-РФ хосте:
+   `location ~ ^/bot { proxy_pass https://api.telegram.org; proxy_ssl_server_name on; }`
+   + allowlist по IP VPS. ⚠️ В URI содержится токен бота — на релее
+   отключить логирование URI (`access_log off`). _Fallback: требует свой сервер._
 
 ### Шаг 3 — Проверка
 
