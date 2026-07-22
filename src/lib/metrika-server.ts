@@ -21,7 +21,8 @@ import { log } from "@/lib/logger";
 export type ServerGoal =
   | "gazebo_booking_success"
   | "pspark_booking_success"
-  | "office_inquiry_success";
+  | "office_inquiry_success"
+  | "cafe_order_submit";
 
 export interface TrackServerGoalInput {
   request: NextRequest;

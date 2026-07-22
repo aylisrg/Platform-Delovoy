@@ -192,6 +192,18 @@ describe("enforceStagingRoleCheck", () => {
     expect(res!.status).toBe(403);
   });
 
+  it("blocks anonymous POST /api/cafe/checkout on staging (QR-чекаут)", () => {
+    vi.stubEnv("NODE_ENV", "staging");
+    const res = enforceStagingRoleCheck(req("POST", "/api/cafe/checkout"), null);
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(403);
+  });
+
+  it("allows anonymous GET /api/payments/{id} on staging (read-only poll)", () => {
+    vi.stubEnv("NODE_ENV", "staging");
+    expect(enforceStagingRoleCheck(req("GET", "/api/payments/clxyz"), null)).toBeNull();
+  });
+
   it("allows SUPERADMIN POST /api/admin/backups/restore on staging", () => {
     vi.stubEnv("NODE_ENV", "staging");
     const session = { user: { id: "s1", role: "SUPERADMIN" } };
