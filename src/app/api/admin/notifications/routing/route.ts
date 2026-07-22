@@ -8,59 +8,8 @@ import {
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/logger";
+import { ROUTING_CATEGORIES } from "@/modules/notifications/routing-categories";
 import type { Prisma } from "@prisma/client";
-
-/** Categories that can have their own chat routing. */
-const ROUTING_CATEGORIES = [
-  {
-    key: "gazebos",
-    label: "Барбекю Парк",
-    description: "Бронирования беседок и мангальных зон",
-    icon: "🏕",
-  },
-  {
-    key: "ps-park",
-    label: "Плей Парк",
-    description: "Бронирования PlayStation-столов",
-    icon: "🎮",
-  },
-  {
-    key: "cafe",
-    label: "Кафе",
-    description: "Заказы еды и напитков",
-    icon: "☕",
-  },
-  {
-    key: "rental",
-    label: "Аренда",
-    description: "Заявки на аренду, договоры",
-    icon: "🏢",
-  },
-  {
-    key: "rental-inquiry",
-    label: "Заявки на офис (лендинг)",
-    description: "Новые заявки с формы аренды офиса — отдельный канал",
-    icon: "📨",
-  },
-  {
-    key: "inventory",
-    label: "Склад",
-    description: "Приёмки, списания, низкие остатки",
-    icon: "📋",
-  },
-  {
-    key: "feedback",
-    label: "Обратная связь",
-    description: "Обращения от пользователей (баги, предложения)",
-    icon: "💬",
-  },
-  {
-    key: "system",
-    label: "Системные алерты",
-    description: "Health check, ошибки, критичные события",
-    icon: "🔍",
-  },
-] as const;
 
 type RoutingRule = {
   key: string;

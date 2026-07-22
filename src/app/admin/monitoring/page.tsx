@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TelegramSettings } from "@/components/admin/telegram/telegram-settings";
 import { NotificationFlowMap } from "@/components/admin/notifications/NotificationFlowMap";
+import { NotificationChannelTests } from "@/components/admin/notifications/NotificationChannelTests";
 import { getRecentEvents, getEventStats } from "@/modules/monitoring/service";
 import { notificationsHealth } from "@/modules/notifications/health";
 import type { EventLevel } from "@prisma/client";
@@ -144,6 +145,16 @@ export default async function MonitoringPage() {
 
         {/* Telegram & Notifications System */}
         <div className="mt-8 space-y-8">
+          <section>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-zinc-900">Тест каналов уведомлений</h2>
+              <p className="text-sm text-zinc-500 mt-1">
+                Нажмите «Тест» — бот отправит проверочное сообщение в конкретный канал. Удобно периодически проверять, что маршрутизация цела.
+              </p>
+            </div>
+            <NotificationChannelTests />
+          </section>
+
           <section>
             <div className="mb-4">
               <h2 className="text-xl font-semibold text-zinc-900">Карта уведомлений</h2>
