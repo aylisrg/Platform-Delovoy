@@ -4,6 +4,7 @@ import { enqueueNotification } from "@/modules/notifications/queue";
 import {
   formatTime as formatTimeUnified,
   getMoscowHour as getMoscowHourUnified,
+  parseMoscowDateTime,
 } from "@/lib/format";
 import {
   createCalendarEvent,
@@ -736,8 +737,8 @@ export async function updateBookingStatus(
   }
 
   const dateStr = booking.date.toISOString().split("T")[0];
-  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const startStr = formatTimeUnified(booking.startTime);
+  const endStr = formatTimeUnified(booking.endTime);
 
   const notificationType =
     status === "CONFIRMED"
@@ -851,8 +852,8 @@ export async function cancelBooking(
 
   const resource = resourceForCal;
   const dateStr = booking.date.toISOString().split("T")[0];
-  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const startStr = formatTimeUnified(booking.startTime);
+  const endStr = formatTimeUnified(booking.endTime);
 
   enqueueNotification({
     type: "booking.cancelled",
@@ -1522,7 +1523,10 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
 
 /** Parse a date+time string as Moscow local time (UTC+3). */
 function parseDatetime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00+03:00`);
+  // Единый TZ-safe парсер Moscow-времени (см. src/lib/format.ts). Прежде здесь
+  // был литерал `+03:00`; вынесено в общий хелпер, чтобы gazebos и ps-park не
+  // расходились в обработке таймзон.
+  return parseMoscowDateTime(date, time);
 }
 
 /**

@@ -123,6 +123,38 @@ export function parseDate(ddmmyyyy: string): Date {
 }
 
 /**
+ * Парсит календарную дату (`YYYY-MM-DD`) и время (`HH:mm`) как локальное
+ * Moscow-время и возвращает соответствующий UTC-инстант (`Date`).
+ *
+ * Зачем нужен: `new Date("2026-07-22T16:00:00")` без указания смещения
+ * интерпретируется в таймзоне рантайма. В Docker/на VPS это UTC, поэтому
+ * бронь «на 16:00» сохранялась как 16:00Z вместо 13:00Z — сдвиг +3ч, из-за
+ * которого админ-таймлайн беседок показывал бронь на 3 часа позже. Здесь
+ * смещение фиксируется явно, поэтому результат не зависит от TZ сервера.
+ *
+ * Europe/Moscow — фиксированный UTC+3 без DST, но смещение вычисляем через
+ * Intl (`moscowOffsetMs`), чтобы оставаться устойчивыми к правкам TZDB —
+ * тот же подход, что и в `parseDate`.
+ *
+ * @throws Error при некорректном формате даты/времени.
+ */
+export function parseMoscowDateTime(date: string, time: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(`parseMoscowDateTime: expected date "YYYY-MM-DD", got "${date}"`);
+  }
+  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(time)) {
+    throw new Error(`parseMoscowDateTime: expected time "HH:mm", got "${time}"`);
+  }
+  const [yyyy, mm, dd] = date.split("-").map(Number);
+  const [hh, min] = time.split(":").map(Number);
+  // Собираем «наивный» UTC из компонентов, затем корректируем на смещение
+  // Moscow — так же, как это делает parseDate для полуночи.
+  const naiveUtc = Date.UTC(yyyy, mm - 1, dd, hh, min, 0, 0);
+  const offsetMs = moscowOffsetMs(new Date(naiveUtc));
+  return new Date(naiveUtc - offsetMs);
+}
+
+/**
  * Смещение Moscow TZ относительно UTC в миллисекундах (+3h обычно).
  * Вычисляется через Intl, чтобы быть устойчивым к историческим правкам TZDB.
  */

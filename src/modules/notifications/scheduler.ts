@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { formatTime } from "@/lib/format";
 import { enqueueNotification } from "./queue";
 
 /**
@@ -53,14 +54,8 @@ async function processBookingReminders(): Promise<void> {
       const data = {
         resourceName: resource?.name || "Ресурс",
         date: booking.date.toLocaleDateString("ru-RU"),
-        startTime: booking.startTime.toLocaleTimeString("ru-RU", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        endTime: booking.endTime.toLocaleTimeString("ru-RU", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        startTime: formatTime(booking.startTime),
+        endTime: formatTime(booking.endTime),
       };
 
       enqueueNotification({

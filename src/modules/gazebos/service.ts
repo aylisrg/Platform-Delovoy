@@ -22,6 +22,7 @@ import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
+import { formatTime, parseMoscowDateTime } from "@/lib/format";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreateBookingInput,
@@ -785,8 +786,8 @@ export async function updateBookingStatus(
   }
 
   const dateStr = booking.date.toISOString().split("T")[0];
-  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const startStr = formatTime(booking.startTime);
+  const endStr = formatTime(booking.endTime);
 
   const notificationType =
     status === "CONFIRMED"
@@ -924,8 +925,8 @@ export async function cancelBooking(
 
   const resource = resourceForCal;
   const dateStr = booking.date.toISOString().split("T")[0];
-  const startStr = booking.startTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const endStr = booking.endTime.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const startStr = formatTime(booking.startTime);
+  const endStr = formatTime(booking.endTime);
 
   enqueueNotification({
     type: "booking.cancelled",
@@ -1306,7 +1307,10 @@ export async function listBookingsPaginated(params: {
 // === HELPERS ===
 
 function parseDatetime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00`);
+  // Трактуем ввод как Moscow-время → UTC-инстант. Без явного смещения
+  // `new Date("...T16:00:00")` парсился бы в TZ сервера (UTC), из-за чего
+  // бронь «на 16:00» сохранялась со сдвигом +3ч.
+  return parseMoscowDateTime(date, time);
 }
 
 export class BookingError extends Error {
