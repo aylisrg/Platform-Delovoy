@@ -1,0 +1,227 @@
+# Telegram-релей: HTTP CONNECT-прокси (tinyproxy) на Hetzner-боксе агента.
+#
+# Зачем: с IP Timeweb-VPS api.telegram.org по IPv4 заблокирован (HTTP=000),
+# IPv6 у Docker-контейнеров нет → уведомления и бот мертвы. CONNECT-прокси
+# на Hetzner (вне РФ) пробрасывает TLS насквозь: токен бота не расшифровывается
+# на релее, сертификаты не нужны, DNS-записи не нужны.
+#
+# Почему не nginx-relay через TELEGRAM_API_ROOT: ему нужны домен + LE-сертификат
+# (ручной шаг в reg.ru на критическом пути) и он терминирует TLS с токеном.
+# Вариант описан в ADR как запасной.
+#
+# Безопасность:
+# - пароль генерируется НА РАННЕРЕ, сразу add-mask, уходит только по SSH;
+# - tinyproxy пускает только IP прод-VPS (ufw + Allow) и требует BasicAuth;
+# - provision заодно УДАЛЯЕТ TELEGRAM_API_ROOT из .env: смешение мёртвого
+#   root'а с живым прокси даёт «запросы через рабочий прокси на мёртвый хост».
+#
+# push-триггер регистрирует workflow до мержа; push-запуск = status (read-only).
+name: Ops — Telegram Relay (Hetzner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Действие"
+        type: choice
+        options: [status, provision, rotate-credentials, remove]
+        default: status
+      port:
+        description: "Порт tinyproxy на Hetzner"
+        required: false
+        default: "3128"
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-telegram-relay.yml"]
+
+concurrency:
+  group: ops-telegram-relay
+  cancel-in-progress: false
+
+env:
+  PROXY_USER: delovoy
+
+jobs:
+  relay:
+    name: "Релей: ${{ inputs.action || 'status (push)' }}"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Подготовка (генерация кред на раннере)
+        id: prep
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION_IN: ${{ inputs.action }}
+        run: |
+          ACTION="${ACTION_IN:-status}"
+          [ "$EVENT" != "workflow_dispatch" ] && ACTION=status
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          if [ "$ACTION" = "provision" ] || [ "$ACTION" = "rotate-credentials" ]; then
+            PASS=$(openssl rand -hex 16)
+            echo "::add-mask::$PASS"
+            echo "pass=$PASS" >> "$GITHUB_OUTPUT"
+          else
+            echo "pass=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Действие: $ACTION"
+
+      - name: Hetzner — tinyproxy
+        uses: appleboy/ssh-action@v1
+        env:
+          ACTION: ${{ steps.prep.outputs.action }}
+          PORT: ${{ inputs.port || '3128' }}
+          PROXY_PASS: ${{ steps.prep.outputs.pass }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 10m
+          envs: ACTION,PORT,PROXY_USER,PROXY_PASS,VPS_HOST
+          script: |
+            set -eu
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            VPS_IP=$(getent ahostsv4 "$VPS_HOST" | awk 'NR==1{print $1}')
+            if [ -z "$VPS_IP" ]; then echo "::error::Не смог отрезолвить VPS_HOST"; exit 1; fi
+            echo "VPS_IP: $VPS_IP"
+
+            case "$ACTION" in
+              status)
+                echo "=== tinyproxy ==="
+                command -v tinyproxy >/dev/null 2>&1 && echo "установлен: $(tinyproxy -v 2>&1 | head -1)" || echo "не установлен"
+                systemctl is-active tinyproxy 2>/dev/null || true
+                $SUDO ss -tlnp 2>/dev/null | grep ":$PORT " || echo "порт $PORT не слушается"
+                echo "=== ufw ==="
+                $SUDO ufw status | grep -E "$PORT" || echo "правила ufw для $PORT нет"
+                echo "=== egress → Telegram (ожидаем 404) ==="
+                curl -s -o /dev/null -w "HTTP=%{http_code}\n" --max-time 10 "https://api.telegram.org/botINVALID/getMe" || true
+                ;;
+
+              provision|rotate-credentials)
+                if [ "$ACTION" = "provision" ]; then
+                  export DEBIAN_FRONTEND=noninteractive
+                  $SUDO apt-get update -qq
+                  $SUDO apt-get install -y -qq tinyproxy >/dev/null
+                fi
+                if ! command -v tinyproxy >/dev/null 2>&1; then
+                  echo "::error::tinyproxy не установлен (для rotate сначала запустите provision)"; exit 1
+                fi
+                $SUDO tee /etc/tinyproxy/tinyproxy.conf >/dev/null <<EOF
+            User tinyproxy
+            Group tinyproxy
+            Port $PORT
+            Timeout 600
+            LogLevel Warning
+            MaxClients 20
+            # Только прод-VPS и локальный self-test; плюс BasicAuth ниже.
+            Allow 127.0.0.1
+            Allow $VPS_IP
+            BasicAuth $PROXY_USER $PROXY_PASS
+            # Только CONNECT на 443 — это чистый TLS-туннель, без MITM.
+            ConnectPort 443
+            EOF
+                $SUDO systemctl enable tinyproxy >/dev/null 2>&1 || true
+                $SUDO systemctl restart tinyproxy
+                sleep 2
+                if ! $SUDO ufw status | grep -qE "^$PORT/tcp.*$VPS_IP"; then
+                  $SUDO ufw allow from "$VPS_IP" to any port "$PORT" proto tcp
+                fi
+                CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 \
+                  -x "http://$PROXY_USER:$PROXY_PASS@127.0.0.1:$PORT" \
+                  "https://api.telegram.org/botINVALID/getMe" || true)
+                echo "Self-test через прокси (ожидаем 404): HTTP=$CODE"
+                if [ "$CODE" != "404" ] && [ "$CODE" != "200" ]; then
+                  echo "::error::Прокси на Hetzner не работает (HTTP=$CODE)"; exit 1
+                fi
+                echo "✅ tinyproxy готов на порту $PORT"
+                ;;
+
+              remove)
+                $SUDO ufw status numbered | grep -E "$PORT.*ALLOW" || true
+                # Удаляем правило по спецификации (идемпотентно).
+                $SUDO ufw delete allow from "$VPS_IP" to any port "$PORT" proto tcp 2>/dev/null || true
+                $SUDO systemctl stop tinyproxy 2>/dev/null || true
+                $SUDO apt-get purge -y -qq tinyproxy >/dev/null 2>&1 || true
+                echo "🗑 tinyproxy удалён"
+                ;;
+            esac
+
+      - name: VPS — .env, пересоздание контейнеров, e2e
+        if: steps.prep.outputs.action != 'status'
+        uses: appleboy/ssh-action@v1
+        env:
+          ACTION: ${{ steps.prep.outputs.action }}
+          PORT: ${{ inputs.port || '3128' }}
+          PROXY_PASS: ${{ steps.prep.outputs.pass }}
+          HETZNER_HOST: ${{ secrets.AGENT_HETZNER_HOST }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: ACTION,PORT,PROXY_USER,PROXY_PASS,HETZNER_HOST
+          script: |
+            set -eu
+            cd /opt/delovoy-park
+            touch .env
+
+            if [ "$ACTION" = "remove" ]; then
+              sed -i "/^TELEGRAM_PROXY_URL=/d" .env
+              echo "🗑 TELEGRAM_PROXY_URL удалён из .env"
+            else
+              PROXY_URL="http://$PROXY_USER:$PROXY_PASS@$HETZNER_HOST:$PORT"
+
+              # e2e ДО записи: VPS → Hetzner-прокси → Telegram с реальным токеном.
+              TG_TOKEN=$(grep -oP '^TELEGRAM_BOT_TOKEN=\K.*' .env 2>/dev/null | tr -d '"' || true)
+              if [ -n "$TG_TOKEN" ]; then
+                CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+                  -x "$PROXY_URL" "https://api.telegram.org/bot$TG_TOKEN/getMe" || true)
+                echo "e2e VPS→релей→Telegram getMe: HTTP=$CODE"
+                if [ "$CODE" != "200" ]; then
+                  echo "::error::Сквозной тест не прошёл — .env не трогаю"; exit 1
+                fi
+              else
+                echo "::warning::TELEGRAM_BOT_TOKEN не найден в .env — e2e без токена"
+                CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+                  -x "$PROXY_URL" "https://api.telegram.org/botINVALID/getMe" || true)
+                [ "$CODE" = "404" ] || { echo "::error::Релей не отвечает (HTTP=$CODE)"; exit 1; }
+              fi
+
+              grep -v "^TELEGRAM_PROXY_URL=" .env > .env.tmp || true
+              printf 'TELEGRAM_PROXY_URL=%s\n' "$PROXY_URL" >> .env.tmp
+              mv .env.tmp .env
+              # Мёртвый TELEGRAM_API_ROOT + живой прокси = запросы через рабочий
+              # прокси на мёртвый root. Единственный транспорт — прокси.
+              if grep -q "^TELEGRAM_API_ROOT=" .env; then
+                sed -i "/^TELEGRAM_API_ROOT=/d" .env
+                echo "🗑 Устаревший TELEGRAM_API_ROOT удалён (см. шапку workflow)"
+              fi
+              chmod 600 .env
+              echo "✅ TELEGRAM_PROXY_URL записан в .env"
+            fi
+
+            # env_file читается только при пересоздании (docker restart не годится).
+            docker compose up -d --force-recreate --no-deps app bot
+            sleep 25
+
+            echo "=== Транспорт из контейнера app (его собственный env) ==="
+            docker exec delovoy-app node -e '
+              const proxy = process.env.TELEGRAM_PROXY_URL || "";
+              console.log("TELEGRAM_PROXY_URL:", proxy ? "SET" : "UNSET");
+              (async () => {
+                try {
+                  let f = fetch;
+                  if (proxy) { const u = require("undici"); f = (url, o) => u.fetch(url, { ...o, dispatcher: new u.ProxyAgent(proxy) }); }
+                  const r = await f("https://api.telegram.org/botINVALID/getMe", { signal: AbortSignal.timeout(12000) });
+                  console.log("APP TRANSPORT: HTTP=" + r.status + " (404 = транспорт живой)");
+                } catch (e) {
+                  console.log("APP TRANSPORT: FAIL", String((e && e.cause && (e.cause.code || e.cause.message)) || e));
+                }
+              })();
+            ' 2>&1 || echo "(docker exec не удался)"
+
+            echo "=== /api/notifications/health ==="
+            curl -s --max-time 20 http://127.0.0.1:3000/api/notifications/health | head -c 600 || echo "(не ответил)"
+            echo ""
+            echo "=== Логи бота (хвост) ==="
+            docker logs delovoy-bot --tail 15 2>&1 || true
