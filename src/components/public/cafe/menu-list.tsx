@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { reachGoal } from "@/lib/metrika";
 import type { CafeMenuItem } from "@/modules/cafe/types";
 
 type CartItem = {
@@ -14,16 +16,94 @@ type CartItem = {
 type Props = {
   items: CafeMenuItem[];
   categories: string[];
+  /** ЮKassa настроена: кнопка ведёт на онлайн-оплату. */
+  paymentsEnabled: boolean;
+  /** Фискализация включена: контакт для чека обязателен. */
+  receiptsRequired: boolean;
 };
 
-export function MenuList({ items, categories }: Props) {
+/**
+ * Корзина переживает redirect на ЮKassa и перезагрузку: в localStorage лежат
+ * только id и количество, цены и названия всегда берутся из серверных props.
+ */
+const CART_STORAGE_KEY = "cafe-cart-v1";
+
+type StoredCartItem = { menuItemId: string; quantity: number };
+
+function readStoredCart(): StoredCartItem[] {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (i): i is StoredCartItem =>
+        typeof i?.menuItemId === "string" &&
+        typeof i?.quantity === "number" &&
+        i.quantity > 0
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredCart(cart: CartItem[]): void {
+  try {
+    if (cart.length === 0) {
+      localStorage.removeItem(CART_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(
+      CART_STORAGE_KEY,
+      JSON.stringify(cart.map((c) => ({ menuItemId: c.menuItem.id, quantity: c.quantity })))
+    );
+  } catch {
+    // приватный режим / переполненное хранилище — корзина живёт в памяти
+  }
+}
+
+type SuccessInfo = {
+  orderNumber: string;
+  paid: boolean;
+};
+
+export function MenuList({ items, categories, paymentsEnabled, receiptsRequired }: Props) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [deliveryTo, setDeliveryTo] = useState("");
   const [comment, setComment] = useState("");
+  const [contact, setContact] = useState("");
+  const [contactError, setContactError] = useState(false);
   const [isOrdering, setIsOrdering] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const cartRef = useRef<HTMLDivElement>(null);
+  const startGoalFired = useRef(false);
+  const hydrated = useRef(false);
+
+  // Гидратация корзины из localStorage: позиции, исчезнувшие из меню,
+  // молча выбрасываются. Корзина переживает redirect на ЮKassa: при отменённой
+  // оплате клиент возвращается и пробует снова, а при успешной страница
+  // /payments/[id] сама очищает хранилище.
+  useEffect(() => {
+    const stored = readStoredCart();
+    if (stored.length > 0) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const restored: CartItem[] = [];
+      for (const s of stored) {
+        const menuItem = byId.get(s.menuItemId);
+        if (menuItem) restored.push({ menuItem, quantity: Math.min(s.quantity, 99) });
+      }
+      if (restored.length > 0) setCart(restored);
+    }
+    hydrated.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return; // не затирать хранилище до гидратации
+    writeStoredCart(cart);
+  }, [cart]);
 
   function scrollToCart() {
     cartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -34,6 +114,11 @@ export function MenuList({ items, categories }: Props) {
     : items;
 
   function addToCart(item: CafeMenuItem) {
+    if (!startGoalFired.current) {
+      startGoalFired.current = true;
+      reachGoal("cafe_order_start");
+    }
+    setSuccess(null);
     setCart((prev) => {
       const existing = prev.find((c) => c.menuItem.id === item.id);
       if (existing) {
@@ -64,11 +149,22 @@ export function MenuList({ items, categories }: Props) {
 
   async function submitOrder() {
     if (cart.length === 0) return;
+
+    if (paymentsEnabled && receiptsRequired && !contact.trim()) {
+      setContactError(true);
+      setMessage({ type: "error", text: "Укажите email или телефон — на него придёт чек" });
+      return;
+    }
+
     setIsOrdering(true);
     setMessage(null);
+    setContactError(false);
+
+    const trimmedContact = contact.trim();
+    const isEmail = trimmedContact.includes("@");
 
     try {
-      const res = await fetch("/api/cafe/order", {
+      const res = await fetch("/api/cafe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,17 +174,45 @@ export function MenuList({ items, categories }: Props) {
           })),
           deliveryTo: deliveryTo || undefined,
           comment: comment || undefined,
+          ...(trimmedContact && isEmail && { customerEmail: trimmedContact }),
+          ...(trimmedContact && !isEmail && { customerPhone: trimmedContact }),
         }),
       });
 
       const data = await res.json();
+
       if (data.success) {
+        reachGoal("cafe_order_submit");
+
+        const confirmationUrl: string | undefined = data.data?.payment?.confirmationUrl;
+        if (confirmationUrl) {
+          // ЮKassa hosted-страница: СБП или карта — выбор там. Корзину в
+          // localStorage НЕ чистим: отменённая оплата = повтор в два тапа.
+          window.location.href = confirmationUrl;
+          return;
+        }
+
+        // Оплата на кассе (ЮKassa не настроена или временно недоступна).
+        const orderNumber: string = String(data.data?.id ?? "").slice(-6).toUpperCase();
         setCart([]);
         setDeliveryTo("");
         setComment("");
-        setMessage({ type: "success", text: "Заказ создан!" });
+        setSuccess({ orderNumber, paid: false });
       } else {
-        setMessage({ type: "error", text: data.error?.message ?? "Ошибка при создании заказа" });
+        const code = data.error?.code;
+        if (code === "PAYMENT_CONTACT_REQUIRED") {
+          setContactError(true);
+        }
+        if (code === "ITEM_NOT_FOUND") {
+          setMessage({
+            type: "error",
+            text: "Часть позиций стала недоступна — обновите страницу и соберите корзину заново",
+          });
+        } else if (res.status === 429) {
+          setMessage({ type: "error", text: "Слишком много запросов. Подождите минуту." });
+        } else {
+          setMessage({ type: "error", text: data.error?.message ?? "Ошибка при создании заказа" });
+        }
       }
     } catch {
       setMessage({ type: "error", text: "Ошибка сети" });
@@ -110,7 +234,7 @@ export function MenuList({ items, categories }: Props) {
             <p className="text-xs text-zinc-500">{totalItems} позиц.</p>
           </div>
           <Button size="sm" onClick={scrollToCart}>
-            Перейти к заказу →
+            {paymentsEnabled ? "К оплате →" : "Перейти к заказу →"}
           </Button>
         </div>
       </div>
@@ -148,9 +272,21 @@ export function MenuList({ items, categories }: Props) {
         {/* Items */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {filtered.map((item) => (
-            <Card key={item.id}>
+            <Card key={item.id} className="overflow-hidden">
+              {item.imageUrl && (
+                <div className="relative aspect-[16/9] bg-zinc-100">
+                  <Image
+                    src={item.imageUrl}
+                    alt={item.name}
+                    fill
+                    sizes="(max-width: 640px) 100vw, 33vw"
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              )}
               <CardContent>
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                   <h3 className="text-lg font-semibold text-zinc-900">{item.name}</h3>
                   <Badge variant="info">{item.category}</Badge>
                 </div>
@@ -176,8 +312,21 @@ export function MenuList({ items, categories }: Props) {
         <Card>
           <CardContent>
             <h3 className="text-lg font-semibold text-zinc-900 mb-4">Корзина</h3>
+
+            {success && (
+              <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-center">
+                <p className="text-sm text-green-700">Заказ создан!</p>
+                <p className="mt-1 text-3xl font-bold tracking-widest text-green-800">
+                  {success.orderNumber}
+                </p>
+                <p className="mt-2 text-sm text-green-700">
+                  Назовите номер на кассе и оплатите там.
+                </p>
+              </div>
+            )}
+
             {cart.length === 0 ? (
-              <p className="text-sm text-zinc-400">Корзина пуста</p>
+              !success && <p className="text-sm text-zinc-400">Корзина пуста</p>
             ) : (
               <>
                 <div className="space-y-3">
@@ -218,7 +367,7 @@ export function MenuList({ items, categories }: Props) {
                 <div className="mt-4 space-y-3">
                   <input
                     type="text"
-                    placeholder="Номер офиса (необязательно)"
+                    placeholder="Принести в офис № (необязательно)"
                     value={deliveryTo}
                     onChange={(e) => setDeliveryTo(e.target.value)}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -230,13 +379,43 @@ export function MenuList({ items, categories }: Props) {
                     onChange={(e) => setComment(e.target.value)}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  {paymentsEnabled && receiptsRequired && (
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Email или телефон (для чека)"
+                        value={contact}
+                        onChange={(e) => {
+                          setContact(e.target.value);
+                          setContactError(false);
+                        }}
+                        className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                          contactError
+                            ? "border-red-400 focus:ring-red-500"
+                            : "border-zinc-300 focus:ring-blue-500"
+                        }`}
+                      />
+                      <p className="mt-1 text-xs text-zinc-400">
+                        Сюда придёт электронный чек об оплате
+                      </p>
+                    </div>
+                  )}
                   <Button
                     className="w-full"
                     onClick={submitOrder}
                     disabled={isOrdering}
                   >
-                    {isOrdering ? "Оформление..." : "Оформить заказ"}
+                    {isOrdering
+                      ? "Оформление..."
+                      : paymentsEnabled
+                        ? `Оплатить ${totalAmount} ₽ — СБП или карта`
+                        : "Оформить заказ"}
                   </Button>
+                  {paymentsEnabled && (
+                    <p className="text-center text-xs text-zinc-400">
+                      Оплата на защищённой странице ЮKassa
+                    </p>
+                  )}
                 </div>
               </>
             )}

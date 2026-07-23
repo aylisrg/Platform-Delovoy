@@ -15,16 +15,31 @@ import { prisma } from "@/lib/db";
 import { getOrder, updateOrderStatus, cancelOrder, OrderError } from "@/modules/cafe/service";
 
 /**
- * GET /api/cafe/orders/:id — get single order
+ * GET /api/cafe/orders/:id — get single order.
+ * Владелец заказа или персонал секции cafe (раньше отдавал имя/email клиента
+ * без авторизации).
  */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return apiUnauthorized();
+
     const { id } = await params;
     const order = await getOrder(id);
     if (!order) return apiNotFound("Заказ не найден");
+
+    const isOwner = order.userId !== null && order.userId === session.user.id;
+    if (!isOwner) {
+      if (!hasRole(session.user, "MANAGER")) {
+        return apiError("FORBIDDEN", "Нет доступа к этому заказу", 403);
+      }
+      const denied = await requireAdminSection(session, "cafe");
+      if (denied) return denied;
+    }
+
     return apiResponse(order);
   } catch {
     return apiServerError();

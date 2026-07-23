@@ -22,6 +22,8 @@ export type ReceiptItemInput = {
   quantity?: number;
   /** full_prepayment — предоплата брони; full_payment — услуга/товар сразу. */
   paymentMode?: "full_payment" | "full_prepayment";
+  /** service — услуги (брони, абонементы); commodity — товары (кафе). */
+  paymentSubject?: "service" | "commodity";
 };
 
 export function receiptsEnabled(): boolean {
@@ -67,7 +69,7 @@ export function buildReceipt(
     quantity: (item.quantity ?? 1).toFixed(2),
     amount: { value: toAmountValue(item.amount), currency: "RUB" },
     vat_code: vatCode,
-    payment_subject: "service",
+    payment_subject: item.paymentSubject ?? "service",
     payment_mode: item.paymentMode ?? "full_payment",
   }));
 

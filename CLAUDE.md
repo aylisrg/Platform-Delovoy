@@ -103,7 +103,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry` |
 | `gazebos` | ✅ | Gazebo bookings |
 | `ps-park` | ✅ | PlayStation Park bookings |
-| `cafe` | ✅ | Menu CRUD, orders (hidden from public nav — intentional) |
+| `cafe` | ✅ | Menu CRUD (+фото), заказы, гостевой QR-чекаут с онлайн-оплатой (ЮKassa, `PaymentSubjectType.ORDER`), статистика продаж — PRD `2026-07-22` |
 | `parking` | ✅ | Parking info page |
 | `booking` | ✅ | Shared booking core |
 | `rental` | ✅ | Office rental B2B (park: Деловой) — park-aware, parkSlug discriminator |

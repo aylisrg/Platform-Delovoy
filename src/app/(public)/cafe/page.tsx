@@ -3,6 +3,8 @@ import { getMenu, getMenuCategories } from "@/modules/cafe/service";
 import { MenuList } from "@/components/public/cafe/menu-list";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
+import { isYooKassaConfigured } from "@/lib/yookassa/client";
+import { receiptsEnabled } from "@/lib/yookassa/receipts";
 
 // Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -78,6 +80,8 @@ export default async function CafePage() {
     getMenu(),
     getMenuCategories(),
   ]);
+  const paymentsEnabled = isYooKassaConfigured();
+  const receiptsRequired = receiptsEnabled();
 
   return (
     <>
@@ -98,7 +102,12 @@ export default async function CafePage() {
           </header>
 
           <main className="max-w-6xl mx-auto px-4 py-8 pb-24 lg:pb-8">
-            <MenuList items={items} categories={categories} />
+            <MenuList
+              items={items}
+              categories={categories}
+              paymentsEnabled={paymentsEnabled}
+              receiptsRequired={receiptsRequired}
+            />
           </main>
           <Footer />
         </div>

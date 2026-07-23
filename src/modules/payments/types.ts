@@ -57,6 +57,13 @@ export type PublicPaymentStatus = {
   id: string;
   status: Payment["status"];
   confirmationUrl: string | null;
+  moduleSlug: string;
+  /** Для subjectType ORDER (кафе): номер и состав заказа на экран «Оплачено». */
+  order: {
+    orderNumber: string;
+    deliveryTo: string | null;
+    items: { name: string; quantity: number }[];
+  } | null;
 };
 
 /**

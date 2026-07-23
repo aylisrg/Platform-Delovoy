@@ -310,13 +310,15 @@ model Resource {
 model Order {
   id          String      @id @default(cuid())
   moduleSlug  String
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
+  userId      String? // null = гостевой заказ (QR-чекаут без входа)
+  user        User?       @relation(fields: [userId], references: [id])
   bookingId   String?
   booking     Booking?    @relation("OrderBooking", fields: [bookingId], references: [id], onDelete: SetNull)
   status      OrderStatus @default(NEW)
   totalAmount Decimal
   deliveryTo  String?
+  comment     String?
+  paidAt      DateTime? // онлайн-оплата (ЮKassa) подтверждена
   items       OrderItem[]
   deletedAt   DateTime?
   createdAt   DateTime    @default(now())
@@ -324,6 +326,7 @@ model Order {
 
   @@index([userId])
   @@index([moduleSlug, status])
+  @@index([moduleSlug, paidAt])
   @@index([bookingId])
 }
 
@@ -340,6 +343,7 @@ model OrderItem {
   orderId    String
   order      Order   @relation(fields: [orderId], references: [id])
   menuItemId String
+  name       String? // снапшот названия позиции на момент заказа (menuItemId — без FK)
   quantity   Int
   price      Decimal
 }

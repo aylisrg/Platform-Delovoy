@@ -66,6 +66,10 @@ vi.mock("@/lib/db", () => ({
       updateMany: vi.fn(),
     },
     subscriptionTransaction: { create: vi.fn() },
+    order: {
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    },
     financialTransaction: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     systemEvent: { create: vi.fn() },
@@ -88,6 +92,7 @@ import {
   autoRefundOnCancellation,
   getBookingPaymentSummaries,
   getBookingPaymentDetail,
+  getPublicPaymentStatus,
 } from "../service";
 
 function paymentRow(overrides: Partial<Payment> = {}): Payment {
@@ -486,6 +491,148 @@ describe("autoRefundOnCancellation (политика владельца)", () =>
       trigger: "park_cancellation",
     });
     expect(result).toEqual({ refunded: false, reason: "refund_failed" });
+  });
+});
+
+describe("заказ кафе по оплате (subjectType=ORDER)", () => {
+  it("самообслуживание: paidAt + DELIVERED, леджер cafe, канал-событие order.paid", async () => {
+    const orderPayment = paymentRow({
+      subjectType: "ORDER",
+      subjectId: "order1",
+      moduleSlug: "cafe",
+      description: "Кафе: заказ ORDER1",
+    });
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(orderPayment);
+    vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
+    vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+      paymentRow({
+        subjectType: "ORDER",
+        subjectId: "order1",
+        moduleSlug: "cafe",
+        status: "SUCCEEDED",
+        paidAt: new Date(),
+      })
+    );
+    const orderRow = {
+      id: "order1",
+      moduleSlug: "cafe",
+      status: "NEW",
+      userId: null,
+      bookingId: null,
+      deliveryTo: null,
+      paidAt: null,
+      totalAmount: 430,
+    };
+    vi.mocked(prisma.order.findUnique)
+      .mockResolvedValueOnce(orderRow as never) // внутри транзакции
+      .mockResolvedValueOnce({
+        ...orderRow,
+        status: "DELIVERED",
+        items: [{ name: "Круассан", quantity: 1 }],
+      } as never); // after-hook
+    vi.mocked(prisma.order.updateMany).mockResolvedValue({ count: 1 });
+
+    await syncPaymentByProviderId("yk1");
+
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order1", paidAt: null },
+        data: expect.objectContaining({ status: "DELIVERED" }),
+      })
+    );
+    expect(prisma.financialTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: "ONLINE_PAYMENT",
+          moduleSlug: "cafe",
+          bookingId: null,
+        }),
+      })
+    );
+    const types = vi.mocked(enqueueNotification).mock.calls.map((c) => c[0].type);
+    expect(types).toContain("payment.succeeded");
+    expect(types).toContain("order.paid");
+  });
+
+  it("отмена платежа: неоплаченный NEW-заказ отменяется", async () => {
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(
+      paymentRow({ subjectType: "ORDER", subjectId: "order1", moduleSlug: "cafe" })
+    );
+    vi.mocked(yooGet).mockResolvedValue({
+      ...remoteSucceeded,
+      status: "canceled",
+      paid: false,
+      cancellation_details: { party: "yoo_money", reason: "expired_on_confirmation" },
+    } as never);
+    vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+      paymentRow({ subjectType: "ORDER", subjectId: "order1", moduleSlug: "cafe", status: "CANCELED" })
+    );
+    vi.mocked(prisma.order.updateMany).mockResolvedValue({ count: 1 });
+
+    await syncPaymentByProviderId("yk1");
+
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({
+      where: { id: "order1", status: "NEW", paidAt: null },
+      data: { status: "CANCELLED" },
+    });
+  });
+});
+
+describe("getPublicPaymentStatus — payload для страницы ожидания", () => {
+  it("ORDER: отдаёт moduleSlug и состав заказа без сумм", async () => {
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue({
+      id: "pay1",
+      status: "SUCCEEDED",
+      confirmationUrl: null,
+      moduleSlug: "cafe",
+      subjectType: "ORDER",
+      subjectId: "order1xyz",
+    } as never);
+    vi.mocked(prisma.order.findUnique).mockResolvedValue({
+      id: "order1xyz",
+      deliveryTo: "204",
+      items: [
+        { name: "Круассан", quantity: 2 },
+        { name: null, quantity: 1 },
+      ],
+    } as never);
+
+    const status = await getPublicPaymentStatus("pay1");
+
+    expect(status).toEqual({
+      id: "pay1",
+      status: "SUCCEEDED",
+      confirmationUrl: null,
+      moduleSlug: "cafe",
+      order: {
+        orderNumber: "ER1XYZ",
+        deliveryTo: "204",
+        items: [
+          { name: "Круассан", quantity: 2 },
+          { name: "Позиция", quantity: 1 },
+        ],
+      },
+    });
+  });
+
+  it("BOOKING: order = null, к таблице заказов не обращается", async () => {
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue({
+      id: "pay1",
+      status: "PENDING",
+      confirmationUrl: "https://yookassa.example/pay",
+      moduleSlug: "gazebos",
+      subjectType: "BOOKING",
+      subjectId: "book1",
+    } as never);
+
+    const status = await getPublicPaymentStatus("pay1");
+
+    expect(status?.order).toBeNull();
+    expect(status?.moduleSlug).toBe("gazebos");
+    expect(status?.confirmationUrl).toBe("https://yookassa.example/pay");
+    expect(prisma.order.findUnique).not.toHaveBeenCalled();
   });
 });
 

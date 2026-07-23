@@ -86,13 +86,26 @@ export const authConfig: NextAuthConfig = {
         //   /api/tasks/offices?q=...    — autosuggest used by the public /report form
         // Both are rate-limited by IP in the route handler itself.
         pathname.startsWith("/api/tasks/track") ||
-        pathname === "/api/tasks/offices";
+        pathname === "/api/tasks/offices" ||
+        // Страница ожидания оплаты поллит /api/payments/{id} анонимно (гостевые
+        // чекауты кафе/беседок): cuid платежа — capability-токен, суммы и
+        // контакты роут не отдаёт. Trailing slash обязателен: админский список
+        // GET /api/payments остаётся за сессией.
+        pathname.startsWith("/api/payments/") ||
+        // Reconciliation-cron ходит из crontab без сессии; роут сам проверяет
+        // CRON_SECRET (timingSafeEqual) и отвечает 401 без него.
+        pathname === "/api/cron/payments-reconcile";
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/bot/") ||
         // Guest checkout: booking endpoints accept unauthenticated POSTs when
         // the body carries guestName + guestPhone. The handler enforces the rule.
         pathname === "/api/gazebos/book" ||
+        // QR-чекаут кафе: гостевой POST, IP rate-limit внутри роута.
+        pathname === "/api/cafe/checkout" ||
+        // Вебхук ЮKassa: шлётся серверами провайдера без сессии; роут
+        // fail-secure — timingSafeEqual по секрету в URL, 503 без env-секрета.
+        pathname.startsWith("/api/payments/yookassa/webhook/") ||
         // Public report form (Phase 5.4) — anonymous submission, IP rate-limited
         // (5/hour per IP) inside the route handler.
         pathname === "/api/tasks/report";

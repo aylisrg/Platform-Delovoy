@@ -4,6 +4,8 @@ import {
   updateMenuItemSchema,
   createOrderSchema,
   orderFilterSchema,
+  checkoutSchema,
+  statsQuerySchema,
 } from "@/modules/cafe/validation";
 
 describe("createMenuItemSchema", () => {
@@ -161,5 +163,75 @@ describe("orderFilterSchema", () => {
   it("rejects wrong date format", () => {
     const result = orderFilterSchema.safeParse({ dateFrom: "01-01-2026" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("checkoutSchema", () => {
+  const items = [{ menuItemId: "item-1", quantity: 1 }];
+
+  it("минимальный чекаут — только корзина", () => {
+    expect(checkoutSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  it("принимает контакт для чека (email или телефон)", () => {
+    expect(
+      checkoutSchema.safeParse({ items, customerEmail: "a@b.ru" }).success
+    ).toBe(true);
+    expect(
+      checkoutSchema.safeParse({ items, customerPhone: "+7 (916) 123-45-67" }).success
+    ).toBe(true);
+  });
+
+  it("отклоняет некорректный email и телефон", () => {
+    expect(checkoutSchema.safeParse({ items, customerEmail: "не-почта" }).success).toBe(false);
+    expect(checkoutSchema.safeParse({ items, customerPhone: "abc" }).success).toBe(false);
+  });
+
+  it("не принимает bookingId (публичный чекаут не привязывается к броням)", () => {
+    const result = checkoutSchema.safeParse({ items, bookingId: "clzzzzzzzzzzzzzzzzzzzzzzz" });
+    // omit просто выбрасывает ключ — парс проходит, но поля нет
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("bookingId" in result.data).toBe(false);
+    }
+  });
+
+  it("пустая корзина отклоняется", () => {
+    expect(checkoutSchema.safeParse({ items: [] }).success).toBe(false);
+  });
+});
+
+describe("statsQuerySchema", () => {
+  it("валидный период", () => {
+    expect(
+      statsQuerySchema.safeParse({ dateFrom: "2026-07-01", dateTo: "2026-07-22" }).success
+    ).toBe(true);
+  });
+
+  it("dateFrom позже dateTo — ошибка", () => {
+    expect(
+      statsQuerySchema.safeParse({ dateFrom: "2026-07-22", dateTo: "2026-07-01" }).success
+    ).toBe(false);
+  });
+
+  it("неверный формат даты — ошибка", () => {
+    expect(statsQuerySchema.safeParse({ dateFrom: "22.07.2026", dateTo: "2026-07-22" }).success).toBe(false);
+    expect(statsQuerySchema.safeParse({ dateFrom: "2026-07-01" }).success).toBe(false);
+  });
+});
+
+describe("imageUrl (внешний URL или served-путь)", () => {
+  it("принимает served-путь загруженного фото", () => {
+    const result = updateMenuItemSchema.safeParse({
+      imageUrl: "/api/cafe/menu/images/item-1-1721600000000.webp",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("отклоняет чужие относительные пути", () => {
+    expect(updateMenuItemSchema.safeParse({ imageUrl: "/etc/passwd" }).success).toBe(false);
+    expect(
+      updateMenuItemSchema.safeParse({ imageUrl: "/api/cafe/menu/images/../../secret" }).success
+    ).toBe(false);
   });
 });

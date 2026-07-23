@@ -111,6 +111,7 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
           amount: toAmountValue(item.amount),
           quantity: item.quantity ?? 1,
           paymentMode: item.paymentMode ?? "full_payment",
+          paymentSubject: item.paymentSubject ?? "service",
         })),
       } as Prisma.InputJsonValue,
     },
@@ -227,6 +228,11 @@ async function applySubjectEffectsOnSuccess(
       await onSubscriptionPaymentSucceeded(tx, payment);
       return;
     }
+    case "ORDER": {
+      const { onOrderPaymentSucceeded } = await import("./subjects/order");
+      await onOrderPaymentSucceeded(tx, payment);
+      return;
+    }
     default:
       await tx.systemEvent.create({
         data: {
@@ -252,6 +258,11 @@ async function applySubjectEffectsOnCancel(
     case "SUBSCRIPTION": {
       const { onSubscriptionPaymentCanceled } = await import("./subjects/subscription");
       await onSubscriptionPaymentCanceled(tx, payment);
+      return;
+    }
+    case "ORDER": {
+      const { onOrderPaymentCanceled } = await import("./subjects/order");
+      await onOrderPaymentCanceled(tx, payment);
       return;
     }
     default:
@@ -307,6 +318,10 @@ async function markSucceeded(paymentId: string, remote: YooPayment): Promise<voi
   if (applied.subjectType === "BOOKING") {
     const { afterBookingPaymentSucceeded } = await import("./subjects/booking");
     await afterBookingPaymentSucceeded(applied);
+  }
+  if (applied.subjectType === "ORDER") {
+    const { afterOrderPaymentSucceeded } = await import("./subjects/order");
+    await afterOrderPaymentSucceeded(applied);
   }
 }
 
@@ -375,6 +390,7 @@ export async function refundPayment(paymentId: string, input: RefundInput): Prom
     description: string;
     amount: string;
     quantity: number;
+    paymentSubject?: "service" | "commodity";
   }>;
   const receiptItems: ReceiptItemInput[] =
     snapshotItems.length > 0
@@ -382,6 +398,7 @@ export async function refundPayment(paymentId: string, input: RefundInput): Prom
           description: item.description,
           amount: item.amount,
           quantity: item.quantity,
+          paymentSubject: item.paymentSubject,
         }))
       : [{ description: payment.description, amount: remaining }];
   const receipt = buildReceipt(
@@ -778,13 +795,40 @@ export async function getBookingPaymentDetail(
 export async function getPublicPaymentStatus(id: string): Promise<PublicPaymentStatus | null> {
   const payment = await prisma.payment.findUnique({
     where: { id },
-    select: { id: true, status: true, confirmationUrl: true },
+    select: {
+      id: true,
+      status: true,
+      confirmationUrl: true,
+      moduleSlug: true,
+      subjectType: true,
+      subjectId: true,
+    },
   });
   if (!payment) return null;
+
+  // Для заказа кафе экран «Оплачено» показывает номер и состав (без сумм
+  // и контактов — id платежа остаётся capability-токеном).
+  let order: PublicPaymentStatus["order"] = null;
+  if (payment.subjectType === "ORDER") {
+    const orderRow = await prisma.order.findUnique({
+      where: { id: payment.subjectId },
+      select: { id: true, deliveryTo: true, items: { select: { name: true, quantity: true } } },
+    });
+    if (orderRow) {
+      order = {
+        orderNumber: orderRow.id.slice(-6).toUpperCase(),
+        deliveryTo: orderRow.deliveryTo,
+        items: orderRow.items.map((i) => ({ name: i.name ?? "Позиция", quantity: i.quantity })),
+      };
+    }
+  }
+
   return {
     id: payment.id,
     status: payment.status,
     confirmationUrl: payment.status === "PENDING" ? payment.confirmationUrl : null,
+    moduleSlug: payment.moduleSlug,
+    order,
   };
 }
 

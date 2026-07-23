@@ -57,6 +57,7 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Заказ #${d.orderNumber} доставлен. Приятного аппетита!`,
     "order.cancelled": (d) =>
       `Заказ #${d.orderNumber} отменён.`,
+    ...paymentClientTemplates,
   },
 };
 
@@ -84,6 +85,7 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
       `<b>Новый заказ #${d.orderNumber}</b>\n\nКлиент: ${d.userName}\nСумма: ${d.totalAmount} руб.${d.deliveryTo ? `\nДоставка: офис ${d.deliveryTo}` : ""}\nПозиций: ${d.itemCount}`,
     "order.cancelled": (d) =>
       `<b>Заказ отменён #${d.orderNumber}</b>\n\nКлиент: ${d.userName}\nСумма: ${d.totalAmount} руб.`,
+    ...paymentAdminTemplates,
   },
   rental: {
     "contract.created": (d) =>
