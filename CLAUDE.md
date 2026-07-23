@@ -86,9 +86,10 @@ GET    /api/{module}/health   module health check
 **Validation:** all inputs via Zod schemas in `src/modules/{module}/validation.ts`.
 
 **Rate limits (Redis sliding window):**
-- Public: 60 req/min per IP
-- Authenticated: 120 req/min per user
+- Public: 180 req/min per trusted client IP (X-Real-IP от nginx; override — env `RATE_LIMIT_PUBLIC_PER_MIN`)
+- Authenticated: 240 req/min per user (override — env `RATE_LIMIT_AUTH_PER_MIN`)
 - Admin: no limit
+- Каждое срабатывание — семплированный `SystemEvent` (`source: rate-limit`). Лимиты подняты под CGNAT мобильных операторов РФ — см. ADR `2026-07-23-ru-availability-edge-architecture`.
 
 ---
 
@@ -193,7 +194,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 ## Monitoring
 
-**Level 1 — Infrastructure:** `GET /api/health` — DB, Redis, memory, event-loop lag. Log `CRITICAL` to `SystemEvent` on failure. External vantage: `.github/workflows/site-watchdog.yml` probes the public site every ~5 min, auto-remediates via SSH (`scripts/watchdog-remediate.sh`), alerts Telegram, and tracks incidents as `site-down` issues.
+**Level 1 — Infrastructure:** `GET /api/health` — DB, Redis, memory, event-loop lag. Log `CRITICAL` to `SystemEvent` on failure. Four vantage points (ADR `2026-07-23-ru-availability-edge-architecture`): (1) `.github/workflows/site-watchdog.yml` — GitHub runners, probes site + `/api/notifications/health` + client-beacon divergence, auto-remediates via SSH (`scripts/watchdog-remediate.sh`), tracks `site-down`/`notifications-down` issues; (2) `scripts/local-watchdog.sh` — per-minute VPS cron; (3) Hetzner probe (`ops-hetzner-probe.yml`) — independent external cron, alerts Telegram directly from DE; (4) client-error beacon → `SystemEvent` `client-beacon` with `metadata.connection` (wifi vs 4g) — the only RU-mobile vantage.
 
 **Level 2 — Module health:** `GET /api/{module}/health` — req/hr, avg response time, last error. Alert on 5xx spike.
 

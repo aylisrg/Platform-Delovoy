@@ -215,6 +215,28 @@ Workflow `.github/workflows/site-watchdog.yml` каждые ~5 минут про
 (`check-only` — только проверка, `force-remediate` — учебный прогон
 восстановления).
 
+Дополнительно в каждом цикле: проба `/api/notifications/health` (503 →
+Telegram-алерт + issue `notifications-down`, автозакрытие при
+восстановлении) и divergence-check — при зелёных внешних пробах спайк
+client-beacon событий (≥15 за 30 мин) даёт предупреждение «снаружи зелено,
+у клиентов ошибки» (RU-mobile деградация, разрез по `metadata.connection`).
+
+**Вторая внешняя точка — Hetzner-probe** (`ops-hetzner-probe.yml → install`):
+честный cron `*/5` на боксе агента, алерты в Telegram напрямую из DE — канал
+не зависит ни от GitHub (его cron троттлится до ~50–70 мин), ни от VPS,
+ни от релея.
+
+### Blue-green деплой (zero-downtime)
+
+После `ops-nginx apply` deploy.yml сам переключается в blue-green
+(`scripts/deploy-bluegreen.sh`): новый образ поднимается в неактивном слоте
+(app:3000 / app-b:3001), health-гейт, flip `conf.d/delovoy-upstream.conf` c
+graceful reload, публичная верификация, 30 с дренажа, стоп старого слота.
+Встроенный даунтайм-метр (проба каждые 2 с) валит деплой при >10 с не-200.
+Активный слот — `/opt/delovoy-park/ACTIVE_SLOT`; watchdog-скрипты slot-aware.
+Аварийный путь: deploy.yml → Run workflow → `force_legacy_deploy=true`
+(возвращает трафик на 3000 и катит по-старому).
+
 ### Прод-сервер (проверено 2026-07-18 через Timeweb API)
 
 `delovoy-park-prod` (id 7548623): **2 CPU / 4 GB RAM / 48 GB NVMe**,
@@ -228,7 +250,15 @@ preset 2453, Ubuntu, локация ru-1, TZ = UTC. Диагностика бе�
 Симптом: уведомления не доставляются, в логах/админке ошибка вида
 «Сервер не смог соединиться с Telegram API» (`TELEGRAM_UNREACHABLE`), бот молчит.
 Все серверные вызовы Bot API идут через `src/lib/telegram/client.ts`
-(таймаут 15 с + env-переключатели), бот grammy — через те же env.
+(таймаут 15 с, env-переключатели, авто-fallback на прямой путь при мёртвом
+релее), бот grammy — через те же env.
+
+**Транспорт задаётся ТОЛЬКО в `/opt/delovoy-park/.env`** (workflow'ы
+`ops-telegram-relay` / `ops-env`). Из GH-секретов `TELEGRAM_PROXY_URL` /
+`TELEGRAM_API_ROOT` больше НЕ синкаются — устаревший секрет перезатирал
+рабочий релей на каждом деплое. После правки `.env` контейнеры нужно
+пересоздать (`docker compose up -d --force-recreate --no-deps app bot`) —
+`docker restart` env_file не перечитывает; ops-workflows делают это сами.
 
 ### Шаг 1 — Диагностика
 
@@ -236,37 +266,40 @@ Actions → **Telegram Diagnose** → Run workflow (chat_id по умолчан�
 - **Job `from-github`** проверяет токен и chat_id с раннера GitHub (вне РФ) и шлёт
   тестовое сообщение → отделяет проблему токена/чата от сетевой.
 - **Job `from-vps`** по SSH прогоняет с сервера: DNS A/AAAA, `curl -4/-6` к
-  `getMe`, baseline-контроли (api.github.com, ya.ru), проверку изнутри
-  контейнера `app` — и печатает вердикт последним блоком лога.
+  `getMe`, baseline-контроли, и из контейнера `app` — ОБА пути: прямой
+  api.telegram.org и сконфигурированный транспорт из env контейнера.
+  Вердикт — последним блоком лога.
 
 ### Шаг 2 — Митигация по вердикту
 
 | Вердикт | Причина | Действие |
 |---------|---------|----------|
+| `OK` | Всё работает | Если уведомления всё равно не идут — `/api/notifications/health`, логи app/bot |
+| `OK_VIA_RELAY` | Прямой путь закрыт, релей жив | Норма при блокировке; запасной прямой путь — `ops-docker-ipv6 enable` |
 | `TOKEN_INVALID` | Токен отозван/сменён | Обновить `TELEGRAM_BOT_TOKEN` в GH Secrets → redeploy |
-| `DNS_FAIL` | Резолвер сервера не отвечает | Проверить `resolvectl status`, `/etc/resolv.conf`; сменить DNS на 1.1.1.1/8.8.8.8 |
-| `V6_ONLY_FAIL` | Сломан IPv6-маршрут, а AAAA предпочитается | Отключить/депроритизировать IPv6 (`sysctl net.ipv6.conf.all.disable_ipv6=1` или `gai.conf`) |
-| `CONTAINER_ONLY_FAIL` | Хост видит Telegram, контейнер — нет | Docker DNS/MTU: проверить `/etc/docker/daemon.json`, перезапустить docker |
+| `DNS_FAIL` | Резолвер сервера не отвечает | `resolvectl status`, `/etc/resolv.conf`; сменить DNS на 1.1.1.1/8.8.8.8 |
+| `V6_ONLY_FAIL` | Есть только AAAA, v6-маршрут сломан | Чинить v6-маршрут или `ops-telegram-relay provision`. ⚠️ НЕ отключать IPv6: при v4-блоке это единственный прямой путь |
+| `CONTAINER_ONLY_FAIL` | Хост дотягивается (обычно v6), контейнер v4-only, v4 заблокирован | `ops-docker-ipv6 enable` (NAT66 контейнерам) и/или `ops-telegram-relay provision` |
 | `NETWORK_DOWN` | Весь egress сломан | Тикет в Timeweb, проверить firewall egress |
-| `FULL_BLOCK` | api.telegram.org блокируется с IP сервера | Включить обход (ниже) |
+| `FULL_BLOCK` | api.telegram.org недоступен всеми путями | `ops-telegram-relay provision` (tinyproxy на Hetzner) |
 
-**Обход `FULL_BLOCK`** — задать один из GH Secrets и передеплоить
-(deploy.yml сам занесёт их в `/opt/delovoy-park/.env`; пустые секреты
-пропускаются), либо вписать в `.env` на сервере и `docker compose up -d app bot`:
+**Обходы (в порядке предпочтения):**
 
-1. `TELEGRAM_PROXY_URL` — HTTP(S) CONNECT-прокси (напр. squid/3proxy на
-   Hetzner-сервере агента, доступ только с IP VPS). SOCKS не поддерживается.
-2. `TELEGRAM_API_ROOT` — релей Bot API:
-   - **Cloudflare Worker** (бесплатно): worker, проксирующий
-     `https://api.telegram.org${url.pathname}${url.search}` c методом/телом as-is;
-   - **nginx на Hetzner**: `location ~ ^/bot { proxy_pass https://api.telegram.org; proxy_ssl_server_name on; }`
-     + allowlist по IP VPS. ⚠️ В URI содержится токен бота — на релее
-     отключить логирование URI (`access_log off`).
+1. **IPv6 контейнеров** — Actions → `Ops — Docker IPv6` → `enable`
+   (Timeweb-only, без внешних зависимостей; рестарт docker ≈ 30–60 с даунтайма,
+   запускать не в пик). Node ≥20 сам предпочтёт рабочий путь.
+2. **tinyproxy на Hetzner-боксе агента** — Actions → `Ops — Telegram Relay` →
+   `provision` (порт 3128, доступ только с IP VPS, BasicAuth; e2e-тест до
+   записи `.env`; заодно удаляет устаревший `TELEGRAM_API_ROOT`).
+3. Запасные (вручную, см. ADR 2026-07-23): nginx-relay по `TELEGRAM_API_ROOT`
+   (⚠️ токен в URI — `access_log off`), Cloudflare Worker (⚠️ workers.dev сам
+   бывает заблокирован из RU-сетей — проверять доступность с VPS).
 
 ### Шаг 3 — Проверка
 
-Повторно запустить **Telegram Diagnose** (ожидаем `OK` + сообщение с VPS),
-затем из админки `POST /api/admin/telegram/test-owner`.
+Повторно запустить **Telegram Diagnose** (ожидаем `OK` или `OK_VIA_RELAY` +
+тестовое сообщение с VPS), затем `/api/notifications/health` → 200 и из
+админки `POST /api/admin/telegram/test-owner`.
 
 ---
 
@@ -345,7 +378,7 @@ gh workflow run timeweb-provision.yml -f action=full-provision -f preset_id=2453
 1. Добавит SSH-ключ в Timeweb
 2. Создаст сервер (Ubuntu 24.04, 2 CPU / 4 GB RAM / 50 GB NVMe)
 3. Настроит firewall (порты 22, 80, 443)
-4. Настроит DNS (delovoy-park.ru → IP сервера)
+4. Настроит DNS (delovoy-park.ru → IP сервера) — ⚠️ инертно: авторитативные NS у reg.ru, реальные правки — в панели reg.ru
 5. Установит Docker, Nginx, Certbot, fail2ban, UFW
 6. Создаст пользователя `deploy`
 7. Получит SSL-сертификат
@@ -385,7 +418,10 @@ gh workflow run timeweb-manage.yml -f action=backup-create
 # Логи контейнеров
 gh workflow run timeweb-manage.yml -f action=server-logs
 
-# DNS-записи
+# DNS-записи — ⚠️ DEPRECATED: авторитативные NS домена — ns1/ns2.reg.ru
+# (проверено 2026-07-23), зона Timeweb НЕ отвечает на публичные запросы.
+# Эти действия правят инертную копию. Реальные правки DNS — панель reg.ru
+# (TTL @/www держать 600). См. docs/adr/2026-07-23-ru-availability-edge-architecture.md
 gh workflow run timeweb-manage.yml -f action=dns-list
 gh workflow run timeweb-manage.yml -f action=dns-add-a -f dns_subdomain=api -f dns_value=1.2.3.4
 
