@@ -11,6 +11,11 @@
  *   e.g. http://user:pass@proxy-host:3128. SOCKS is not supported — use an
  *   API-root relay instead.
  *
+ * When a custom transport (proxy and/or non-default root) fails with a
+ * transport error, one direct attempt against api.telegram.org is made with
+ * the remaining time budget — a dead relay must not take notifications down
+ * when the direct path (e.g. container IPv6) works.
+ *
  * Higher-level helpers (sendTelegramAlert, notification channels) stay as
  * they are and call telegramApi() underneath.
  */
@@ -62,8 +67,11 @@ export type TelegramApiResult<T = unknown> = TelegramApiSuccess<T> | TelegramApi
 /** Cached per proxy URL so repeated calls reuse one CONNECT pool. */
 let cachedProxy: { url: string; agent: ProxyAgent } | null = null;
 
-async function proxiedFetch(url: string, init: RequestInit): Promise<Response> {
-  const proxyUrl = getTelegramProxyUrl();
+async function transportFetch(
+  url: string,
+  init: RequestInit,
+  proxyUrl: string | undefined
+): Promise<Response> {
   if (!proxyUrl) return fetch(url, init);
 
   const undici = await import("undici");
@@ -77,6 +85,20 @@ async function proxiedFetch(url: string, init: RequestInit): Promise<Response> {
     dispatcher: cachedProxy.agent,
   });
   return res as unknown as Response;
+}
+
+// Релей/кастомный root может умереть независимо от Telegram. Предупреждаем в
+// логах не чаще раза в минуту, чтобы деградация транспорта была видна, но не
+// заливала журнал при каждом уведомлении.
+let lastFallbackWarnAt = 0;
+
+function warnFallback(reason: string) {
+  const now = Date.now();
+  if (now - lastFallbackWarnAt < 60_000) return;
+  lastFallbackWarnAt = now;
+  console.warn(
+    `[telegram] настроенный транспорт (TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT) недоступен: ${reason} — fallback на прямой api.telegram.org`
+  );
 }
 
 function isRetryableStatus(status: number | undefined): boolean {
@@ -102,23 +124,50 @@ export async function telegramApi<T = unknown>(
   }
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const url = `${getTelegramApiRoot()}/bot${token}/${method}`;
+  const proxyUrl = getTelegramProxyUrl();
+  const root = getTelegramApiRoot();
+  // «Кастомный транспорт» = прокси и/или нестандартный root. Если он падает
+  // транспортной ошибкой, пробуем один раз напрямую: контейнер с рабочим IPv6
+  // может дотянуться до api.telegram.org даже при мёртвом релее.
+  const hasCustomTransport = Boolean(proxyUrl) || root !== DEFAULT_TELEGRAM_API_ROOT;
+  const primaryTimeout = hasCustomTransport
+    ? Math.max(1000, Math.ceil((timeoutMs * 8) / 15))
+    : timeoutMs;
 
-  const init: RequestInit =
+  const buildInit = (timeout: number): RequestInit =>
     payload instanceof FormData
-      ? { method: "POST", body: payload, signal: AbortSignal.timeout(timeoutMs) }
+      ? { method: "POST", body: payload, signal: AbortSignal.timeout(timeout) }
       : {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload ?? {}),
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(timeout),
         };
 
   let res: Response;
   try {
-    res = await proxiedFetch(url, init);
-  } catch (err) {
-    return { ok: false, description: describeTransportError(err, timeoutMs), retryable: true, transportError: true };
+    res = await transportFetch(`${root}/bot${token}/${method}`, buildInit(primaryTimeout), proxyUrl);
+  } catch (primaryErr) {
+    const primaryDesc = describeTransportError(primaryErr, primaryTimeout, root);
+    if (!hasCustomTransport) {
+      return { ok: false, description: primaryDesc, retryable: true, transportError: true };
+    }
+    warnFallback(primaryDesc);
+    const fallbackTimeout = Math.max(1000, timeoutMs - primaryTimeout);
+    try {
+      res = await transportFetch(
+        `${DEFAULT_TELEGRAM_API_ROOT}/bot${token}/${method}`,
+        buildInit(fallbackTimeout),
+        undefined
+      );
+    } catch (fallbackErr) {
+      return {
+        ok: false,
+        description: `configured: ${primaryDesc}; direct: ${describeTransportError(fallbackErr, fallbackTimeout, DEFAULT_TELEGRAM_API_ROOT)}`,
+        retryable: true,
+        transportError: true,
+      };
+    }
   }
 
   const status = typeof res.status === "number" ? res.status : undefined;
@@ -159,10 +208,10 @@ export async function telegramApi<T = unknown>(
   };
 }
 
-function describeTransportError(err: unknown, timeoutMs: number): string {
+function describeTransportError(err: unknown, timeoutMs: number, root: string): string {
   const e = err as { name?: string; message?: string; cause?: { message?: string; code?: string } };
   if (e?.name === "TimeoutError" || e?.name === "AbortError") {
-    return `Timeout after ${timeoutMs}ms connecting to ${getTelegramApiRoot()}`;
+    return `Timeout after ${timeoutMs}ms connecting to ${root}`;
   }
   const cause = e?.cause?.code ?? e?.cause?.message;
   return cause ? `${e?.message ?? "fetch failed"} (${cause})` : (e?.message ?? "fetch failed");

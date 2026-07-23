@@ -3,9 +3,11 @@
 # Job 1 (from-github): проверяет токен и chat_id с раннера GitHub (вне сети VPS)
 #   и шлёт тестовое сообщение — отделяет проблему токена/чата от сетевой.
 # Job 2 (from-vps): по SSH прогоняет сетевую диагностику с прод-сервера и печатает
-#   структурированный вердикт (OK / FULL_BLOCK / V6_ONLY_FAIL / DNS_FAIL /
-#   NETWORK_DOWN / CONTAINER_ONLY_FAIL). Митигации — DEPLOYMENT.md,
-#   runbook «Telegram недоступен с VPS».
+#   структурированный вердикт (OK / OK_VIA_RELAY / FULL_BLOCK / V6_ONLY_FAIL /
+#   DNS_FAIL / NETWORK_DOWN / CONTAINER_ONLY_FAIL). Проверяются ОБА пути из
+#   контейнера: прямой api.telegram.org и сконфигурированный транспорт
+#   (TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT из env контейнера). Митигации —
+#   DEPLOYMENT.md, runbook «Telegram недоступен с VPS».
 #
 # push-триггер на не-main ветки — чтобы диагностику можно было запустить с
 # feature-ветки до мержа (workflow_dispatch доступен только после попадания
@@ -188,8 +190,28 @@ jobs:
             echo "ya.ru (в РФ):            HTTP=$BY"
 
             echo ""
-            echo "=== Изнутри контейнера app ==="
-            CONT=$(docker exec -e TG_TOKEN="$TG_TOKEN" delovoy-app node -e 'fetch("https://api.telegram.org/bot"+process.env.TG_TOKEN+"/getMe",{signal:AbortSignal.timeout(12000)}).then(function(r){return r.json()}).then(function(j){console.log("CONTAINER:",j.ok?"OK":"API_ERROR")}).catch(function(e){console.log("CONTAINER: FAIL",String((e&&e.cause&&(e.cause.code||e.cause.message))||e))})' 2>&1 || echo "CONTAINER: EXEC_FAIL")
+            echo "=== Изнутри контейнера app: прямой путь И сконфигурированный транспорт ==="
+            CONT=$(docker exec -e TG_TOKEN="$TG_TOKEN" delovoy-app node -e '
+              const t = process.env.TG_TOKEN;
+              const proxy = process.env.TELEGRAM_PROXY_URL || "";
+              const root = (process.env.TELEGRAM_API_ROOT || "").replace(/\/+$/, "");
+              async function probe(label, base, useProxy) {
+                try {
+                  let f = fetch;
+                  if (useProxy) { const u = require("undici"); const a = new u.ProxyAgent(proxy); f = (url, o) => u.fetch(url, { ...o, dispatcher: a }); }
+                  const r = await f(base + "/bot" + t + "/getMe", { signal: AbortSignal.timeout(12000) });
+                  const j = await r.json().catch(() => null);
+                  console.log(label + ": " + (j && j.ok ? "OK" : "API_ERROR") + " http=" + r.status);
+                } catch (e) {
+                  console.log(label + ": FAIL " + String((e && e.cause && (e.cause.code || e.cause.message)) || e).slice(0, 120));
+                }
+              }
+              (async () => {
+                await probe("CONT_DIRECT", "https://api.telegram.org", false);
+                if (!proxy && !root) { console.log("CONT_CONF: NONE (TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT не заданы)"); return; }
+                await probe("CONT_CONF", root || "https://api.telegram.org", Boolean(proxy));
+              })();
+            ' 2>&1 || echo "CONT_DIRECT: EXEC_FAIL")
             echo "$CONT"
 
             # REACH = пришёл любой HTTP-ответ (сеть жива, даже если токен кривой);
@@ -199,13 +221,18 @@ jobs:
             HOST_OK=no
             if [ "$C4" = "200" ] || [ "$C6" = "200" ]; then HOST_OK=yes; fi
             CONT_OK=no
-            case "$CONT" in *"CONTAINER: OK"*) CONT_OK=yes;; esac
+            case "$CONT" in *"CONT_DIRECT: OK"*) CONT_OK=yes;; esac
             CONT_REACH=$CONT_OK
-            case "$CONT" in *"CONTAINER: API_ERROR"*) CONT_REACH=yes;; esac
+            case "$CONT" in *"CONT_DIRECT: API_ERROR"*) CONT_REACH=yes;; esac
+            CONF_OK=no
+            case "$CONT" in *"CONT_CONF: OK"*) CONF_OK=yes;; esac
 
             VERDICT=UNKNOWN
             if [ "$HOST_OK" = yes ] && [ "$CONT_OK" = yes ]; then
               VERDICT=OK
+            elif [ "$CONF_OK" = yes ]; then
+              # Прямой путь закрыт, но релей/кастомный root из контейнера работает.
+              VERDICT=OK_VIA_RELAY
             elif [ "$HOST_REACH" = yes ] && [ "$CONT_REACH" = yes ]; then
               VERDICT=API_ERROR_FROM_VPS
             elif [ "$HOST_REACH" = yes ]; then
@@ -220,13 +247,19 @@ jobs:
               VERDICT=FULL_BLOCK
             fi
 
-            if [ "$VERDICT" = "OK" ] && [ "$SEND_TEST" = "true" ]; then
-              CODE=$(curl -4 -s -o /dev/null -w "%{http_code}" --max-time 12 \
+            if { [ "$VERDICT" = "OK" ] || [ "$VERDICT" = "OK_VIA_RELAY" ]; } && [ "$SEND_TEST" = "true" ]; then
+              # Отправляем тем же транспортом, каким ходит приложение (.env).
+              TG_PROXY=$(grep -oP '^TELEGRAM_PROXY_URL=\K.*' /opt/delovoy-park/.env 2>/dev/null | tr -d '"' || true)
+              TG_ROOT=$(grep -oP '^TELEGRAM_API_ROOT=\K.*' /opt/delovoy-park/.env 2>/dev/null | tr -d '"' || true)
+              TG_ROOT="${TG_ROOT:-https://api.telegram.org}"
+              PROXY_ARGS=""
+              [ -n "$TG_PROXY" ] && PROXY_ARGS="-x $TG_PROXY"
+              CODE=$(curl $PROXY_ARGS -s -o /dev/null -w "%{http_code}" --max-time 15 \
                 -X POST -H "Content-Type: application/json" \
-                -d "{\"chat_id\":\"$CHAT_ID\",\"text\":\"✅ Диагностика Telegram (2/2): VPS → Telegram, связь с сервера работает.\"}" \
-                "https://api.telegram.org/bot$TG_TOKEN/sendMessage" 2>/dev/null || true)
+                -d "{\"chat_id\":\"$CHAT_ID\",\"text\":\"✅ Диагностика Telegram (2/2): VPS → Telegram, связь с сервера работает ($VERDICT).\"}" \
+                "$TG_ROOT/bot$TG_TOKEN/sendMessage" 2>/dev/null || true)
               echo ""
-              echo "sendMessage с VPS: HTTP=$CODE"
+              echo "sendMessage с VPS (транспорт из .env): HTTP=$CODE"
             fi
 
             echo ""
@@ -235,10 +268,11 @@ jobs:
             echo "===================================="
             case "$VERDICT" in
               OK) echo "Сеть в порядке. Если уведомления всё равно не идут — смотрите логи app/bot и /api/notifications/health." ;;
+              OK_VIA_RELAY) echo "Прямой путь из контейнера закрыт, но настроенный релей/root работает — уведомления живы. Запасной прямой путь: включите IPv6 контейнеров (workflow ops-docker-ipv6)." ;;
               API_ERROR_FROM_VPS) echo "Сеть до Telegram работает, но getMe вернул не 200 — проверьте TELEGRAM_BOT_TOKEN в /opt/delovoy-park/.env." ;;
-              FULL_BLOCK) echo "api.telegram.org блокируется с IP сервера. Обход: TELEGRAM_PROXY_URL или TELEGRAM_API_ROOT (runbook в DEPLOYMENT.md)." ;;
-              V6_ONLY_FAIL) echo "Есть только AAAA-запись, IPv6-маршрут сломан. Отключите/депроритизируйте IPv6 (runbook)." ;;
+              FULL_BLOCK) echo "api.telegram.org недоступен с сервера всеми путями. Обход: workflow ops-telegram-relay (tinyproxy на Hetzner) — runbook в DEPLOYMENT.md." ;;
+              V6_ONLY_FAIL) echo "Есть только AAAA-запись, IPv6-маршрут сломан. Проверьте маршрут v6 или используйте релей (ops-telegram-relay)." ;;
               DNS_FAIL) echo "DNS не резолвит api.telegram.org. Проверьте resolvectl / /etc/resolv.conf (runbook)." ;;
               NETWORK_DOWN) echo "Весь egress сломан — тикет в Timeweb." ;;
-              CONTAINER_ONLY_FAIL) echo "Хост видит Telegram, контейнер — нет. Docker DNS/MTU (runbook)." ;;
+              CONTAINER_ONLY_FAIL) echo "Хост дотягивается до Telegram (обычно по IPv6), контейнер — нет: у Docker-сети нет IPv6, а IPv4 с этого IP заблокирован. Лечение: ops-telegram-relay (релей) и/или ops-docker-ipv6 (IPv6 в контейнерах). НЕ отключайте IPv6 на хосте — сейчас это единственный живой прямой путь." ;;
             esac
