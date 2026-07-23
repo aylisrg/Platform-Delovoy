@@ -4,6 +4,7 @@ import {
   formatTime,
   formatDateTime,
   parseDate,
+  parseMoscowDateTime,
   toISODate,
   toISODateTimeLocal,
   getMoscowHour,
@@ -115,6 +116,47 @@ describe("format.ts — unified date/time formatting", () => {
     it("throws on invalid calendar dates (31 feb)", () => {
       expect(() => parseDate("31-02-2026")).toThrow();
       expect(() => parseDate("29-02-2025")).toThrow(); // non-leap
+    });
+  });
+
+  describe("parseMoscowDateTime", () => {
+    it("parses date+time as Moscow-local and returns the UTC instant", () => {
+      // Regression: бронь «на 16:00» должна храниться как 13:00Z, а НЕ 16:00Z.
+      // Раньше naive `new Date("2026-07-22T16:00:00")` на UTC-сервере давал
+      // сдвиг +3ч, из-за которого таймлайн беседок показывал бронь на 20:00.
+      expect(parseMoscowDateTime("2026-07-22", "16:00").toISOString()).toBe(
+        "2026-07-22T13:00:00.000Z"
+      );
+    });
+
+    it("round-trips through formatTime (Moscow shows the entered time)", () => {
+      expect(formatTime(parseMoscowDateTime("2026-07-22", "16:00"))).toBe("16:00");
+      expect(formatTime(parseMoscowDateTime("2026-07-22", "08:00"))).toBe("08:00");
+      expect(formatTime(parseMoscowDateTime("2026-07-22", "23:00"))).toBe("23:00");
+    });
+
+    it("does not depend on process timezone (fixed +03:00 offset)", () => {
+      // Winter and summer produce the same offset (no DST since 2011).
+      expect(parseMoscowDateTime("2026-01-15", "10:00").toISOString()).toBe(
+        "2026-01-15T07:00:00.000Z"
+      );
+      expect(parseMoscowDateTime("2026-07-15", "10:00").toISOString()).toBe(
+        "2026-07-15T07:00:00.000Z"
+      );
+    });
+
+    it("handles early hours that roll to the previous UTC day", () => {
+      // Moscow 02:00 on 22 Jul = 23:00Z on 21 Jul.
+      expect(parseMoscowDateTime("2026-07-22", "02:00").toISOString()).toBe(
+        "2026-07-21T23:00:00.000Z"
+      );
+    });
+
+    it("throws on malformed date or time", () => {
+      expect(() => parseMoscowDateTime("22-07-2026", "16:00")).toThrow();
+      expect(() => parseMoscowDateTime("2026-07-22", "16:0")).toThrow();
+      expect(() => parseMoscowDateTime("2026-07-22", "25:00")).toThrow();
+      expect(() => parseMoscowDateTime("2026-07-22", "")).toThrow();
     });
   });
 

@@ -1,5 +1,6 @@
 import type { Payment, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { formatTime } from "@/lib/format";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
@@ -24,14 +25,8 @@ type Tx = Prisma.TransactionClient;
 function bookingTimeStrings(booking: { date: Date; startTime: Date; endTime: Date }) {
   return {
     date: booking.date.toISOString().split("T")[0],
-    startTime: booking.startTime.toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    endTime: booking.endTime.toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
+    startTime: formatTime(booking.startTime),
+    endTime: formatTime(booking.endTime),
   };
 }
 

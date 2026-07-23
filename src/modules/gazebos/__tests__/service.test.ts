@@ -144,6 +144,27 @@ describe("createBooking", () => {
     expect(result).toBeDefined();
   });
 
+  it("stores startTime/endTime as Moscow-local instants (TZ regression)", async () => {
+    // Regression for the gazebos timezone bug: a booking for 10:00–14:00 Moscow
+    // must be persisted as 07:00Z–11:00Z, independent of the server timezone.
+    // Before the fix `new Date("2030-06-15T10:00:00")` on a UTC server stored
+    // 10:00Z, so the admin timeline (rendered in Moscow TZ) showed it 3h late.
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startTime: new Date("2030-06-15T07:00:00.000Z"),
+          endTime: new Date("2030-06-15T11:00:00.000Z"),
+        }),
+      })
+    );
+  });
+
   it("throws RESOURCE_NOT_FOUND when resource does not exist or is inactive", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(null);
 
@@ -683,8 +704,9 @@ describe("getAvailability", () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       mockBooking({
-        startTime: new Date(`${FUTURE_DATE}T10:00:00`),
-        endTime: new Date(`${FUTURE_DATE}T11:00:00`),
+        // 10:00–11:00 Moscow = 07:00Z–08:00Z (stored in UTC).
+        startTime: new Date(`${FUTURE_DATE}T07:00:00.000Z`),
+        endTime: new Date(`${FUTURE_DATE}T08:00:00.000Z`),
         status: "CONFIRMED",
       }),
     ] as never);
