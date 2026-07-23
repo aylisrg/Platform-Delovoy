@@ -11,6 +11,7 @@
 export const MAX_REPORTS_PER_PAGE = 3;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_META_LENGTH = 300;
+export const MAX_CONNECTION_LENGTH = 30;
 
 export type BeaconSource = "window-error" | "unhandled-rejection";
 
@@ -19,7 +20,26 @@ export type ClientErrorPayload = {
   source: BeaconSource;
   url?: string;
   userAgent?: string;
+  /** Тип сети клиента ("wifi/4g", "cellular/3g", …) — см. describeConnection. */
+  connection?: string;
 };
+
+/**
+ * Тип сети из Network Information API (navigator.connection). Есть в
+ * Chromium/Android — ровно та аудитория, где живёт симптом «с LTE не
+ * работает»: даёт мониторингу разрез ошибок wifi vs 4g. В Safari/Firefox
+ * API нет — вернётся undefined, поле просто не отправится.
+ */
+export function describeConnection(nav: unknown): string | undefined {
+  const conn = (nav as { connection?: unknown } | null | undefined)?.connection;
+  if (typeof conn !== "object" || conn === null) return undefined;
+  const c = conn as { type?: unknown; effectiveType?: unknown };
+  const parts = [c.type, c.effectiveType].filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  if (parts.length === 0) return undefined;
+  return parts.join("/").slice(0, MAX_CONNECTION_LENGTH);
+}
 
 /**
  * Шум, который не стоит доставки: кросс-доменное «Script error.» (нулевая
@@ -78,11 +98,13 @@ export function buildClientErrorPayload(
   source: BeaconSource,
   url?: string,
   userAgent?: string,
+  connection?: string,
 ): ClientErrorPayload {
   return {
     message: message.slice(0, MAX_MESSAGE_LENGTH),
     source,
     ...(url ? { url: url.slice(0, MAX_META_LENGTH) } : {}),
     ...(userAgent ? { userAgent: userAgent.slice(0, MAX_META_LENGTH) } : {}),
+    ...(connection ? { connection: connection.slice(0, MAX_CONNECTION_LENGTH) } : {}),
   };
 }

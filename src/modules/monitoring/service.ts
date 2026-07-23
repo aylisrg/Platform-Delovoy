@@ -18,6 +18,7 @@ export async function logClientError(input: ClientErrorInput) {
         beaconSource: input.source,
         ...(input.url ? { url: input.url } : {}),
         ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+        ...(input.connection ? { connection: input.connection } : {}),
       },
     },
   });

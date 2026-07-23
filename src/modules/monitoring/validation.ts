@@ -11,6 +11,9 @@ export const clientErrorSchema = z.object({
   source: z.enum(["window-error", "unhandled-rejection"]),
   url: z.string().max(300).optional(),
   userAgent: z.string().max(300).optional(),
+  // Тип сети из Network Information API ("wifi/4g", "cellular/3g", …) —
+  // разрез ошибок по сетям для диагностики RU-mobile проблем.
+  connection: z.string().max(30).optional(),
 });
 
 export type ClientErrorInput = z.infer<typeof clientErrorSchema>;
