@@ -238,8 +238,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
           TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
-          TELEGRAM_PROXY_URL: ${{ secrets.TELEGRAM_PROXY_URL }}
-          TELEGRAM_API_ROOT: ${{ secrets.TELEGRAM_API_ROOT }}
           AGENT_TELEGRAM_BOT_TOKEN: ${{ secrets.AGENT_TELEGRAM_BOT_TOKEN }}
           AGENT_TELEGRAM_USER_ID: ${{ secrets.AGENT_TELEGRAM_USER_ID }}
           AGENT_GITHUB_PAT: ${{ secrets.AGENT_GITHUB_PAT }}
@@ -249,7 +247,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,TELEGRAM_PROXY_URL,TELEGRAM_API_ROOT,AGENT_TELEGRAM_BOT_TOKEN,AGENT_TELEGRAM_USER_ID,AGENT_GITHUB_PAT,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,AGENT_TELEGRAM_BOT_TOKEN,AGENT_TELEGRAM_USER_ID,AGENT_GITHUB_PAT,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
             set -e
             cd /opt/delovoy-park
@@ -283,8 +281,10 @@ jobs:
             upsert_env TELEGRAM_BOT_TOKEN         "$TELEGRAM_BOT_TOKEN"
             upsert_env TELEGRAM_ADMIN_CHAT_ID     "$TELEGRAM_ADMIN_CHAT_ID"
             upsert_env TELEGRAM_OWNER_CHAT_ID     "$TELEGRAM_OWNER_CHAT_ID"
-            upsert_env TELEGRAM_PROXY_URL         "$TELEGRAM_PROXY_URL"
-            upsert_env TELEGRAM_API_ROOT          "$TELEGRAM_API_ROOT"
+            # TELEGRAM_PROXY_URL / TELEGRAM_API_ROOT сознательно НЕ синкаются из
+            # GH-секретов: источник истины — .env на VPS (ставится workflow'ами
+            # ops-telegram-relay / ops-env). Синк из секретов перезатирал рабочий
+            # релей устаревшим значением на каждом деплое.
             upsert_env AGENT_TELEGRAM_BOT_TOKEN   "$AGENT_TELEGRAM_BOT_TOKEN"
             upsert_env AGENT_TELEGRAM_USER_ID     "$AGENT_TELEGRAM_USER_ID"
             upsert_env AGENT_GITHUB_PAT           "$AGENT_GITHUB_PAT"
@@ -321,9 +321,15 @@ jobs:
               echo "YOOKASSA_WEBHOOK_SECRET=${YK_WEBHOOK_SECRET}" >> .env
               echo "➕ YOOKASSA_WEBHOOK_SECRET generated"
               if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_OWNER_CHAT_ID" ]; then
-                TG_ROOT="${TELEGRAM_API_ROOT:-https://api.telegram.org}"
+                # Транспорт Telegram читаем из .env на VPS (источник истины —
+                # ops-telegram-relay/ops-env, из GH-секретов он больше не синкается).
+                TG_ROOT=$(grep -oP '^TELEGRAM_API_ROOT=\K.*' .env 2>/dev/null | tr -d '"' || true)
+                TG_ROOT="${TG_ROOT:-https://api.telegram.org}"
+                TG_PROXY=$(grep -oP '^TELEGRAM_PROXY_URL=\K.*' .env 2>/dev/null | tr -d '"' || true)
+                TG_PROXY_ARGS=""
+                [ -n "$TG_PROXY" ] && TG_PROXY_ARGS="-x $TG_PROXY"
                 TG_MSG=$(printf 'ЮKassa: создан секрет вебхука. Вставьте этот URL в ЛК ЮKassa → Интеграция → HTTP-уведомления (события: payment.succeeded, payment.waiting_for_capture, payment.canceled, refund.succeeded):\n\nhttps://delovoy-park.ru/api/payments/yookassa/webhook/%s' "$YK_WEBHOOK_SECRET")
-                if curl -fsS --max-time 15 -X POST "${TG_ROOT}/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                if curl -fsS --max-time 15 $TG_PROXY_ARGS -X POST "${TG_ROOT}/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                     -d chat_id="${TELEGRAM_OWNER_CHAT_ID}" \
                     --data-urlencode text="${TG_MSG}" > /dev/null 2>&1; then
                   echo "✅ Webhook URL отправлен владельцу в Telegram"
@@ -517,6 +523,16 @@ jobs:
             else
               (crontab -l 2>/dev/null; echo "$RECONCILE_ENTRY") | crontab -
               echo "✅ payments-reconcile cron installed (every 10 minutes)"
+            fi
+
+            # Напоминания о бронях + алерты истечения договоров: раньше cron
+            # нигде не регистрировался и напоминания молча не отправлялись.
+            NOTIFY_ENTRY="*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/notifications > /dev/null 2>&1"
+            if crontab -l 2>/dev/null | grep -q 'api/cron/notifications'; then
+              echo "✅ scheduled-notifications cron already registered"
+            else
+              (crontab -l 2>/dev/null; echo "$NOTIFY_ENTRY") | crontab -
+              echo "✅ scheduled-notifications cron installed (every 5 minutes)"
             fi
 
       - name: Ensure daily DB backup cron is registered
