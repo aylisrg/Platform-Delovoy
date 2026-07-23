@@ -51,6 +51,8 @@ jobs:
       slow: ${{ steps.check.outputs.slow }}
       detail: ${{ steps.check.outputs.detail }}
       mode: ${{ steps.mode.outputs.mode }}
+      notif_ok: ${{ steps.notif.outputs.notif_ok }}
+      notif_code: ${{ steps.notif.outputs.notif_code }}
     steps:
       - name: Resolve mode
         id: mode
@@ -114,6 +116,26 @@ jobs:
           echo "slow=$SLOW" >> "$GITHUB_OUTPUT"
           echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
 
+      # Пайплайн уведомлений — отдельная проба: сайт может быть жив, а
+      # Telegram-транспорт мёртв (ровно так и было: v4-блок + контейнеры без
+      # v6). 200 = ok, 503 = сломан (см. /api/notifications/health).
+      - name: Probe notifications pipeline
+        id: notif
+        run: |
+          NOTIF_CODE="000"
+          for ATTEMPT in 1 2; do
+            NOTIF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "${SITE_URL}/api/notifications/health" 2>/dev/null || echo "000")
+            [ "$NOTIF_CODE" = "200" ] && break
+            sleep 10
+          done
+          echo "notifications health: HTTP $NOTIF_CODE"
+          echo "notif_code=$NOTIF_CODE" >> "$GITHUB_OUTPUT"
+          if [ "$NOTIF_CODE" = "200" ]; then
+            echo "notif_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notif_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Сайт жив, но главная отвечает дольше порога — предупреждение без
   # ремедиации (рестарт здорового приложения сам создаёт даунтайм).
   notify-slow:
@@ -142,6 +164,129 @@ jobs:
           TEXT+=$'\n\n'
           TEXT+="<b>Проверка:</b> ${PROBE_DETAIL}"$'\n'
           TEXT+="Ремедиация не запускалась (сайт отвечает). Если повторяется — смотреть нагрузку/память на VPS."$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true
+
+  # Сайт жив, но пайплайн уведомлений сломан (503 от notifications/health).
+  # Ремедиация не нужна — нужен алерт (в канал, который ещё работает: раннер
+  # GitHub вне РФ шлёт в Telegram напрямую) + issue для дедупа.
+  notify-notifications-down:
+    name: Notifications pipeline alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    needs: probe
+    permissions:
+      issues: write
+    if: >
+      needs.probe.outputs.healthy == 'true'
+      && needs.probe.outputs.notif_ok == 'false'
+      && needs.probe.outputs.mode != 'force-remediate'
+    steps:
+      - name: Telegram alert
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          NOTIF_CODE: ${{ needs.probe.outputs.notif_code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram secrets not set — skipping alert"; exit 0
+          fi
+          TEXT="📵 <b>Site Watchdog: сайт жив, но пайплайн уведомлений СЛОМАН</b>"
+          TEXT+=$'\n\n'
+          TEXT+="/api/notifications/health → HTTP ${NOTIF_CODE} (ожидали 200)."$'\n'
+          TEXT+="Диагностика: Actions → Telegram Diagnose. Починка: ops-telegram-relay / ops-docker-ipv6."$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true
+
+      - name: Open or update notifications-down issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NOTIF_CODE: ${{ needs.probe.outputs.notif_code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create "notifications-down" \
+            --repo "$REPO" \
+            --color "d93f0b" \
+            --description "Автоматически создан Site Watchdog: пайплайн уведомлений нездоров" \
+            2>/dev/null || true
+
+          BODY="## Пайплайн уведомлений нездоров"$'\n\n'
+          BODY+="Сайт отвечает, но \`/api/notifications/health\` вернул HTTP ${NOTIF_CODE}."$'\n\n'
+          BODY+="Шаги: Actions → Telegram Diagnose (вердикт), затем ops-telegram-relay (релей) или ops-docker-ipv6 (прямой v6-путь). Runbook — DEPLOYMENT.md."$'\n\n'
+          BODY+="[Лог run]($RUN_URL)"$'\n\n'
+          BODY+="> Создан автоматически Site Watchdog."
+
+          EXISTING=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+          else
+            gh issue create --repo "$REPO" \
+              --title "Notifications down: пайплайн уведомлений нездоров ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
+              --label "notifications-down" \
+              --body "$BODY"
+          fi
+
+  # «Снаружи зелено, а у пользователей ошибки»: пробы GitHub-раннеров живут
+  # вне РФ и не видят RU-mobile проблемы. Спайк client-beacon событий при
+  # зелёных внешних пробах — сигнал сетевой деградации на стороне клиентов.
+  beacon-divergence:
+    name: Client-beacon divergence check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: probe
+    if: >
+      needs.probe.outputs.healthy == 'true'
+      && needs.probe.outputs.mode != 'force-remediate'
+    steps:
+      - name: Count recent client-beacon events (SSH → psql)
+        id: count
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 3m
+          capture_stdout: "true"
+          script: |
+            docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc \
+              'SELECT count(*) FROM "SystemEvent" WHERE source = $$client-beacon$$ AND "createdAt" > now() - make_interval(mins => 30);' \
+              2>/dev/null || echo "psql-failed"
+
+      - name: Alert on spike
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          RAW_COUNT: ${{ steps.count.outputs.stdout }}
+          THRESHOLD: "15"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          COUNT=$(printf '%s' "$RAW_COUNT" | grep -oE '^[0-9]+' | head -1 || true)
+          if [ -z "$COUNT" ]; then
+            echo "Счётчик не получен (${RAW_COUNT:-пусто}) — best-effort, выходим"; exit 0
+          fi
+          echo "client-beacon за 30 мин: $COUNT (порог $THRESHOLD)"
+          [ "$COUNT" -lt "$THRESHOLD" ] && exit 0
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then exit 0; fi
+          TEXT="🔀 <b>Site Watchdog: внешние пробы зелёные, а у клиентов ошибки</b>"
+          TEXT+=$'\n\n'
+          TEXT+="client-beacon: ${COUNT} событий за 30 мин (порог ${THRESHOLD})."$'\n'
+          TEXT+="Похоже на проблему на стороне российских сетей/устройств (LTE?). Разрез по типам сети: /admin/monitoring → SystemEvent client-beacon (metadata.connection)."$'\n'
           TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
@@ -337,3 +482,17 @@ jobs:
               --data-urlencode "text=✅ <b>Site Watchdog:</b> delovoy-park.ru снова доступен." \
               -o /dev/null || true
           fi
+
+      - name: Close notifications-down issues when pipeline recovered
+        if: needs.probe.outputs.notif_ok == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          ISSUES=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number --jq '.[].number')
+          [ -z "$ISSUES" ] && { echo "No open notifications-down issues"; exit 0; }
+          for ISSUE in $ISSUES; do
+            gh issue close "$ISSUE" --repo "$REPO" \
+              --comment "Пайплайн уведомлений снова здоров (/api/notifications/health → 200). Закрыто автоматически Site Watchdog."
+          done
