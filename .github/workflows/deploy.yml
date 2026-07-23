@@ -44,6 +44,10 @@ on:
         description: "Skip post-deploy smoke tests (~10s) — hotfix only"
         type: boolean
         default: false
+      force_legacy_deploy:
+        description: "Форсировать legacy-деплой (rolling с даунтаймом) вместо blue-green"
+        type: boolean
+        default: false
 
 concurrency:
   # Group by commit SHA so push + workflow_run for the same commit don't both
@@ -352,7 +356,7 @@ jobs:
           # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
           # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
           # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
-          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh,scripts/apply-nginx-vhost.sh,infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf"
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh,scripts/apply-nginx-vhost.sh,scripts/deploy-bluegreen.sh,infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf"
           target: "/opt/delovoy-park/"
           overwrite: true
 
@@ -372,12 +376,13 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           SKIP_DB_BACKUP: ${{ inputs.skip_db_backup }}
+          FORCE_LEGACY_DEPLOY: ${{ inputs.force_legacy_deploy }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 30m
-          envs: SKIP_DB_BACKUP
+          envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY
           script: |
             set -e
             cd /opt/delovoy-park
@@ -412,22 +417,58 @@ jobs:
               && echo "✅ Migrations applied" \
               || { echo "❌ Migration failed — aborting deploy, old app untouched"; exit 1; }
 
-            echo "=== Rolling deploy ==="
-            docker compose up -d --no-deps app
+            echo "=== Deploy mode ==="
+            # Blue-green включается сам, когда ops-nginx apply уже установил
+            # upstream-файл (свежий VPS без него безопасно идёт legacy-путём).
+            DEPLOY_MODE=legacy
+            if [ "${FORCE_LEGACY_DEPLOY:-false}" != "true" ] \
+               && [ -f /etc/nginx/conf.d/delovoy-upstream.conf ] \
+               && [ -f scripts/deploy-bluegreen.sh ]; then
+              DEPLOY_MODE=bluegreen
+            fi
+            echo "Deploy mode: $DEPLOY_MODE"
 
-            echo "=== Wait for health check ==="
-            HEALTHY=false
-            for i in $(seq 1 30); do
-              if docker compose exec -T app wget --spider --quiet --timeout=5 http://localhost:3000/api/health 2>/dev/null; then
-                echo "Health check passed on attempt $i"
-                HEALTHY=true
-                break
+            APP_CONT=delovoy-app
+            if [ "$DEPLOY_MODE" = "bluegreen" ]; then
+              echo "=== Blue-green deploy (zero-downtime) ==="
+              chmod +x scripts/deploy-bluegreen.sh
+              # Скрипт атомарен: провал до переключения upstream не трогает
+              # работающий слот (сам гасит неудавшийся новый слот, exit 1 →
+              # set -e прерывает деплой, rollback не нужен). Статик-архив
+              # и даунтайм-метр — внутри скрипта.
+              sh scripts/deploy-bluegreen.sh
+              ACTIVE_SLOT=$(cat ACTIVE_SLOT 2>/dev/null || echo a)
+              [ "$ACTIVE_SLOT" = "b" ] && APP_CONT=delovoy-app-b
+              HEALTHY=true
+            else
+              # Legacy-эвакуация после blue-green: вернуть трафик на 3000,
+              # иначе upstream смотрит на 3001, а мы рестартуем app:3000.
+              if [ -f /etc/nginx/conf.d/delovoy-upstream.conf ] && [ "$(cat ACTIVE_SLOT 2>/dev/null || echo a)" = "b" ]; then
+                echo "=== Legacy after blue-green: возвращаю upstream на 3000 ==="
+                printf 'upstream delovoy_app {\n    server 127.0.0.1:3000;\n    keepalive 32;\n}\n' | sudo tee /etc/nginx/conf.d/delovoy-upstream.conf >/dev/null
+                sudo nginx -t && sudo systemctl reload nginx
+                echo a > ACTIVE_SLOT
+                docker compose --profile bluegreen stop app-b 2>/dev/null || true
               fi
-              echo "Attempt $i/30 — waiting..."
-              sleep 5
-            done
+
+              echo "=== Rolling deploy (legacy) ==="
+              docker compose up -d --no-deps app
+
+              echo "=== Wait for health check ==="
+              HEALTHY=false
+              for i in $(seq 1 30); do
+                if docker compose exec -T app wget --spider --quiet --timeout=5 http://localhost:3000/api/health 2>/dev/null; then
+                  echo "Health check passed on attempt $i"
+                  HEALTHY=true
+                  break
+                fi
+                echo "Attempt $i/30 — waiting..."
+                sleep 5
+              done
+            fi
 
             if [ "$HEALTHY" = true ]; then
+              if [ "$DEPLOY_MODE" = "legacy" ]; then
               echo "=== Archive build static assets ==="
               # Копим content-hashed статику последних билдов на хосте: nginx
               # отдаёт её с диска (scripts/apply-nginx-static-archive.sh), и
@@ -444,17 +485,20 @@ jobs:
               else
                 echo "⚠️ docker cp failed — static archive skipped"
               fi
+              fi
 
               echo "=== Run unified seed pipeline ==="
               # Idempotent reference-data seed (modules, boards, categories, demo offices, etc).
               # See docs/adr/ADR-0001-unified-seed-pipeline.md
               # Failure here is a deploy failure — without seed Tasks/etc are broken.
-              docker compose exec -T app npx tsx scripts/seed.ts \
+              # exec по имени контейнера ($APP_CONT): при blue-green активный
+              # слот может быть app-b, которого нет в дефолтном профиле compose.
+              docker exec "$APP_CONT" npx tsx scripts/seed.ts \
                 && echo "✅ Seed pipeline OK" \
                 || { echo "❌ Seed pipeline FAILED"; exit 1; }
 
               echo "=== Run data migrations ==="
-              docker compose exec -T app npx tsx scripts/set-public-phone.ts \
+              docker exec "$APP_CONT" npx tsx scripts/set-public-phone.ts \
                 && echo "✅ Phone config applied" \
                 || echo "⚠️ set-public-phone.ts failed — check manually"
 

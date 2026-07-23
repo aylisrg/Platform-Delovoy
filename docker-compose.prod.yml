@@ -102,6 +102,51 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Blue-green слот B (см. scripts/deploy-bluegreen.sh): вторая копия app на
+  # 127.0.0.1:3001. Вне профиля bluegreen обычный `up -d` его не трогает —
+  # поднимается только скриптом деплоя. Активный слот записан в
+  # /opt/delovoy-park/ACTIVE_SLOT, nginx-upstream указывает на его порт.
+  # Лимит памяти ниже (1024M): слоты живут вместе только окно деплоя.
+  app-b:
+    image: ${DEPLOY_IMAGE:-ghcr.io/aylisrg/platform-delovoy:latest}
+    container_name: delovoy-app-b
+    restart: unless-stopped
+    profiles: ["bluegreen"]
+    labels:
+      - "autoheal=true"
+    ports:
+      - "127.0.0.1:3001:3000"  # only localhost — nginx flips upstream to 3001
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://delovoy:${POSTGRES_PASSWORD}@postgres:5432/delovoy_park?connection_limit=10&pool_timeout=20"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "production"
+      NEXTAUTH_URL: "https://delovoy-park.ru"
+      NEXT_PUBLIC_APP_URL: "https://delovoy-park.ru"
+      AUTH_TRUST_HOST: "true"
+      NODE_OPTIONS: "--max-old-space-size=768"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "--timeout=5", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
   # Telegram bot (@DelovoyPark_bot) — separate process, same image.
   # entrypoint: [] overrides the inherited docker-entrypoint.sh (миграции +
   # Next.js — боту не нужно). Долгий polling через grammY.

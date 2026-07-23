@@ -24,7 +24,7 @@ on:
       action:
         description: "Действие"
         type: choice
-        options: [status, enable, disable]
+        options: [status, enable, disable, recreate-stack]
         default: status
   push:
     branches-ignore: [main]
@@ -124,8 +124,37 @@ jobs:
                 $SUDO systemctl restart docker
                 sleep 8
                 cd /opt/delovoy-park
-                # Полный up: сеть пересоздаётся с IPv6, контейнеры переподключаются.
-                docker compose up -d --remove-orphans
+
+                # Пересоздание сети падает, если к ней прицеплены контейнеры вне
+                # compose-проекта (инцидент 2026-07-23: delovoy-agent со старой
+                # меткой держал сеть, up умер после остановки стека). Отцепляем
+                # чужаков заранее и возвращаем после.
+                NET=delovoy-park_default
+                FOREIGN=""
+                for C in $(docker network inspect "$NET" --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}' 2>/dev/null); do
+                  P=$(docker inspect "$C" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)
+                  if [ "$P" != "delovoy-park" ]; then
+                    echo "Отцепляю посторонний контейнер от сети: $C (project='$P')"
+                    docker network disconnect -f "$NET" "$C" 2>/dev/null || true
+                    FOREIGN="$FOREIGN $C"
+                  fi
+                done
+
+                # НИКАКОГО --remove-orphans: он удаляет контейнеры со старой
+                # project-меткой (так 2026-07-23 был снесён delovoy-agent).
+                # Любой провал up — аварийное самовосстановление без IPv6:
+                # стек НИКОГДА не остаётся лежать из-за этого workflow.
+                if ! docker compose up -d; then
+                  echo "::error::compose up с IPv6 не прошёл — экстренный откат (убираю override, поднимаю как было)"
+                  rm -f "$OVERRIDE"
+                  docker compose up -d || true
+                  for C in $FOREIGN; do docker network connect "$NET" "$C" 2>/dev/null || true; done
+                  exit 1
+                fi
+                for C in $FOREIGN; do
+                  echo "Возвращаю в сеть: $C"
+                  docker network connect "$NET" "$C" 2>/dev/null || true
+                done
                 echo "Жду стабилизации (40с)…"
                 sleep 40
                 show_status
@@ -150,8 +179,43 @@ jobs:
                 $SUDO systemctl restart docker
                 sleep 8
                 cd /opt/delovoy-park
-                docker compose up -d --remove-orphans
+                # Без --remove-orphans — см. комментарий в enable.
+                docker compose up -d
                 sleep 30
                 show_status
+                ;;
+
+              recreate-stack)
+                # Полное пересоздание сети и контейнеров проекта: лечит битый
+                # embedded-DNS docker-сети (EAI_AGAIN в контейнерах) после
+                # неудачного пересоздания сети. down удаляет ТОЛЬКО контейнеры
+                # проекта; чужаков отцепляем, чтобы удалилась и сеть.
+                cd /opt/delovoy-park
+                NET=delovoy-park_default
+                FOREIGN=""
+                for C in $(docker network inspect "$NET" --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}' 2>/dev/null); do
+                  P=$(docker inspect "$C" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)
+                  if [ "$P" != "delovoy-park" ]; then
+                    echo "Отцепляю посторонний контейнер: $C"
+                    docker network disconnect -f "$NET" "$C" 2>/dev/null || true
+                    FOREIGN="$FOREIGN $C"
+                  fi
+                done
+                docker compose down --timeout 30 || true
+                docker compose up -d
+                for C in $FOREIGN; do
+                  echo "Возвращаю в сеть: $C"
+                  docker network connect "$NET" "$C" 2>/dev/null || true
+                done
+                echo "Жду стабилизации (45с)…"
+                sleep 45
+                show_status
+                echo "--- health app (локально) ---"
+                for I in 1 2 3 4 5 6; do
+                  CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:3000/api/health || echo 000)
+                  echo "health попытка $I: HTTP=$CODE"
+                  [ "$CODE" = "200" ] && break
+                  sleep 10
+                done
                 ;;
             esac

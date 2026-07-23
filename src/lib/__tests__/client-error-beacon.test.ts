@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  MAX_CONNECTION_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_META_LENGTH,
   MAX_REPORTS_PER_PAGE,
   buildClientErrorPayload,
   createReportLimiter,
+  describeConnection,
   extractErrorMessage,
   isNoise,
 } from "../client-error-beacon";
@@ -96,5 +98,41 @@ describe("extractErrorMessage", () => {
   it("returns empty string for unusable input", () => {
     expect(extractErrorMessage(null)).toBe("");
     expect(extractErrorMessage({ reason: 7 })).toBe("");
+  });
+});
+
+describe("describeConnection", () => {
+  it("joins type and effectiveType from Network Information API", () => {
+    expect(describeConnection({ connection: { type: "wifi", effectiveType: "4g" } })).toBe(
+      "wifi/4g",
+    );
+    expect(describeConnection({ connection: { effectiveType: "3g" } })).toBe("3g");
+  });
+
+  it("returns undefined when API is absent (Safari/Firefox) or empty", () => {
+    expect(describeConnection({})).toBeUndefined();
+    expect(describeConnection(undefined)).toBeUndefined();
+    expect(describeConnection({ connection: {} })).toBeUndefined();
+    expect(describeConnection({ connection: { type: 5 } })).toBeUndefined();
+  });
+
+  it("truncates to MAX_CONNECTION_LENGTH", () => {
+    const long = describeConnection({ connection: { type: "x".repeat(100) } });
+    expect(long).toHaveLength(MAX_CONNECTION_LENGTH);
+  });
+});
+
+describe("buildClientErrorPayload — connection", () => {
+  it("включает connection и усекает его", () => {
+    const p = buildClientErrorPayload("boom", "window-error", undefined, undefined, "wifi/4g");
+    expect(p.connection).toBe("wifi/4g");
+    const p2 = buildClientErrorPayload(
+      "boom",
+      "window-error",
+      undefined,
+      undefined,
+      "y".repeat(100),
+    );
+    expect(p2.connection).toHaveLength(MAX_CONNECTION_LENGTH);
   });
 });

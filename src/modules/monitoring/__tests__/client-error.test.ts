@@ -80,4 +80,15 @@ describe("logClientError", () => {
     const arg = mockedCreate.mock.calls[0]?.[0];
     expect(arg?.data.metadata).toEqual({ beaconSource: "unhandled-rejection" });
   });
+
+  it("stores connection type when provided (wifi vs 4g разрез)", async () => {
+    mockedCreate.mockResolvedValue({ id: "ev3" } as never);
+    await logClientError({
+      message: "boom",
+      source: "window-error",
+      connection: "cellular/4g",
+    });
+    const arg = mockedCreate.mock.calls[0]?.[0];
+    expect(arg?.data.metadata).toMatchObject({ connection: "cellular/4g" });
+  });
 });

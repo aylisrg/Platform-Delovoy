@@ -1,5 +1,8 @@
 # Stage 1: Install dependencies and build
-FROM node:20-alpine AS builder
+# node:22 обязателен для undici@8 (прокси-транспорт Telegram): на node:20
+# ProxyAgent/fetch падали с «webidl.util.markAsUncloneable is not a function»
+# (подтверждено диагностикой в проде 2026-07-23). Выравнивает прод с dev/CI.
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -31,7 +34,7 @@ RUN npm run build
 RUN rm -rf .next/cache
 
 # Stage 2: Minimal production runner
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache su-exec wget && \

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import {
   buildClientErrorPayload,
   createReportLimiter,
+  describeConnection,
   extractErrorMessage,
   type BeaconSource,
 } from "@/lib/client-error-beacon";
@@ -25,6 +26,8 @@ export function ClientErrorBeacon() {
         source,
         window.location.href,
         navigator.userAgent,
+        // Разрез wifi vs 4g в SystemEvent — для диагностики «с LTE не работает».
+        describeConnection(navigator),
       );
       fetch("/api/monitoring/client-error", {
         method: "POST",
