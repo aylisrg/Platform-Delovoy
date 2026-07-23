@@ -99,30 +99,46 @@ jobs:
 
               provision|rotate-credentials)
                 if [ "$ACTION" = "provision" ]; then
-                  export DEBIAN_FRONTEND=noninteractive
-                  $SUDO apt-get update -qq
-                  $SUDO apt-get install -y -qq tinyproxy >/dev/null
+                  export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
+                  $SUDO -E apt-get update -qq
+                  $SUDO -E apt-get install -y -qq tinyproxy >/dev/null
                 fi
                 if ! command -v tinyproxy >/dev/null 2>&1; then
                   echo "::error::tinyproxy не установлен (для rotate сначала запустите provision)"; exit 1
                 fi
-                $SUDO tee /etc/tinyproxy/tinyproxy.conf >/dev/null <<EOF
-            User tinyproxy
-            Group tinyproxy
-            Port $PORT
-            Timeout 600
-            LogLevel Warning
-            MaxClients 20
-            # Только прод-VPS и локальный self-test; плюс BasicAuth ниже.
-            Allow 127.0.0.1
-            Allow $VPS_IP
-            BasicAuth $PROXY_USER $PROXY_PASS
-            # Только CONNECT на 443 — это чистый TLS-туннель, без MITM.
-            ConnectPort 443
-            EOF
+
+                # ВАЖНО: правим ШТАТНЫЙ конфиг дистрибутива через sed, а не пишем
+                # с нуля — иначе теряются PidFile/LogFile/StartServers, без которых
+                # systemd (Type=forking) не поднимает демон (инцидент 2026-07-23:
+                # self-тест 000 = tinyproxy не слушал порт).
+                CONF=/etc/tinyproxy/tinyproxy.conf
+                $SUDO sed -i -E "s/^#?\\s*Port\\s+.*/Port $PORT/" "$CONF"
+                $SUDO sed -i -E "s/^#?\\s*LogLevel\\s+.*/LogLevel Warning/" "$CONF"
+                # Сносим прежние Allow/BasicAuth (в т.ч. дефолтный Allow 127.0.0.1)
+                # и добавляем свои — доступ только localhost (self-test) и VPS.
+                $SUDO sed -i -E "/^\\s*(Allow|BasicAuth)\\s+/d" "$CONF"
+                printf 'Allow 127.0.0.1\nAllow %s\nBasicAuth %s %s\n' "$VPS_IP" "$PROXY_USER" "$PROXY_PASS" | $SUDO tee -a "$CONF" >/dev/null
+                # ConnectPort из дефолта дистрибутива уже разрешает 443/563 —
+                # оставляем как есть (пустой список = любой порт; список = только они).
+
                 $SUDO systemctl enable tinyproxy >/dev/null 2>&1 || true
-                $SUDO systemctl restart tinyproxy
-                sleep 2
+                if ! $SUDO systemctl restart tinyproxy; then
+                  echo "::error::tinyproxy не перезапустился"; $SUDO journalctl -u tinyproxy -n 30 --no-pager || true; exit 1
+                fi
+                sleep 3
+                if ! $SUDO systemctl is-active --quiet tinyproxy; then
+                  echo "::error::tinyproxy не активен после старта"
+                  $SUDO journalctl -u tinyproxy -n 30 --no-pager || true
+                  echo "--- конфиг (без секретов) ---"; $SUDO grep -vE '^\\s*BasicAuth' "$CONF" || true
+                  exit 1
+                fi
+                if ! $SUDO ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
+                  echo "::error::tinyproxy активен, но порт $PORT не слушается"
+                  $SUDO ss -tlnp 2>/dev/null | grep tinyproxy || true
+                  exit 1
+                fi
+                echo "tinyproxy слушает порт $PORT"
+
                 if ! $SUDO ufw status | grep -qE "^$PORT/tcp.*$VPS_IP"; then
                   $SUDO ufw allow from "$VPS_IP" to any port "$PORT" proto tcp
                 fi
@@ -131,7 +147,9 @@ jobs:
                   "https://api.telegram.org/botINVALID/getMe" || true)
                 echo "Self-test через прокси (ожидаем 404): HTTP=$CODE"
                 if [ "$CODE" != "404" ] && [ "$CODE" != "200" ]; then
-                  echo "::error::Прокси на Hetzner не работает (HTTP=$CODE)"; exit 1
+                  echo "::error::Прокси на Hetzner не работает (HTTP=$CODE)"
+                  $SUDO journalctl -u tinyproxy -n 20 --no-pager || true
+                  exit 1
                 fi
                 echo "✅ tinyproxy готов на порту $PORT"
                 ;;
