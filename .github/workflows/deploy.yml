@@ -352,7 +352,7 @@ jobs:
           # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
           # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
           # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
-          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh"
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh,scripts/apply-nginx-vhost.sh,infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf"
           target: "/opt/delovoy-park/"
           overwrite: true
 
