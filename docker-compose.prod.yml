@@ -174,3 +174,9 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+# IPv6-egress контейнеров (обход v4-блокировки api.telegram.org) включается
+# НЕ здесь, а файлом /opt/delovoy-park/docker-compose.override.yml + правкой
+# /etc/docker/daemon.json — одним действием workflow'а ops-docker-ipv6.yml.
+# В репо-компоузе enable_ipv6 не включаем сознательно: деплой пересоздал бы
+# сеть раньше, чем на хосте готов ip6tables (v6 без NAT66 = таймауты).

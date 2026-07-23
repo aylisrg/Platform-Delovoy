@@ -1,0 +1,157 @@
+# IPv6-egress для Docker-контейнеров прода.
+#
+# Зачем: api.telegram.org с IP Timeweb заблокирован по IPv4, но доступен по
+# IPv6 с хоста (диагноз 2026-07-22). Контейнеры по умолчанию v4-only — им
+# нужен собственный v6-путь (NAT66 через ip6tables на ULA-подсети), тогда
+# Node ≥20 (Happy Eyeballs) сам предпочитает рабочий путь. Это запасной
+# прямой канал в дополнение к релею (ops-telegram-relay).
+#
+# Почему НЕ через docker-compose.prod.yml в репо: enable_ipv6 пересоздаёт
+# сеть при первом же деплое — раньше, чем на хосте включён ip6tables. Сеть
+# с v6-адресами без NAT66 = таймауты вместо улучшения. Поэтому конфиг живёт
+# в /opt/delovoy-park/docker-compose.override.yml и включается только здесь,
+# в одном действии с правкой daemon.json и рестартом docker.
+#
+# enable рестартует docker → все контейнеры моргнут на ~30–60с. Запускать
+# не в пик. local-watchdog реагирует после 2 минут подряд — окно проходит.
+#
+# push-триггер регистрирует workflow до мержа; push-запуск = status.
+name: Ops — Docker IPv6
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Действие"
+        type: choice
+        options: [status, enable, disable]
+        default: status
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-docker-ipv6.yml"]
+
+concurrency:
+  group: ops-docker-ipv6
+  cancel-in-progress: false
+
+jobs:
+  ipv6:
+    name: "Docker IPv6: ${{ inputs.action || 'status (push)' }}"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Применение на VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          ACTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) || 'status' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
+          envs: ACTION
+          script: |
+            set -eu
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            DAEMON_JSON=/etc/docker/daemon.json
+            BACKUP=/etc/docker/daemon.json.bak-before-ipv6
+            OVERRIDE=/opt/delovoy-park/docker-compose.override.yml
+
+            show_status() {
+              echo "=== daemon.json ==="
+              $SUDO cat "$DAEMON_JSON" 2>/dev/null || echo "(нет файла)"
+              echo "=== override ==="
+              cat "$OVERRIDE" 2>/dev/null || echo "(нет файла)"
+              echo "=== Сети ==="
+              for N in $(docker network ls -q); do
+                docker network inspect "$N" --format '{{.Name}}: EnableIPv6={{.EnableIPv6}}' 2>/dev/null || true
+              done
+              echo "=== Хост: v6 к Telegram (ожидаем 200/404) ==="
+              curl -6 -s -o /dev/null -w "HTTP=%{http_code}\n" --max-time 10 "https://api.telegram.org/botINVALID/getMe" || true
+              echo "=== Контейнер app: любой путь к Telegram (404 = живой) ==="
+              docker exec delovoy-app node -e 'fetch("https://api.telegram.org/botINVALID/getMe",{signal:AbortSignal.timeout(10000)}).then(r=>console.log("HTTP="+r.status)).catch(e=>console.log("FAIL",String((e&&e.cause&&(e.cause.code||e.cause.message))||e)))' 2>&1 || true
+            }
+
+            case "$ACTION" in
+              status)
+                show_status
+                ;;
+
+              enable)
+                # Хост обязан сам иметь рабочий v6 — иначе NAT66 некуда натить.
+                H6=$(curl -6 -s -o /dev/null -w "%{http_code}" --max-time 10 "https://api.telegram.org/botINVALID/getMe" || true)
+                if [ "$H6" = "000" ] || [ -z "$H6" ]; then
+                  echo "::error::У хоста нет рабочего IPv6-egress (HTTP=$H6) — включать бессмысленно"; exit 1
+                fi
+
+                if [ ! -f "$BACKUP" ]; then
+                  $SUDO cp "$DAEMON_JSON" "$BACKUP" 2>/dev/null || echo "{}" | $SUDO tee "$BACKUP" >/dev/null
+                  echo "Бэкап daemon.json → $BACKUP"
+                fi
+
+                # jq может отсутствовать — python3 есть на Ubuntu всегда.
+                $SUDO python3 - "$DAEMON_JSON" <<'PYEOF'
+            import json, sys, subprocess
+            path = sys.argv[1]
+            try:
+                with open(path) as f: cfg = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError): cfg = {}
+            cfg["ipv6"] = True
+            cfg["fixed-cidr-v6"] = "fd00:de10::/64"   # docker0; compose-сеть берёт свою подсеть из override
+            cfg["ip6tables"] = True                    # NAT66 для ULA → глобальный v6 хоста
+            ver = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
+                                 capture_output=True, text=True).stdout.strip()
+            major = int(ver.split(".")[0] or 0) if ver else 0
+            if major and major < 25:
+                cfg["experimental"] = True             # ip6tables до Docker 25 — experimental
+            with open(path, "w") as f: json.dump(cfg, f, indent=2)
+            print("daemon.json обновлён (docker %s):" % (ver or "?"), json.dumps(cfg))
+            PYEOF
+
+                cat > "$OVERRIDE" <<'OVEOF'
+            # Управляется workflow'ом ops-docker-ipv6.yml — руками не править.
+            # Деплой (deploy.yml) кладёт рядом docker-compose.yml и НЕ трогает
+            # этот файл; docker compose объединяет их автоматически.
+            networks:
+              default:
+                enable_ipv6: true
+                ipam:
+                  config:
+                    - subnet: "fd00:de1a::/64"
+            OVEOF
+                echo "override записан: $OVERRIDE"
+
+                $SUDO systemctl restart docker
+                sleep 8
+                cd /opt/delovoy-park
+                # Полный up: сеть пересоздаётся с IPv6, контейнеры переподключаются.
+                docker compose up -d --remove-orphans
+                echo "Жду стабилизации (40с)…"
+                sleep 40
+                show_status
+                CODE=$(docker exec delovoy-app node -e 'fetch("https://api.telegram.org/botINVALID/getMe",{signal:AbortSignal.timeout(10000)}).then(r=>{console.log(r.status); process.exit(0)}).catch(()=>{console.log("000"); process.exit(0)})' 2>/dev/null | tail -1 || echo 000)
+                if [ "$CODE" = "404" ] || [ "$CODE" = "200" ]; then
+                  echo "✅ Контейнеры достучались до Telegram напрямую (HTTP=$CODE) — v6-egress работает"
+                else
+                  echo "::warning::Контейнер всё ещё не видит Telegram напрямую (HTTP=$CODE). Если релей настроен — уведомления живы через него; иначе запустите disable для отката."
+                fi
+                echo "--- health app ---"
+                curl -s --max-time 15 http://127.0.0.1:3000/api/health | head -c 300 || true
+                ;;
+
+              disable)
+                if [ -f "$BACKUP" ]; then
+                  $SUDO cp "$BACKUP" "$DAEMON_JSON"
+                  echo "daemon.json восстановлен из бэкапа"
+                else
+                  echo "::warning::Бэкапа нет — daemon.json не трогаю"
+                fi
+                rm -f "$OVERRIDE" && echo "override удалён" || true
+                $SUDO systemctl restart docker
+                sleep 8
+                cd /opt/delovoy-park
+                docker compose up -d --remove-orphans
+                sleep 30
+                show_status
+                ;;
+            esac
