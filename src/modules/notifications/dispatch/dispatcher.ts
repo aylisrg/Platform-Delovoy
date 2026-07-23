@@ -189,7 +189,9 @@ async function attemptFallback(
         level: "WARNING",
         source: "notifications",
         message: `All channels exhausted for userId=${item.userId} eventType=${item.eventType}`,
-        meta: { outgoingId: item.id, triedIds },
+        // SystemEvent имеет поле metadata (schema.prisma), не meta: с meta
+        // Prisma кидал PrismaClientValidationError ровно в этой ветке.
+        metadata: { outgoingId: item.id, triedIds },
       },
     });
     return "failed";

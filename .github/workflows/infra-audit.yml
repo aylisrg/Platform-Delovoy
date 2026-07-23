@@ -1,0 +1,297 @@
+# Инфраструктурный аудит доступности (read-only).
+#
+# Собирает доказательную базу по трём гипотезам «Wi-Fi работает, LTE нет»:
+#   H1 — остаточные DNS-кэши после правки зоны 2026-07-20 (CF-эксперимент);
+#   H2 — CGNAT-пулы операторов упираются в per-IP rate-limit (429 в логах);
+#   H3 — DDoS Guard Timeweb фильтрует мобильные диапазоны.
+# Плюс: состояние Telegram-транспорта (секреты/​.env/релей/IPv6) и живой
+# nginx-конфиг, которого нет в репозитории.
+#
+# Ничего не меняет ни на VPS, ни на Hetzner, ни в DNS — только чтение.
+# push-триггер на не-main ветки — тот же приём, что в telegram-diagnose.yml:
+# workflow_dispatch доступен только после попадания файла в main.
+name: Infra Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Что проверять"
+        type: choice
+        options: [all, dns, vps, timeweb, hetzner]
+        default: all
+      log_hours:
+        description: "Глубина анализа nginx-логов, часов"
+        required: false
+        default: "48"
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/infra-audit.yml"]
+
+concurrency:
+  group: infra-audit
+  cancel-in-progress: false
+
+env:
+  DOMAIN: delovoy-park.ru
+  SERVER_IP: 85.193.89.242
+
+jobs:
+  dns-vantage:
+    name: "DNS с разных резолверов (H1)"
+    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'dns' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: dig NS/SOA/A/AAAA/HTTPS у публичных и авторитативных резолверов
+        run: |
+          set -u
+          {
+            echo "## DNS vantage — $DOMAIN"
+            echo ""
+            echo '```'
+            for RES in 8.8.8.8 1.1.1.1 77.88.8.8 ns1.reg.ru ns2.reg.ru; do
+              echo "=== @$RES ==="
+              for T in NS SOA A AAAA HTTPS; do
+                # +tries=1: авторитативные NS могут резать чужие рекурсивные запросы
+                OUT=$(dig +time=4 +tries=1 +noall +answer "@$RES" "$DOMAIN" "$T" 2>&1 | head -6)
+                [ -n "$OUT" ] && echo "$OUT" || echo "$DOMAIN $T: <пусто>"
+              done
+              dig +time=4 +tries=1 +noall +answer "@$RES" "www.$DOMAIN" A 2>&1 | head -3
+              echo ""
+            done
+            echo '```'
+            echo ""
+            echo "Интерпретация: расхождение A-записей между резолверами или уцелевшие"
+            echo "HTTPS/AAAA-записи (Cloudflare) = подтверждение H1 (остаточные кэши)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: check-host.net — HTTP-проба с российских нод (best-effort)
+        continue-on-error: true
+        run: |
+          set -u
+          REQ=$(curl -sS --max-time 20 -H "Accept: application/json" \
+            "https://check-host.net/check-http?host=https://$DOMAIN/&max_nodes=10" || true)
+          RID=$(echo "$REQ" | jq -r '.request_id // empty')
+          if [ -z "$RID" ]; then
+            echo "check-host.net недоступен — пропуск (best-effort)"; exit 0
+          fi
+          sleep 25
+          RES=$(curl -sS --max-time 20 -H "Accept: application/json" \
+            "https://check-host.net/check-result/$RID" || true)
+          {
+            echo "## check-host.net (в т.ч. RU-ноды)"
+            echo '```'
+            echo "$RES" | jq -r 'to_entries[] | "\(.key): \(.value | tostring | .[0:120])"' 2>/dev/null || echo "$RES" | head -c 2000
+            echo '```'
+            echo "OK-строка: [[1, <секунды>, \"OK\", \"200\", ...]]. null/таймаут на RU-нодах при зелёных EU-нодах = сетевые проблемы именно из РФ."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Реестр блокировок РКН (best-effort)
+        continue-on-error: true
+        run: |
+          for Q in "$SERVER_IP" "$DOMAIN"; do
+            echo "=== $Q ==="
+            curl -sS --max-time 20 "https://reestr.rublacklist.net/api/v3/ip/?q=$Q" | head -c 500 || echo "(API недоступен)"
+            echo ""
+          done
+
+  secrets-presence:
+    name: "GH-секреты Telegram-транспорта (клоббер-детект)"
+    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'vps' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Наличие секретов (только булевы, значения не печатаются)
+        env:
+          HAS_PROXY: ${{ secrets.TELEGRAM_PROXY_URL != '' }}
+          HAS_ROOT: ${{ secrets.TELEGRAM_API_ROOT != '' }}
+        run: |
+          {
+            echo "## GH-секреты Telegram-транспорта"
+            echo "- TELEGRAM_PROXY_URL задан: **$HAS_PROXY**"
+            echo "- TELEGRAM_API_ROOT задан: **$HAS_ROOT**"
+            echo ""
+            echo "true = deploy.yml (upsert_env) перезатирает ручные правки .env на каждом деплое"
+            echo "устаревшим значением секрета — источник «слетающего» релея."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  vps-audit:
+    name: "VPS: nginx, логи, .env, сеть, beacon (H1/H2/TG)"
+    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'vps' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH-аудит прод-сервера (read-only)
+        uses: appleboy/ssh-action@v1
+        env:
+          LOG_HOURS: ${{ inputs.log_hours || '48' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
+          envs: LOG_HOURS
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "############ 1. Живой nginx-конфиг (в репо его нет) ############"
+            $SUDO nginx -T 2>/dev/null | sed -n '1,400p' || echo "(nginx -T недоступен)"
+
+            echo ""
+            echo "############ 2. Ключевые директивы ############"
+            $SUDO nginx -T 2>/dev/null | grep -E "server_name|listen|http2|proxy_pass|proxy_set_header X-|limit_req|ssl_certificate " | sort -u || true
+
+            echo ""
+            echo "############ 3. Гистограмма статусов nginx за ~$LOG_HOURS ч (H2: ищем 429/499/444) ############"
+            for LOG in /var/log/nginx/access.log /var/log/nginx/access.log.1; do
+              [ -f "$LOG" ] || continue
+              echo "--- $LOG (всего строк: $(wc -l < "$LOG")) ---"
+              $SUDO awk '{print $9}' "$LOG" 2>/dev/null | sort | uniq -c | sort -rn | head -15
+            done
+            echo "--- Ошибочные статусы по часам (429|444|499|5xx) ---"
+            $SUDO awk '$9 ~ /^(429|444|499|5..)$/ {split($4,a,":"); print a[1]":"a[2], $9}' /var/log/nginx/access.log 2>/dev/null | sort | uniq -c | sort -k2 | tail -40 || true
+            echo "--- Топ user-agent на 429/499 ---"
+            $SUDO awk -F'"' '$0 ~ / (429|499) / {print $6}' /var/log/nginx/access.log 2>/dev/null | sort | uniq -c | sort -rn | head -10 || true
+
+            echo ""
+            echo "############ 4. .env: presence-only (значения не печатаем) ############"
+            for KEY in TELEGRAM_API_ROOT TELEGRAM_PROXY_URL CRON_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_ADMIN_CHAT_ID RATE_LIMIT_PUBLIC_PER_MIN; do
+              if grep -q "^${KEY}=." /opt/delovoy-park/.env 2>/dev/null; then echo "$KEY: SET"; else echo "$KEY: UNSET"; fi
+            done
+
+            echo ""
+            echo "############ 5. Telegram-egress с хоста ############"
+            for FLAG in -4 -6; do
+              CODE=$(curl $FLAG -s -o /dev/null -w "%{http_code}" --max-time 10 "https://api.telegram.org/botINVALID/getMe" 2>/dev/null || true)
+              echo "curl $FLAG api.telegram.org: HTTP=$CODE (404 = сеть жива, токен фиктивный; 000 = блок/таймаут)"
+            done
+
+            echo ""
+            echo "############ 6. Сконфигурированный транспорт из контейнера app (env контейнера) ############"
+            docker exec delovoy-app node -e '
+              const root = process.env.TELEGRAM_API_ROOT || "https://api.telegram.org";
+              const proxy = process.env.TELEGRAM_PROXY_URL || "";
+              console.log("TELEGRAM_API_ROOT в контейнере:", process.env.TELEGRAM_API_ROOT ? "SET" : "UNSET");
+              console.log("TELEGRAM_PROXY_URL в контейнере:", proxy ? "SET" : "UNSET");
+              (async () => {
+                try {
+                  let f = fetch;
+                  if (proxy) { const u = require("undici"); f = (url, o) => u.fetch(url, { ...o, dispatcher: new u.ProxyAgent(proxy) }); }
+                  const r = await f(root + "/botINVALID/getMe", { signal: AbortSignal.timeout(10000) });
+                  console.log("CONFIGURED TRANSPORT: HTTP=" + r.status + " (404 = транспорт живой)");
+                } catch (e) {
+                  console.log("CONFIGURED TRANSPORT: FAIL", String((e && e.cause && (e.cause.code || e.cause.message)) || e));
+                }
+              })();
+            ' 2>&1 || echo "(docker exec не удался)"
+
+            echo ""
+            echo "############ 7. Docker: IPv6 и сети ############"
+            echo "--- /etc/docker/daemon.json ---"
+            $SUDO cat /etc/docker/daemon.json 2>/dev/null || echo "(нет файла)"
+            echo "--- EnableIPv6 по сетям ---"
+            for N in $(docker network ls -q); do
+              docker network inspect "$N" --format '{{.Name}}: EnableIPv6={{.EnableIPv6}}' 2>/dev/null || true
+            done
+
+            echo ""
+            echo "############ 8. Резолвер, firewall, cron ############"
+            resolvectl status 2>/dev/null | head -25 || cat /etc/resolv.conf 2>/dev/null || true
+            $SUDO ufw status verbose 2>/dev/null || true
+            echo "--- crontab ($(whoami)) ---"
+            crontab -l 2>/dev/null || echo "(пусто)"
+
+            echo ""
+            echo "############ 9. SystemEvent: client-beacon и health за 7 дней ############"
+            # Строковые литералы SQL — в dollar-quoting ($$...$$), чтобы весь запрос
+            # жил в одинарных кавычках shell без экранирования.
+            echo "--- События по дням/источникам (день|source|level|count) ---"
+            docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc \
+              'SELECT to_char(date_trunc($$day$$, "createdAt"), $$MM-DD$$), source, level, count(*) FROM "SystemEvent" WHERE "createdAt" > now() - make_interval(days => 7) GROUP BY 1, 2, 3 ORDER BY 1 DESC, 4 DESC LIMIT 40;' \
+              2>/dev/null || echo "(запрос не прошёл)"
+            echo "--- Топ сообщений client-beacon (count|message) ---"
+            docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc \
+              'SELECT count(*), left(message, 140) FROM "SystemEvent" WHERE source = $$client-beacon$$ AND "createdAt" > now() - make_interval(days => 7) GROUP BY 2 ORDER BY 1 DESC LIMIT 20;' \
+              2>/dev/null || echo "(пусто или запрос не прошёл)"
+
+            echo ""
+            echo "############ 10. Контейнеры ############"
+            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.RunningFor}}'
+
+  timeweb-audit:
+    name: "Timeweb: живой объект сервера, DDoS Guard (H3)"
+    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'timeweb' }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TW_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+      TIMEWEB_API: "https://api.timeweb.cloud"
+    steps:
+      - name: Сервер, домены, firewall через Timeweb API
+        run: |
+          set -u
+          if [ -z "$TW_TOKEN" ]; then echo "::warning::TIMEWEB_API_TOKEN не задан — пропуск"; exit 0; fi
+          SRV=$(curl -s -H "Authorization: Bearer $TW_TOKEN" "$TIMEWEB_API/api/v1/servers" | \
+            jq '.servers[] | select(.name == "delovoy-park-prod")')
+          {
+            echo "## Timeweb: живое состояние сервера"
+            echo '```json'
+            # Все поля, похожие на защиту/сеть — фактический ddos_guard, а не намерение провижена
+            echo "$SRV" | jq '{id, name, status, ddos_guard: (.ddos_guard // .is_ddos_guard // "поле не найдено"), networks, preset_id, location}'
+            echo '```'
+            echo "### Домены в Timeweb DNS (⚠️ зона НЕавторитативна — NS у reg.ru)"
+            echo '```json'
+            curl -s -H "Authorization: Bearer $TW_TOKEN" "$TIMEWEB_API/api/v1/domains" | \
+              jq '[.domains[]? | {fqdn, is_technical}] | .[0:10]' 2>/dev/null || echo "[]"
+            echo '```'
+            echo "### Firewall-группы"
+            echo '```json'
+            curl -s -H "Authorization: Bearer $TW_TOKEN" "$TIMEWEB_API/api/v1/firewall/groups" | \
+              jq '[.groups[]? | {id, name}]' 2>/dev/null || echo "[]"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Черновик тикета в поддержку Timeweb (если H3 подтверждается)
+        run: |
+          {
+            echo "## Черновик тикета в Timeweb (отправлять только если DDoS Guard включён и H1/H2 отпали)"
+            echo ""
+            echo "> Здравствуйте! VPS delovoy-park-prod (id 7548623, IP $SERVER_IP)."
+            echo "> Пользователи из мобильных сетей (МТС/Мегафон/Билайн/T2, CGNAT) периодически не могут"
+            echo "> открыть сайт https://$DOMAIN, при этом с проводных провайдеров всё работает."
+            echo "> 1) Включена ли для этого сервера DDoS-защита (DDoS Guard), и могла ли она"
+            echo ">    фильтровать/челленджить запросы из CGNAT-диапазонов мобильных операторов?"
+            echo "> 2) Есть ли на вашей стороне логи срабатываний защиты по этому IP за последние 7 дней?"
+            echo "> 3) Если фильтрация подтверждается — просим ослабить/отключить её для 80/443."
+            echo "> 4) Отдельно: выделен ли серверу IPv6-адрес/подсеть и есть ли известные проблемы качества v6?"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  hetzner-audit:
+    name: "Hetzner: что осталось от релея 2026-07-14"
+    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'hetzner' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH-аудит агент-бокса (read-only)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            echo "=== Слушающие порты ==="
+            $SUDO ss -tlnp 2>/dev/null | head -20 || ss -tln | head -20
+            echo "=== UFW ==="
+            $SUDO ufw status verbose 2>/dev/null || true
+            echo "=== Контейнеры ==="
+            docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo "(docker недоступен)"
+            echo "=== Установлен ли tinyproxy/squid/nginx ==="
+            for P in tinyproxy squid nginx; do
+              command -v "$P" >/dev/null 2>&1 && echo "$P: установлен ($(systemctl is-active $P 2>/dev/null || echo '?'))" || echo "$P: нет"
+            done
+            echo "=== Egress в Telegram (ожидаем 404 — сеть живая) ==="
+            curl -s -o /dev/null -w "api.telegram.org: HTTP=%{http_code}\n" --max-time 10 "https://api.telegram.org/botINVALID/getMe" || true

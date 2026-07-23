@@ -1,0 +1,153 @@
+# Управление прод-vhost'ом nginx из репозитория (infra/nginx/).
+#
+# Живой конфиг на сервере — 3 поколения неревьюженных мутаций (heredoc
+# провижена + certbot --nginx --redirect + apply-nginx-static-archive.sh),
+# поэтому diff перед apply ОБЯЗАТЕЛЕН: смотрим глазами, что именно заменяем.
+# apply идёт через scripts/apply-nginx-vhost.sh (бэкап, nginx -t, автооткат)
+# и завершается внешней проверкой: HTTP/2 + 200 + живой /_next/static-чанк.
+#
+# push-триггер регистрирует workflow до мержа; push-запуск = diff (read-only).
+name: Ops — Nginx vhost
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Действие"
+        type: choice
+        options: [diff, apply, rollback]
+        default: diff
+  push:
+    branches-ignore: [main]
+    paths:
+      - ".github/workflows/ops-nginx.yml"
+      - "infra/nginx/**"
+      - "scripts/apply-nginx-vhost.sh"
+
+concurrency:
+  group: ops-nginx
+  cancel-in-progress: false
+
+env:
+  ACTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) || 'diff' }}
+
+jobs:
+  diff:
+    name: "Diff: живой конфиг vs репозиторий"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Забрать живые конфиги и сравнить
+        run: |
+          set -u
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/ops_key
+          chmod 600 ~/.ssh/ops_key
+          vps() {
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i ~/.ssh/ops_key \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "$1" 2>/dev/null || true
+          }
+          vps "sudo cat /etc/nginx/sites-available/delovoy-park" > /tmp/live-vhost.conf
+          vps "sudo cat /etc/nginx/conf.d/delovoy-upstream.conf" > /tmp/live-upstream.conf
+          rm -f ~/.ssh/ops_key
+
+          {
+            echo "## nginx diff (live → repo)"
+            echo ""
+            echo "### vhost: /etc/nginx/sites-available/delovoy-park"
+            echo '```diff'
+            if [ -s /tmp/live-vhost.conf ]; then
+              diff -u /tmp/live-vhost.conf infra/nginx/delovoy-park.conf || true
+            else
+              echo "(живой vhost пуст/не прочитан — apply установит репо-версию с нуля)"
+            fi
+            echo '```'
+            echo "### upstream: /etc/nginx/conf.d/delovoy-upstream.conf"
+            echo '```diff'
+            if [ -s /tmp/live-upstream.conf ]; then
+              diff -u /tmp/live-upstream.conf infra/nginx/delovoy-upstream.conf || true
+              echo "(существующий upstream apply НЕ перезапишет — там может жить активный blue-green слот)"
+            else
+              echo "(на сервере нет — apply установит образец с портом 3000)"
+            fi
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: "Apply (бэкап → nginx -t → reload → внешняя проверка)"
+    needs: diff
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) == 'apply' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Доставить конфиги и скрипт на VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,scripts/apply-nginx-vhost.sh"
+          target: "/opt/delovoy-park/"
+          overwrite: true
+
+      - name: Применить
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -eu
+            chmod +x /opt/delovoy-park/scripts/apply-nginx-vhost.sh
+            /opt/delovoy-park/scripts/apply-nginx-vhost.sh
+
+      - name: Внешняя проверка (HTTP/2, 200, живой чанк)
+        run: |
+          set -u
+          sleep 3
+          HV=$(curl -sIo /dev/null -w '%{http_version} %{http_code}' --max-time 20 https://delovoy-park.ru || echo "fail")
+          echo "https://delovoy-park.ru → HTTP/$HV"
+          if [ "$HV" != "2 200" ]; then
+            echo "::error::Ожидали '2 200', получили '$HV' — проверьте rollback"
+            exit 1
+          fi
+          R=$(curl -sIo /dev/null -w '%{http_code}' --max-time 20 "https://delovoy-park.ru/api/health" || echo fail)
+          echo "/api/health → $R"
+          CHUNK=$(curl -s --max-time 20 https://delovoy-park.ru/ | grep -oE '/_next/static/[^"]+\.(js|css)' | head -1 || true)
+          if [ -n "$CHUNK" ]; then
+            CC=$(curl -sIo /dev/null -w '%{http_code}' --max-time 20 "https://delovoy-park.ru$CHUNK" || echo fail)
+            echo "чанк $CHUNK → $CC"
+            [ "$CC" = "200" ] || { echo "::error::Чанк не отдаётся"; exit 1; }
+          else
+            echo "::warning::Не нашёл чанк на главной — пропускаю проверку"
+          fi
+          echo "✅ vhost применён, HTTP/2 активен"
+
+  rollback:
+    name: "Rollback на последний бэкап"
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) == 'rollback' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Восстановить последний .bak и перезагрузить nginx
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -eu
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            LATEST=$($SUDO ls -t /etc/nginx/sites-available/delovoy-park.bak-* 2>/dev/null | head -1 || true)
+            [ -n "$LATEST" ] || { echo "::error::Бэкапов нет"; exit 1; }
+            echo "Восстанавливаю: $LATEST"
+            $SUDO cp "$LATEST" /etc/nginx/sites-available/delovoy-park
+            $SUDO nginx -t
+            $SUDO systemctl reload nginx
+            curl -sIo /dev/null -w "https://delovoy-park.ru → %{http_code}\n" --max-time 20 https://delovoy-park.ru || true

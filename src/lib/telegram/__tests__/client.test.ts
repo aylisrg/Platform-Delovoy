@@ -206,3 +206,74 @@ describe("telegramApi", () => {
     expect(mockProxyAgent).not.toHaveBeenCalled();
   });
 });
+
+describe("telegramApi — transport failover", () => {
+  const transportErr = () => {
+    const err = new TypeError("fetch failed");
+    (err as Error & { cause?: object }).cause = { code: "ETIMEDOUT" };
+    return err;
+  };
+
+  it("falls back to direct api.telegram.org when the proxy transport dies", async () => {
+    process.env.TELEGRAM_PROXY_URL = "http://proxy.local:3128";
+    mockUndiciFetch.mockRejectedValue(transportErr());
+    mockFetch.mockResolvedValue(jsonResponse({ ok: true, result: { id: 1 } }));
+
+    const res = await telegramApi("sendMessage", { chat_id: "1" });
+
+    expect(res.ok).toBe(true);
+    expect(mockUndiciFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe("https://api.telegram.org/bottkn/sendMessage");
+  });
+
+  it("falls back to the default root when a custom TELEGRAM_API_ROOT dies", async () => {
+    process.env.TELEGRAM_API_ROOT = "https://relay.example.com";
+    mockFetch
+      .mockRejectedValueOnce(transportErr())
+      .mockResolvedValueOnce(jsonResponse({ ok: true, result: true }));
+
+    const res = await telegramApi("getMe");
+
+    expect(res.ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toBe("https://relay.example.com/bottkn/getMe");
+    expect(mockFetch.mock.calls[1][0]).toBe("https://api.telegram.org/bottkn/getMe");
+  });
+
+  it("reports both failures when configured transport and direct both die", async () => {
+    process.env.TELEGRAM_PROXY_URL = "http://proxy.local:3128";
+    mockUndiciFetch.mockRejectedValue(transportErr());
+    mockFetch.mockRejectedValue(transportErr());
+
+    const res = await telegramApi("sendMessage", {});
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.transportError).toBe(true);
+      expect(res.retryable).toBe(true);
+      expect(res.description).toContain("configured:");
+      expect(res.description).toContain("direct:");
+    }
+  });
+
+  it("does NOT fall back on Telegram API-level errors (only transport errors)", async () => {
+    process.env.TELEGRAM_PROXY_URL = "http://proxy.local:3128";
+    mockUndiciFetch.mockResolvedValue(jsonResponse({ ok: false, description: "Unauthorized" }, 401));
+
+    const res = await telegramApi("getMe");
+
+    expect(res.ok).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    if (!res.ok) expect(res.transportError).toBe(false);
+  });
+
+  it("makes no second attempt without a custom transport", async () => {
+    mockFetch.mockRejectedValue(transportErr());
+
+    const res = await telegramApi("sendMessage", {});
+
+    expect(res.ok).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});

@@ -111,6 +111,8 @@ services:
     image: ghcr.io/aylisrg/platform-delovoy:latest
     container_name: delovoy-bot
     restart: unless-stopped
+    labels:
+      - "autoheal=true"  # зависший long-polling лечится рестартом (см. healthcheck)
     env_file:
       - .env
     environment:
@@ -125,6 +127,15 @@ services:
         condition: service_healthy
     entrypoint: []
     command: ["npx", "tsx", "bot/index.ts"]
+    # У long-polling процесса нет порта — здоровье проверяем по свежести
+    # heartbeat-файла (bot/index.ts пишет его каждые 60с; -mmin -3 = не старше
+    # 3 минут). Сетевые сбои Telegram здоровье НЕ роняют — только зависание.
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/bot-healthy -mmin -3 2>/dev/null | grep -q ."]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     deploy:
       resources:
         limits:
@@ -163,3 +174,9 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+# IPv6-egress контейнеров (обход v4-блокировки api.telegram.org) включается
+# НЕ здесь, а файлом /opt/delovoy-park/docker-compose.override.yml + правкой
+# /etc/docker/daemon.json — одним действием workflow'а ops-docker-ipv6.yml.
+# В репо-компоузе enable_ipv6 не включаем сознательно: деплой пересоздал бы
+# сеть раньше, чем на хосте готов ip6tables (v6 без NAT66 = таймауты).

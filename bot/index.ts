@@ -27,6 +27,7 @@ import { mintBotLoginUrl } from "./lib/bot-login";
 import { prisma } from "../src/lib/db";
 import { logEvent } from "../src/lib/logger";
 import { getTelegramApiRoot, getTelegramProxyUrl, telegramApi } from "../src/lib/telegram/client";
+import { writeHeartbeat } from "../src/lib/telegram/heartbeat";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -255,6 +256,22 @@ async function startBot() {
   bot.catch((err) => {
     console.error("[Bot] Error:", err);
   });
+
+  // Heartbeat для docker healthcheck (см. src/lib/telegram/heartbeat.ts):
+  // цикл раз в 60с делает getMe и по завершении пишет файл. Файл пишется и
+  // при сетевой ошибке (рестарт не лечит блок сети) — ловим именно зависший
+  // процесс: цикл перестал завершаться → файл стареет → autoheal рестартует.
+  const HEARTBEAT_INTERVAL_MS = 60_000;
+  const heartbeatTick = async () => {
+    const me = await telegramApi("getMe", {}, { botToken: BOT_TOKEN, timeoutMs: 10_000 });
+    if (!me.ok) {
+      console.warn(`[Bot] heartbeat: getMe не прошёл (${me.description}) — транспорт к Telegram деградирован`);
+    }
+    await writeHeartbeat();
+  };
+  void heartbeatTick();
+  const heartbeatTimer = setInterval(() => void heartbeatTick(), HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref?.();
 
   // Start
   console.log("[Bot] Starting @DelovoyPark_bot...");

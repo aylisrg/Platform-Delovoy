@@ -153,6 +153,13 @@ describe("processOutgoing — channel fallback", () => {
     expect(prisma.systemEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ level: "WARNING" }) })
     );
+    // Поле модели называется metadata; обращение через meta валится в Prisma
+    // рантайм-валидацией (tsc это не ловит из-за XOR-типов CreateInput).
+    const createArg = vi.mocked(prisma.systemEvent.create).mock.calls[0][0];
+    expect(createArg.data).toMatchObject({
+      metadata: { outgoingId: "on-1", triedIds: ["ch-email", "ch-tg"] },
+    });
+    expect(createArg.data).not.toHaveProperty("meta");
     expect(prisma.outgoingNotification.create).not.toHaveBeenCalled();
   });
 

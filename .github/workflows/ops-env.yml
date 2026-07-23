@@ -1,0 +1,142 @@
+# Управление /opt/delovoy-park/.env на проде без ручного SSH.
+#
+# Зачем: GitHub-секреты нельзя ставить программно, а deploy.yml больше не
+# синкает TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT (см. коммит «stop clobbering»).
+# Источник истины для этих ключей — .env на VPS; этот workflow — единственный
+# санкционированный способ его менять из CI.
+#
+# ВНИМАНИЕ: значения inputs видны всем, у кого есть доступ к Actions-логам
+# запуска (мы маскируем через add-mask, но сам факт запуска и ключ видны).
+# Настоящие креды (пароль релея) сюда НЕ передаются — их пишет напрямую
+# ops-telegram-relay.yml, генерируя на раннере.
+#
+# push-триггер на не-main ветки регистрирует workflow до мержа (паттерн
+# telegram-diagnose.yml); push-запуск — всегда сухой прогон без изменений.
+name: Ops — VPS .env
+
+on:
+  workflow_dispatch:
+    inputs:
+      key:
+        description: "Ключ .env"
+        type: choice
+        options:
+          - TELEGRAM_PROXY_URL
+          - TELEGRAM_API_ROOT
+          - RATE_LIMIT_PUBLIC_PER_MIN
+          - RATE_LIMIT_AUTH_PER_MIN
+          - custom
+        default: TELEGRAM_PROXY_URL
+      custom_key:
+        description: "Имя ключа при key=custom (A-Z, 0-9, _)"
+        required: false
+        default: ""
+      value:
+        description: "Значение (пусто = удалить ключ)"
+        required: false
+        default: ""
+      restart:
+        description: "Какие контейнеры пересоздать (env_file читается только при recreate)"
+        type: choice
+        options: [none, app, bot, app-and-bot]
+        default: app-and-bot
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-env.yml"]
+
+concurrency:
+  group: ops-env
+  cancel-in-progress: false
+
+jobs:
+  set-env:
+    name: "Upsert/delete ключа в .env"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Валидация inputs (push = сухой прогон)
+        id: prep
+        env:
+          EVENT: ${{ github.event_name }}
+          KEY_CHOICE: ${{ inputs.key }}
+          CUSTOM_KEY: ${{ inputs.custom_key }}
+          VALUE: ${{ inputs.value }}
+        run: |
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            echo "Сухой прогон (push): изменений не будет. Запускайте через workflow_dispatch."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEY="$KEY_CHOICE"
+          [ "$KEY" = "custom" ] && KEY="$CUSTOM_KEY"
+          if ! echo "$KEY" | grep -Eq '^[A-Z][A-Z0-9_]{2,63}$'; then
+            echo "::error::Некорректное имя ключа: '$KEY'"
+            exit 1
+          fi
+          # Значение маскируем сразу — до любых echo.
+          if [ -n "$VALUE" ]; then echo "::add-mask::$VALUE"; fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Ключ: $KEY; значение: $([ -n "$VALUE" ] && echo '<задано, замаскировано>' || echo '<пусто → удаление>')"
+
+      - name: Применение на VPS
+        if: steps.prep.outputs.proceed == 'true'
+        uses: appleboy/ssh-action@v1
+        env:
+          ENV_KEY: ${{ steps.prep.outputs.key }}
+          ENV_VALUE: ${{ inputs.value }}
+          RESTART: ${{ inputs.restart }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: ENV_KEY,ENV_VALUE,RESTART
+          script: |
+            set -eu
+            cd /opt/delovoy-park
+            touch .env
+
+            if [ -z "$ENV_VALUE" ]; then
+              if grep -q "^${ENV_KEY}=" .env; then
+                sed -i "/^${ENV_KEY}=/d" .env
+                echo "🗑 $ENV_KEY удалён из .env"
+              else
+                echo "ℹ️ $ENV_KEY и так отсутствовал"
+              fi
+            else
+              if grep -q "^${ENV_KEY}=" .env; then
+                # sed с произвольным значением опасен (слэши, &) — пересборка файла.
+                grep -v "^${ENV_KEY}=" .env > .env.tmp
+                printf '%s=%s\n' "$ENV_KEY" "$ENV_VALUE" >> .env.tmp
+                mv .env.tmp .env
+                echo "♻️ $ENV_KEY обновлён"
+              else
+                printf '%s=%s\n' "$ENV_KEY" "$ENV_VALUE" >> .env
+                echo "➕ $ENV_KEY добавлен"
+              fi
+            fi
+            chmod 600 .env
+
+            SERVICES=""
+            case "$RESTART" in
+              app) SERVICES="app" ;;
+              bot) SERVICES="bot" ;;
+              app-and-bot) SERVICES="app bot" ;;
+            esac
+            if [ -n "$SERVICES" ]; then
+              # env_file читается только при пересоздании контейнера;
+              # docker restart НЕ подхватывает новые значения.
+              docker compose up -d --force-recreate --no-deps $SERVICES
+              echo "Пересозданы: $SERVICES"
+              sleep 20
+              for S in $SERVICES; do
+                C="delovoy-$S"
+                [ "$S" = "app" ] && C="delovoy-app"
+                [ "$S" = "bot" ] && C="delovoy-bot"
+                PRESENT=$(docker exec "$C" sh -c "env | grep -c \"^${ENV_KEY}=\"" 2>/dev/null || echo 0)
+                echo "$C: ${ENV_KEY} в env контейнера: $([ "$PRESENT" -ge 1 ] && echo SET || echo UNSET)"
+              done
+              echo "--- Health app ---"
+              curl -s --max-time 15 http://127.0.0.1:3000/api/health | head -c 300 || echo "(health не ответил)"
+            fi
