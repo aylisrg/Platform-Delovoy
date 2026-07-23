@@ -11,9 +11,19 @@
 set -uo pipefail
 
 COMPOSE_DIR="/opt/delovoy-park"
-LOCAL_HEALTH="http://127.0.0.1:3000/api/health"
 PUBLIC_HEALTH="https://delovoy-park.ru/api/health"
-APP_CONTAINER="delovoy-app"
+# Blue-green (scripts/deploy-bluegreen.sh): активный слот задаёт порт и имя
+# контейнера приложения. Без файла ACTIVE_SLOT — классический слот a (3000).
+ACTIVE_SLOT=$(cat "$COMPOSE_DIR/ACTIVE_SLOT" 2>/dev/null || echo a)
+if [ "$ACTIVE_SLOT" = "b" ]; then
+  LOCAL_HEALTH="http://127.0.0.1:3001/api/health"
+  APP_CONTAINER="delovoy-app-b"
+  COMPOSE_CMD="docker compose --profile bluegreen"
+else
+  LOCAL_HEALTH="http://127.0.0.1:3000/api/health"
+  APP_CONTAINER="delovoy-app"
+  COMPOSE_CMD="docker compose"
+fi
 # Если контейнер app моложе этого порога — вероятно, идёт деплой; рестарты пропускаем.
 DEPLOY_GRACE_SECONDS=300
 
@@ -125,8 +135,8 @@ else
     if public_ok; then finish recovered; fi
   fi
 
-  echo "T3: docker compose up -d (recreate whole stack if needed)"
-  cd "$COMPOSE_DIR" && docker compose up -d || true
+  echo "T3: $COMPOSE_CMD up -d (recreate whole stack if needed)"
+  cd "$COMPOSE_DIR" && $COMPOSE_CMD up -d || true
   if wait_local_ok 180; then
     sleep 3
     if public_ok; then finish recovered; fi

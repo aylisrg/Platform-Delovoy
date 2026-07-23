@@ -10,7 +10,12 @@
 #
 # Тихий в здоровом состоянии: пишет в лог только аномалии.
 
-APP_URL="http://127.0.0.1:3000/api/health"
+# Blue-green: локальный порт приложения зависит от активного слота
+# (scripts/deploy-bluegreen.sh пишет его в ACTIVE_SLOT; нет файла — слот a).
+ACTIVE_SLOT=$(cat /opt/delovoy-park/ACTIVE_SLOT 2>/dev/null || echo a)
+APP_PORT=3000
+[ "$ACTIVE_SLOT" = "b" ] && APP_PORT=3001
+APP_URL="http://127.0.0.1:${APP_PORT}/api/health"
 PUBLIC_URL="${PUBLIC_URL:-https://delovoy-park.ru/}"
 ENV_FILE="/opt/delovoy-park/.env"
 REMEDIATE="/opt/delovoy-park/scripts/watchdog-remediate.sh"
