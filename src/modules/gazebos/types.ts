@@ -111,7 +111,10 @@ export type ModuleAnalytics = {
   totalBookings: number;
   completedBookings: number;
   cancelledBookings: number;
+  /** Выручка по завершённым броням (metadata.totalPrice). */
   totalRevenue: number;
+  /** Фактически поступившие деньги за период (FinancialTransaction: онлайн + касса − возвраты). */
+  totalReceived: number;
   averageCheck: number;
   occupancyRate: number;
   byDay: { date: string; bookings: number; revenue: number }[];

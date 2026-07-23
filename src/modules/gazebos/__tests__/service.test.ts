@@ -45,6 +45,7 @@ vi.mock("@/lib/db", () => ({
     },
     financialTransaction: {
       create: vi.fn(),
+      aggregate: vi.fn(),
     },
     auditLog: {
       create: vi.fn(),
@@ -971,6 +972,13 @@ describe("getTimeline", () => {
 // === Analytics Tests ===
 
 describe("getAnalytics", () => {
+  beforeEach(() => {
+    // Default: no money received. Individual tests override as needed.
+    vi.mocked(prisma.financialTransaction.aggregate).mockResolvedValue({
+      _sum: { totalAmount: null },
+    } as never);
+  });
+
   it("should return analytics for a period with no bookings", async () => {
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
@@ -978,6 +986,7 @@ describe("getAnalytics", () => {
     const result = await getAnalytics("month");
 
     expect(result.totalBookings).toBe(0);
+    expect(result.totalReceived).toBe(0);
     expect(result.completedBookings).toBe(0);
     expect(result.cancelledBookings).toBe(0);
     expect(result.totalRevenue).toBe(0);
@@ -1018,6 +1027,23 @@ describe("getAnalytics", () => {
     expect(result.cancelledBookings).toBe(1);
     expect(result.totalRevenue).toBe(5000);
     expect(result.averageCheck).toBe(2500);
+  });
+
+  it("reports totalReceived from financial transactions independent of booking status", async () => {
+    // Money can arrive (e.g. YooKassa) while the booking is still CONFIRMED,
+    // not COMPLETED — so received revenue must not depend on totalRevenue.
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      mockBooking({ id: "b1", status: "CONFIRMED", resource: mockResource() }),
+    ] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.financialTransaction.aggregate).mockResolvedValue({
+      _sum: { totalAmount: 4000 },
+    } as never);
+
+    const result = await getAnalytics("month");
+
+    expect(result.totalReceived).toBe(4000); // касса
+    expect(result.totalRevenue).toBe(0); // нет завершённых броней
   });
 });
 

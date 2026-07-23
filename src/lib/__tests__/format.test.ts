@@ -41,6 +41,16 @@ describe("format.ts — unified date/time formatting", () => {
     it("zero-pads day and month", () => {
       expect(formatDate("2026-01-05T10:00:00.000Z")).toBe("05-01-2026");
     });
+
+    it("formats a date-only 'YYYY-MM-DD' string stably (DateNavigator relies on this)", () => {
+      // Date-only ISO parses as UTC midnight → 03:00 MSK same day, so the
+      // calendar day never rolls back regardless of the viewer's timezone.
+      // Regression: DateNavigator used to append "T00:00:00" (local parse),
+      // which showed the 25th as the 24th for admins ahead of Moscow.
+      expect(formatDate("2026-07-25")).toBe("25-07-2026");
+      expect(formatDate("2026-01-01")).toBe("01-01-2026");
+      expect(formatDate("2026-12-31")).toBe("31-12-2026");
+    });
   });
 
   describe("formatTime", () => {

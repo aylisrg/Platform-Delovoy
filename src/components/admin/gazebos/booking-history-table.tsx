@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
@@ -11,7 +11,11 @@ import {
   deleteWithPassword,
 } from "@/components/admin/shared/delete-confirm-dialog";
 import type { BookingStatus } from "@prisma/client";
-import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
+import {
+  formatDate as formatDateUnified,
+  formatTime as formatTimeUnified,
+  toISODate,
+} from "@/lib/format";
 
 type HistoryBooking = {
   id: string;
@@ -46,8 +50,14 @@ const statusVariant: Record<string, "warning" | "success" | "default" | "info"> 
 };
 
 export function GazeboBookingHistoryTable() {
+  const router = useRouter();
   const { data: session } = useSession();
   const role = session?.user?.role;
+
+  // Клик по строке → расписание (календарь) на дату брони с подсветкой.
+  function openInSchedule(b: HistoryBooking) {
+    router.push(`/admin/gazebos?date=${toISODate(b.date)}&booking=${b.id}`);
+  }
   const canDelete = role === "SUPERADMIN" || role === "ADMIN";
 
   const [bookings, setBookings] = useState<HistoryBooking[]>([]);
@@ -175,19 +185,17 @@ export function GazeboBookingHistoryTable() {
             </thead>
             <tbody>
               {bookings.map((b) => (
-                <tr key={b.id} className="border-b border-zinc-50">
+                <tr
+                  key={b.id}
+                  onClick={() => openInSchedule(b)}
+                  className="border-b border-zinc-50 cursor-pointer hover:bg-zinc-50 transition-colors"
+                  title="Открыть в расписании"
+                >
                   <td className="py-3 text-zinc-900">{formatDate(b.date)}</td>
                   <td className="py-3 text-zinc-600">
                     {formatTime(b.startTime)} — {formatTime(b.endTime)}
                   </td>
-                  <td className="py-3 text-zinc-600">
-                    <Link
-                      href={`/admin/gazebos/bookings/${b.id}`}
-                      className="text-emerald-700 hover:underline"
-                    >
-                      {b.resourceName ?? "—"}
-                    </Link>
-                  </td>
+                  <td className="py-3 text-emerald-700">{b.resourceName ?? "—"}</td>
                   <td className="py-3 text-zinc-600">
                     <span className="inline-flex items-center gap-2">
                       {b.clientName ?? "—"}
@@ -208,7 +216,7 @@ export function GazeboBookingHistoryTable() {
                   {canDelete && (
                     <td className="py-3 text-right">
                       <button
-                        onClick={() => { setDeletingId(b.id); setShowDeleteConfirm(true); }}
+                        onClick={(e) => { e.stopPropagation(); setDeletingId(b.id); setShowDeleteConfirm(true); }}
                         className="text-red-500 hover:text-red-700 transition-colors"
                         title="Удалить бронь"
                       >

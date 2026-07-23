@@ -35,12 +35,21 @@ function formatDate(dt: Date) {
   return formatDateUnified(dt);
 }
 
-export default async function GazebosSchedulePage() {
+export default async function GazebosSchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string; booking?: string }>;
+}) {
+  const { date: dateParam, booking: bookingParam } = await searchParams;
   const today = toISODate(new Date());
   const todayDate = new Date(today);
+  // Deep-link из «Истории бронирований»: ?date=YYYY-MM-DD открывает расписание
+  // на дату брони, ?booking=<id> подсвечивает её.
+  const requestedDate =
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
   const [timeline, todayCount, pendingCount, pendingBookings] = await Promise.all([
-    getTimeline(today),
+    getTimeline(requestedDate),
     prisma.booking.count({
       where: { moduleSlug: "gazebos", date: todayDate, status: { in: ["PENDING", "CONFIRMED"] } },
     }),
@@ -96,7 +105,11 @@ export default async function GazebosSchedulePage() {
           </p>
         </CardHeader>
         <CardContent>
-          <GazeboTimelineGrid initialData={timeline} initialDate={today} />
+          <GazeboTimelineGrid
+            initialData={timeline}
+            initialDate={requestedDate}
+            initialBookingId={bookingParam}
+          />
         </CardContent>
       </Card>
 
@@ -108,7 +121,7 @@ export default async function GazebosSchedulePage() {
             Коснитесь свободного слота, чтобы забронировать
           </p>
         </div>
-        <GazeboMobileTimeline initialData={timeline} initialDate={today} />
+        <GazeboMobileTimeline initialData={timeline} initialDate={requestedDate} />
       </section>
 
       {/* Pending bookings requiring attention */}
