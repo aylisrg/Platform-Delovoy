@@ -39,6 +39,10 @@ export default auth(async (request) => {
 export const config = {
   matcher: [
     "/admin/:path*",
-    "/api/((?!auth|health).*)",
+    // Исключения из auth-гейта: /api/auth/*, /api/health и health-эндпоинты
+    // модулей (/api/{module}/health) — они по конвенции публичные пробы
+    // мониторинга (deploy smoke, site-watchdog, Hetzner-probe). До фикса
+    // /api/notifications/health отдавал 401 внешним пробам.
+    "/api/((?!auth|health|[^/]+/health$).*)",
   ],
 };
