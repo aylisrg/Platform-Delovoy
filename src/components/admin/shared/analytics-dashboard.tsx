@@ -9,6 +9,8 @@ type AnalyticsData = {
   completedBookings: number;
   cancelledBookings: number;
   totalRevenue: number;
+  /** Фактически поступившие деньги (касса). Опционально — не все модули отдают. */
+  totalReceived?: number;
   averageCheck: number;
   occupancyRate: number;
   byDay: { date: string; bookings: number; revenue: number }[];
@@ -72,16 +74,31 @@ export function AnalyticsDashboard({ moduleSlug, resourceLabel }: AnalyticsDashb
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div
+        className={`grid grid-cols-2 gap-4 mb-6 ${
+          data.totalReceived != null ? "lg:grid-cols-5" : "lg:grid-cols-4"
+        }`}
+      >
         <KPICard
           title="Бронирований"
           value={data.totalBookings}
           subtitle={`${data.completedBookings} завершено`}
         />
+        {data.totalReceived != null && (
+          <KPICard
+            title="Получено"
+            value={`${data.totalReceived.toLocaleString("ru-RU")} ₽`}
+            subtitle="поступления в кассу"
+          />
+        )}
         <KPICard
           title="Выручка"
           value={`${data.totalRevenue.toLocaleString("ru-RU")} ₽`}
-          subtitle={`Средний чек: ${data.averageCheck.toLocaleString("ru-RU")} ₽`}
+          subtitle={
+            data.totalReceived != null
+              ? `по завершённым · чек ${data.averageCheck.toLocaleString("ru-RU")} ₽`
+              : `Средний чек: ${data.averageCheck.toLocaleString("ru-RU")} ₽`
+          }
         />
         <KPICard
           title="Загрузка"

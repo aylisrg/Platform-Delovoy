@@ -10,6 +10,8 @@ import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
 type TimelineGridProps = {
   initialData: TimelineData;
   initialDate: string;
+  /** Deep-link из истории: подсветить/раскрыть эту бронь при загрузке. */
+  initialBookingId?: string;
 };
 
 type PopoverState = {
@@ -39,12 +41,18 @@ function parseMoscowDatetime(date: string, hour: number): Date {
   return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
 }
 
-export function GazeboTimelineGrid({ initialData, initialDate }: TimelineGridProps) {
+export function GazeboTimelineGrid({
+  initialData,
+  initialDate,
+  initialBookingId,
+}: TimelineGridProps) {
   const [date, setDate] = useState(initialDate);
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [popover, setPopover] = useState<PopoverState>(null);
-  const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(
+    () => initialData.bookings.find((b) => b.id === initialBookingId) ?? null
+  );
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 

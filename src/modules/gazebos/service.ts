@@ -22,7 +22,7 @@ import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
-import { formatTime, parseMoscowDateTime } from "@/lib/format";
+import { formatTime, getMoscowHour, parseMoscowDateTime } from "@/lib/format";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type {
   CreateBookingInput,
@@ -1170,6 +1170,16 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
     },
   });
 
+  // Фактически поступившие деньги за период — сумма финансовых проводок модуля
+  // (онлайн-оплаты ЮKassa + касса; возвраты хранятся отрицательными и вычитаются
+  // сами). Не зависит от статуса брони — поэтому оплаченные, но ещё не
+  // «завершённые» брони тоже видны в кассе.
+  const receivedAgg = await prisma.financialTransaction.aggregate({
+    where: { moduleSlug: MODULE_SLUG, createdAt: { gte: dateFrom } },
+    _sum: { totalAmount: true },
+  });
+  const totalReceived = Number(receivedAgg._sum.totalAmount ?? 0);
+
   const completed = bookings.filter((b) => b.status === "COMPLETED");
   const cancelled = bookings.filter((b) => b.status === "CANCELLED");
 
@@ -1237,7 +1247,8 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
   // Top hours
   const hourCounts = new Map<number, number>();
   for (const b of bookings) {
-    const hour = b.startTime.getHours();
+    // Московский час, а не серверный (getHours на UTC-сервере давал бы сдвиг).
+    const hour = getMoscowHour(b.startTime);
     hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
   }
   const topHours = Array.from(hourCounts.entries())
@@ -1249,6 +1260,7 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
     completedBookings: completed.length,
     cancelledBookings: cancelled.length,
     totalRevenue,
+    totalReceived,
     averageCheck,
     occupancyRate,
     byDay,

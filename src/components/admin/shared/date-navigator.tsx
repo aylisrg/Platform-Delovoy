@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDate } from "@/lib/format";
+import { formatDate, toISODate } from "@/lib/format";
 
 type DateNavigatorProps = {
   currentDate: string; // "YYYY-MM-DD"
@@ -8,17 +8,25 @@ type DateNavigatorProps = {
 };
 
 export function DateNavigator({ currentDate, onChange }: DateNavigatorProps) {
-  const today = new Date().toISOString().split("T")[0];
+  // "Сегодня" по московскому календарю, а не по UTC — иначе ночью 00:00–03:00 МСК
+  // кнопка считала бы текущим ещё вчерашний день.
+  const today = toISODate(new Date());
   const isToday = currentDate === today;
 
   function shiftDate(days: number) {
+    // `currentDate` = "YYYY-MM-DD" → new Date(...) даёт полуночь UTC. Сдвигаем
+    // календарный день UTC-методами, чтобы результат не зависел от TZ браузера.
     const d = new Date(currentDate);
-    d.setDate(d.getDate() + days);
+    d.setUTCDate(d.getUTCDate() + days);
     onChange(d.toISOString().split("T")[0]);
   }
 
   function formatDisplayDate(dateStr: string) {
-    return formatDate(dateStr + "T00:00:00");
+    // Раньше здесь добавлялся "T00:00:00" — строка без смещения парсилась в TZ
+    // браузера, и у админа в зоне впереди Москвы дата «уезжала» на день назад
+    // (25-е показывалось как 24-е). `formatDate("YYYY-MM-DD")` трактует ввод как
+    // полуночь UTC и рендерит в МСК — стабильно в любой TZ.
+    return formatDate(dateStr);
   }
 
   return (
