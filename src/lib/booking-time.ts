@@ -97,26 +97,34 @@ export function getMaxEndFromBookings(
   slotStartHHMM: string,
   bookingsOnResource: Array<{ startHHMM: string; endHHMM: string }>,
   closeHHMM: string = CLOSE_HHMM,
+  bufferMin: number = 0,
 ): string {
   const slotMin = parseHHMM(slotStartHHMM);
   let best = parseHHMM(closeHHMM);
   for (const b of bookingsOnResource) {
     const bs = parseHHMM(b.startHHMM);
-    if (bs > slotMin && bs < best) best = bs;
+    // Новая бронь должна закончиться за `bufferMin` до начала следующей — на уборку.
+    const limit = bs - bufferMin;
+    if (bs > slotMin && limit < best) best = limit;
   }
-  return formatHHMM(best);
+  return formatHHMM(Math.max(slotMin, best));
 }
 
 /**
  * Is a 30-min slot starting at slotHHMM free on the given bookings?
+ * `bufferMin` extends each booking's tail (cleaning buffer) — slots inside the
+ * buffer after a booking count as busy.
  */
 export function isSlotFree(
   slotHHMM: string,
   bookingsOnResource: Array<{ startHHMM: string; endHHMM: string }>,
+  bufferMin: number = 0,
 ): boolean {
   const slotStart = parseHHMM(slotHHMM);
   const slotEnd = slotStart + 30;
   return !bookingsOnResource.some(
-    (b) => parseHHMM(b.startHHMM) < slotEnd && parseHHMM(b.endHHMM) > slotStart,
+    (b) =>
+      parseHHMM(b.startHHMM) < slotEnd &&
+      parseHHMM(b.endHHMM) + bufferMin > slotStart,
   );
 }

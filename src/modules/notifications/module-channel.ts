@@ -82,7 +82,13 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.reminder": (d) =>
       `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.ending_soon": (d) =>
-      `⏳ <b>Бронь скоро заканчивается</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nОкончание: ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}\n\nПредложите клиенту продлить.${gazeboExtendLink(d)}`,
+      `⏳ <b>Бронь скоро заканчивается</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nОкончание: ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}\n\n${
+        d.canExtend
+          ? `✅ Можно продлить — свободно до ${d.freeUntil}. Предложите клиенту.${gazeboExtendLink(d)}`
+          : "⛔️ Продление невозможно — беседка забронирована следующими гостями."
+      }`,
+    "booking.cleaning": (d) =>
+      `🧹 <b>Убрать беседку</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nКонец брони: ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}\n\nПоставлены задачи «Уборка» и «Проверить уборку».`,
   },
   cafe: {
     // QR-чекаут: постим только оплаченные заказы (order.paid шлётся строго

@@ -5,6 +5,7 @@ import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { GazeboMobileBookingSheet } from "./mobile-booking-sheet";
 import { GazeboBookingDetailCard } from "./booking-detail-card";
 import {
+  CLOSE_HHMM,
   generateHalfHourSlots,
   getMaxEndFromBookings,
   isSlotFree,
@@ -44,6 +45,7 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
   );
 
   const slots = generateHalfHourSlots();
+  const bufferMin = data.cleaningBufferMinutes ?? 0;
 
   const loadTimeline = useCallback(async (newDate: string) => {
     setDate(newDate);
@@ -100,7 +102,7 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
       resourceId,
       resourceName: resource.name,
       startTime: startHHMM,
-      maxEndTime: getMaxEndFromBookings(startHHMM, bookings),
+      maxEndTime: getMaxEndFromBookings(startHHMM, bookings, CLOSE_HHMM, bufferMin),
       pricePerHour,
       pricing: getResourcePricing(resource.metadata, pricePerHour, date),
     });
@@ -245,7 +247,10 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
                       );
                     }
 
-                    const free = isSlotFree(s, bookingsHHMM);
+                    const free = isSlotFree(s, bookingsHHMM, bufferMin);
+                    // Сюда попадаем только если бронь не покрывает слот; значит
+                    // !free = слот занят часом на уборку после предыдущей брони.
+                    const isCleaning = !free;
                     return (
                       <li key={s}>
                         <button
@@ -255,17 +260,23 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
                           className={`flex h-10 w-full items-center gap-3 px-3 text-left text-sm transition-colors ${
                             free
                               ? "text-zinc-600 hover:bg-blue-50 active:bg-blue-100"
-                              : "cursor-not-allowed text-zinc-300"
+                              : isCleaning
+                                ? "cursor-not-allowed bg-amber-50/40 text-amber-600"
+                                : "cursor-not-allowed text-zinc-300"
                           }`}
                         >
                           <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-zinc-400">
                             {s}
                           </span>
-                          {free && (
+                          {free ? (
                             <span className="text-xs text-blue-600">
                               + Забронировать
                             </span>
-                          )}
+                          ) : isCleaning ? (
+                            <span className="text-xs text-amber-600">
+                              🧹 Уборка
+                            </span>
+                          ) : null}
                         </button>
                       </li>
                     );

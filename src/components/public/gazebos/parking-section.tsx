@@ -4,9 +4,11 @@ import { getParkingPricing } from "@/modules/parking/service";
 
 const ACCENT = "#16A34A";
 
-// Координаты бизнес-парка «Деловой», Селятино — те же, что в JSON-LD страницы.
-const PARK_LAT = 55.519479;
-const PARK_LON = 36.978566;
+// Координаты бизнес-парка «Деловой», Селятино — те же, что на главной странице
+// (реальная точка организации на Яндекс.Картах, а не значение из JSON-LD).
+const PARK_OID = "165904522406";
+const PARK_LAT = 55.516945;
+const PARK_LON = 36.978520;
 
 const fmt = (n: number) => n.toLocaleString("ru-RU") + " ₽";
 
@@ -90,9 +92,10 @@ export function ParkingSection() {
 
           {/* Right: map */}
           <YandexMap
+            orgId={PARK_OID}
             lat={PARK_LAT}
             lon={PARK_LON}
-            zoom={16}
+            zoom={17}
             title="Автостоянка — бизнес-парк «Деловой», Селятино"
             theme="light"
             className="aspect-[4/3] min-h-[360px]"

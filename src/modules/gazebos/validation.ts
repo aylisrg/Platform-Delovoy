@@ -72,6 +72,7 @@ export const GAZEBO_CHANNEL_EVENT_TYPES = [
   "booking.deleted",
   "booking.reminder",
   "booking.ending_soon",
+  "booking.cleaning",
 ] as const;
 
 export type GazeboChannelEventType = (typeof GAZEBO_CHANNEL_EVENT_TYPES)[number];
@@ -86,6 +87,7 @@ export const GAZEBO_CHANNEL_EVENTS: {
   { type: "booking.deleted", label: "Бронь удалена" },
   { type: "booking.reminder", label: "Напоминание (за 1 час до начала)" },
   { type: "booking.ending_soon", label: "Продление (за 1 час до конца)" },
+  { type: "booking.cleaning", label: "Уборка (после брони)" },
 ];
 
 export const moduleSettingsSchema = z.object({
@@ -97,6 +99,11 @@ export const moduleSettingsSchema = z.object({
   // Публичная бронь беседок с сайта. false — временно закрыта (админ-бронь
   // при этом продолжает работать). Дефолт (отсутствие ключа) = включено.
   publicBookingEnabled: z.boolean().optional(),
+  // Час на уборку после каждой брони (минуты). Между бронями одной беседки
+  // должен быть перерыв не меньше этого значения. Дефолт — 60.
+  cleaningBufferMinutes: z.number().int().min(0).max(240).optional(),
+  // Автосоздание задач «убрать» / «проверить уборку» после брони. Дефолт — вкл.
+  cleaningTasksEnabled: z.boolean().optional(),
   // Dedicated gazebos Telegram channel settings (stored in Module.config).
   telegramChannelEnabled: z.boolean().optional(),
   telegramChannelName: z.string().max(200).optional(),

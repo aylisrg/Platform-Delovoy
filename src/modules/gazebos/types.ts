@@ -85,6 +85,8 @@ export type DayAvailability = {
 export type AvailabilityResponse = {
   resources: DayAvailability[];
   minBookingHours: number;
+  /** Час на уборку после брони (минуты) — слоты внутри него недоступны. */
+  cleaningBufferMinutes: number;
 };
 
 // Timeline data for admin grid
@@ -93,6 +95,8 @@ export type TimelineData = {
   resources: GazeboResource[];
   bookings: TimelineBooking[];
   hours: string[]; // ["08:00", "09:00", ..., "22:00"]
+  /** Час на уборку после брони (минуты) — для отрисовки блока «уборка». */
+  cleaningBufferMinutes: number;
 };
 
 export type TimelineBooking = {

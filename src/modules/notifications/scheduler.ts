@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { enqueueNotification } from "./queue";
+import { dispatchDueCleaningTasks } from "@/modules/gazebos/service";
 
 /**
  * Process all scheduled notifications.
@@ -10,6 +11,7 @@ export async function processScheduledNotifications(): Promise<void> {
   await Promise.allSettled([
     processBookingReminders(),
     processEndingSoonReminders(),
+    dispatchDueCleaningTasks(),
     processContractExpiryAlerts(),
   ]);
 }
@@ -24,7 +26,17 @@ async function processEndingSoonReminders(): Promise<void> {
   const now = new Date();
   const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
 
+  const EXTEND_MINUTES = 60; // на сколько предлагаем продлить
+
   try {
+    // Час на уборку из настроек беседок — от него зависит, влезает ли продление.
+    const gazModule = await prisma.module.findUnique({ where: { slug: "gazebos" } });
+    const gazCfg = (gazModule?.config as Record<string, unknown>) ?? {};
+    const bufferMin =
+      typeof gazCfg.cleaningBufferMinutes === "number" && gazCfg.cleaningBufferMinutes >= 0
+        ? gazCfg.cleaningBufferMinutes
+        : 60;
+
     const bookings = await prisma.booking.findMany({
       where: {
         moduleSlug: "gazebos",
@@ -48,6 +60,33 @@ async function processEndingSoonReminders(): Promise<void> {
         select: { name: true },
       });
 
+      // Можно ли продлить: следующая бронь той же беседки должна начинаться не
+      // раньше, чем через (продление + час на уборку) после текущего конца.
+      const nextBooking = await prisma.booking.findFirst({
+        where: {
+          moduleSlug: "gazebos",
+          resourceId: booking.resourceId,
+          deletedAt: null,
+          id: { not: booking.id },
+          status: { in: ["PENDING", "CONFIRMED"] },
+          date: booking.date,
+          startTime: { gt: booking.endTime },
+        },
+        orderBy: { startTime: "asc" },
+        select: { startTime: true },
+      });
+
+      const withinHours = formatTime(booking.endTime) < "23:00";
+      const neededMs = (EXTEND_MINUTES + bufferMin) * 60_000;
+      const gapOk =
+        !nextBooking ||
+        nextBooking.startTime.getTime() - booking.endTime.getTime() >= neededMs;
+      const canExtend = withinHours && gapOk;
+      // До какого времени беседка свободна (с вычетом часа на уборку следующей).
+      const freeUntil = nextBooking
+        ? formatTime(new Date(nextBooking.startTime.getTime() - bufferMin * 60_000))
+        : "23:00";
+
       const data = {
         resourceName: resource?.name || "Беседка",
         date: booking.date.toLocaleDateString("ru-RU"),
@@ -58,6 +97,8 @@ async function processEndingSoonReminders(): Promise<void> {
         clientName: booking.clientName ?? undefined,
         clientPhone: booking.clientPhone ?? undefined,
         bookingId: booking.id,
+        canExtend,
+        freeUntil,
       };
 
       enqueueNotification({

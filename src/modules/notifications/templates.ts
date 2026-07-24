@@ -34,7 +34,9 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.reminder": (d) =>
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
     "booking.ending_soon": (d) =>
-      `Ваша бронь заканчивается через 1 час (в ${d.endTime}).\n\n${d.resourceName}\nДата: ${d.date}\n\nХотите продлить? Свяжитесь с нами: +7 (499) 677-48-88.`,
+      d.canExtend
+        ? `Ваша бронь заканчивается через 1 час (в ${d.endTime}).\n\n${d.resourceName}\nДата: ${d.date}\n\nХотите продлить? Свяжитесь с нами: +7 (499) 677-48-88.`
+        : `Ваша бронь заканчивается через 1 час (в ${d.endTime}).\n\n${d.resourceName}\nДата: ${d.date}\n\nК сожалению, продлить не получится — беседка уже забронирована следующими гостями. Спасибо, что были с нами!`,
     ...paymentClientTemplates,
   },
   "ps-park": {

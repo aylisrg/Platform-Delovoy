@@ -22,6 +22,10 @@ vi.mock("@/modules/payments/service", () => ({
   autoRefundOnCancellation: vi.fn().mockResolvedValue({ refunded: false, reason: "no_payment" }),
 }));
 
+vi.mock("@/modules/tasks/service", () => ({
+  createTask: vi.fn().mockResolvedValue({ id: "task-1" }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -53,6 +57,13 @@ vi.mock("@/lib/db", () => ({
     module: {
       findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30, minBookingHours: 4 } }),
     },
+    taskCategory: {
+      findFirst: vi.fn().mockResolvedValue({ id: "cat-1" }),
+    },
+    notificationLog: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({}),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       // Delegate tx calls to the top-level prisma mocks so existing assertions work
       const { prisma: p } = await import("@/lib/db");
@@ -76,6 +87,7 @@ import {
   updateBookingStatus,
   cancelBooking,
   rescheduleBooking,
+  dispatchDueCleaningTasks,
   getAvailability,
   getTimeline,
   getAnalytics,
@@ -84,6 +96,7 @@ import {
 import { prisma } from "@/lib/db";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { createTask } from "@/modules/tasks/service";
 
 // Future date safe for all tests
 const FUTURE_DATE = "2030-06-15";
@@ -1189,5 +1202,98 @@ describe("createBooking public gate", () => {
     await expect(createBooking("user-1", validBookingInput)).rejects.toThrow(
       "временно недоступно"
     );
+  });
+});
+
+// ===== Cleaning buffer (час на уборку между бронями) =====
+
+describe("cleaning buffer conflict", () => {
+  it("rejects a booking that leaves less than the cleaning buffer", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    // Предыдущая бронь заканчивается в 13:30, новая с 14:00 — только 30 мин перерыв.
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue({
+      id: "prev",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T13:30:00+03:00`),
+    } as never);
+
+    await expect(
+      createBooking("user-1", {
+        resourceId: "resource-1",
+        date: FUTURE_DATE,
+        startTime: "14:00",
+        endTime: "18:00",
+      })
+    ).rejects.toThrow("перерыв на уборку");
+  });
+
+  it("uses the 'занято' message for a direct time overlap", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue({
+      id: "prev",
+      startTime: new Date(`${FUTURE_DATE}T12:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T16:00:00+03:00`),
+    } as never);
+
+    await expect(
+      createBooking("user-1", {
+        resourceId: "resource-1",
+        date: FUTURE_DATE,
+        startTime: "14:00",
+        endTime: "18:00",
+      })
+    ).rejects.toThrow("Это время уже занято");
+  });
+});
+
+// ===== dispatchDueCleaningTasks =====
+
+describe("dispatchDueCleaningTasks", () => {
+  const endedBooking = () => ({
+    id: "b1",
+    resourceId: "resource-1",
+    moduleSlug: "gazebos",
+    clientName: "Пётр",
+    date: new Date(FUTURE_DATE),
+    endTime: new Date(`${FUTURE_DATE}T14:00:00+03:00`),
+  });
+
+  it("creates cleaning + security tasks and marks the booking dispatched", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([endedBooking()] as never);
+    vi.mocked(prisma.taskCategory.findFirst).mockResolvedValue({ id: "cat-1" } as never);
+    vi.mocked(prisma.notificationLog.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Беседка №1" } as never);
+
+    await dispatchDueCleaningTasks();
+
+    expect(createTask).toHaveBeenCalledTimes(2);
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "booking.cleaning",
+        entityId: "b1",
+        status: "SENT",
+      }),
+    });
+  });
+
+  it("skips entirely when cleaningTasksEnabled is false", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValueOnce({
+      config: { cleaningTasksEnabled: false },
+    } as never);
+
+    await dispatchDueCleaningTasks();
+
+    expect(prisma.booking.findMany).not.toHaveBeenCalled();
+    expect(createTask).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent — skips a booking already dispatched", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([endedBooking()] as never);
+    vi.mocked(prisma.taskCategory.findFirst).mockResolvedValue({ id: "cat-1" } as never);
+    vi.mocked(prisma.notificationLog.findFirst).mockResolvedValue({ id: "log1" } as never);
+
+    await dispatchDueCleaningTasks();
+
+    expect(createTask).not.toHaveBeenCalled();
   });
 });

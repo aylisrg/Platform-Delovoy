@@ -24,6 +24,8 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   // (оба false — notify находит роутинг, ничего не шлёт и не варнит), а
   // выделенный Telegram-канал обслуживается dispatchModuleChannel отдельно.
   "booking.paid": { client: false, admin: false },
+  // Канал-only: задачи на уборку после брони (обслуживается dispatchModuleChannel).
+  "booking.cleaning": { client: false, admin: false },
 
   // Cafe orders
   "order.placed": { client: true, admin: true, category: "order" },

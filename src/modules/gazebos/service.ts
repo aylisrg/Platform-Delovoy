@@ -24,6 +24,7 @@ import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import { formatTime, getMoscowHour, parseMoscowDateTime } from "@/lib/format";
 import { logAudit } from "@/lib/logger";
+import { createTask } from "@/modules/tasks/service";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type { RescheduleBookingInput } from "./validation";
 import type {
@@ -46,6 +47,9 @@ const OPEN_HOUR = 8;
 const CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
 const DEFAULT_MIN_BOOKING_HOURS = 4;
+// Час на уборку после каждой брони: беседку нельзя занимать следующей бронью,
+// пока её не убрали. Настраивается в Module.config.cleaningBufferMinutes.
+const DEFAULT_CLEANING_BUFFER_MINUTES = 60;
 
 function pluralHours(n: number): string {
   const mod10 = n % 10;
@@ -71,6 +75,172 @@ export async function isPublicBookingEnabled(): Promise<boolean> {
   const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
   const config = moduleRecord?.config as Record<string, unknown> | null;
   return config?.publicBookingEnabled !== false;
+}
+
+/**
+ * Час на уборку после брони (минуты). Между двумя бронями одной беседки должен
+ * быть перерыв не меньше этого значения — на уборку и подготовку.
+ */
+export async function getCleaningBufferMinutes(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.cleaningBufferMinutes;
+  return typeof val === "number" && val >= 0 ? val : DEFAULT_CLEANING_BUFFER_MINUTES;
+}
+
+/**
+ * Проверяет конфликт брони с учётом часа на уборку. Каждая существующая бронь
+ * «занимает» интервал [start, end + buffer): следующая бронь не может начаться,
+ * пока беседку не убрали. Бросает BookingError при пересечении.
+ *
+ * Сообщение различает прямое пересечение времени и нехватку перерыва на уборку.
+ */
+async function assertNoBookingConflict(params: {
+  resourceId: string;
+  date: Date;
+  start: Date;
+  end: Date;
+  bufferMs: number;
+  excludeBookingId?: string;
+}): Promise<void> {
+  const { resourceId, date, start, end, bufferMs, excludeBookingId } = params;
+  const conflict = await prisma.booking.findFirst({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      resourceId,
+      deletedAt: null,
+      ...(excludeBookingId && { id: { not: excludeBookingId } }),
+      status: { in: ["PENDING", "CONFIRMED"] },
+      date,
+      // Расширяем окно на buffer с обеих сторон: [start-buffer, end+buffer).
+      OR: [
+        {
+          startTime: { lt: new Date(end.getTime() + bufferMs) },
+          endTime: { gt: new Date(start.getTime() - bufferMs) },
+        },
+      ],
+    },
+  });
+  if (!conflict) return;
+  const rawOverlap = conflict.startTime < end && conflict.endTime > start;
+  if (rawOverlap) {
+    throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+  }
+  const bufMin = Math.round(bufferMs / 60000);
+  throw new BookingError(
+    "BOOKING_CONFLICT",
+    `Между бронями нужен перерыв на уборку — минимум ${bufMin} мин`
+  );
+}
+
+/**
+ * Ставит задачи на уборку и проверку после завершившихся броней беседок.
+ * Вызывается кроном (планировщик уведомлений). Для каждой брони, чей конец
+ * недавно прошёл, создаёт задачу «Убрать беседку» (категория «Уборка») и
+ * «Проверить уборку» (категория «Безопасность»), плюс дубль в Telegram-канал
+ * беседок. Идемпотентно: NotificationLog по (entityId, "booking.cleaning").
+ */
+export async function dispatchDueCleaningTasks(): Promise<void> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = (moduleRecord?.config as Record<string, unknown> | null) ?? {};
+  if (config.cleaningTasksEnabled === false) return;
+  const bufferMin =
+    typeof config.cleaningBufferMinutes === "number" && config.cleaningBufferMinutes >= 0
+      ? config.cleaningBufferMinutes
+      : DEFAULT_CLEANING_BUFFER_MINUTES;
+
+  const now = new Date();
+  // Брони, закончившиеся за последние 2 часа (окно с запасом на пропуски крона).
+  const windowStart = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+  const ended = await prisma.booking.findMany({
+    where: {
+      moduleSlug: MODULE_SLUG,
+      deletedAt: null,
+      status: { in: ["CONFIRMED", "CHECKED_IN", "COMPLETED"] },
+      endTime: { gt: windowStart, lte: now },
+    },
+  });
+  if (ended.length === 0) return;
+
+  const [cleaningCat, securityCat] = await Promise.all([
+    prisma.taskCategory.findFirst({ where: { slug: "cleaning" } }),
+    prisma.taskCategory.findFirst({ where: { slug: "security" } }),
+  ]);
+
+  for (const booking of ended) {
+    const already = await prisma.notificationLog.findFirst({
+      where: { entityId: booking.id, eventType: "booking.cleaning", status: "SENT" },
+    });
+    if (already) continue;
+
+    const resource = await prisma.resource.findUnique({
+      where: { id: booking.resourceId },
+      select: { name: true },
+    });
+    const name = resource?.name ?? "Беседка";
+    const endHHMM = formatTime(booking.endTime);
+    const dueAt = new Date(booking.endTime.getTime() + bufferMin * 60_000);
+    const labels = [`booking:${booking.id}`, `gazebo:${name}`];
+
+    try {
+      await createTask({
+        data: {
+          title: `Убрать беседку «${name}» после брони (до ${endHHMM})`,
+          description: `Бронь завершилась в ${endHHMM}. Убрать и подготовить беседку к следующим гостям.${booking.clientName ? `\nКлиент: ${booking.clientName}` : ""}`,
+          ...(cleaningCat && { categoryId: cleaningCat.id }),
+          priority: "HIGH",
+          dueAt,
+          labels,
+          source: "API",
+        },
+        actorUserId: null,
+        actorRole: null,
+      });
+      await createTask({
+        data: {
+          title: `Проверить уборку беседки «${name}»`,
+          description: `После брони (конец в ${endHHMM}) проверить, что беседка убрана и готова к следующим гостям.`,
+          ...(securityCat && { categoryId: securityCat.id }),
+          priority: "HIGH",
+          dueAt,
+          labels,
+          source: "API",
+        },
+        actorUserId: null,
+        actorRole: null,
+      });
+    } catch (err) {
+      console.error("[gazebos] cleaning task creation failed:", booking.id, err);
+      // не помечаем как SENT — попробуем на следующем запуске крона
+      continue;
+    }
+
+    // Дубль в выделенный Telegram-канал беседок (если включён и событие выбрано).
+    enqueueNotification({
+      type: "booking.cleaning",
+      moduleSlug: MODULE_SLUG,
+      entityId: booking.id,
+      data: {
+        resourceName: name,
+        date: booking.date.toLocaleDateString("ru-RU"),
+        endTime: endHHMM,
+        clientName: booking.clientName ?? undefined,
+      },
+    });
+
+    await prisma.notificationLog.create({
+      data: {
+        channel: "TELEGRAM",
+        eventType: "booking.cleaning",
+        moduleSlug: MODULE_SLUG,
+        entityId: booking.id,
+        recipient: "tasks",
+        message: `Задачи на уборку: ${name} (после ${endHHMM})`,
+        status: "SENT",
+        sentAt: new Date(),
+      },
+    });
+  }
 }
 
 // === RESOURCES ===
@@ -230,22 +400,14 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     );
   }
 
-  // Check for conflicting bookings
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
-      date: bookingDate,
-      OR: [
-        { startTime: { lt: end }, endTime: { gt: start } },
-      ],
-    },
+  // Check for conflicting bookings (с учётом часа на уборку между бронями)
+  await assertNoBookingConflict({
+    resourceId,
+    date: bookingDate,
+    start,
+    end,
+    bufferMs: (await getCleaningBufferMinutes()) * 60_000,
   });
-
-  if (conflict) {
-    throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
-  }
 
   // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED)
   let itemSnapshots: BookingItemSnapshot[] = [];
@@ -413,19 +575,13 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     );
   }
 
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
-      date: bookingDate,
-      OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
-    },
+  await assertNoBookingConflict({
+    resourceId,
+    date: bookingDate,
+    start,
+    end,
+    bufferMs: (await getCleaningBufferMinutes()) * 60_000,
   });
-
-  if (conflict) {
-    throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
-  }
 
   // Validate items snapshot (admin booking is auto-CONFIRMED, so deduct immediately)
   let itemSnapshots: BookingItemSnapshot[] = [];
@@ -601,21 +757,17 @@ export async function rescheduleBooking(
     effStart !== curStart ||
     effEnd !== curEnd;
 
-  // Конфликт с ДРУГИМИ бронями того же ресурса (саму себя исключаем).
+  // Конфликт с ДРУГИМИ бронями того же ресурса (саму себя исключаем),
+  // с учётом часа на уборку.
   if (timeOrResourceChanged) {
-    const conflict = await prisma.booking.findFirst({
-      where: {
-        moduleSlug: MODULE_SLUG,
-        resourceId: effResourceId,
-        id: { not: bookingId },
-        status: { in: ["PENDING", "CONFIRMED"] },
-        date: new Date(effDate),
-        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
-      },
+    await assertNoBookingConflict({
+      resourceId: effResourceId,
+      date: new Date(effDate),
+      start,
+      end,
+      bufferMs: (await getCleaningBufferMinutes()) * 60_000,
+      excludeBookingId: bookingId,
     });
-    if (conflict) {
-      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
-    }
   }
 
   // Пересчёт цены (учёт выходных) при изменении времени/даты/ресурса.
@@ -1240,8 +1392,9 @@ export async function getAvailability(
   date: string,
   resourceId?: string
 ): Promise<import("./types").AvailabilityResponse> {
-  const [minBookingHours, resources] = await Promise.all([
+  const [minBookingHours, cleaningBufferMinutes, resources] = await Promise.all([
     getMinBookingHours(),
+    getCleaningBufferMinutes(),
     resourceId
       ? prisma.resource.findMany({
           where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -1251,6 +1404,7 @@ export async function getAvailability(
           orderBy: { name: "asc" },
         }),
   ]);
+  const bufferMs = cleaningBufferMinutes * 60_000;
 
   const bookingDate = new Date(date);
 
@@ -1275,8 +1429,12 @@ export async function getAvailability(
       const slotStartDt = parseDatetime(date, slotStart);
       const slotEndDt = parseDatetime(date, slotEnd);
 
+      // Слот занят, если пересекается с бронью ИЛИ попадает в час на уборку
+      // после неё (беседку ещё убирают).
       const isBooked = resourceBookings.some(
-        (b) => b.startTime < slotEndDt && b.endTime > slotStartDt
+        (b) =>
+          b.startTime < slotEndDt &&
+          b.endTime.getTime() + bufferMs > slotStartDt.getTime()
       );
 
       slots.push({
@@ -1295,16 +1453,19 @@ export async function getAvailability(
     return { date, resource, slots, pricing };
   });
 
-  return { resources: resourcesData, minBookingHours };
+  return { resources: resourcesData, minBookingHours, cleaningBufferMinutes };
 }
 
 // === TIMELINE ===
 
 export async function getTimeline(date: string): Promise<TimelineData> {
-  const resources = await prisma.resource.findMany({
-    where: { moduleSlug: MODULE_SLUG, isActive: true },
-    orderBy: { name: "asc" },
-  });
+  const [resources, cleaningBufferMinutes] = await Promise.all([
+    prisma.resource.findMany({
+      where: { moduleSlug: MODULE_SLUG, isActive: true },
+      orderBy: { name: "asc" },
+    }),
+    getCleaningBufferMinutes(),
+  ]);
 
   const bookingDate = new Date(date);
   const bookings = await prisma.booking.findMany({
@@ -1344,6 +1505,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       metadata: b.metadata as Record<string, unknown> | null,
     })),
     hours,
+    cleaningBufferMinutes,
   };
 }
 

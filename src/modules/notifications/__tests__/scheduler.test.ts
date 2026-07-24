@@ -2,15 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    booking: { findMany: vi.fn() },
+    booking: { findMany: vi.fn(), findFirst: vi.fn() },
     notificationLog: { findFirst: vi.fn(), create: vi.fn() },
     resource: { findUnique: vi.fn() },
     rentalContract: { findMany: vi.fn() },
+    module: { findUnique: vi.fn() },
   },
 }));
 
 vi.mock("../queue", () => ({
   enqueueNotification: vi.fn(),
+}));
+
+// Задачи на уборку (в gazebos-сервисе) не проверяем здесь — мокаем как no-op,
+// чтобы не тянуть тяжёлый импорт и БД.
+vi.mock("@/modules/gazebos/service", () => ({
+  dispatchDueCleaningTasks: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { prisma } from "@/lib/db";
@@ -40,6 +47,11 @@ beforeEach(() => {
   vi.mocked(prisma.resource.findUnique).mockResolvedValue({
     name: "Беседка №1",
   } as never);
+  vi.mocked(prisma.module.findUnique).mockResolvedValue({
+    config: {},
+  } as never);
+  // По умолчанию следующей брони нет → продление возможно.
+  vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
 });
 
 describe("processBookingReminders", () => {
@@ -147,5 +159,42 @@ describe("processEndingSoonReminders", () => {
         status: "SENT",
       }),
     });
+  });
+});
+
+describe("processEndingSoonReminders — extendability", () => {
+  it("marks not-extendable when the next booking is within the cleaning window", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never) // start reminders
+      .mockResolvedValueOnce([makeBooking()] as never); // ending-soon
+    // Следующая бронь через 30 мин после конца — продлить нельзя (нужно 1ч + уборка).
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue({
+      startTime: new Date("2026-07-08T16:30:00"),
+    } as never);
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.ending_soon",
+        data: expect.objectContaining({ canExtend: false }),
+      })
+    );
+  });
+
+  it("marks extendable when nothing follows", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([makeBooking()] as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.ending_soon",
+        data: expect.objectContaining({ canExtend: true }),
+      })
+    );
   });
 });

@@ -209,12 +209,19 @@ export function bookingReminderText(data: TemplateData): string {
 
 export function bookingEndingSoonHtml(data: TemplateData): string {
   const accent = moduleAccent(String(data.moduleSlug || ""));
+  const canExtend = data.canExtend !== false;
+  const lead = canExtend
+    ? "Через 1 час завершается ваше бронирование. Хотите продлить отдых?"
+    : "Через 1 час завершается ваше бронирование. К сожалению, продлить не получится — беседка уже забронирована следующими гостями.";
+  const footer = canExtend
+    ? `<p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">Чтобы продлить, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a></p>`
+    : `<p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">Спасибо, что были с нами! Будем рады видеть вас снова.</p>`;
   const content = `
     <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
       Ваша бронь скоро заканчивается
     </h2>
     <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
-      Через 1 час завершается ваше бронирование. Хотите продлить отдых?
+      ${lead}
     </p>
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
       <tbody>
@@ -223,15 +230,15 @@ export function bookingEndingSoonHtml(data: TemplateData): string {
         ${infoRow("Окончание", String(data.endTime || ""))}
       </tbody>
     </table>
-    <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Чтобы продлить, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
-    </p>
+    ${footer}
   `;
   return emailLayout(content, { accentColor: accent, title: "Продлить бронирование?" });
 }
 
 export function bookingEndingSoonText(data: TemplateData): string {
-  return `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: +7 (499) 677-48-88.`;
+  return data.canExtend !== false
+    ? `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: +7 (499) 677-48-88.`
+    : `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nК сожалению, продлить не получится — беседка уже забронирована следующими гостями. Спасибо, что были с нами!`;
 }
 
 // ─── Order: Placed ────────────────────────────────────────────────────────────

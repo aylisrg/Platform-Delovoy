@@ -59,6 +59,8 @@ export function GazeboTimelineGrid({
   const gridRef = useRef<HTMLDivElement>(null);
 
   const hours = data.hours;
+  const bufferMin = data.cleaningBufferMinutes ?? 0;
+  const bufferMs = bufferMin * 60_000;
 
   useEffect(() => {
     function updateNowMarker() {
@@ -114,14 +116,29 @@ export function GazeboTimelineGrid({
     return { left: `${left}%`, width: `${width}%` };
   }
 
+  /** Блок «уборка» сразу после брони: [end, end+buffer), обрезанный до закрытия. */
+  function getCleaningStyle(booking: TimelineBooking): React.CSSProperties | null {
+    if (bufferMin <= 0) return null;
+    const end = new Date(booking.endTime);
+    const endHour = getMoscowHour(end) + getMoscowMinute(end) / 60;
+    const bufHours = bufferMin / 60;
+    const totalHours = CLOSE_HOUR - OPEN_HOUR;
+    const startPct = ((endHour - OPEN_HOUR) / totalHours) * 100;
+    const rawEnd = Math.min(endHour + bufHours, CLOSE_HOUR);
+    const widthPct = ((rawEnd - endHour) / totalHours) * 100;
+    if (widthPct <= 0 || startPct >= 100) return null;
+    return { left: `${startPct}%`, width: `${widthPct}%` };
+  }
+
   function isSlotFree(resourceId: string, hour: number): boolean {
     const slotStart = parseMoscowDatetime(date, hour);
     const slotEnd = parseMoscowDatetime(date, hour + 1);
+    // Слот занят и в течение часа на уборку после брони.
     return !data.bookings.some(
       (b) =>
         b.resourceId === resourceId &&
         new Date(b.startTime) < slotEnd &&
-        new Date(b.endTime) > slotStart
+        new Date(b.endTime).getTime() + bufferMs > slotStart.getTime()
     );
   }
 
@@ -131,7 +148,8 @@ export function GazeboTimelineGrid({
       .filter((b) => b.resourceId === resourceId && new Date(b.startTime) > clickedStart)
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
     if (!nextBooking) return `${CLOSE_HOUR.toString().padStart(2, "0")}:00`;
-    const t = new Date(nextBooking.startTime);
+    // Новая бронь должна закончиться за час на уборку до начала следующей.
+    const t = new Date(new Date(nextBooking.startTime).getTime() - bufferMs);
     return `${getMoscowHour(t).toString().padStart(2, "0")}:${getMoscowMinute(t).toString().padStart(2, "0")}`;
   }
 
@@ -254,6 +272,24 @@ export function GazeboTimelineGrid({
                       );
                     })}
                   </div>
+
+                  {/* Час на уборку после брони — рисуем под блоками броней. */}
+                  {bookings.map((booking) => {
+                    const cleaningStyle = getCleaningStyle(booking);
+                    if (!cleaningStyle) return null;
+                    return (
+                      <div
+                        key={`clean-${booking.id}`}
+                        className="absolute top-1 bottom-1 rounded-md bg-amber-100/50 border border-dashed border-amber-300 z-0 pointer-events-none overflow-hidden"
+                        style={cleaningStyle}
+                        title="Уборка беседки"
+                      >
+                        <span className="text-[10px] text-amber-600 px-1 leading-none">
+                          🧹
+                        </span>
+                      </div>
+                    );
+                  })}
 
                   {bookings.map((booking) => {
                     const style = getBookingStyle(booking);

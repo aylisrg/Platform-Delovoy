@@ -9,6 +9,7 @@ const FIELDS = [
   { key: "closeHour", label: "Час закрытия", type: "number" as const, min: 0, max: 23 },
   { key: "minBookingHours", label: "Минимальная длительность (часы)", type: "number" as const, min: 1, max: 24 },
   { key: "maxBookingHours", label: "Максимальная длительность (часы)", type: "number" as const, min: 1, max: 24 },
+  { key: "cleaningBufferMinutes", label: "Перерыв на уборку между бронями (мин)", type: "number" as const, min: 0, max: 240 },
 ];
 
 export default function GazebosSettingsPage() {

@@ -26,6 +26,8 @@ export async function GET() {
       minBookingHours: 4,
       maxBookingHours: 8,
       publicBookingEnabled: true,
+      cleaningBufferMinutes: 60,
+      cleaningTasksEnabled: true,
       telegramChannelEnabled: false,
       telegramChannelName: "",
       telegramChannelId: "",

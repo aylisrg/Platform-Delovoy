@@ -32,6 +32,7 @@ export function GazeboBookingDetailCard({
 }: Props) {
   const [actionLoading, setActionLoading] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState<DiscountReason | "">("");
@@ -79,6 +80,33 @@ export function GazeboBookingDetailCard({
         body: JSON.stringify({ status }),
       });
       if (res.ok) onStatusChanged();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Быстрое продление на 1 час. Сервер проверит занятость с учётом часа на
+  // уборку и вернёт ошибку, если дальше забронировано следующими гостями.
+  async function handleExtend() {
+    setActionLoading(true);
+    setExtendError(null);
+    try {
+      const newEnd = formatTimeUnified(
+        new Date(new Date(booking.endTime).getTime() + 60 * 60_000),
+      );
+      const res = await fetch(`/api/gazebos/bookings/${booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endTime: newEnd }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onStatusChanged();
+      } else {
+        setExtendError(data.error?.message ?? "Не удалось продлить");
+      }
+    } catch {
+      setExtendError("Не удалось продлить");
     } finally {
       setActionLoading(false);
     }
@@ -273,6 +301,10 @@ export function GazeboBookingDetailCard({
         </div>
       )}
 
+      {extendError && (
+        <div className="px-4 pb-2 text-xs text-red-600">{extendError}</div>
+      )}
+
       <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2 flex-wrap">
         {canEdit && !showDiscount && (
           <Button
@@ -282,6 +314,17 @@ export function GazeboBookingDetailCard({
             disabled={actionLoading}
           >
             Изменить
+          </Button>
+        )}
+        {canEdit && !showDiscount && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleExtend}
+            disabled={actionLoading}
+            title="Продлить бронь на 1 час (если беседка свободна)"
+          >
+            +1 ч
           </Button>
         )}
         {isPending && (
