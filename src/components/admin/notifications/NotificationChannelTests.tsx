@@ -10,9 +10,12 @@ type RoutingRule = {
   chatId: string | null;
   chatTitle: string | null;
   usesGlobal: boolean;
+  enabled: boolean;
 };
 
 type GlobalConfig = { chatId: string; chatTitle: string | null };
+
+type EventToggle = { type: string; label: string; enabled: boolean };
 
 type ModuleChannel = {
   slug: string;
@@ -23,6 +26,7 @@ type ModuleChannel = {
   chatId: string | null;
   channelName: string | null;
   usesOwnBot: boolean;
+  events: EventToggle[];
 };
 
 type BadgeTone = "blue" | "zinc" | "amber";
@@ -38,6 +42,8 @@ type ChannelRow = {
   destination: string | null;
   badges: Badge[];
   canTest: boolean;
+  enabled: boolean;
+  events: EventToggle[] | null;
 };
 
 type TestResult = { ok: boolean; message: string };
@@ -58,16 +64,58 @@ function StatusDot({ active }: { active: boolean }) {
   );
 }
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
+        checked ? "bg-green-500" : "bg-zinc-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+          checked ? "translate-x-4" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
+
 function ChannelRowCard({
   row,
   testing,
   result,
   onTest,
+  saving,
+  enabledError,
+  onToggleEnabled,
+  savingEventType,
+  onToggleEvent,
 }: {
   row: ChannelRow;
   testing: boolean;
   result: TestResult | null;
   onTest: (row: ChannelRow) => void;
+  saving: boolean;
+  enabledError?: string;
+  onToggleEnabled: (row: ChannelRow, next: boolean) => void;
+  savingEventType: string | null;
+  onToggleEvent: (row: ChannelRow, type: string, next: boolean) => void;
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white transition-shadow hover:shadow-sm">
@@ -79,7 +127,7 @@ function ChannelRowCard({
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 flex items-center gap-2">
             <h3 className="font-semibold text-zinc-900">{row.label}</h3>
-            <StatusDot active={row.canTest} />
+            <StatusDot active={row.enabled && row.canTest} />
           </div>
           <p className="text-sm text-zinc-500">{row.sublabel}</p>
 
@@ -105,17 +153,56 @@ function ChannelRowCard({
               </span>
             ))}
           </div>
+
+          {row.events && (
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-zinc-100 pt-2.5">
+              {row.events.map((ev) => (
+                <label
+                  key={ev.type}
+                  className="flex items-center gap-1.5 text-xs text-zinc-600"
+                >
+                  <input
+                    type="checkbox"
+                    checked={ev.enabled}
+                    disabled={savingEventType === ev.type}
+                    onChange={(e) => onToggleEvent(row, ev.type, e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-zinc-300"
+                  />
+                  {ev.label}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
-        <button
-          onClick={() => onTest(row)}
-          disabled={testing || !row.canTest}
-          className="flex-shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
-          title="Отправить тестовое сообщение в этот канал"
-        >
-          {testing ? "..." : "Тест"}
-        </button>
+        <div className="flex flex-shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-400">
+              {row.enabled ? "Включено" : "Выключено"}
+            </span>
+            <ToggleSwitch
+              checked={row.enabled}
+              disabled={saving}
+              onChange={(next) => onToggleEnabled(row, next)}
+              label={`Включить/выключить уведомления: ${row.label}`}
+            />
+          </div>
+          <button
+            onClick={() => onTest(row)}
+            disabled={testing || !row.canTest}
+            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
+            title="Отправить тестовое сообщение в этот канал"
+          >
+            {testing ? "..." : "Тест"}
+          </button>
+        </div>
       </div>
+
+      {enabledError && (
+        <div className="mx-4 mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {enabledError}
+        </div>
+      )}
 
       {result && (
         <div
@@ -144,6 +231,9 @@ function routingToRow(rule: RoutingRule, global: GlobalConfig): ChannelRow {
         : { text: "Глобальный чат", tone: "zinc" }
     );
   }
+  if (!rule.enabled) {
+    badges.push({ text: "Ничего не отправляется", tone: "amber" });
+  }
   return {
     id: `routing:${rule.key}`,
     kind: "routing",
@@ -154,6 +244,8 @@ function routingToRow(rule: RoutingRule, global: GlobalConfig): ChannelRow {
     destination: effectiveChatId ? effectiveTitle || effectiveChatId : null,
     badges,
     canTest: Boolean(effectiveChatId),
+    enabled: rule.enabled,
+    events: null,
   };
 }
 
@@ -161,7 +253,7 @@ function moduleToRow(channel: ModuleChannel): ChannelRow {
   const badges: Badge[] = [{ text: "Канал модуля", tone: "blue" }];
   if (channel.usesOwnBot) badges.push({ text: "свой бот", tone: "zinc" });
   if (channel.configured && !channel.enabled) {
-    badges.push({ text: "уведомления выключены", tone: "amber" });
+    badges.push({ text: "Ничего не отправляется", tone: "amber" });
   }
   return {
     id: `module:${channel.slug}`,
@@ -175,6 +267,8 @@ function moduleToRow(channel: ModuleChannel): ChannelRow {
       : null,
     badges,
     canTest: channel.configured,
+    enabled: channel.enabled,
+    events: channel.events,
   };
 }
 
@@ -188,6 +282,8 @@ export function NotificationChannelTests() {
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, TestResult>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -248,6 +344,134 @@ export function NotificationChannelTests() {
     }
   }, []);
 
+  const handleToggleEnabled = useCallback(
+    async (row: ChannelRow, next: boolean) => {
+      setSavingId(row.id);
+      setSaveErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[row.id];
+        return copy;
+      });
+
+      // Optimistic update.
+      if (row.kind === "routing") {
+        setRoutingRules((prev) =>
+          prev.map((r) => (r.key === row.refKey ? { ...r, enabled: next } : r))
+        );
+      } else {
+        setModuleChannels((prev) =>
+          prev.map((c) => (c.slug === row.refKey ? { ...c, enabled: next } : c))
+        );
+      }
+
+      try {
+        const res =
+          row.kind === "routing"
+            ? await fetch("/api/admin/notifications/routing", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key: row.refKey, enabled: next }),
+              })
+            : await fetch("/api/admin/notifications/channel-test", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  slug: row.refKey,
+                  telegramChannelEnabled: next,
+                }),
+              });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error?.message || "Ошибка сохранения");
+        }
+      } catch (err) {
+        // Revert on failure.
+        if (row.kind === "routing") {
+          setRoutingRules((prev) =>
+            prev.map((r) =>
+              r.key === row.refKey ? { ...r, enabled: !next } : r
+            )
+          );
+        } else {
+          setModuleChannels((prev) =>
+            prev.map((c) =>
+              c.slug === row.refKey ? { ...c, enabled: !next } : c
+            )
+          );
+        }
+        setSaveErrors((prev) => ({
+          ...prev,
+          [row.id]: err instanceof Error ? err.message : "Ошибка сети",
+        }));
+      } finally {
+        setSavingId(null);
+      }
+    },
+    []
+  );
+
+  const handleToggleEvent = useCallback(
+    async (row: ChannelRow, type: string, next: boolean) => {
+      const eventKey = `${row.id}:${type}`;
+      const channel = moduleChannels.find((c) => c.slug === row.refKey);
+      if (!channel) return;
+
+      const updatedEvents = channel.events.map((e) =>
+        e.type === type ? { ...e, enabled: next } : e
+      );
+      const enabledTypes = updatedEvents
+        .filter((e) => e.enabled)
+        .map((e) => e.type);
+
+      setSavingId(eventKey);
+      setSaveErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[eventKey];
+        return copy;
+      });
+      setModuleChannels((prev) =>
+        prev.map((c) =>
+          c.slug === row.refKey ? { ...c, events: updatedEvents } : c
+        )
+      );
+
+      try {
+        const res = await fetch("/api/admin/notifications/channel-test", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: row.refKey,
+            telegramChannelEvents: enabledTypes,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error?.message || "Ошибка сохранения");
+        }
+      } catch (err) {
+        setModuleChannels((prev) =>
+          prev.map((c) =>
+            c.slug === row.refKey
+              ? {
+                  ...c,
+                  events: c.events.map((e) =>
+                    e.type === type ? { ...e, enabled: !next } : e
+                  ),
+                }
+              : c
+          )
+        );
+        setSaveErrors((prev) => ({
+          ...prev,
+          [eventKey]: err instanceof Error ? err.message : "Ошибка сети",
+        }));
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [moduleChannels]
+  );
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -261,6 +485,14 @@ export function NotificationChannelTests() {
   const routingRows = routingRules.map((r) => routingToRow(r, globalConfig));
   const moduleRows = moduleChannels.map(moduleToRow);
 
+  const getRowError = (row: ChannelRow): string | undefined => {
+    if (saveErrors[row.id]) return saveErrors[row.id];
+    const eventErrorKey = Object.keys(saveErrors).find((k) =>
+      k.startsWith(`${row.id}:`)
+    );
+    return eventErrorKey ? saveErrors[eventErrorKey] : undefined;
+  };
+
   return (
     <div className="max-w-4xl space-y-6">
       <div className="space-y-3">
@@ -272,6 +504,11 @@ export function NotificationChannelTests() {
             testing={testingId === row.id}
             result={results[row.id] ?? null}
             onTest={handleTest}
+            saving={savingId === row.id}
+            enabledError={getRowError(row)}
+            onToggleEnabled={handleToggleEnabled}
+            savingEventType={null}
+            onToggleEvent={handleToggleEvent}
           />
         ))}
       </div>
@@ -288,16 +525,28 @@ export function NotificationChannelTests() {
               testing={testingId === row.id}
               result={results[row.id] ?? null}
               onTest={handleTest}
+              saving={savingId === row.id}
+              enabledError={getRowError(row)}
+              onToggleEnabled={handleToggleEnabled}
+              savingEventType={
+                savingId?.startsWith(`${row.id}:`)
+                  ? savingId.slice(`${row.id}:`.length)
+                  : null
+              }
+              onToggleEvent={handleToggleEvent}
             />
           ))}
         </div>
       )}
 
       <p className="text-[11px] leading-relaxed text-zinc-400">
-        Кнопка «Тест» отправляет проверочное сообщение в конкретный канал:
-        «Это тестовое сообщение в канал «(название)» от Бота Деловой. Всё
-        работает штатно.» Кнопки для группы админов и владельца — в блоке
-        «Настройки Telegram-бота» ниже.
+        Переключатель справа включает/выключает отправку в конкретный канал —
+        изменения применяются сразу. Для выделенных каналов модулей ниже можно
+        также выбрать, какие именно события туда попадают. Кнопка «Тест»
+        отправляет проверочное сообщение независимо от переключателя: «Это
+        тестовое сообщение в канал «(название)» от Бота Деловой. Всё работает
+        штатно.» Кнопки для группы админов и владельца — в блоке «Настройки
+        Telegram-бота» ниже.
       </p>
     </div>
   );

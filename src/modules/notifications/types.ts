@@ -30,6 +30,8 @@ export type UserWithContacts = {
 export type ModuleBotConfig = {
   telegramBotToken?: string;
   telegramAdminChatId?: string;
+  /** Explicit `false` disables the admin group chat entirely — no chatId fallback. */
+  telegramAdminChatEnabled?: boolean;
 };
 
 /**

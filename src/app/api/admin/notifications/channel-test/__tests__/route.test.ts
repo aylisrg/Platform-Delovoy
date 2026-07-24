@@ -14,13 +14,19 @@ vi.mock("@/lib/api-response", async () => {
 
 const mockFindMany = vi.fn();
 const mockFindUnique = vi.fn();
+const mockUpdate = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
     module: {
       findMany: (...args: unknown[]) => mockFindMany(...args),
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
+      update: (...args: unknown[]) => mockUpdate(...args),
     },
   },
+}));
+
+vi.mock("@/lib/logger", () => ({
+  logAudit: vi.fn(),
 }));
 
 const mockTelegramApi = vi.fn();
@@ -28,11 +34,19 @@ vi.mock("@/lib/telegram/client", () => ({
   telegramApi: (...args: unknown[]) => mockTelegramApi(...args),
 }));
 
-import { GET, POST } from "../route";
+import { GET, POST, PATCH } from "../route";
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/admin/notifications/channel-test", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function patchReq(body: unknown) {
+  return new NextRequest("http://localhost/api/admin/notifications/channel-test", {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -45,6 +59,7 @@ beforeEach(() => {
   vi.stubEnv("TELEGRAM_ADMIN_CHAT_ID", "");
   mockFindMany.mockReset();
   mockFindUnique.mockReset();
+  mockUpdate.mockReset();
   mockTelegramApi.mockReset();
   mockTelegramApi.mockResolvedValue({ ok: true, result: { chat: { title: "Тест-чат" } } });
 });
@@ -59,6 +74,7 @@ describe("GET /api/admin/notifications/channel-test", () => {
           telegramChannelId: "-100777",
           telegramChannelName: "Беседки Live",
           telegramBotToken: "gaz-bot",
+          telegramChannelEvents: ["booking.paid", "booking.cancelled"],
         },
       },
       // ps-park intentionally absent → not configured
@@ -82,6 +98,13 @@ describe("GET /api/admin/notifications/channel-test", () => {
       channelName: "Беседки Live",
       usesOwnBot: true,
     });
+    expect(gazebos.events).toEqual(
+      expect.arrayContaining([
+        { type: "booking.paid", label: "Оплачено онлайн", enabled: true },
+        { type: "booking.cancelled", label: "Бронь отменена", enabled: true },
+        { type: "booking.completed", label: "Бронь завершена", enabled: false },
+      ])
+    );
 
     const psPark = body.data.moduleChannels.find(
       (c: { slug: string }) => c.slug === "ps-park"
@@ -94,6 +117,82 @@ describe("GET /api/admin/notifications/channel-test", () => {
       chatId: null,
       usesOwnBot: false,
     });
+    expect(psPark.events.every((e: { enabled: boolean }) => e.enabled === false)).toBe(
+      true
+    );
+  });
+});
+
+describe("PATCH /api/admin/notifications/channel-test", () => {
+  it("disables the module channel without touching the chat ID", async () => {
+    mockFindUnique.mockResolvedValue({
+      id: "mod-1",
+      config: { telegramChannelEnabled: true, telegramChannelId: "-100777" },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    const res = await PATCH(
+      patchReq({ slug: "gazebos", telegramChannelEnabled: false })
+    );
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.enabled).toBe(false);
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { slug: "gazebos" },
+      data: {
+        config: { telegramChannelEnabled: false, telegramChannelId: "-100777" },
+      },
+    });
+  });
+
+  it("updates the enabled event list", async () => {
+    mockFindUnique.mockResolvedValue({
+      id: "mod-1",
+      config: { telegramChannelEnabled: true, telegramChannelId: "-100777" },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    const res = await PATCH(
+      patchReq({
+        slug: "gazebos",
+        telegramChannelEvents: ["booking.paid", "booking.deleted"],
+      })
+    );
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.events).toEqual(["booking.paid", "booking.deleted"]);
+  });
+
+  it("rejects an event type that doesn't exist for the module", async () => {
+    const res = await PATCH(
+      patchReq({ slug: "ps-park", telegramChannelEvents: ["booking.deleted"] })
+    );
+    const body = await res.json();
+
+    // booking.deleted is a gazebos-only event, not valid for ps-park.
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown module slug", async () => {
+    const res = await PATCH(patchReq({ slug: "cafe", telegramChannelEnabled: true }));
+    const body = await res.json();
+
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns NOT_FOUND when the module record doesn't exist", async () => {
+    mockFindUnique.mockResolvedValue(null);
+
+    const res = await PATCH(patchReq({ slug: "gazebos", telegramChannelEnabled: true }));
+    const body = await res.json();
+
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("NOT_FOUND");
   });
 });
 

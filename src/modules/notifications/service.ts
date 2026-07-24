@@ -199,6 +199,11 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
  * because it requires UserNotificationChannel entries to exist. Falling through
  * to path 3 ensures SUPERADMIN always gets notifications via the legacy chatId
  * even when no channels are configured in the DB.
+ *
+ * `Module.config.telegramAdminChatEnabled === false` is a hard kill switch:
+ * paths 1 and 3 are skipped entirely (no chatId fallback either). Path 2
+ * (explicit per-user recipients) is unaffected — it's an opt-in mechanism
+ * the admin configured on purpose, separate from the group chat.
  */
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
@@ -210,8 +215,13 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
       getModuleBotConfig(event.moduleSlug),
     ]);
 
+    // Admin group chat explicitly disabled for this category — never send to
+    // it and never fall back to the global chat. Explicit per-user recipients
+    // (Path 2) are a separate opt-in mechanism and keep working regardless.
+    const channelDisabled = moduleConfig.telegramAdminChatEnabled === false;
+
     // Path 1 — group-only mode
-    if (explicitIds.length === 0 && moduleConfig.telegramAdminChatId) {
+    if (!channelDisabled && explicitIds.length === 0 && moduleConfig.telegramAdminChatId) {
       const result = await telegramAdapter.send(moduleConfig.telegramAdminChatId, message, {
         botToken: moduleConfig.telegramBotToken,
       });
@@ -244,6 +254,10 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
           })
         )
       );
+      return;
+    }
+
+    if (channelDisabled) {
       return;
     }
 
@@ -293,6 +307,7 @@ export async function getModuleBotConfig(
         (config?.telegramBotToken as string) || undefined,
       telegramAdminChatId:
         (config?.telegramAdminChatId as string) || undefined,
+      telegramAdminChatEnabled: config?.telegramAdminChatEnabled === false ? false : true,
     };
   } catch {
     return {};

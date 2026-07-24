@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/logger";
 import { telegramApi } from "@/lib/telegram/client";
 import { buildChannelTestMessage } from "@/lib/telegram/test-message";
 import {
@@ -16,8 +17,17 @@ import {
 } from "@/modules/notifications/routing-categories";
 import {
   channelTestSchema,
+  moduleChannelUpdateSchema,
   MODULE_CHANNEL_SLUGS,
 } from "@/modules/notifications/validation";
+import { GAZEBO_CHANNEL_EVENTS } from "@/modules/gazebos/validation";
+import { PS_PARK_CHANNEL_EVENTS } from "@/modules/ps-park/validation";
+import type { Prisma } from "@prisma/client";
+
+const CHANNEL_EVENT_CATALOG: Record<string, { type: string; label: string }[]> = {
+  gazebos: GAZEBO_CHANNEL_EVENTS,
+  "ps-park": PS_PARK_CHANNEL_EVENTS,
+};
 
 /**
  * Manual "test" send for the monitoring page channel panel.
@@ -61,6 +71,14 @@ export async function GET() {
       const config = readConfig(bySlug.get(slug)?.config);
       const chatId = readString(config.telegramChannelId);
       const channelName = readString(config.telegramChannelName);
+      const enabledEvents = Array.isArray(config.telegramChannelEvents)
+        ? (config.telegramChannelEvents as string[])
+        : [];
+      const events = (CHANNEL_EVENT_CATALOG[slug] ?? []).map((e) => ({
+        type: e.type,
+        label: e.label,
+        enabled: enabledEvents.includes(e.type),
+      }));
       return {
         slug,
         label: labelForCategory(slug),
@@ -70,6 +88,7 @@ export async function GET() {
         chatId: chatId || null,
         channelName: channelName || null,
         usesOwnBot: Boolean(readString(config.telegramBotToken)),
+        events,
       };
     });
 
@@ -181,6 +200,74 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[ChannelTest] POST error:", error);
+    return apiServerError();
+  }
+}
+
+/**
+ * PATCH /api/admin/notifications/channel-test
+ * Edit a dedicated module channel's master switch and/or enabled event list
+ * directly from the monitoring page's channel matrix.
+ * Body: { slug: "gazebos"|"ps-park", telegramChannelEnabled?: boolean, telegramChannelEvents?: string[] }
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await auth();
+    const denied = await requireAdminSection(session, "telegram");
+    if (denied) return denied;
+
+    const body = await request.json().catch(() => ({}));
+    const parsed = moduleChannelUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return apiValidationError(parsed.error.issues[0].message);
+    }
+
+    const { slug, telegramChannelEnabled, telegramChannelEvents } = parsed.data;
+
+    if (telegramChannelEvents) {
+      const allowed = new Set(
+        (CHANNEL_EVENT_CATALOG[slug] ?? []).map((e) => e.type)
+      );
+      const unknown = telegramChannelEvents.filter((t) => !allowed.has(t));
+      if (unknown.length > 0) {
+        return apiValidationError(`Unknown event type(s): ${unknown.join(", ")}`);
+      }
+    }
+
+    const existing = await prisma.module.findUnique({ where: { slug } });
+    if (!existing) {
+      return apiError("NOT_FOUND", `Module "${slug}" not found`, 404);
+    }
+
+    const currentConfig = (existing.config as Record<string, unknown>) ?? {};
+    const newConfig = { ...currentConfig };
+    if (telegramChannelEnabled !== undefined) {
+      newConfig.telegramChannelEnabled = telegramChannelEnabled;
+    }
+    if (telegramChannelEvents !== undefined) {
+      newConfig.telegramChannelEvents = telegramChannelEvents;
+    }
+
+    await prisma.module.update({
+      where: { slug },
+      data: { config: newConfig as Prisma.InputJsonValue },
+    });
+
+    await logAudit(
+      session!.user!.id!,
+      "notification.module-channel.update",
+      "Module",
+      slug,
+      { telegramChannelEnabled, telegramChannelEvents }
+    );
+
+    return apiResponse({
+      slug,
+      enabled: newConfig.telegramChannelEnabled === true,
+      events: newConfig.telegramChannelEvents ?? [],
+    });
+  } catch (error) {
+    console.error("[ChannelTest] PATCH error:", error);
     return apiServerError();
   }
 }

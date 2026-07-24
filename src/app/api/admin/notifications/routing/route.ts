@@ -19,6 +19,7 @@ type RoutingRule = {
   chatId: string | null;
   chatTitle: string | null;
   usesGlobal: boolean;
+  enabled: boolean;
 };
 
 /**
@@ -68,6 +69,7 @@ export async function GET() {
         chatId: moduleChatId || null,
         chatTitle: moduleChatTitle || null,
         usesGlobal: !moduleChatId,
+        enabled: config.telegramAdminChatEnabled !== false,
       };
     });
 
@@ -86,8 +88,10 @@ export async function GET() {
 
 /**
  * PUT /api/admin/notifications/routing
- * Update chat ID for a specific module/category.
- * Body: { key: string, chatId: string | null }
+ * Update chat ID and/or enabled state for a specific module/category.
+ * Body: { key: string, chatId?: string | null, chatTitle?: string | null, enabled?: boolean }
+ * Fields omitted from the body are left untouched — pass only `enabled` to
+ * flip the kill switch without disturbing the configured chat ID.
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -96,7 +100,7 @@ export async function PUT(request: NextRequest) {
     if (denied) return denied;
 
     const body = await request.json();
-    const { key, chatId, chatTitle } = body;
+    const { key, chatId, chatTitle, enabled } = body;
 
     if (!key || typeof key !== "string") {
       return apiError("VALIDATION_ERROR", "key is required");
@@ -110,6 +114,9 @@ export async function PUT(request: NextRequest) {
     if (chatId !== null && chatId !== undefined && typeof chatId !== "string") {
       return apiError("VALIDATION_ERROR", "chatId must be a string or null");
     }
+    if (enabled !== undefined && typeof enabled !== "boolean") {
+      return apiError("VALIDATION_ERROR", "enabled must be a boolean");
+    }
 
     // Upsert module with updated config
     const existing = await prisma.module.findUnique({
@@ -119,18 +126,29 @@ export async function PUT(request: NextRequest) {
     const existingConfig =
       (existing?.config as Record<string, unknown>) || {};
 
-    // If chatId is null/empty, remove the key to fall back to global
     const newConfig = { ...existingConfig };
-    if (chatId) {
-      newConfig.telegramAdminChatId = chatId;
-    } else {
-      delete newConfig.telegramAdminChatId;
+    // chatId/chatTitle are only touched when explicitly present in the body —
+    // omitting them (e.g. a bare `{key, enabled}` toggle) must not wipe the
+    // already-configured chat.
+    if (chatId !== undefined) {
+      if (chatId) {
+        newConfig.telegramAdminChatId = chatId;
+      } else {
+        delete newConfig.telegramAdminChatId;
+      }
     }
     if (chatTitle !== undefined) {
       if (chatTitle) {
         newConfig.telegramAdminChatTitle = chatTitle;
       } else {
         delete newConfig.telegramAdminChatTitle;
+      }
+    }
+    if (enabled !== undefined) {
+      if (enabled === false) {
+        newConfig.telegramAdminChatEnabled = false;
+      } else {
+        delete newConfig.telegramAdminChatEnabled;
       }
     }
 
@@ -160,10 +178,15 @@ export async function PUT(request: NextRequest) {
       "notification.routing.update",
       "Module",
       key,
-      { chatId, chatTitle }
+      { chatId, chatTitle, enabled }
     );
 
-    return apiResponse({ key, chatId: chatId || null, chatTitle: chatTitle || null });
+    return apiResponse({
+      key,
+      chatId: (newConfig.telegramAdminChatId as string) || null,
+      chatTitle: (newConfig.telegramAdminChatTitle as string) || null,
+      enabled: newConfig.telegramAdminChatEnabled !== false,
+    });
   } catch (error) {
     console.error("[NotificationRouting] PUT error:", error);
     return apiServerError();
