@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { calcBookingPrice, type ResourcePricing } from "@/modules/gazebos/pricing";
 
 type GazeboQuickBookingPopoverProps = {
   resourceId: string;
@@ -10,6 +11,12 @@ type GazeboQuickBookingPopoverProps = {
   startTime: string;
   maxEndTime: string;
   pricePerHour: number | null;
+  /**
+   * Прайсинг ресурса на выбранную дату (учитывает будни/выходные и дневной
+   * тариф). Если задан — цена считается по нему; иначе fallback на будний
+   * pricePerHour. Источник — Resource.metadata.priceList.
+   */
+  pricing?: ResourcePricing | null;
   onClose: () => void;
   onCreated: () => void;
 };
@@ -34,13 +41,6 @@ function durationHours(startHHMM: string, endHHMM: string): number {
 
 const MIN_BOOKING_HOURS = 4;
 
-function addOneHour(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  const next = h + 1;
-  if (next >= 23) return CLOSE_TIME;
-  return `${String(next).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
 function addHours(hhmm: string, hours: number): string {
   const [h, m] = hhmm.split(":").map(Number);
   const totalMinutes = h * 60 + m + hours * 60;
@@ -57,6 +57,7 @@ export function GazeboQuickBookingPopover({
   startTime,
   maxEndTime,
   pricePerHour,
+  pricing,
   onClose,
   onCreated,
 }: GazeboQuickBookingPopoverProps) {
@@ -75,7 +76,16 @@ export function GazeboQuickBookingPopover({
   const [error, setError] = useState<string | null>(null);
 
   const hours = durationHours(startInput, endInput);
-  const totalPrice = pricePerHour && hours > 0 ? Math.round(hours * pricePerHour) : null;
+  // Цена по прайсингу даты (выходные дороже + дневной тариф-кэп); fallback —
+  // будний pricePerHour, если priceList для ресурса не задан.
+  const totalPrice =
+    hours > 0
+      ? pricing
+        ? Math.round(calcBookingPrice(pricing, hours).total)
+        : pricePerHour
+          ? Math.round(hours * pricePerHour)
+          : null
+      : null;
   const duration = durationLabel(startInput, endInput);
   const minEnd = addHours(startInput, MIN_BOOKING_HOURS);
   const isValid = startInput < endInput && endInput <= maxEndTime && durationHours(startInput, endInput) >= MIN_BOOKING_HOURS;

@@ -5,6 +5,7 @@ import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { GazeboQuickBookingPopover } from "./quick-booking-popover";
 import { GazeboBookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
+import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
 
 type TimelineGridProps = {
@@ -19,6 +20,7 @@ type PopoverState = {
   resourceName: string;
   startTime: string;
   pricePerHour: number | null;
+  pricing: ResourcePricing | null;
   maxEndTime: string;
 } | null;
 
@@ -143,6 +145,11 @@ export function GazeboTimelineGrid({
       resourceName: resource.name,
       startTime: `${hour.toString().padStart(2, "0")}:00`,
       pricePerHour: resource.pricePerHour ? Number(resource.pricePerHour) : null,
+      pricing: getResourcePricing(
+        resource.metadata,
+        resource.pricePerHour ? Number(resource.pricePerHour) : null,
+        date
+      ),
       maxEndTime: getMaxEndTime(resourceId, hour),
     });
   }
@@ -327,6 +334,7 @@ export function GazeboTimelineGrid({
           startTime={popover.startTime}
           maxEndTime={popover.maxEndTime}
           pricePerHour={popover.pricePerHour}
+          pricing={popover.pricing}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}
         />

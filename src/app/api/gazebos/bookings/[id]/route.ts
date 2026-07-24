@@ -10,12 +10,13 @@ import {
 import { auth } from "@/lib/auth";
 import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
-import { getBooking, updateBookingStatus, cancelBooking, BookingError } from "@/modules/gazebos/service";
+import { getBooking, updateBookingStatus, cancelBooking, rescheduleBooking, BookingError } from "@/modules/gazebos/service";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { formatTime } from "@/lib/format";
 import { hasRole } from "@/lib/permissions";
 import { checkoutDiscountSchema } from "@/modules/booking/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
+import { rescheduleBookingSchema } from "@/modules/gazebos/validation";
 
 /**
  * GET /api/gazebos/bookings/:id — get single booking
@@ -50,8 +51,22 @@ export async function PATCH(
     const body = await request.json();
     const { status } = body;
 
+    // Режим редактирования брони (без status): смена времени / ресурса /
+    // клиента. Только менеджеры своего раздела. Факт правки логируется в сервисе.
     if (!status) {
-      return apiError("VALIDATION_ERROR", "Укажите статус", 422);
+      if (!hasRole(session.user, "MANAGER")) {
+        return apiError("FORBIDDEN", "Недостаточно прав для редактирования", 403);
+      }
+      const denied = await requireAdminSection(session, "gazebos");
+      if (denied) return denied;
+
+      const parsed = rescheduleBookingSchema.safeParse(body);
+      if (!parsed.success) {
+        return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
+      }
+
+      const rescheduled = await rescheduleBooking(id, parsed.data, session.user.id);
+      return apiResponse(rescheduled);
     }
 
     const { reason, confirmPenalty, cashAmount, cardAmount } = body;
@@ -121,10 +136,16 @@ export async function PATCH(
         "INVALID_STATUS_TRANSITION",
         "ALREADY_COMPLETED",
         "ALREADY_CANCELLED",
+        "BOOKING_CONFLICT",
+        "BOOKING_NOT_EDITABLE",
       ]);
       const unprocessableCodes = new Set([
         "DISCOUNT_EXCEEDS_LIMIT",
         "PAYMENT_REQUIRED",
+        "OUTSIDE_WORKING_HOURS",
+        "INVALID_TIME_RANGE",
+        "DURATION_BELOW_MIN",
+        "CAPACITY_EXCEEDED",
       ]);
       const status = conflictCodes.has(error.code)
         ? 409

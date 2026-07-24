@@ -71,6 +71,7 @@ export const GAZEBO_CHANNEL_EVENT_TYPES = [
   "booking.completed",
   "booking.deleted",
   "booking.reminder",
+  "booking.ending_soon",
 ] as const;
 
 export type GazeboChannelEventType = (typeof GAZEBO_CHANNEL_EVENT_TYPES)[number];
@@ -83,7 +84,8 @@ export const GAZEBO_CHANNEL_EVENTS: {
   { type: "booking.cancelled", label: "Бронь отменена" },
   { type: "booking.completed", label: "Бронь завершена" },
   { type: "booking.deleted", label: "Бронь удалена" },
-  { type: "booking.reminder", label: "Напоминание (за 1 час)" },
+  { type: "booking.reminder", label: "Напоминание (за 1 час до начала)" },
+  { type: "booking.ending_soon", label: "Продление (за 1 час до конца)" },
 ];
 
 export const moduleSettingsSchema = z.object({
@@ -92,6 +94,9 @@ export const moduleSettingsSchema = z.object({
   minBookingHours: z.number().int().min(1).max(24).optional(),
   maxBookingHours: z.number().int().min(1).max(24).optional(),
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
+  // Публичная бронь беседок с сайта. false — временно закрыта (админ-бронь
+  // при этом продолжает работать). Дефолт (отсутствие ключа) = включено.
+  publicBookingEnabled: z.boolean().optional(),
   // Dedicated gazebos Telegram channel settings (stored in Module.config).
   telegramChannelEnabled: z.boolean().optional(),
   telegramChannelName: z.string().max(200).optional(),
@@ -109,6 +114,40 @@ export const moduleSettingsSchema = z.object({
 export const channelTestMessageSchema = z.object({
   chatId: z.string().max(64).optional(),
 });
+
+/**
+ * Редактирование существующей брони админом (время / ресурс / клиент).
+ * Все поля опциональны — можно менять только время; но хотя бы одно поле
+ * должно присутствовать. При изменении времени/даты/ресурса цена
+ * пересчитывается на сервере (учёт выходных), а факт правки логируется.
+ */
+export const rescheduleBookingSchema = z
+  .object({
+    resourceId: z.string().min(1).optional(),
+    date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD").optional(),
+    startTime: z.string().regex(timeRegex, "Формат времени: HH:mm").optional(),
+    endTime: z.string().regex(timeRegex, "Формат времени: HH:mm").optional(),
+    clientName: z.string().min(1).max(200).optional(),
+    clientPhone: z.string().min(1).max(30).optional(),
+    guestCount: z.number().int().positive().optional(),
+  })
+  .refine(
+    (d) => !(d.startTime && d.endTime) || d.startTime < d.endTime,
+    { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }
+  )
+  .refine(
+    (d) =>
+      d.resourceId !== undefined ||
+      d.date !== undefined ||
+      d.startTime !== undefined ||
+      d.endTime !== undefined ||
+      d.clientName !== undefined ||
+      d.clientPhone !== undefined ||
+      d.guestCount !== undefined,
+    { message: "Нет изменений для сохранения" }
+  );
+
+export type RescheduleBookingInput = z.infer<typeof rescheduleBookingSchema>;
 
 export const adminCreateBookingSchema = z.object({
   resourceId: z.string().min(1, "ID ресурса обязателен"),

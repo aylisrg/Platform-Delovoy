@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listResources } from "@/modules/gazebos/service";
+import { listResources, isPublicBookingEnabled } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
@@ -90,9 +90,10 @@ export const metadata: Metadata = {
 };
 
 export default async function GazebosPage() {
-  const [resources, phoneInfo] = await Promise.all([
+  const [resources, phoneInfo, bookingEnabled] = await Promise.all([
     listResources(true),
     getPublicPhone("gazebos"),
+    isPublicBookingEnabled(),
   ]);
 
   return (
@@ -193,7 +194,30 @@ export default async function GazebosPage() {
         {/* Booking flow */}
         <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">
           <div className="max-w-[800px] mx-auto">
-            <BookingFlow />
+            {bookingEnabled ? (
+              <BookingFlow />
+            ) : (
+              <div className="rounded-2xl border border-black/[0.06] bg-zinc-50 px-6 py-12 text-center">
+                <h2 className="font-[family-name:var(--font-manrope)] font-medium text-zinc-900 text-2xl">
+                  Онлайн-бронирование временно недоступно
+                </h2>
+                <p className="text-zinc-500 font-[family-name:var(--font-inter)] text-base mt-3 max-w-md mx-auto leading-relaxed">
+                  Мы принимаем брони по телефону. Позвоните нам — поможем выбрать
+                  беседку и подберём время.
+                </p>
+                {phoneInfo && (
+                  <a
+                    href={`tel:${phoneInfo.phone}`}
+                    className="inline-flex items-center gap-2 bg-black text-white font-[family-name:var(--font-manrope)] font-medium text-sm px-5 py-3 rounded-full hover:bg-black/90 transition-colors mt-6"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                    </svg>
+                    {phoneInfo.displayPhone}
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </section>
 

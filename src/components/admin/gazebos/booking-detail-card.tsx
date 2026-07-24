@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { GazeboBookingEditForm } from "./booking-edit-form";
 import type { TimelineBooking } from "@/modules/gazebos/types";
 import {
   DISCOUNT_REASONS,
@@ -30,6 +31,7 @@ export function GazeboBookingDetailCard({
   maxDiscountPercent = 30,
 }: Props) {
   const [actionLoading, setActionLoading] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState<DiscountReason | "">("");
@@ -45,12 +47,18 @@ export function GazeboBookingDetailCard({
 
   const isPending = booking.status === "PENDING";
   const canComplete = booking.status === "CONFIRMED";
+  const canEdit = ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(
+    booking.status,
+  );
 
   const formatTime = (d: Date) => formatTimeUnified(d);
 
   const formatDate = (d: Date) => formatDateUnified(d);
 
-  const totalCost = pricePerHour ? Math.round(hours * pricePerHour) : null;
+  // Применённая ставка часа снапшотится в metadata при создании/переносе
+  // брони (учитывает выходные). Проп pricePerHour — только fallback (будний).
+  const appliedRate = Number(meta?.pricePerHour ?? pricePerHour ?? 0) || null;
+  const totalCost = appliedRate ? Math.round(hours * appliedRate) : null;
   const totalFromMeta = Number(meta?.totalPrice ?? totalCost ?? 0);
   const discountAmount = discountPercent > 0 ? Math.round(totalFromMeta * discountPercent / 100) : 0;
   const finalAmount = totalFromMeta - discountAmount;
@@ -166,10 +174,10 @@ export function GazeboBookingDetailCard({
           </div>
         )}
 
-        {pricePerHour && (
+        {appliedRate && (
           <div>
             <div className="text-xs text-zinc-400 mb-0.5">Тариф</div>
-            <div className="font-medium text-zinc-900">{pricePerHour} ₽/ч</div>
+            <div className="font-medium text-zinc-900">{appliedRate} ₽/ч</div>
           </div>
         )}
 
@@ -184,7 +192,7 @@ export function GazeboBookingDetailCard({
       {totalCost !== null && (
         <div className="px-4 pb-3 border-t border-zinc-100 pt-3">
           <div className="flex justify-between text-sm font-semibold">
-            <span className="text-zinc-900">Итого ({hours} ч × {pricePerHour} ₽)</span>
+            <span className="text-zinc-900">Итого ({hours} ч × {appliedRate} ₽)</span>
             <span className="text-zinc-900">
               {showDiscount && discountPercent > 0 ? (
                 <>
@@ -265,7 +273,17 @@ export function GazeboBookingDetailCard({
         </div>
       )}
 
-      <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2">
+      <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2 flex-wrap">
+        {canEdit && !showDiscount && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setShowEdit(true)}
+            disabled={actionLoading}
+          >
+            Изменить
+          </Button>
+        )}
         {isPending && (
           <Button
             size="sm"
@@ -320,6 +338,19 @@ export function GazeboBookingDetailCard({
           Закрыть
         </button>
       </div>
+
+      {showEdit && (
+        <GazeboBookingEditForm
+          booking={booking}
+          resourceName={resourceName}
+          appliedRate={appliedRate}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => {
+            setShowEdit(false);
+            onStatusChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

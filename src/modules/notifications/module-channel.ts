@@ -48,6 +48,19 @@ function adminLink(moduleSlug: string, d: Record<string, unknown>): string {
 }
 
 /**
+ * Ссылка на расписание беседок с открытой бронью — там у админа есть кнопка
+ * «Изменить», которой продлевается время. Служит «ссылкой на продление».
+ */
+function gazeboExtendLink(d: Record<string, unknown>): string {
+  if (!d.bookingId) return "";
+  const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const id = encodeURIComponent(String(d.bookingId));
+  // Расписанию нужна ISO-дата (YYYY-MM-DD); d.date — локализованная для показа.
+  const date = d.dateISO ? `&date=${encodeURIComponent(String(d.dateISO))}` : "";
+  return `\n\n<a href="${base}/admin/gazebos?booking=${id}${date}">Продлить (изменить время)</a>`;
+}
+
+/**
  * HTML-formatted channel templates per module + event type.
  *
  * В выделенный канал попадают только «оплаченные» брони: событие
@@ -68,6 +81,8 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
       `🗑 <b>Бронь удалена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}`,
     "booking.reminder": (d) =>
       `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+    "booking.ending_soon": (d) =>
+      `⏳ <b>Бронь скоро заканчивается</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nОкончание: ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}\n\nПредложите клиенту продлить.${gazeboExtendLink(d)}`,
   },
   cafe: {
     // QR-чекаут: постим только оплаченные заказы (order.paid шлётся строго

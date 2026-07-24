@@ -75,6 +75,7 @@ import {
   createAdminBooking,
   updateBookingStatus,
   cancelBooking,
+  rescheduleBooking,
   getAvailability,
   getTimeline,
   getAnalytics,
@@ -1091,6 +1092,102 @@ describe("listBookingsPaginated", () => {
           date: { gte: new Date("2026-04-01"), lte: new Date("2026-04-14") },
         }),
       })
+    );
+  });
+});
+
+// ===== rescheduleBooking =====
+// 2030-06-15 = суббота (выходной), 2030-06-17 = понедельник (будни).
+const WEEKEND_DATE = "2030-06-15";
+
+const priceListResource = () =>
+  mockResource({
+    pricePerHour: 1000,
+    metadata: {
+      priceList: {
+        weekdayHour: 1000,
+        weekdayDay: 10000,
+        weekendHour: 1500,
+        weekendDay: 15000,
+      },
+    },
+  });
+
+describe("rescheduleBooking", () => {
+  it("recomputes weekend price on a time change and writes an audit record", async () => {
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      date: new Date(WEEKEND_DATE),
+      startTime: new Date(`${WEEKEND_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${WEEKEND_DATE}T14:00:00+03:00`),
+      metadata: { totalPrice: "6000.00", basePrice: "6000.00", pricePerHour: "1500.00" },
+    });
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never) // load
+      .mockResolvedValueOnce(null as never); // no conflict
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(priceListResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue({ ...booking } as never);
+
+    await rescheduleBooking("booking-1", { endTime: "16:00" }, "manager-1");
+
+    // 6 ч × 1500 (выходной) = 9000, дневной тариф 15000 не применяется.
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "booking-1" },
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            totalPrice: "9000.00",
+            pricePerHour: "1500.00",
+          }),
+        }),
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "booking.reschedule",
+          entity: "Booking",
+          entityId: "booking-1",
+        }),
+      })
+    );
+  });
+
+  it("rejects a reschedule that conflicts with another booking", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({ status: "CONFIRMED", metadata: {} }) as never
+      )
+      .mockResolvedValueOnce(mockBooking({ id: "other" }) as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(
+      rescheduleBooking("booking-1", { startTime: "10:00", endTime: "15:00" }, "m1")
+    ).rejects.toThrow("Это время уже занято");
+  });
+
+  it("refuses to edit a completed booking", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "COMPLETED" }) as never
+    );
+
+    await expect(
+      rescheduleBooking("booking-1", { endTime: "16:00" }, "m1")
+    ).rejects.toThrow("активные брони");
+  });
+});
+
+// ===== createBooking public-booking gate =====
+
+describe("createBooking public gate", () => {
+  it("blocks public booking when disabled in module config", async () => {
+    // Действует только на этот вызов (createBooking падает до getMinBookingHours).
+    vi.mocked(prisma.module.findUnique).mockResolvedValueOnce({
+      config: { publicBookingEnabled: false },
+    } as never);
+
+    await expect(createBooking("user-1", validBookingInput)).rejects.toThrow(
+      "временно недоступно"
     );
   });
 });
