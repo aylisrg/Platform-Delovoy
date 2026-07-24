@@ -22,6 +22,19 @@ export const channelTestSchema = z.discriminatedUnion("kind", [
 
 export type ChannelTestInput = z.infer<typeof channelTestSchema>;
 
+/**
+ * Body for `PATCH /api/admin/notifications/channel-test` — edit a dedicated
+ * module channel's master switch and/or enabled event list directly from the
+ * monitoring page, without going through the module-specific settings page.
+ */
+export const moduleChannelUpdateSchema = z.object({
+  slug: z.enum(MODULE_CHANNEL_SLUGS),
+  telegramChannelEnabled: z.boolean().optional(),
+  telegramChannelEvents: z.array(z.string()).optional(),
+});
+
+export type ModuleChannelUpdateInput = z.infer<typeof moduleChannelUpdateSchema>;
+
 export const updatePreferenceSchema = z.object({
   preferredChannel: z
     .enum(["AUTO", "TELEGRAM", "EMAIL", "VK"])

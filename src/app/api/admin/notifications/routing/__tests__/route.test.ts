@@ -68,10 +68,29 @@ describe("GET /api/admin/notifications/routing", () => {
     expect(gazebosRule.chatId).toBe("-100111");
     expect(gazebosRule.chatTitle).toBe("Барбекю чат");
     expect(gazebosRule.usesGlobal).toBe(false);
+    expect(gazebosRule.enabled).toBe(true);
 
     const cafeRule = body.data.rules.find((r: { key: string }) => r.key === "cafe");
     expect(cafeRule.chatId).toBeNull();
     expect(cafeRule.usesGlobal).toBe(true);
+    expect(cafeRule.enabled).toBe(true);
+  });
+
+  it("reports enabled: false when the category chat is explicitly disabled", async () => {
+    mockFindMany.mockResolvedValue([
+      {
+        slug: "gazebos",
+        config: { telegramAdminChatId: "-100111", telegramAdminChatEnabled: false },
+      },
+    ]);
+
+    const res = await GET();
+    const body = await res.json();
+
+    const gazebosRule = body.data.rules.find((r: { key: string }) => r.key === "gazebos");
+    expect(gazebosRule.enabled).toBe(false);
+    // Chat ID stays configured — disabling is reversible without re-entering it.
+    expect(gazebosRule.chatId).toBe("-100111");
   });
 
   it("falls back to env var for global chat ID", async () => {
@@ -163,6 +182,81 @@ describe("PUT /api/admin/notifications/routing", () => {
         }),
       })
     );
+  });
+
+  it("disables the category without touching the configured chat ID", async () => {
+    mockFindUnique.mockResolvedValue({
+      slug: "gazebos",
+      config: { telegramAdminChatId: "-100111", telegramAdminChatTitle: "Беседки" },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    const req = new NextRequest("http://localhost/api/admin/notifications/routing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "gazebos", enabled: false }),
+    });
+
+    const res = await PUT(req);
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.enabled).toBe(false);
+    expect(body.data.chatId).toBe("-100111");
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { slug: "gazebos" },
+        data: {
+          config: {
+            telegramAdminChatId: "-100111",
+            telegramAdminChatTitle: "Беседки",
+            telegramAdminChatEnabled: false,
+          },
+        },
+      })
+    );
+  });
+
+  it("re-enables the category and clears the disabled flag", async () => {
+    mockFindUnique.mockResolvedValue({
+      slug: "gazebos",
+      config: {
+        telegramAdminChatId: "-100111",
+        telegramAdminChatEnabled: false,
+      },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    const req = new NextRequest("http://localhost/api/admin/notifications/routing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "gazebos", enabled: true }),
+    });
+
+    const res = await PUT(req);
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.enabled).toBe(true);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { config: { telegramAdminChatId: "-100111" } },
+      })
+    );
+  });
+
+  it("rejects a non-boolean enabled value", async () => {
+    const req = new NextRequest("http://localhost/api/admin/notifications/routing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "gazebos", enabled: "no" }),
+    });
+
+    const res = await PUT(req);
+    const body = await res.json();
+
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("rejects invalid category key", async () => {
