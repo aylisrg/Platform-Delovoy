@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { GazeboMobileBookingSheet } from "./mobile-booking-sheet";
 import { GazeboBookingDetailCard } from "./booking-detail-card";
@@ -8,8 +8,10 @@ import {
   generateHalfHourSlots,
   getMaxEndFromBookings,
   isSlotFree,
+  parseHHMM,
 } from "@/lib/booking-time";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
+import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { formatTime } from "@/lib/format";
 
 function toHHMM(iso: string): string {
@@ -22,6 +24,7 @@ type SlotState = {
   startTime: string;
   maxEndTime: string;
   pricePerHour: number | null;
+  pricing: ResourcePricing | null;
 } | null;
 
 type Props = {
@@ -36,6 +39,9 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
   const [slot, setSlot] = useState<SlotState>(null);
   const [selectedBooking, setSelectedBooking] =
     useState<TimelineBooking | null>(null);
+  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
+    initialData.resources[0]?.id ?? null,
+  );
 
   const slots = generateHalfHourSlots();
 
@@ -45,7 +51,17 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
     try {
       const res = await fetch(`/api/gazebos/timeline?date=${newDate}`);
       const json = await res.json();
-      if (json.success) setData(json.data);
+      if (json.success) {
+        setData(json.data);
+        // Держим выбранную беседку валидной для новой даты.
+        setSelectedResourceId((prev) =>
+          json.data.resources.some(
+            (r: { id: string }) => r.id === prev,
+          )
+            ? prev
+            : (json.data.resources[0]?.id ?? null),
+        );
+      }
     } catch {
       // keep old data
     } finally {
@@ -64,6 +80,11 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
       }));
   }
 
+  const selectedResource = useMemo(
+    () => data.resources.find((r) => r.id === selectedResourceId) ?? null,
+    [data.resources, selectedResourceId],
+  );
+
   function handleSlotClick(resourceId: string, startHHMM: string) {
     const bookings = getResourceBookings(resourceId).map((b) => ({
       startHHMM: b.startHHMM,
@@ -72,12 +93,16 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
     if (!isSlotFree(startHHMM, bookings)) return;
     const resource = data.resources.find((r) => r.id === resourceId);
     if (!resource) return;
+    const pricePerHour = resource.pricePerHour
+      ? Number(resource.pricePerHour)
+      : null;
     setSlot({
       resourceId,
       resourceName: resource.name,
       startTime: startHHMM,
       maxEndTime: getMaxEndFromBookings(startHHMM, bookings),
-      pricePerHour: resource.pricePerHour ? Number(resource.pricePerHour) : null,
+      pricePerHour,
+      pricing: getResourcePricing(resource.metadata, pricePerHour, date),
     });
   }
 
@@ -102,92 +127,154 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
           Нет активных беседок
         </div>
       ) : (
-        <ul className="space-y-3">
-          {data.resources.map((resource) => {
-            const bookings = getResourceBookings(resource.id);
-            const bookingsHHMM = bookings.map((b) => ({
-              startHHMM: b.startHHMM,
-              endHHMM: b.endHHMM,
-            }));
-            return (
-              <li
-                key={resource.id}
-                className="rounded-xl border border-zinc-200 bg-white shadow-sm"
-              >
-                <div className="flex items-start justify-between px-3 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-zinc-900">
-                      {resource.name}
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-0.5">
-                      {resource.capacity && `${resource.capacity} чел.`}
-                      {resource.capacity && resource.pricePerHour && " · "}
-                      {resource.pricePerHour &&
-                        `${Number(resource.pricePerHour)} ₽/ч`}
-                    </p>
-                  </div>
-                </div>
+        <>
+          {/* Селектор беседки — одна колонка за раз, чтобы вертикальный день
+              был читаемым на телефоне. */}
+          <div className="mb-3 flex gap-2 overflow-x-auto pb-1 snap-x">
+            {data.resources.map((resource) => {
+              const active = resource.id === selectedResourceId;
+              const count = data.bookings.filter(
+                (b) => b.resourceId === resource.id,
+              ).length;
+              return (
+                <button
+                  key={resource.id}
+                  type="button"
+                  onClick={() => setSelectedResourceId(resource.id)}
+                  className={`shrink-0 snap-start rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+                  }`}
+                >
+                  {resource.name}
+                  {count > 0 && (
+                    <span
+                      className={`ml-1.5 text-xs ${
+                        active ? "text-blue-100" : "text-zinc-400"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-                <div className="flex gap-2 overflow-x-auto px-3 pb-3 snap-x">
-                  {slots.map((s) => {
-                    const free = isSlotFree(s, bookingsHHMM);
-                    const activeBooking = bookings.find((b) => {
-                      return b.startHHMM <= s && s < b.endHHMM;
-                    });
+          {selectedResource && (
+            <div className="rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-2.5">
+                <p className="text-sm font-semibold text-zinc-900">
+                  {selectedResource.name}
+                </p>
+                <p className="text-xs text-zinc-500">
+                  {selectedResource.capacity && `${selectedResource.capacity} чел.`}
+                  {selectedResource.capacity &&
+                    selectedResource.pricePerHour &&
+                    " · "}
+                  {selectedResource.pricePerHour &&
+                    `${Number(selectedResource.pricePerHour)} ₽/ч`}
+                </p>
+              </div>
+
+              {/* Вертикальная лента дня: время сверху вниз, без горизонтального
+                  скролла. Свободный час — тап создаёт бронь; занятый блок — тап
+                  открывает детали. */}
+              <ul className="divide-y divide-zinc-50">
+                {(() => {
+                  const resourceBookings = getResourceBookings(
+                    selectedResource.id,
+                  );
+                  const bookingsHHMM = resourceBookings.map((b) => ({
+                    startHHMM: b.startHHMM,
+                    endHHMM: b.endHHMM,
+                  }));
+                  return slots.map((s) => {
+                    const activeBooking = resourceBookings.find(
+                      (b) => b.startHHMM <= s && s < b.endHHMM,
+                    );
                     if (activeBooking) {
-                      const isStart = activeBooking.startHHMM === s;
-                      if (!isStart) return null;
-                      const startIdx = slots.indexOf(activeBooking.startHHMM);
-                      const endIdx = slots.findIndex(
-                        (x) => x >= activeBooking.endHHMM,
+                      // Рисуем блок только на его стартовом слоте, остальные
+                      // покрытые слоты пропускаем.
+                      if (activeBooking.startHHMM !== s) return null;
+                      const isPending =
+                        activeBooking.booking.status === "PENDING";
+                      const spanSlots = Math.max(
+                        1,
+                        Math.round(
+                          (parseHHMM(activeBooking.endHHMM) -
+                            parseHHMM(activeBooking.startHHMM)) /
+                            30,
+                        ),
                       );
-                      const span = (endIdx === -1 ? slots.length : endIdx) - startIdx;
-                      const widthPx = span * 72 + (span - 1) * 8;
-                      const isPending = activeBooking.booking.status === "PENDING";
                       return (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() =>
-                            setSelectedBooking(activeBooking.booking)
-                          }
-                          style={{ minWidth: `${widthPx}px` }}
-                          className={`flex h-14 flex-col items-center justify-center rounded-lg border px-2 text-[11px] font-medium whitespace-nowrap snap-start ${
-                            isPending
-                              ? "border-amber-300 bg-amber-50 text-amber-800"
-                              : "border-emerald-300 bg-emerald-50 text-emerald-800"
-                          }`}
-                        >
-                          <span className="truncate max-w-[200px]">
-                            {activeBooking.booking.clientName ?? "—"}
-                          </span>
-                          <span className="tabular-nums text-[10px] opacity-70">
-                            {activeBooking.startHHMM}–{activeBooking.endHHMM}
-                          </span>
-                        </button>
+                        <li key={s}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedBooking(activeBooking.booking)
+                            }
+                            style={{ minHeight: `${spanSlots * 40}px` }}
+                            className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+                              isPending
+                                ? "bg-amber-50"
+                                : "bg-emerald-50"
+                            }`}
+                          >
+                            <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-zinc-500">
+                              {activeBooking.startHHMM}–{activeBooking.endHHMM}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-zinc-900">
+                                {activeBooking.booking.clientName ?? "Без имени"}
+                              </span>
+                              <span
+                                className={`text-xs font-medium ${
+                                  isPending
+                                    ? "text-amber-700"
+                                    : "text-emerald-700"
+                                }`}
+                              >
+                                {isPending ? "Ожидает" : "Подтверждена"}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-zinc-300">›</span>
+                          </button>
+                        </li>
                       );
                     }
+
+                    const free = isSlotFree(s, bookingsHHMM);
                     return (
-                      <button
-                        key={s}
-                        type="button"
-                        disabled={!free}
-                        onClick={() => handleSlotClick(resource.id, s)}
-                        className={`flex h-14 min-w-[72px] shrink-0 items-center justify-center rounded-lg border text-sm font-medium tabular-nums snap-start transition-colors ${
-                          free
-                            ? "border-zinc-200 bg-white text-zinc-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 active:bg-blue-100"
-                            : "border-zinc-100 bg-zinc-50 text-zinc-300 cursor-not-allowed"
-                        }`}
-                      >
-                        {s}
-                      </button>
+                      <li key={s}>
+                        <button
+                          type="button"
+                          disabled={!free}
+                          onClick={() => handleSlotClick(selectedResource.id, s)}
+                          className={`flex h-10 w-full items-center gap-3 px-3 text-left text-sm transition-colors ${
+                            free
+                              ? "text-zinc-600 hover:bg-blue-50 active:bg-blue-100"
+                              : "cursor-not-allowed text-zinc-300"
+                          }`}
+                        >
+                          <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-zinc-400">
+                            {s}
+                          </span>
+                          {free && (
+                            <span className="text-xs text-blue-600">
+                              + Забронировать
+                            </span>
+                          )}
+                        </button>
+                      </li>
                     );
-                  })}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  });
+                })()}
+              </ul>
+            </div>
+          )}
+        </>
       )}
 
       {slot && (
@@ -201,6 +288,7 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
           startTime={slot.startTime}
           maxEndTime={slot.maxEndTime}
           pricePerHour={slot.pricePerHour}
+          pricing={slot.pricing}
         />
       )}
 

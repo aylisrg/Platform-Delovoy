@@ -205,6 +205,35 @@ export function bookingReminderText(data: TemplateData): string {
   return `Напоминание: через 1 час начинается ваше бронирование.\n\n${data.resourceName}\nВремя: ${data.startTime}`;
 }
 
+// ─── Booking: Ending soon (предложение продлить) ───────────────────────────────
+
+export function bookingEndingSoonHtml(data: TemplateData): string {
+  const accent = moduleAccent(String(data.moduleSlug || ""));
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
+      Ваша бронь скоро заканчивается
+    </h2>
+    <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
+      Через 1 час завершается ваше бронирование. Хотите продлить отдых?
+    </p>
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
+      <tbody>
+        ${infoRow("Объект", String(data.resourceName || ""))}
+        ${infoRow("Дата", String(data.date || ""))}
+        ${infoRow("Окончание", String(data.endTime || ""))}
+      </tbody>
+    </table>
+    <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
+      Чтобы продлить, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+    </p>
+  `;
+  return emailLayout(content, { accentColor: accent, title: "Продлить бронирование?" });
+}
+
+export function bookingEndingSoonText(data: TemplateData): string {
+  return `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: +7 (499) 677-48-88.`;
+}
+
 // ─── Order: Placed ────────────────────────────────────────────────────────────
 
 export function orderConfirmationHtml(data: TemplateData): string {
@@ -387,6 +416,13 @@ export function renderEmailTemplate(
         subject: `Напоминание: ${data.resourceName || "Деловой Парк"} через 1 час`,
         html: bookingReminderHtml(d),
         text: bookingReminderText(d),
+      };
+
+    case "booking.ending_soon":
+      return {
+        subject: `Продлить бронирование? ${data.resourceName || "Деловой Парк"} скоро заканчивается`,
+        html: bookingEndingSoonHtml(d),
+        text: bookingEndingSoonText(d),
       };
 
     case "order.placed":

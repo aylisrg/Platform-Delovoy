@@ -33,6 +33,8 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Бронирование отменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.reminder": (d) =>
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
+    "booking.ending_soon": (d) =>
+      `Ваша бронь заканчивается через 1 час (в ${d.endTime}).\n\n${d.resourceName}\nДата: ${d.date}\n\nХотите продлить? Свяжитесь с нами: +7 (499) 677-48-88.`,
     ...paymentClientTemplates,
   },
   "ps-park": {

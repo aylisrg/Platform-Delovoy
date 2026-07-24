@@ -5,6 +5,7 @@ import {
   createBookingSchema,
   bookingFilterSchema,
   adminCreateBookingSchema,
+  rescheduleBookingSchema,
   timelineQuerySchema,
   analyticsQuerySchema,
   moduleSettingsSchema,
@@ -301,5 +302,48 @@ describe("moduleSettingsSchema", () => {
       telegramChannelEvents: ["booking.created", "order.placed"],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("rescheduleBookingSchema", () => {
+  it("accepts a time-only change", () => {
+    const result = rescheduleBookingSchema.safeParse({
+      startTime: "12:00",
+      endTime: "16:00",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a client-only change", () => {
+    const result = rescheduleBookingSchema.safeParse({ clientName: "Пётр" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty payload (no changes)", () => {
+    const result = rescheduleBookingSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects start >= end when both are given", () => {
+    const result = rescheduleBookingSchema.safeParse({
+      startTime: "16:00",
+      endTime: "12:00",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("moduleSettingsSchema publicBookingEnabled", () => {
+  it("accepts the publicBookingEnabled toggle", () => {
+    expect(moduleSettingsSchema.safeParse({ publicBookingEnabled: false }).success).toBe(true);
+    expect(moduleSettingsSchema.safeParse({ publicBookingEnabled: true }).success).toBe(true);
+  });
+});
+
+describe("GAZEBO_CHANNEL_EVENT_TYPES ending_soon", () => {
+  it("includes booking.ending_soon for the extension prompt", () => {
+    expect((GAZEBO_CHANNEL_EVENT_TYPES as readonly string[])).toContain(
+      "booking.ending_soon"
+    );
   });
 });

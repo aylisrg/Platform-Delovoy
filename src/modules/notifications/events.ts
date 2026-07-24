@@ -16,6 +16,10 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   "booking.confirmed": { client: true, admin: false, category: "booking" },
   "booking.cancelled": { client: true, admin: true, category: "booking" },
   "booking.reminder": { client: true, admin: false, category: "reminder" },
+  // За 1 час до ОКОНЧАНИЯ брони — предложение продлить. Клиенту (если есть
+  // канал) + выделенный Telegram-канал беседок обслуживается отдельно
+  // (dispatchModuleChannel), где у админа есть ссылка на продление.
+  "booking.ending_soon": { client: true, admin: false, category: "reminder" },
   // Канал-only событие «бронь оплачена»: ни client, ни admin через notify()
   // (оба false — notify находит роутинг, ничего не шлёт и не варнит), а
   // выделенный Telegram-канал обслуживается dispatchModuleChannel отдельно.

@@ -11,6 +11,7 @@ import {
   parseHHMM,
   selectedChip,
 } from "@/lib/booking-time";
+import { calcBookingPrice, type ResourcePricing } from "@/modules/gazebos/pricing";
 
 // Gazebo minimum is 4 hours — chips start at 240 min
 const GAZEBO_DURATION_CHIPS_MIN = [240, 300, 360, 420, 480];
@@ -25,6 +26,8 @@ export type GazeboMobileBookingSheetProps = {
   startTime: string; // "HH:MM"
   maxEndTime: string; // "HH:MM"
   pricePerHour: number | null;
+  /** Прайсинг на выбранную дату (будни/выходные + дневной тариф). */
+  pricing?: ResourcePricing | null;
 };
 
 export function GazeboMobileBookingSheet({
@@ -37,6 +40,7 @@ export function GazeboMobileBookingSheet({
   startTime,
   maxEndTime,
   pricePerHour,
+  pricing,
 }: GazeboMobileBookingSheetProps) {
   const router = useRouter();
 
@@ -68,7 +72,16 @@ export function GazeboMobileBookingSheet({
   const actualChip = selectedChip(startTime, endTime);
   const actualDuration = parseHHMM(endTime) - parseHHMM(startTime);
   const billed = billedHours(startTime, endTime);
-  const totalPrice = pricePerHour && billed > 0 ? billed * pricePerHour : null;
+  // Прайсинг даты (выходные дороже + дневной тариф-кэп); fallback — будний час.
+  const appliedHourRate = pricing ? pricing.hourRate : pricePerHour;
+  const totalPrice =
+    billed > 0
+      ? pricing
+        ? Math.round(calcBookingPrice(pricing, billed).total)
+        : pricePerHour
+          ? billed * pricePerHour
+          : null
+      : null;
 
   const isValid =
     actualDuration > 0 &&
@@ -157,12 +170,17 @@ export function GazeboMobileBookingSheet({
             <span className="font-semibold tabular-nums">{endTime}</span>
           </div>
           <div className="mt-1 flex items-center justify-between text-zinc-500 text-xs">
-            <span>{durationLabel(startTime, endTime)}</span>
-            {pricePerHour !== null && billed > 0 && (
+            <span>
+              {durationLabel(startTime, endTime)}
+              {pricing?.isWeekend && (
+                <span className="ml-1 text-amber-600">· выходной</span>
+              )}
+            </span>
+            {appliedHourRate !== null && appliedHourRate !== undefined && billed > 0 && totalPrice !== null && (
               <span>
-                {billed}ч × {pricePerHour.toLocaleString("ru-RU")} ₽ ={" "}
+                {billed}ч × {appliedHourRate.toLocaleString("ru-RU")} ₽ ={" "}
                 <span className="font-semibold text-zinc-700">
-                  {(billed * pricePerHour).toLocaleString("ru-RU")} ₽
+                  {totalPrice.toLocaleString("ru-RU")} ₽
                 </span>
               </span>
             )}

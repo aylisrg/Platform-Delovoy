@@ -23,7 +23,9 @@ import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import { formatTime, getMoscowHour, parseMoscowDateTime } from "@/lib/format";
+import { logAudit } from "@/lib/logger";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
+import type { RescheduleBookingInput } from "./validation";
 import type {
   CreateBookingInput,
   AdminCreateBookingInput,
@@ -58,6 +60,17 @@ export async function getMinBookingHours(): Promise<number> {
   const config = moduleRecord?.config as Record<string, unknown> | null;
   const val = config?.minBookingHours;
   return typeof val === "number" && val > 0 ? val : DEFAULT_MIN_BOOKING_HOURS;
+}
+
+/**
+ * Включена ли публичная бронь беседок с сайта. По умолчанию — да; выключается
+ * временно переключателем в настройках модуля (`Module.config.publicBookingEnabled`).
+ * Админ-бронь (`createAdminBooking`) от этого флага не зависит.
+ */
+export async function isPublicBookingEnabled(): Promise<boolean> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  return config?.publicBookingEnabled !== false;
 }
 
 // === RESOURCES ===
@@ -145,6 +158,14 @@ export async function getBooking(id: string) {
 
 export async function createBooking(userId: string | null, input: CreateBookingInput) {
   const { resourceId, date, startTime, endTime, guestCount, comment, items, guestName, guestPhone } = input;
+
+  // Публичная бронь может быть временно закрыта (админ-бронь не затрагивается).
+  if (!(await isPublicBookingEnabled())) {
+    throw new BookingError(
+      "BOOKING_DISABLED",
+      "Онлайн-бронирование временно недоступно. Пожалуйста, свяжитесь с нами по телефону."
+    );
+  }
 
   // Guest checkout: when there's no authenticated user, guestName + guestPhone are required
   // so the manager has something to contact the booker with.
@@ -484,6 +505,184 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
   });
 
   return booking;
+}
+
+/**
+ * Перенос/редактирование существующей брони админом: время, дата, ресурс,
+ * контакт клиента, число гостей. Все поля опциональны (по умолчанию — текущие).
+ *
+ * При изменении времени/даты/ресурса:
+ *  - проверяет часы работы, мин. длительность и конфликт (исключая саму бронь),
+ *  - пересчитывает цену через `computeGazeboPricing` (учёт выходных),
+ *  - ОБЯЗАТЕЛЬНО пишет запись в AuditLog (`booking.reschedule`) + историю правок
+ *    в `metadata.edits` (before/after).
+ */
+export async function rescheduleBooking(
+  bookingId: string,
+  input: RescheduleBookingInput,
+  managerId: string
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
+  });
+  if (!booking) {
+    throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  }
+
+  const EDITABLE: BookingStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN"];
+  if (!EDITABLE.includes(booking.status)) {
+    throw new BookingError(
+      "BOOKING_NOT_EDITABLE",
+      "Редактировать можно только активные брони (не завершённые и не отменённые)"
+    );
+  }
+
+  // Текущие значения как строки — дефолты для незаданных полей.
+  const curDate = booking.date.toISOString().split("T")[0];
+  const curStart = formatTime(booking.startTime);
+  const curEnd = formatTime(booking.endTime);
+
+  const effResourceId = input.resourceId ?? booking.resourceId;
+  const effDate = input.date ?? curDate;
+  const effStart = input.startTime ?? curStart;
+  const effEnd = input.endTime ?? curEnd;
+
+  const resource = await prisma.resource.findFirst({
+    where: { id: effResourceId, moduleSlug: MODULE_SLUG },
+  });
+  if (!resource) {
+    throw new BookingError("RESOURCE_NOT_FOUND", "Беседка не найдена");
+  }
+
+  // Часы работы 08:00–23:00 + начало раньше конца.
+  const openHHMM = `${String(OPEN_HOUR).padStart(2, "0")}:00`;
+  const closeHHMM = `${String(CLOSE_HOUR).padStart(2, "0")}:00`;
+  if (effStart < openHHMM || effEnd > closeHHMM) {
+    throw new BookingError(
+      "OUTSIDE_WORKING_HOURS",
+      `Время должно быть в пределах ${openHHMM}–${closeHHMM}`
+    );
+  }
+  if (effStart >= effEnd) {
+    throw new BookingError(
+      "INVALID_TIME_RANGE",
+      "Время начала должно быть раньше окончания"
+    );
+  }
+
+  const start = parseDatetime(effDate, effStart);
+  const end = parseDatetime(effDate, effEnd);
+
+  const minHours = await getMinBookingHours();
+  const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
+  if (durationHours < minHours) {
+    throw new BookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
+  }
+
+  const meta = (booking.metadata as Record<string, unknown> | null) ?? {};
+
+  // Вместимость при изменении числа гостей / ресурса.
+  const effGuestCount =
+    input.guestCount ??
+    (typeof meta.guestCount === "number" ? meta.guestCount : undefined);
+  if (effGuestCount && resource.capacity && effGuestCount > resource.capacity) {
+    throw new BookingError(
+      "CAPACITY_EXCEEDED",
+      `Максимальная вместимость: ${resource.capacity} человек`
+    );
+  }
+
+  const timeOrResourceChanged =
+    effResourceId !== booking.resourceId ||
+    effDate !== curDate ||
+    effStart !== curStart ||
+    effEnd !== curEnd;
+
+  // Конфликт с ДРУГИМИ бронями того же ресурса (саму себя исключаем).
+  if (timeOrResourceChanged) {
+    const conflict = await prisma.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        resourceId: effResourceId,
+        id: { not: bookingId },
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: new Date(effDate),
+        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+      },
+    });
+    if (conflict) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+  }
+
+  // Пересчёт цены (учёт выходных) при изменении времени/даты/ресурса.
+  const itemsTotal = Number(meta.itemsTotal ?? 0) || 0;
+  const pricing = timeOrResourceChanged
+    ? computeGazeboPricing(
+        start,
+        end,
+        effDate,
+        resource.metadata,
+        resource.pricePerHour ? Number(resource.pricePerHour) : null,
+        itemsTotal
+      )
+    : null;
+
+  const before = {
+    date: curDate,
+    startTime: curStart,
+    endTime: curEnd,
+    resourceId: booking.resourceId,
+  };
+  const after = {
+    date: effDate,
+    startTime: effStart,
+    endTime: effEnd,
+    resourceId: effResourceId,
+  };
+
+  const prevEdits = Array.isArray(meta.edits) ? meta.edits : [];
+  const newMeta: Record<string, unknown> = {
+    ...meta,
+    ...(input.guestCount !== undefined && { guestCount: input.guestCount }),
+    ...(pricing && {
+      basePrice: pricing.basePrice,
+      pricePerHour: pricing.pricePerHour,
+      totalPrice: pricing.totalPrice,
+    }),
+    edits: [
+      ...prevEdits,
+      { at: new Date().toISOString(), by: managerId, before, after },
+    ],
+  };
+
+  const updated = await prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      resourceId: effResourceId,
+      date: new Date(effDate),
+      startTime: start,
+      endTime: end,
+      ...(input.clientName !== undefined && { clientName: input.clientName }),
+      ...(input.clientPhone !== undefined && { clientPhone: input.clientPhone }),
+      metadata: JSON.parse(JSON.stringify(newMeta)),
+    },
+  });
+
+  // ОБЯЗАТЕЛЬНАЯ запись о правке (особенно при смене времени).
+  await logAudit(managerId, "booking.reschedule", "Booking", bookingId, {
+    moduleSlug: MODULE_SLUG,
+    before,
+    after,
+    ...(pricing && { newTotalPrice: pricing.totalPrice }),
+    ...(input.clientName !== undefined && { clientNameChanged: true }),
+    ...(input.clientPhone !== undefined && { clientPhoneChanged: true }),
+  });
+
+  return updated;
 }
 
 export async function updateBookingStatus(

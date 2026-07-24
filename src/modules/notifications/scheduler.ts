@@ -9,8 +9,86 @@ import { enqueueNotification } from "./queue";
 export async function processScheduledNotifications(): Promise<void> {
   await Promise.allSettled([
     processBookingReminders(),
+    processEndingSoonReminders(),
     processContractExpiryAlerts(),
   ]);
+}
+
+/**
+ * За 1 час до ОКОНЧАНИЯ брони беседки — предложение продлить. Клиенту (если у
+ * него есть канал) уходит уведомление, а в выделенный Telegram-канал беседок —
+ * сообщение с контактом клиента и ссылкой на продление (dispatchModuleChannel).
+ * Идемпотентно: NotificationLog по (entityId, "booking.ending_soon").
+ */
+async function processEndingSoonReminders(): Promise<void> {
+  const now = new Date();
+  const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: {
+        moduleSlug: "gazebos",
+        status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        endTime: { gte: now, lte: oneHourFromNow },
+      },
+    });
+
+    for (const booking of bookings) {
+      const alreadySent = await prisma.notificationLog.findFirst({
+        where: {
+          entityId: booking.id,
+          eventType: "booking.ending_soon",
+          status: "SENT",
+        },
+      });
+      if (alreadySent) continue;
+
+      const resource = await prisma.resource.findUnique({
+        where: { id: booking.resourceId },
+        select: { name: true },
+      });
+
+      const data = {
+        resourceName: resource?.name || "Беседка",
+        date: booking.date.toLocaleDateString("ru-RU"),
+        // ISO-дата для deep-link в расписание админки (?date=YYYY-MM-DD).
+        dateISO: booking.date.toISOString().split("T")[0],
+        startTime: formatTime(booking.startTime),
+        endTime: formatTime(booking.endTime),
+        clientName: booking.clientName ?? undefined,
+        clientPhone: booking.clientPhone ?? undefined,
+        bookingId: booking.id,
+      };
+
+      enqueueNotification({
+        type: "booking.ending_soon",
+        moduleSlug: booking.moduleSlug,
+        entityId: booking.id,
+        userId: booking.userId ?? undefined,
+        data,
+      });
+
+      // Гостевые брони не имеют клиентской доставки, которая пишет SENT-лог,
+      // поэтому фиксируем здесь — иначе канал получал бы дубль на каждом запуске
+      // планировщика в пределах часового окна.
+      if (!booking.userId) {
+        await prisma.notificationLog.create({
+          data: {
+            channel: "TELEGRAM",
+            eventType: "booking.ending_soon",
+            moduleSlug: booking.moduleSlug,
+            entityId: booking.id,
+            recipient: "module-channel",
+            message: `Скоро конец: ${data.resourceName}, ${data.date} до ${data.endTime}`,
+            status: "SENT",
+            sentAt: new Date(),
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[Scheduler] Ending-soon reminders failed:", err);
+  }
 }
 
 /**

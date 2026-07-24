@@ -1,5 +1,6 @@
 import { ModuleSettings } from "@/components/admin/shared/module-settings";
 import { GazeboTelegramChannelForm } from "@/components/admin/gazebos/telegram-channel-form";
+import { GazeboPublicBookingToggle } from "@/components/admin/gazebos/public-booking-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export default function GazebosSettingsPage() {
   return (
     <div className="space-y-8">
       <ModuleSettings moduleSlug="gazebos" fields={FIELDS} />
+      <div className="border-t border-zinc-200 pt-8">
+        <GazeboPublicBookingToggle />
+      </div>
       <div className="border-t border-zinc-200 pt-8">
         <GazeboTelegramChannelForm />
       </div>

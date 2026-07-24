@@ -106,3 +106,46 @@ describe("processBookingReminders", () => {
     expect(prisma.notificationLog.create).not.toHaveBeenCalled();
   });
 });
+
+describe("processEndingSoonReminders", () => {
+  it("enqueues booking.ending_soon for a gazebo booking ending within the hour", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never) // start-time reminders — none
+      .mockResolvedValueOnce([
+        makeBooking({ clientName: "Пётр", clientPhone: "+79990001122" }),
+      ] as never); // ending-soon scan
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.ending_soon",
+        moduleSlug: "gazebos",
+        entityId: "b1",
+        data: expect.objectContaining({
+          endTime: expect.any(String),
+          clientName: "Пётр",
+          bookingId: "b1",
+        }),
+      })
+    );
+  });
+
+  it("writes a SENT marker for guest bookings so the channel isn't re-posted", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([
+        makeBooking({ userId: null, user: null }),
+      ] as never);
+
+    await processScheduledNotifications();
+
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "booking.ending_soon",
+        entityId: "b1",
+        status: "SENT",
+      }),
+    });
+  });
+});
