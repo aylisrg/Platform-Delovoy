@@ -59,6 +59,8 @@ jobs:
         run: |
           echo "${{ secrets.AGENT_HETZNER_SSH_KEY }}" > /tmp/key && chmod 600 /tmp/key
           PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsUJZMzpKY84gJDYrCbykz/k9ZaV+Ut4uLnnYIP4PPX claude-agent@delovoy-park.ru"
+          # Ключ с рабочего мака — чтобы заходить руками, а не только из CI
+          MAC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINf6eC4RUIKnlQEoxhfsJGJZBl+LhUNDbf7BAQD58yqU elliott-mac"
 
           ssh -i /tmp/key \
             -o StrictHostKeyChecking=no \
@@ -76,10 +78,17 @@ jobs:
             mkdir -p /mnt/main
             mount /dev/\$PART /mnt/main
 
-            echo \"Injecting SSH key...\"
+            # Убедиться, что примонтирована именно корневая ФС, а не boot/EFI
+            if [ ! -f /mnt/main/etc/fstab ]; then
+              echo 'ERROR: /dev/'\$PART' is not the root filesystem, aborting'
+              umount /mnt/main
+              exit 1
+            fi
+
+            echo \"Injecting SSH keys...\"
             mkdir -p /mnt/main/root/.ssh
             chmod 700 /mnt/main/root/.ssh
-            echo \"$PUB_KEY\" > /mnt/main/root/.ssh/authorized_keys
+            printf '%s\n%s\n' \"$PUB_KEY\" \"$MAC_KEY\" > /mnt/main/root/.ssh/authorized_keys
             chmod 600 /mnt/main/root/.ssh/authorized_keys
             cat /mnt/main/root/.ssh/authorized_keys
             umount /mnt/main
