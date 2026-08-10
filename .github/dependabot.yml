@@ -25,6 +25,11 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "chore"
+    auto-merge:
+      # Auto-merge patch and minor updates if CI passes
+      - match:
+          update-types: ["version-update:semver-patch", "version-update:semver-minor"]
+        enabled: true
     ignore:
       # Keep next-auth on beta track — we're using v5 beta intentionally
       - dependency-name: "next-auth"
