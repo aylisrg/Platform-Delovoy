@@ -207,6 +207,20 @@ describe('staleWipIssues', () => {
   });
 });
 
+describe('DEFAULT_CONFIG', () => {
+  it('несёт потолок попыток — иначе неподъёмная задача крутится вечно', () => {
+    expect(DEFAULT_CONFIG.maxAttempts).toBeGreaterThan(0);
+  });
+
+  it('конфиг из файла накладывается поверх дефолтов, а не заменяет их', () => {
+    // Так делает loadConfig(): частичный JSON не должен обнулять недостающие поля.
+    const partial = { ...DEFAULT_CONFIG, ...JSON.parse('{"enabled": false}') };
+    expect(partial.enabled).toBe(false);
+    expect(partial.maxAttempts).toBe(DEFAULT_CONFIG.maxAttempts);
+    expect(partial.staleWipHours).toBe(DEFAULT_CONFIG.staleWipHours);
+  });
+});
+
 describe('moduleOf', () => {
   it('вытаскивает модуль из путей modules / api / admin', () => {
     expect(moduleOf('src/modules/booking/service.ts')).toBe('booking');

@@ -166,7 +166,7 @@ npx tsx scripts/issue-queue.ts reconcile   # снять протухшие ло�
 ```
 
 Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
-`staleWipHours`, `pinned`). Учёт и уборка — `.github/workflows/issue-queue.yml`
+`staleWipHours`, `maxAttempts`, `pinned`). Учёт и уборка — `.github/workflows/issue-queue.yml`
 (ежечасно, без AI). Дашборд — issue с лейблом `auto:dashboard`.
 
 ---

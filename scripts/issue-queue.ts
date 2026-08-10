@@ -46,6 +46,8 @@ const API = 'https://api.github.com';
 const ROOT = resolve(__dirname, '..');
 const CONFIG_PATH = resolve(ROOT, '.github/issue-queue.json');
 const DASHBOARD_MARKER = '<!-- issue-queue-dashboard -->';
+/** Метка в комментарии, по которой считаются брошенные попытки. */
+const STALE_MARKER = '<!-- issue-queue-stale-release -->';
 
 function gh<T = unknown>(path: string, method = 'GET', body?: unknown): T {
   const args = ['-sS', '-X', method, '-H', 'Accept: application/vnd.github+json', '-w', '\n%{http_code}'];
@@ -386,13 +388,36 @@ function cmdReconcile(): void {
 
   for (const issue of staleWipIssues(issues, config, now)) {
     const hours = Math.round((now.getTime() - new Date(issue.updatedAt).getTime()) / 3.6e6);
+
+    // Сколько раз эту задачу уже подбирали и бросали. Считаем по собственным
+    // комментариям — отдельное состояние заводить незачем.
+    const attempts = gh<{ body: string }[]>(
+      `/repos/${REPO}/issues/${issue.number}/comments?per_page=100`,
+    ).filter((c) => c.body.includes(STALE_MARKER)).length;
+
+    if (attempts + 1 >= config.maxAttempts) {
+      setLabels(issue.number, swapLane(issue.labels, 'auto:blocked'));
+      comment(
+        issue.number,
+        `${STALE_MARKER}\n\nЗадача снята с автоочереди: ${attempts + 1} попытки подряд закончились ` +
+          `ничем — сессия воркера каждый раз умирала, не дойдя до PR. Дальше автоматика будет ` +
+          `бесконечно ходить по кругу и жечь бюджет, поэтому issue переведена в \`auto:blocked\`.\n\n` +
+          `Скорее всего задача сформулирована слишком крупно или упирается в доступ, которого у ` +
+          `воркера нет. Разбей её на части либо верни в очередь руками, поменяв лейбл на \`auto:ready\`.`,
+      );
+      console.log(`gave up on #${issue.number} after ${attempts + 1} attempts → auto:blocked`);
+      touched++;
+      continue;
+    }
+
     setLabels(issue.number, swapLane(issue.labels, 'auto:ready'));
     comment(
       issue.number,
-      `Лок \`auto:wip\` снят автоматически: ${hours} ч без обновлений и без открытого PR — ` +
-        `сессия воркера, судя по всему, не дожила до PR. Issue вернулась в очередь.`,
+      `${STALE_MARKER}\n\nЛок \`auto:wip\` снят автоматически: ${hours} ч без обновлений и без ` +
+        `открытого PR — сессия воркера, судя по всему, не дожила до PR. Issue вернулась в очередь ` +
+        `(попытка ${attempts + 1} из ${config.maxAttempts}).`,
     );
-    console.log(`released stale lock #${issue.number} (${hours}h)`);
+    console.log(`released stale lock #${issue.number} (${hours}h, attempt ${attempts + 1})`);
     touched++;
   }
 

@@ -3,11 +3,21 @@
     "Рубильник автономной разгрузки бэклога. Описание — docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md",
     "enabled=false останавливает воркер целиком: он проснётся, увидит флаг и уйдёт спать.",
     "autoMerge=false оставляет всё как есть, но PR-ы будут ждать ручного мержа.",
-    "Мерж в main запускает CI → deploy.yml → прод. autoMerge=true означает выкатку без человека."
+    "Мерж в main запускает CI → deploy.yml → прод. autoMerge=true означает выкатку без человека.",
+    "maxAttempts — потолок на брошенные попытки: задача, которую воркер не вытягивает, снимается с очереди в auto:blocked, а не крутится вечно."
   ],
   "enabled": true,
   "autoMerge": true,
   "maxOpenPrs": 2,
   "staleWipHours": 6,
-  "pinned": [428, 429, 424, 423, 371, 432, 430]
+  "maxAttempts": 3,
+  "pinned": [
+    428,
+    429,
+    424,
+    423,
+    371,
+    432,
+    430
+  ]
 }

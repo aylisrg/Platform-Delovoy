@@ -48,6 +48,11 @@ export interface QueueConfig {
   pinned: number[];
   /** Через сколько часов молчания `auto:wip` считается протухшим локом. */
   staleWipHours: number;
+  /**
+   * Сколько раз задачу можно подобрать и бросить, прежде чем снять её с очереди.
+   * Без этого потолка задача, которую воркер не вытягивает, крутится вечно и жжёт бюджет.
+   */
+  maxAttempts: number;
 }
 
 export const DEFAULT_CONFIG: QueueConfig = {
@@ -56,6 +61,7 @@ export const DEFAULT_CONFIG: QueueConfig = {
   maxOpenPrs: 2,
   pinned: [],
   staleWipHours: 6,
+  maxAttempts: 3,
 };
 
 const PRIORITY_ORDER: Record<Priority, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
