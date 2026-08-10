@@ -32,7 +32,7 @@ on:
       seconds:
         description: "Длительность захвата, секунд"
         required: false
-        default: "90"
+        default: "150"
   push:
     branches-ignore: [main]
     paths: [".github/workflows/ops-tls-capture.yml"]
@@ -50,7 +50,7 @@ jobs:
       - name: Захват и разбор на VPS (read-only)
         uses: appleboy/ssh-action@v1
         env:
-          SECONDS_IN: ${{ inputs.seconds || '90' }}
+          SECONDS_IN: ${{ inputs.seconds || '150' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -91,6 +91,10 @@ jobs:
             CH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 1'
             SH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 2'
 
+            # TLS record type 21 = alert. Нужен, чтобы отличить «сервер молчит»
+            # от «сервер шлёт fatal alert» — это разные диагнозы.
+            ALERT=$($SUDO tcpdump -r "$CAP" -n 'tcp[((tcp[12:1] & 0xf0) >> 2)] = 21' 2>/dev/null | wc -l)
+
             SYN=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack = 0' 2>/dev/null | wc -l)
             SYNACK=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & (tcp-syn|tcp-ack) = (tcp-syn|tcp-ack)' 2>/dev/null | wc -l)
             RST=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-rst != 0' 2>/dev/null | wc -l)
@@ -107,6 +111,7 @@ jobs:
             echo "ClientHello (доехал до нас):   $CH"
             echo "ServerHello/HRR (мы ответили): $SH"
             echo "RST:                           $RST"
+            echo "TLS alert (record type 21):    $ALERT"
 
             # Клиенты, чей ClientHello доехал, но ответа не получили.
             awk '{print $3}' "$WORK/ch.txt" | sed 's/:$//' | sort -u > "$WORK/ch_clients.txt"
@@ -128,5 +133,28 @@ jobs:
             echo ""
             echo "--- ss: состояния TCP после захвата ---"
             $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
+
+            # Версии TLS-стека: определяют, поддерживается ли X25519MLKEM768.
+            # ML-KEM появился только в OpenSSL 3.5; на 3.0/3.2 сервер обязан
+            # отвечать HelloRetryRequest — и если он вместо этого молчит,
+            # лечение именно здесь.
+            echo ""
+            echo "############ Версии TLS-стека ############"
+            nginx -v 2>&1 | head -1
+            echo "--- OpenSSL, с которым СОБРАН nginx ---"
+            nginx -V 2>&1 | tr ' ' '\n' | grep -i -A0 'openssl' | head -5
+            nginx -V 2>&1 | grep -o 'built with OpenSSL[^ ]* [0-9][^ ]*' | head -1
+            echo "--- OpenSSL в системе (runtime) ---"
+            openssl version -a 2>/dev/null | head -3
+            echo "--- Поддерживает ли runtime-OpenSSL ML-KEM ---"
+            if openssl list -kem-algorithms 2>/dev/null | grep -qi 'ml-kem\|mlkem\|kyber'; then
+              openssl list -kem-algorithms 2>/dev/null | grep -i 'ml-kem\|mlkem\|kyber' | head -5
+            else
+              echo "  ML-KEM/Kyber НЕ поддерживается (ожидаемо для OpenSSL < 3.5)"
+            fi
+
+            echo ""
+            echo "############ nginx error.log: последние TLS-ошибки ############"
+            $SUDO grep -iE 'ssl|handshake|tls' /var/log/nginx/error.log 2>/dev/null | tail -25 || echo "  (нет записей)"
 
             $SUDO rm -f "$CAP"; rm -rf "$WORK"
