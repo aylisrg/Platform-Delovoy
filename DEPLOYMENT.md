@@ -64,42 +64,6 @@ docker compose logs -f bot   # убедиться что бот стартану
 
 ---
 
-### Сервис `agent` — Claude Code Agent
-
-Принимает задачи через Telegram и исполняет их через Claude Code CLI в изолированном workspace `/opt/claude-agent-workspace/`. Использует **отдельный бот-токен** (`AGENT_TELEGRAM_BOT_TOKEN`) — не конфликтует с `@DelovoyPark_bot`. Принимает команды только от владельца (`AGENT_TELEGRAM_USER_ID`). Нет доступа к prod БД/Redis.
-
-**Образ:** `ghcr.io/aylisrg/platform-delovoy-agent:latest` (собирается workflow `build-agent.yml`).
-
-**Одноразовая настройка после первого деплоя:**
-```bash
-# 1. Создать workspace и клонировать репо
-ssh deploy@<VPS>
-sudo bash /opt/delovoy-park/scripts/setup-agent-workspace.sh
-
-# 2. Авторизовать Claude Code через claude.ai OAuth (API key не нужен)
-docker compose exec agent claude login
-# → Откроется URL в stdout, пройди авторизацию в браузере
-
-# 3. Перезапустить сервис чтобы подхватить auth
-docker compose restart agent
-docker compose logs -f agent  # должно быть "Bot is running, waiting for messages"
-```
-
-**GitHub Secrets для агента:**
-
-| Secret | Описание |
-|--------|----------|
-| `AGENT_TELEGRAM_BOT_TOKEN` | Токен нового бота (создать через @BotFather) |
-| `AGENT_TELEGRAM_USER_ID` | Твой Telegram user_id (получить у @userinfobot) |
-| `AGENT_GITHUB_PAT` | Fine-grained PAT: repo `contents:write` + `pull-requests:write` |
-
-**Команды бота:**
-- Любой текст → выполнить задачу через Claude Code
-- `/status` → состояние очереди
-- `/start` → приветствие + справка
-
----
-
 ## Правило №1: Никогда не пушь в main напрямую
 
 **Весь код идёт через Pull Request.**
@@ -221,10 +185,11 @@ Telegram-алерт + issue `notifications-down`, автозакрытие пр�
 client-beacon событий (≥15 за 30 мин) даёт предупреждение «снаружи зелено,
 у клиентов ошибки» (RU-mobile деградация, разрез по `metadata.connection`).
 
-**Вторая внешняя точка — Hetzner-probe** (`ops-hetzner-probe.yml → install`):
-честный cron `*/5` на боксе агента, алерты в Telegram напрямую из DE — канал
-не зависит ни от GitHub (его cron троттлится до ~50–70 мин), ни от VPS,
-ни от релея.
+**Вторая внешняя точка (Hetzner-probe) удалена** — Hetzner-бокс агента изъят
+владельцем (2026-08-10), `ops-hetzner-probe.yml` удалён вместе с ним. Канал
+алертов, не зависящий ни от GitHub (его cron троттлится до ~50–70 мин), ни от
+VPS, ни от релея, сейчас отсутствует — восстановление на новой RU/внешней
+точке трекается issue #456.
 
 ### Blue-green деплой (zero-downtime)
 
@@ -278,19 +243,19 @@ Actions → **Telegram Diagnose** → Run workflow (chat_id по умолчан�
 | `OK_VIA_RELAY` | Прямой путь закрыт, релей жив | Норма при блокировке; запасной прямой путь — `ops-docker-ipv6 enable` |
 | `TOKEN_INVALID` | Токен отозван/сменён | Обновить `TELEGRAM_BOT_TOKEN` в GH Secrets → redeploy |
 | `DNS_FAIL` | Резолвер сервера не отвечает | `resolvectl status`, `/etc/resolv.conf`; сменить DNS на 1.1.1.1/8.8.8.8 |
-| `V6_ONLY_FAIL` | Есть только AAAA, v6-маршрут сломан | Чинить v6-маршрут или `ops-telegram-relay provision`. ⚠️ НЕ отключать IPv6: при v4-блоке это единственный прямой путь |
-| `CONTAINER_ONLY_FAIL` | Хост дотягивается (обычно v6), контейнер v4-only, v4 заблокирован | `ops-docker-ipv6 enable` (NAT66 контейнерам) и/или `ops-telegram-relay provision` |
+| `V6_ONLY_FAIL` | Есть только AAAA, v6-маршрут сломан | Чинить v6-маршрут — релея на замену пока нет (issue #455). ⚠️ НЕ отключать IPv6: при v4-блоке это единственный прямой путь |
+| `CONTAINER_ONLY_FAIL` | Хост дотягивается (обычно v6), контейнер v4-only, v4 заблокирован | `ops-docker-ipv6 enable` (NAT66 контейнерам); релея на замену пока нет (issue #455) |
 | `NETWORK_DOWN` | Весь egress сломан | Тикет в Timeweb, проверить firewall egress |
-| `FULL_BLOCK` | api.telegram.org недоступен всеми путями | `ops-telegram-relay provision` (tinyproxy на Hetzner) |
+| `FULL_BLOCK` | api.telegram.org недоступен всеми путями | Релея нет — см. issue #455 |
 
 **Обходы (в порядке предпочтения):**
 
 1. **IPv6 контейнеров** — Actions → `Ops — Docker IPv6` → `enable`
    (Timeweb-only, без внешних зависимостей; рестарт docker ≈ 30–60 с даунтайма,
    запускать не в пик). Node ≥20 сам предпочтёт рабочий путь.
-2. **tinyproxy на Hetzner-боксе агента** — Actions → `Ops — Telegram Relay` →
-   `provision` (порт 3128, доступ только с IP VPS, BasicAuth; e2e-тест до
-   записи `.env`; заодно удаляет устаревший `TELEGRAM_API_ROOT`).
+2. **tinyproxy-релей на Hetzner-боксе агента удалён вместе с боксом**
+   (2026-08-10, `ops-telegram-relay.yml`) — восстановление транспорта без
+   Hetzner трекается issue #455.
 3. Запасные (вручную, см. ADR 2026-07-23): nginx-relay по `TELEGRAM_API_ROOT`
    (⚠️ токен в URI — `access_log off`), Cloudflare Worker (⚠️ workers.dev сам
    бывает заблокирован из RU-сетей — проверять доступность с VPS).
