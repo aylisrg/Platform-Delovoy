@@ -271,10 +271,15 @@ jobs:
             awk '{print $5}' "$WORK/sh.txt" | sed 's/:$//' | sort -u > "$WORK/sh_clients.txt"
             comm -23 "$WORK/ch_clients.txt" "$WORK/sh_clients.txt" > "$WORK/stalled.txt"
             echo ""
-            echo "--- Уникальных клиентов прислали ClientHello: $(wc -l < "$WORK/ch_clients.txt")"
-            echo "--- Из них НЕ получили ServerHello:          $(wc -l < "$WORK/stalled.txt")"
-            echo "--- Примеры зависших (до 15, только IP) ---"
-            sed 's/\.[0-9]*$//' "$WORK/stalled.txt" | sort -u | head -15
+            echo "!!! Ориентировочно, не доказательство. Счётчики выше считают"
+            echo "!!! ПАКЕТЫ, а не рукопожатия: ретрансмиссии учитываются повторно"
+            echo "!!! (наблюдалось SYN-ACK > SYN), а большой ClientHello занимает"
+            echo "!!! два сегмента, из которых виден только первый. Для вывода"
+            echo "!!! 'клиент не получил ответа' нужен per-connection разбор со"
+            echo "!!! сборкой TLS-записи — здесь его нет. Опираться на прямой"
+            echo "!!! опыт (job pq-probe), а не на эти цифры."
+            echo "--- Уникальных источников с ClientHello-пакетом: $(wc -l < "$WORK/ch_clients.txt")"
+            echo "--- Без парного ServerHello-пакета (сырой счёт): $(wc -l < "$WORK/stalled.txt")"
 
             # РЕШАЮЩИЙ ЗАМЕР. Большой ClientHello едет двумя TCP-сегментами.
             # Счётчик выше видит только ПЕРВЫЙ сегмент, поэтому сам по себе не
