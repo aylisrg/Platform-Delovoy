@@ -169,6 +169,32 @@ jobs:
             $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1 \
               || echo "docker/golang недоступен на VPS (возможен блок Docker Hub из РФ)"
 
+            # Есть ли фильтрация на самой машине, помимо ufw. Ищем правила,
+            # которые мог навесить провайдер или прошлые «героические скрипты»:
+            # DROP/REJECT на 443, u32-матчи по содержимому пакета, ipset,
+            # сторонние демоны фильтрации.
+            echo ""
+            echo "=== nftables: полный ruleset ==="
+            $SUDO nft list ruleset 2>/dev/null | head -60 || echo "  nft недоступен"
+            echo ""
+            echo "=== iptables: filter/mangle/raw ==="
+            for T in filter mangle raw; do
+              echo "--- table $T ---"
+              $SUDO iptables -t $T -S 2>/dev/null | head -25 || echo "  недоступно"
+            done
+            echo ""
+            echo "=== Правила, трогающие 443 / содержимое пакетов ==="
+            $SUDO iptables-save 2>/dev/null | grep -iE 'dport 443|u32|string|DROP|REJECT|TCPMSS|length' | head -20 \
+              || echo "  ничего не найдено"
+            echo ""
+            echo "=== Сторонние агенты фильтрации ==="
+            $SUDO systemctl list-units --type=service --state=running 2>/dev/null \
+              | grep -iE 'guard|ddos|filter|shield|protect|antiddos' || echo "  не найдено"
+            echo ""
+            echo "=== MSS/MTU на внешнем интерфейсе ==="
+            ip link show "$(ip route show default | awk '/default/{print $5; exit}')" 2>/dev/null | head -2
+            $SUDO iptables -t mangle -S 2>/dev/null | grep -i tcpmss || echo "  клампинга MSS нет"
+
   capture:
     name: "TLS: доезжает ли ClientHello"
     runs-on: ubuntu-latest
