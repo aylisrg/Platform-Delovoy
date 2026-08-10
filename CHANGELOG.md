@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.8.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.7.0...v2.8.0) (2026-08-10)
+
+
+### Features
+
+* **cafe:** публичный раздел с QR-чекаутом (ЮKassa СБП/карта), каталог меню и статистика в админке ([#370](https://github.com/aylisrg/Platform-Delovoy/issues/370)) ([fc34a0b](https://github.com/aylisrg/Platform-Delovoy/commit/fc34a0bccd9f30e9495de0b29b87fe2a02f255c2))
+* **gazebos:** mobile schedule redesign, booking edit + audit, weekend price fix, продление-reminder, public booking toggle ([#377](https://github.com/aylisrg/Platform-Delovoy/issues/377)) ([1992e17](https://github.com/aylisrg/Platform-Delovoy/commit/1992e170ac753aad0acd49cf614be62686d18264))
+* **infra:** RU-aware monitoring, Hetzner relay fixes, blue-green deploy, node22 ([#374](https://github.com/aylisrg/Platform-Delovoy/issues/374)) ([d02c060](https://github.com/aylisrg/Platform-Delovoy/commit/d02c06087089b1107a43275d9b84e92e6653d0b4))
+* **notifications:** kill switch + редактируемая матрица каналов на /admin/monitoring ([#376](https://github.com/aylisrg/Platform-Delovoy/issues/376)) ([3830ebd](https://github.com/aylisrg/Platform-Delovoy/commit/3830ebd093a829eee488b131f56e0f887ceb294b))
+* **notifications:** per-channel Telegram test buttons on monitoring page ([#366](https://github.com/aylisrg/Platform-Delovoy/issues/366)) ([2a9ae6d](https://github.com/aylisrg/Platform-Delovoy/commit/2a9ae6dfaa76a3fd99efa2e3ccb176718843a28e))
+
+
+### Bug Fixes
+
+* **booking:** parse & display booking times in Moscow TZ, not server TZ ([#369](https://github.com/aylisrg/Platform-Delovoy/issues/369)) ([5ec6ada](https://github.com/aylisrg/Platform-Delovoy/commit/5ec6ada4e31d4e2dced15a2851cff440f243b0b7))
+* **gazebos:** date-navigator TZ, list→schedule deep-link, received-money analytics ([#375](https://github.com/aylisrg/Platform-Delovoy/issues/375)) ([88fa63e](https://github.com/aylisrg/Platform-Delovoy/commit/88fa63eef3badef7d985bf80ee66de30af4e8b1b))
+* **infra:** надёжная доступность из РФ + починка Telegram-транспорта (глобальный инфра-рефакторинг) ([#372](https://github.com/aylisrg/Platform-Delovoy/issues/372)) ([2294380](https://github.com/aylisrg/Platform-Delovoy/commit/2294380cdcfb41731779537a448c044c3cfcdc16))
+* **ops:** provision релея падал с exit 127 под root ("-E: command not found") ([#446](https://github.com/aylisrg/Platform-Delovoy/issues/446)) ([b10042b](https://github.com/aylisrg/Platform-Delovoy/commit/b10042b519fd3f82fd43e488dc9cbd1c58ff19bb))
+
 ## [2.7.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.6.0...v2.7.0) (2026-07-21)
 
 
