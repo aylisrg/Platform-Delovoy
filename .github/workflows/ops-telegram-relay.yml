@@ -81,6 +81,10 @@ jobs:
           script: |
             set -eu
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            # -E (сохранить окружение) осмысленно только у sudo. Под root SUDO
+            # пуст, и "$SUDO -E apt-get" вырождается в " -E apt-get" → bash
+            # пытается выполнить "-E" и падает с 127 (provision был мёртв).
+            APT="apt-get"; [ -n "$SUDO" ] && APT="$SUDO -E apt-get"
             VPS_IP=$(getent ahostsv4 "$VPS_HOST" | awk 'NR==1{print $1}')
             if [ -z "$VPS_IP" ]; then echo "::error::Не смог отрезолвить VPS_HOST"; exit 1; fi
             echo "VPS_IP: $VPS_IP"
@@ -100,8 +104,8 @@ jobs:
               provision|rotate-credentials)
                 if [ "$ACTION" = "provision" ]; then
                   export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
-                  $SUDO -E apt-get update -qq
-                  $SUDO -E apt-get install -y -qq tinyproxy >/dev/null
+                  $APT update -qq
+                  $APT install -y -qq tinyproxy >/dev/null
                 fi
                 if ! command -v tinyproxy >/dev/null 2>&1; then
                   echo "::error::tinyproxy не установлен (для rotate сначала запустите provision)"; exit 1
