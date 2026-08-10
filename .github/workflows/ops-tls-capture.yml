@@ -43,25 +43,45 @@ concurrency:
 
 jobs:
   # РЕШАЮЩИЙ ЭКСПЕРИМЕНТ. Постквантовый клиент против нашего сервера с чистой
-  # сети (Hetzner, Германия — без российского DPI) и с самого VPS (трафик даже
-  # не выходит за пределы Timeweb).
+  # сети (сам GitHub-раннер — вне РФ, вне подозреваемого DPI-пути) и с самого
+  # VPS (трафик даже не выходит за пределы Timeweb).
+  #
+  # Hetzner-бокс изъят владельцем (доступы удалены) — SSH-проба с него мертва.
+  # Роль «чистой сети вне РФ» теперь играет сам GitHub-раннер: пробу гоняем
+  # прямо в job, без SSH-хопа. Матрица целей — оба IPv4 сервера, IPv6, и
+  # сторонний ML-KEM-сайт для калибровки (подтвердить, что сама проба и раннер
+  # умеют постквантовое рукопожатие).
   #
   # Go шлёт X25519MLKEM768 первым key share по умолчанию — ровно как Chrome и
   # Safari. Сервер эту группу не умеет (OpenSSL 3.0.13), поэтому обязан ответить
   # HelloRetryRequest и договориться на x25519.
   #
   # Читать так:
-  #   PQ падает и с Hetzner, и с VPS  → виноват наш TLS-стек, апгрейд оправдан;
+  #   PQ падает и с раннера, и с VPS  → виноват наш TLS-стек, апгрейд оправдан;
   #   PQ проходит с обеих точек       → сервер здоров, ломается путь до клиентов
   #                                     в РФ, и апгрейд OpenSSL ничего не решит.
-  # curve=29 в ответе = x25519 (сработал HelloRetryRequest, это норма),
-  # curve=4588 = X25519MLKEM768 (сервер умеет PQ — сейчас не должен).
+  #   калибровочный сайт FAIL         → проба/раннер сами не умеют PQ, результаты
+  #                                     по нашим адресам не считать доказательством.
+  #
+  # curve=29 в ответе = x25519 (сработал HelloRetryRequest — сервер PQ не умеет,
+  # это норма до issue #453), curve=4588 = X25519MLKEM768 (сервер умеет PQ).
+  # ConnectionState.CurveID — публичное поле начиная с Go 1.25 (добавлено
+  # специально для этого наблюдения, golang/go#67516). golang:alpine на VPS
+  # тянет тег :latest (≥1.25 к 2026-08, подтверждено живым прогоном run
+  # 31391667501: curve=29). Предустановленный `go` на ubuntu-latest раннере
+  # — НЕ факт, что ≥1.25 (эмпирически словили именно это: "st.CurveID
+  # undefined" на раннере при живом curve=29 с VPS в том же прогоне) —
+  # поэтому ставим версию явно через setup-go, а не полагаемся на образ.
   pq-probe:
     name: "PQ-проба: постквантовый ClientHello"
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Проба с Hetzner (вне РФ) и с самого VPS
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+
+      - name: "Чистая сеть (сам раннер) → матрица адресов"
         run: |
           cat > /tmp/pqprobe.go <<'GOEOF'
           package main
@@ -73,10 +93,16 @@ jobs:
           	"time"
           )
 
-          func probe(name string, cfg *tls.Config) {
+          type target struct {
+          	label string
+          	addr  string
+          	sni   string
+          }
+
+          func probe(name string, addr string, cfg *tls.Config) {
           	d := &net.Dialer{Timeout: 12 * time.Second}
           	start := time.Now()
-          	c, err := tls.DialWithDialer(d, "tcp", "delovoy-park.ru:443", cfg)
+          	c, err := tls.DialWithDialer(d, "tcp", addr, cfg)
           	el := time.Since(start).Truncate(time.Millisecond)
           	if err != nil {
           		fmt.Printf("  %-24s FAIL  %-8v  %v\n", name, el, err)
@@ -89,53 +115,26 @@ jobs:
           }
 
           func main() {
-          	probe("PQ (как Chrome)", &tls.Config{ServerName: "delovoy-park.ru"})
-          	probe("только классический", &tls.Config{
-          		ServerName:       "delovoy-park.ru",
-          		CurvePreferences: []tls.CurveID{tls.X25519},
-          	})
+          	targets := []target{
+          		{"delovoy-park.ru (A, 85.193.89.242, не main)", "85.193.89.242:443", "delovoy-park.ru"},
+          		{"delovoy-park.ru (v4 main, 91.222.236.239)", "91.222.236.239:443", "delovoy-park.ru"},
+          		{"delovoy-park.ru (v6 main)", "[2a03:6f01:1:2::1:9306]:443", "delovoy-park.ru"},
+          		{"cloudflare.com (калибровка ML-KEM)", "cloudflare.com:443", "cloudflare.com"},
+          	}
+          	for _, t := range targets {
+          		fmt.Printf("=== %s (%s) ===\n", t.label, t.addr)
+          		probe("PQ (как Chrome)", t.addr, &tls.Config{ServerName: t.sni})
+          		probe("только классический", t.addr, &tls.Config{
+          			ServerName:       t.sni,
+          			CurvePreferences: []tls.CurveID{tls.X25519},
+          		})
+          	}
           }
           GOEOF
           echo "Программа готова. Go по умолчанию отправляет X25519MLKEM768 — как Chrome 151."
           cp /tmp/pqprobe.go "$GITHUB_WORKSPACE/pqprobe.go"
-
-      - name: Hetzner (Германия, чистая сеть)
-        uses: appleboy/ssh-action@v1
-        continue-on-error: true
-        with:
-          host: ${{ secrets.AGENT_HETZNER_HOST }}
-          username: ${{ secrets.AGENT_HETZNER_USER }}
-          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
-          command_timeout: 6m
-          script: |
-            set -u
-            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
-            cat > /tmp/pqprobe.go <<'GOEOF'
-            package main
-            import ("crypto/tls";"fmt";"net";"time")
-            func probe(n string, c *tls.Config){
-              d:=&net.Dialer{Timeout:12*time.Second}; s:=time.Now()
-              cn,err:=tls.DialWithDialer(d,"tcp","delovoy-park.ru:443",c)
-              e:=time.Since(s).Truncate(time.Millisecond)
-              if err!=nil{fmt.Printf("  %-24s FAIL  %-8v  %v\n",n,e,err);return}
-              st:=cn.ConnectionState()
-              fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",n,e,st.Version,st.CurveID,st.NegotiatedProtocol)
-              cn.Close()
-            }
-            func main(){
-              probe("PQ (как Chrome)",&tls.Config{ServerName:"delovoy-park.ru"})
-              probe("только классический",&tls.Config{ServerName:"delovoy-park.ru",CurvePreferences:[]tls.CurveID{tls.X25519}})
-            }
-            GOEOF
-            echo "=== Hetzner → delovoy-park.ru ==="
-            if $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1; then
-              :
-            else
-              echo "docker/golang недоступен — пробую системный openssl"
-              openssl version
-              openssl s_client -groups X25519MLKEM768 -connect delovoy-park.ru:443 \
-                -servername delovoy-park.ru </dev/null 2>&1 | grep -iE 'negotiated|error|Cipher|Protocol' | head -5
-            fi
+          echo "=== Раннер (чистая сеть, вне РФ) → матрица ==="
+          go run /tmp/pqprobe.go
 
       - name: Сам VPS (трафик не покидает Timeweb)
         uses: appleboy/ssh-action@v1
@@ -194,6 +193,18 @@ jobs:
             echo "=== MSS/MTU на внешнем интерфейсе ==="
             ip link show "$(ip route show default | awk '/default/{print $5; exit}')" 2>/dev/null | head -2
             $SUDO iptables -t mangle -S 2>/dev/null | grep -i tcpmss || echo "  клампинга MSS нет"
+            echo ""
+            echo "=== fail2ban: не баним ли легитимные RU-IP сами себе ==="
+            if command -v fail2ban-client >/dev/null 2>&1; then
+              $SUDO fail2ban-client status 2>/dev/null || echo "  fail2ban-client status недоступен"
+              for J in $($SUDO fail2ban-client status 2>/dev/null | sed -n 's/.*Jail list:\s*//p' | tr ',' '\n' | sed 's/^\s*//'); do
+                [ -z "$J" ] && continue
+                echo "--- jail: $J ---"
+                $SUDO fail2ban-client status "$J" 2>/dev/null | grep -iE 'banned|Currently banned|Banned IP'
+              done
+            else
+              echo "  fail2ban не установлен на VPS"
+            fi
 
   capture:
     name: "TLS: доезжает ли ClientHello"

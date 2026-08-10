@@ -130,8 +130,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
 - `yookassa` → API-клиент in `src/lib/yookassa/` (fetch, Basic auth, Idempotence-Key, чеки 54-ФЗ). Бизнес-логика — в модуле `payments`. Does NOT create `src/modules/yookassa/`.
 
-**Infrastructure services (not modules, no `src/modules/` directory):**
-- `agent` → lives in `agent/`. Telegram-controlled Claude Code agent. Separate Docker image `platform-delovoy-agent`. Workspace: `/opt/claude-agent-workspace/` on VPS. Does NOT touch `src/modules/`. See `DEPLOYMENT.md` § "Сервис `agent`".
+**Infrastructure services (not modules, no `src/modules/` directory):** none currently. The standalone Telegram-controlled Claude Code agent (`agent/`, image `platform-delovoy-agent`) was removed 2026-08-10 — OAuth login required a non-RU IP (was Hetzner-hosted, box decommissioned) and is not viable on the RU-hosted prod VPS.
 
 ---
 

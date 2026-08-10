@@ -270,9 +270,9 @@ jobs:
               OK) echo "Сеть в порядке. Если уведомления всё равно не идут — смотрите логи app/bot и /api/notifications/health." ;;
               OK_VIA_RELAY) echo "Прямой путь из контейнера закрыт, но настроенный релей/root работает — уведомления живы. Запасной прямой путь: включите IPv6 контейнеров (workflow ops-docker-ipv6)." ;;
               API_ERROR_FROM_VPS) echo "Сеть до Telegram работает, но getMe вернул не 200 — проверьте TELEGRAM_BOT_TOKEN в /opt/delovoy-park/.env." ;;
-              FULL_BLOCK) echo "api.telegram.org недоступен с сервера всеми путями. Обход: workflow ops-telegram-relay (tinyproxy на Hetzner) — runbook в DEPLOYMENT.md." ;;
-              V6_ONLY_FAIL) echo "Есть только AAAA-запись, IPv6-маршрут сломан. Проверьте маршрут v6 или используйте релей (ops-telegram-relay)." ;;
+              FULL_BLOCK) echo "api.telegram.org недоступен с сервера всеми путями. ops-telegram-relay (tinyproxy на Hetzner) удалён вместе с боксом — см. issue #455 (восстановить egress без Hetzner)." ;;
+              V6_ONLY_FAIL) echo "Есть только AAAA-запись, IPv6-маршрут сломан. Проверьте маршрут v6 — релея на замену пока нет, см. issue #455." ;;
               DNS_FAIL) echo "DNS не резолвит api.telegram.org. Проверьте resolvectl / /etc/resolv.conf (runbook)." ;;
               NETWORK_DOWN) echo "Весь egress сломан — тикет в Timeweb." ;;
-              CONTAINER_ONLY_FAIL) echo "Хост дотягивается до Telegram (обычно по IPv6), контейнер — нет: у Docker-сети нет IPv6, а IPv4 с этого IP заблокирован. Лечение: ops-telegram-relay (релей) и/или ops-docker-ipv6 (IPv6 в контейнерах). НЕ отключайте IPv6 на хосте — сейчас это единственный живой прямой путь." ;;
+              CONTAINER_ONLY_FAIL) echo "Хост дотягивается до Telegram (обычно по IPv6), контейнер — нет: у Docker-сети нет IPv6, а IPv4 с этого IP заблокирован. Лечение: ops-docker-ipv6 (IPv6 в контейнерах); релей на Hetzner удалён, замена — issue #455. НЕ отключайте IPv6 на хосте — сейчас это единственный живой прямой путь." ;;
             esac

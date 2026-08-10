@@ -18,7 +18,7 @@ on:
       scope:
         description: "Что проверять"
         type: choice
-        options: [all, dns, vps, timeweb, hetzner]
+        options: [all, dns, vps, timeweb]
         default: all
       log_hours:
         description: "Глубина анализа nginx-логов, часов"
@@ -88,8 +88,12 @@ jobs:
 
       - name: Реестр блокировок РКН (best-effort)
         continue-on-error: true
+        env:
+          SERVER_IP_MAIN: "91.222.236.239"
         run: |
-          for Q in "$SERVER_IP" "$DOMAIN"; do
+          # Оба IPv4 сервера: $SERVER_IP (A-запись, не main) и SERVER_IP_MAIN
+          # (is_main:true у Timeweb) — issue #452 шаг 4.
+          for Q in "$SERVER_IP" "$SERVER_IP_MAIN" "$DOMAIN"; do
             echo "=== $Q ==="
             curl -sS --max-time 20 "https://reestr.rublacklist.net/api/v3/ip/?q=$Q" | head -c 500 || echo "(API недоступен)"
             echo ""
@@ -266,32 +270,3 @@ jobs:
             echo "> 3) Если фильтрация подтверждается — просим ослабить/отключить её для 80/443."
             echo "> 4) Отдельно: выделен ли серверу IPv6-адрес/подсеть и есть ли известные проблемы качества v6?"
           } | tee -a "$GITHUB_STEP_SUMMARY"
-
-  hetzner-audit:
-    name: "Hetzner: что осталось от релея 2026-07-14"
-    if: ${{ (inputs.scope || 'all') == 'all' || inputs.scope == 'hetzner' }}
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: SSH-аудит агент-бокса (read-only)
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.AGENT_HETZNER_HOST }}
-          username: ${{ secrets.AGENT_HETZNER_USER }}
-          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
-          command_timeout: 5m
-          script: |
-            set -u
-            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
-            echo "=== Слушающие порты ==="
-            $SUDO ss -tlnp 2>/dev/null | head -20 || ss -tln | head -20
-            echo "=== UFW ==="
-            $SUDO ufw status verbose 2>/dev/null || true
-            echo "=== Контейнеры ==="
-            docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo "(docker недоступен)"
-            echo "=== Установлен ли tinyproxy/squid/nginx ==="
-            for P in tinyproxy squid nginx; do
-              command -v "$P" >/dev/null 2>&1 && echo "$P: установлен ($(systemctl is-active $P 2>/dev/null || echo '?'))" || echo "$P: нет"
-            done
-            echo "=== Egress в Telegram (ожидаем 404 — сеть живая) ==="
-            curl -s -o /dev/null -w "api.telegram.org: HTTP=%{http_code}\n" --max-time 10 "https://api.telegram.org/botINVALID/getMe" || true
