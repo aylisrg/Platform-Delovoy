@@ -42,6 +42,133 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # РЕШАЮЩИЙ ЭКСПЕРИМЕНТ. Постквантовый клиент против нашего сервера с чистой
+  # сети (Hetzner, Германия — без российского DPI) и с самого VPS (трафик даже
+  # не выходит за пределы Timeweb).
+  #
+  # Go шлёт X25519MLKEM768 первым key share по умолчанию — ровно как Chrome и
+  # Safari. Сервер эту группу не умеет (OpenSSL 3.0.13), поэтому обязан ответить
+  # HelloRetryRequest и договориться на x25519.
+  #
+  # Читать так:
+  #   PQ падает и с Hetzner, и с VPS  → виноват наш TLS-стек, апгрейд оправдан;
+  #   PQ проходит с обеих точек       → сервер здоров, ломается путь до клиентов
+  #                                     в РФ, и апгрейд OpenSSL ничего не решит.
+  # curve=29 в ответе = x25519 (сработал HelloRetryRequest, это норма),
+  # curve=4588 = X25519MLKEM768 (сервер умеет PQ — сейчас не должен).
+  pq-probe:
+    name: "PQ-проба: постквантовый ClientHello"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Проба с Hetzner (вне РФ) и с самого VPS
+        run: |
+          cat > /tmp/pqprobe.go <<'GOEOF'
+          package main
+
+          import (
+          	"crypto/tls"
+          	"fmt"
+          	"net"
+          	"time"
+          )
+
+          func probe(name string, cfg *tls.Config) {
+          	d := &net.Dialer{Timeout: 12 * time.Second}
+          	start := time.Now()
+          	c, err := tls.DialWithDialer(d, "tcp", "delovoy-park.ru:443", cfg)
+          	el := time.Since(start).Truncate(time.Millisecond)
+          	if err != nil {
+          		fmt.Printf("  %-24s FAIL  %-8v  %v\n", name, el, err)
+          		return
+          	}
+          	st := c.ConnectionState()
+          	fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",
+          		name, el, st.Version, st.CurveID, st.NegotiatedProtocol)
+          	c.Close()
+          }
+
+          func main() {
+          	probe("PQ (как Chrome)", &tls.Config{ServerName: "delovoy-park.ru"})
+          	probe("только классический", &tls.Config{
+          		ServerName:       "delovoy-park.ru",
+          		CurvePreferences: []tls.CurveID{tls.X25519},
+          	})
+          }
+          GOEOF
+          echo "Программа готова. Go по умолчанию отправляет X25519MLKEM768 — как Chrome 151."
+          cp /tmp/pqprobe.go "$GITHUB_WORKSPACE/pqprobe.go"
+
+      - name: Hetzner (Германия, чистая сеть)
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 6m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cat > /tmp/pqprobe.go <<'GOEOF'
+            package main
+            import ("crypto/tls";"fmt";"net";"time")
+            func probe(n string, c *tls.Config){
+              d:=&net.Dialer{Timeout:12*time.Second}; s:=time.Now()
+              cn,err:=tls.DialWithDialer(d,"tcp","delovoy-park.ru:443",c)
+              e:=time.Since(s).Truncate(time.Millisecond)
+              if err!=nil{fmt.Printf("  %-24s FAIL  %-8v  %v\n",n,e,err);return}
+              st:=cn.ConnectionState()
+              fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",n,e,st.Version,st.CurveID,st.NegotiatedProtocol)
+              cn.Close()
+            }
+            func main(){
+              probe("PQ (как Chrome)",&tls.Config{ServerName:"delovoy-park.ru"})
+              probe("только классический",&tls.Config{ServerName:"delovoy-park.ru",CurvePreferences:[]tls.CurveID{tls.X25519}})
+            }
+            GOEOF
+            echo "=== Hetzner → delovoy-park.ru ==="
+            if $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1; then
+              :
+            else
+              echo "docker/golang недоступен — пробую системный openssl"
+              openssl version
+              openssl s_client -groups X25519MLKEM768 -connect delovoy-park.ru:443 \
+                -servername delovoy-park.ru </dev/null 2>&1 | grep -iE 'negotiated|error|Cipher|Protocol' | head -5
+            fi
+
+      - name: Сам VPS (трафик не покидает Timeweb)
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 6m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cat > /tmp/pqprobe.go <<'GOEOF'
+            package main
+            import ("crypto/tls";"fmt";"net";"time")
+            func probe(n string, c *tls.Config){
+              d:=&net.Dialer{Timeout:12*time.Second}; s:=time.Now()
+              cn,err:=tls.DialWithDialer(d,"tcp","delovoy-park.ru:443",c)
+              e:=time.Since(s).Truncate(time.Millisecond)
+              if err!=nil{fmt.Printf("  %-24s FAIL  %-8v  %v\n",n,e,err);return}
+              st:=cn.ConnectionState()
+              fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",n,e,st.Version,st.CurveID,st.NegotiatedProtocol)
+              cn.Close()
+            }
+            func main(){
+              probe("PQ (как Chrome)",&tls.Config{ServerName:"delovoy-park.ru"})
+              probe("только классический",&tls.Config{ServerName:"delovoy-park.ru",CurvePreferences:[]tls.CurveID{tls.X25519}})
+            }
+            GOEOF
+            echo "=== VPS → сам себя ==="
+            $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1 \
+              || echo "docker/golang недоступен на VPS (возможен блок Docker Hub из РФ)"
+
   capture:
     name: "TLS: доезжает ли ClientHello"
     runs-on: ubuntu-latest
