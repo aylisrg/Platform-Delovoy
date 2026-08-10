@@ -6,6 +6,14 @@
 # apply идёт через scripts/apply-nginx-vhost.sh (бэкап, nginx -t, автооткат)
 # и завершается внешней проверкой: HTTP/2 + 200 + живой /_next/static-чанк.
 #
+# issue #453 (ADR 2026-07-23 §I2): host-nginx больше не держит публичный
+# :443 напрямую — TLS (с ML-KEM) терминирует контейнер `edge`
+# (nginx:mainline), host-nginx слушает только loopback :8443. apply теперь
+# двухшаговый (host-nginx → loopback, потом edge → публичный :443) с
+# собственным автооткатом на случай если edge не поднимется; rollback
+# сначала останавливает edge (иначе host-nginx не сможет забиндиться
+# обратно на занятый порт), потом восстанавливает бэкап.
+#
 # push-триггер регистрирует workflow до мержа; push-запуск = diff (read-only).
 name: Ops — Nginx vhost
 
@@ -23,6 +31,7 @@ on:
       - ".github/workflows/ops-nginx.yml"
       - "infra/nginx/**"
       - "scripts/apply-nginx-vhost.sh"
+      - "docker-compose.prod.yml"
 
 concurrency:
   group: ops-nginx
@@ -51,6 +60,8 @@ jobs:
           }
           vps "sudo cat /etc/nginx/sites-available/delovoy-park" > /tmp/live-vhost.conf
           vps "sudo cat /etc/nginx/conf.d/delovoy-upstream.conf" > /tmp/live-upstream.conf
+          vps "cat /opt/delovoy-park/infra/nginx/edge/delovoy-edge.conf" > /tmp/live-edge.conf
+          vps "docker inspect -f '{{.State.Status}}' delovoy-edge" > /tmp/live-edge-state.txt
           rm -f ~/.ssh/ops_key
 
           {
@@ -73,6 +84,15 @@ jobs:
               echo "(на сервере нет — apply установит образец с портом 3000)"
             fi
             echo '```'
+            echo "### edge (issue #453, ML-KEM): infra/nginx/edge/delovoy-edge.conf"
+            echo '```diff'
+            if [ -s /tmp/live-edge.conf ]; then
+              diff -u /tmp/live-edge.conf infra/nginx/edge/delovoy-edge.conf || true
+            else
+              echo "(на сервере нет — первый apply создаст контейнер edge на публичном :443)"
+            fi
+            echo '```'
+            echo "Текущее состояние контейнера delovoy-edge: \`$(cat /tmp/live-edge-state.txt 2>/dev/null || echo 'нет данных')\`"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
   apply:
@@ -90,11 +110,21 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,scripts/apply-nginx-vhost.sh"
+          source: "infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,infra/nginx/edge/delovoy-edge.conf,scripts/apply-nginx-vhost.sh,docker-compose.prod.yml"
           target: "/opt/delovoy-park/"
           overwrite: true
 
-      - name: Применить
+      # issue #453 (ADR §I2): apply теперь состоит из двух шагов, которые
+      # обязаны идти в этом порядке — оба владеют портом :443.
+      #   1. apply-nginx-vhost.sh переключает host-nginx на loopback :8443
+      #      (сам скрипт откатывает СЕБЯ при провале nginx -t, как раньше);
+      #      это освобождает :443.
+      #   2. docker compose up -d edge поднимает контейнер, который сразу же
+      #      занимает освободившийся :443. Если edge не поднимется или не
+      #      станет healthy — откатываем host-nginx на публичный :443 из
+      #      того же бэкапа, что сделал apply-nginx-vhost.sh, ЗДЕСЬ, а не
+      #      полагаемся на внешнюю проверку ниже (та уже не автооткатывает).
+      - name: Применить (host-nginx → loopback, затем edge → публичный :443)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -103,8 +133,49 @@ jobs:
           command_timeout: 10m
           script: |
             set -eu
-            chmod +x /opt/delovoy-park/scripts/apply-nginx-vhost.sh
-            /opt/delovoy-park/scripts/apply-nginx-vhost.sh
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cd /opt/delovoy-park
+            chmod +x scripts/apply-nginx-vhost.sh
+
+            rollback_host_nginx() {
+              LATEST=$($SUDO ls -t /etc/nginx/sites-available/delovoy-park.bak-* 2>/dev/null | head -1 || true)
+              if [ -n "$LATEST" ]; then
+                $SUDO cp "$LATEST" /etc/nginx/sites-available/delovoy-park
+                $SUDO nginx -t && $SUDO systemctl reload nginx
+                echo "host-nginx откачен на $LATEST (публичный :443)"
+              else
+                echo "::error::Бэкапа host-nginx нет — публичный :443 не обслуживается никем, чините руками"
+              fi
+            }
+
+            # Активируем docker-compose.prod.yml → docker-compose.yml, если он
+            # только что доставлен (обычный deploy.yml делает то же самое, но
+            # ops-nginx apply самодостаточен и не зависит от порядка запуска).
+            if [ -f docker-compose.prod.yml ]; then
+              mv docker-compose.prod.yml docker-compose.yml
+            fi
+
+            if ! scripts/apply-nginx-vhost.sh; then
+              echo "::error::apply-nginx-vhost.sh провалился — откат уже выполнен скриптом (edge не трогали)"
+              exit 1
+            fi
+
+            echo "host-nginx на loopback :8443 — поднимаю edge на публичный :443"
+            if ! docker compose up -d --no-deps edge; then
+              echo "::error::edge не поднялся — откатываю host-nginx"
+              rollback_host_nginx
+              exit 1
+            fi
+
+            sleep 5
+            if ! docker compose ps edge --format '{{.State}}' | grep -q running; then
+              echo "::error::edge поднялся, но не running — логи и откат host-nginx"
+              docker compose logs --tail 50 edge || true
+              docker compose stop edge || true
+              rollback_host_nginx
+              exit 1
+            fi
+            echo "✅ edge запущен и слушает публичный :443"
 
       - name: Внешняя проверка (HTTP/2, 200, живой чанк)
         run: |
@@ -134,7 +205,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Восстановить последний .bak и перезагрузить nginx
+      # issue #453: edge (контейнер, network_mode: host) держит публичный
+      # :443 с момента первого apply. Останавливаем его ПЕРВЫМ шагом —
+      # иначе восстановленный host-nginx не сможет забиндиться обратно на
+      # :443 (EADDRINUSE) и сайт останется без TLS вообще ни с одной стороны.
+      - name: Остановить edge (освободить :443) и восстановить host-nginx
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -144,6 +219,15 @@ jobs:
           script: |
             set -eu
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cd /opt/delovoy-park
+
+            if docker compose ps edge --format '{{.Names}}' 2>/dev/null | grep -q .; then
+              docker compose stop edge
+              echo "edge остановлен — :443 освобождён"
+            else
+              echo "edge не запущен — пропускаю"
+            fi
+
             LATEST=$($SUDO ls -t /etc/nginx/sites-available/delovoy-park.bak-* 2>/dev/null | head -1 || true)
             [ -n "$LATEST" ] || { echo "::error::Бэкапов нет"; exit 1; }
             echo "Восстанавливаю: $LATEST"

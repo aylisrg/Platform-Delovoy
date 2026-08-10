@@ -63,11 +63,15 @@ jobs:
   #   калибровочный сайт FAIL         → проба/раннер сами не умеют PQ, результаты
   #                                     по нашим адресам не считать доказательством.
   #
-  # crypto/tls.ConnectionState не отдаёт согласованную группу клиенту (нет
-  # публичного поля CurveID — предыдущая версия проб ссылалась на
-  # несуществующее поле и была сломана на компиляции, см. #452). Сигнал —
-  # OK/FAIL и время каждого из двух режимов (PQ по умолчанию vs форс-classic),
-  # этого достаточно, чтобы отличить «PQ-путь бьётся» от «TLS вообще не ходит».
+  # curve=29 в ответе = x25519 (сработал HelloRetryRequest — сервер PQ не умеет,
+  # это норма до issue #453), curve=4588 = X25519MLKEM768 (сервер умеет PQ).
+  # ConnectionState.CurveID — публичное поле начиная с Go 1.25 (добавлено
+  # специально для этого наблюдения, golang/go#67516); раннер GitHub и
+  # golang:alpine на VPS к 2026-08 оба ≥1.25. Прошлая версия проб (до #452)
+  # ссылалась на это же поле на локальном Go 1.24 и не собиралась —
+  # исправление тогда ошибочно решило, что поля не существует вовсе, и убрало
+  # его отовсюду; восстановлено здесь, подтверждено живым прогоном (run
+  # 31391667501: curve=29 с VPS через golang:alpine).
   pq-probe:
     name: "PQ-проба: постквантовый ClientHello"
     runs-on: ubuntu-latest
@@ -101,8 +105,8 @@ jobs:
           		return
           	}
           	st := c.ConnectionState()
-          	fmt.Printf("  %-24s OK    %-8v  tls=0x%04x alpn=%q\n",
-          		name, el, st.Version, st.NegotiatedProtocol)
+          	fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",
+          		name, el, st.Version, st.CurveID, st.NegotiatedProtocol)
           	c.Close()
           }
 
