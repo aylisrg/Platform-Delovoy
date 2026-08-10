@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.8.0...v2.8.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* **ops:** PQ-проба, вывод Hetzner, ML-KEM на TLS-edge (issues [#452](https://github.com/aylisrg/Platform-Delovoy/issues/452), [#453](https://github.com/aylisrg/Platform-Delovoy/issues/453)) ([#459](https://github.com/aylisrg/Platform-Delovoy/issues/459)) ([70ec039](https://github.com/aylisrg/Platform-Delovoy/commit/70ec03985c22cf04bc5e91a5e6f7c72151d4479c))
+
 ## [2.8.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.7.0...v2.8.0) (2026-08-10)
 
 
