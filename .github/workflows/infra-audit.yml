@@ -88,8 +88,12 @@ jobs:
 
       - name: Реестр блокировок РКН (best-effort)
         continue-on-error: true
+        env:
+          SERVER_IP_MAIN: "91.222.236.239"
         run: |
-          for Q in "$SERVER_IP" "$DOMAIN"; do
+          # Оба IPv4 сервера: $SERVER_IP (A-запись, не main) и SERVER_IP_MAIN
+          # (is_main:true у Timeweb) — issue #452 шаг 4.
+          for Q in "$SERVER_IP" "$SERVER_IP_MAIN" "$DOMAIN"; do
             echo "=== $Q ==="
             curl -sS --max-time 20 "https://reestr.rublacklist.net/api/v3/ip/?q=$Q" | head -c 500 || echo "(API недоступен)"
             echo ""
