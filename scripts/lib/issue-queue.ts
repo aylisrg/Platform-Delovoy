@@ -19,6 +19,7 @@
 export type Lane =
   | 'ready'
   | 'wip'
+  | 'review'
   | 'blocked'
   | 'prod-apply'
   | 'epic'
@@ -63,6 +64,9 @@ export function laneOf(labels: string[]): Lane {
   // Порядок проверок — это приоритет: `wip` важнее `ready`, потому что при гонке
   // (оба лейбла проставлены) issue должна выглядеть занятой, а не свободной.
   if (labels.includes('auto:wip')) return 'wip';
+  // `review` проверяется до остальных: PR уже открыт и ждёт человека, живой
+  // сессии за задачей нет — очередь не должна считать её ни свободной, ни занятой.
+  if (labels.includes('auto:review')) return 'review';
   if (labels.includes('auto:epic')) return 'epic';
   if (labels.includes('auto:parked')) return 'parked';
   if (labels.includes('auto:blocked')) return 'blocked';
@@ -129,6 +133,9 @@ export function pickNext(
       reason: `backpressure: открыто ${openQueuePrCount} PR-ов очереди при лимите ${config.maxOpenPrs} — сначала домержить`,
     };
   }
+  // Строгая сериализация: одна живая сессия за раз. `auto:review` сюда НЕ входит —
+  // там PR уже открыт и ждёт владельца, живой сессии за задачей нет. Иначе один
+  // PR уровня hold, который владелец не посмотрел, останавливал бы очередь навсегда.
   const wip = issues.filter((i) => laneOf(i.labels) === 'wip');
   if (wip.length > 0) {
     return {
@@ -269,7 +276,7 @@ export function snapshot(
   openQueuePrCount: number,
 ): QueueSnapshot {
   const byLane = {
-    ready: [], wip: [], blocked: [], 'prod-apply': [], epic: [], parked: [], untriaged: [],
+    ready: [], wip: [], review: [], blocked: [], 'prod-apply': [], epic: [], parked: [], untriaged: [],
   } as Record<Lane, QueueIssue[]>;
   for (const issue of issues) byLane[laneOf(issue.labels)].push(issue);
 

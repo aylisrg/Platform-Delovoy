@@ -6,6 +6,7 @@
  *   next                      что брать следующим (JSON)
  *   claim 445                 взять в работу (ready → wip)
  *   release 445 "причина"     вернуть в очередь
+ *   park 445 "причина"        PR открыт, но ждёт владельца (wip → review)
  *   reconcile                 снять протухшие локи, прибраться
  *   report                    обновить issue-дашборд
  *
@@ -183,6 +184,17 @@ function cmdRelease(num: number, reason: string): void {
   setLabels(num, swapLane(issue.labels.map((l) => l.name), 'auto:ready'));
   if (reason) comment(num, `Возвращено в очередь (\`auto:ready\`): ${reason}`);
   console.log(`released #${num}`);
+}
+
+/**
+ * Задача уезжает в `auto:review`: PR открыт, но гейт не пропустил его в авто-мерж.
+ * Живой сессии за ней больше нет, поэтому очередь обязана двигаться дальше.
+ */
+function cmdPark(num: number, reason: string): void {
+  const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
+  setLabels(num, swapLane(issue.labels.map((l) => l.name), 'auto:review'));
+  if (reason) comment(num, `PR открыт, но авто-мерж запрещён гейтом: ${reason}\n\nЖдёт решения владельца.`);
+  console.log(`parked #${num} → auto:review`);
 }
 
 function cmdGate(prNumber: number): void {
@@ -385,10 +397,27 @@ function cmdReconcile(): void {
   }
 
   // Issue с открытым PR должна быть wip, а не ready — иначе следующий воркер возьмёт её второй раз.
+  // `auto:review` не трогаем: там PR намеренно ждёт владельца.
   for (const issue of issues) {
     if (issue.hasOpenPr && laneOf(issue.labels) === 'ready') {
       setLabels(issue.number, swapLane(issue.labels, 'auto:wip'));
       console.log(`marked wip (PR #${linked.get(issue.number)?.number}) #${issue.number}`);
+      touched++;
+    }
+  }
+
+  // Лок с PR, который помечен needs-owner, переезжает в review — иначе один
+  // непросмотренный PR уровня hold держит очередь бесконечно.
+  for (const issue of issues) {
+    if (laneOf(issue.labels) !== 'wip') continue;
+    const pr = linked.get(issue.number);
+    if (!pr) continue;
+    const prLabels = gh<{ labels: { name: string }[] }>(`/repos/${REPO}/issues/${pr.number}`).labels.map(
+      (l) => l.name,
+    );
+    if (prLabels.includes('needs-owner')) {
+      setLabels(issue.number, swapLane(issue.labels, 'auto:review'));
+      console.log(`moved to review (PR #${pr.number} needs-owner) #${issue.number}`);
       touched++;
     }
   }
@@ -435,10 +464,13 @@ function renderDashboard(config: QueueConfig): string {
       ? ['| Приоритет | Issue | Заголовок |', '|---|---|---|', ...snap.ordered.slice(0, 30).map(row)].join('\n')
       : '_Пусто — бэклог разобран._',
     '',
-    `## Ждут владельца (${snap.byLane.blocked.length + snap.byLane['prod-apply'].length})`,
+    `## Ждут владельца (${snap.byLane.blocked.length + snap.byLane['prod-apply'].length + snap.byLane.review.length})`,
     '',
     'Единственное, что воркер физически не может сделать сам.',
     '',
+    ...(snap.byLane.review.length
+      ? ['**PR открыт, гейт не пропустил в авто-мерж (`auto:review`):**', '', ...snap.byLane.review.map((i) => `- #${i.number} — ${i.title}`), '']
+      : []),
     ...(snap.byLane.blocked.length
       ? ['**Нет доступов (`auto:blocked`):**', '', ...snap.byLane.blocked.map((i) => `- #${i.number} — ${i.title}`), '']
       : []),
@@ -490,6 +522,7 @@ try {
     case 'next': cmdNext(); break;
     case 'claim': cmdClaim(Number(rest[0])); break;
     case 'release': cmdRelease(Number(rest[0]), rest.slice(1).join(' ')); break;
+    case 'park': cmdPark(Number(rest[0]), rest.slice(1).join(' ')); break;
     case 'gate': cmdGate(Number(rest[0])); break;
     case 'reconcile': cmdReconcile(); break;
     case 'report': cmdReport(); break;
@@ -500,7 +533,7 @@ try {
     case 'pr-merge': cmdPrMerge(Number(rest[0])); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|gate|reconcile|report|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|reconcile|report|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
       );
       process.exitCode = 2;
   }

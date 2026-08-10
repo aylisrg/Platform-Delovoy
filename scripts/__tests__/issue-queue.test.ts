@@ -47,6 +47,12 @@ describe('laneOf', () => {
   it('при конфликте wip побеждает ready — иначе issue возьмут дважды', () => {
     expect(laneOf(['auto:ready', 'auto:wip'])).toBe('wip');
   });
+
+  it('review — отдельная полоса: PR открыт и ждёт владельца', () => {
+    expect(laneOf(['auto:review'])).toBe('review');
+    // живая сессия важнее: если оба лейбла, задача всё ещё в работе
+    expect(laneOf(['auto:wip', 'auto:review'])).toBe('wip');
+  });
 });
 
 describe('priorityOf', () => {
@@ -143,6 +149,30 @@ describe('pickNext', () => {
     const result = pickNext([issue(1, ['auto:blocked'])], config(), 0);
     expect(result.issue).toBeNull();
     expect(result.reason).toContain('auto:ready');
+  });
+
+  // Регрессия: PR уровня hold, который владелец не посмотрел, раньше вечно висел
+  // в auto:wip и намертво останавливал очередь.
+  it('issue в review не держит очередь — берётся следующая', () => {
+    const result = pickNext(
+      [issue(1, ['prio:P0', 'auto:review'], { hasOpenPr: true }), issue(2, ['prio:P1', 'auto:ready'])],
+      config(),
+      1,
+    );
+    expect(result.issue?.number).toBe(2);
+  });
+
+  it('несколько задач в review подряд всё равно не блокируют очередь', () => {
+    const result = pickNext(
+      [
+        issue(1, ['auto:review'], { hasOpenPr: true }),
+        issue(2, ['auto:review'], { hasOpenPr: true }),
+        issue(3, ['prio:P2', 'auto:ready']),
+      ],
+      config({ maxOpenPrs: 5 }),
+      2,
+    );
+    expect(result.issue?.number).toBe(3);
   });
 });
 

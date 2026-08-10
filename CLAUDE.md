@@ -150,10 +150,11 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 задачу очереди и доводит до мержа. ADR — `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`,
 инструкция воркера — `.claude/commands/next-issue.md`.
 
-**Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность;
-`auto:ready` — можно брать, `auto:wip` — занято (лок), `auto:blocked` — нужны
-доступы владельца, `auto:prod-apply` — код автоматизируем, но apply трогает прод,
-`auto:epic`/`auto:parked` — вне очереди. Issue без `auto:*` невидима для воркера.
+**Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность; `auto:ready` —
+можно брать, `auto:wip` — занято (лок живой сессии), `auto:review` — PR открыт и
+ждёт владельца, `auto:blocked` — нужны доступы владельца, `auto:prod-apply` — код
+автоматизируем, но apply трогает прод, `auto:epic`/`auto:parked` — вне очереди.
+Issue без `auto:*` невидима для воркера.
 
 **Заводишь issue — ставь `prio:*` и `auto:ready`**, иначе она не попадёт в очередь
 и просто зависнет.
