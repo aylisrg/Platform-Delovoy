@@ -144,13 +144,47 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 ---
 
+## Автоочередь разгрузки бэклога
+
+Бэклог issues разбирается автономно: Routine будит сессию, она берёт верхнюю
+задачу очереди и доводит до мержа. ADR — `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`,
+инструкция воркера — `.claude/commands/next-issue.md`.
+
+**Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность;
+`auto:ready` — можно брать, `auto:wip` — занято (лок), `auto:blocked` — нужны
+доступы владельца, `auto:prod-apply` — код автоматизируем, но apply трогает прод,
+`auto:epic`/`auto:parked` — вне очереди. Issue без `auto:*` невидима для воркера.
+
+**Заводишь issue — ставь `prio:*` и `auto:ready`**, иначе она не попадёт в очередь
+и просто зависнет.
+
+```bash
+npx tsx scripts/issue-queue.ts next        # что дальше
+npx tsx scripts/issue-queue.ts gate <PR>   # можно ли авто-мержить
+npx tsx scripts/issue-queue.ts reconcile   # снять протухшие локи
+```
+
+Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
+`staleWipHours`, `pinned`). Учёт и уборка — `.github/workflows/issue-queue.yml`
+(ежечасно, без AI). Дашборд — issue с лейблом `auto:dashboard`.
+
+---
+
 ## Dev rules
 
 ### Git
 - Branches: `main` (production), `claude/{task}`, `feature/{module}-{feature}`
+- Ветки автоочереди: `claude/issue-{номер}-{slug}` — по префиксу PR связывается с issue
 - Commits: conventional commits (`feat:`, `fix:`, `chore:`, `docs:`)
-- **No auto-merge** — `claude/**` and `feature/**` go through CI but are not merged automatically
 - **Never push directly to `main`** — always PR
+- **Auto-merge — только для PR автоочереди и только уровня `auto`.** Мерж в `main`
+  запускает CI → `deploy.yml` → прод, поэтому гейт (`scripts/lib/issue-queue.ts`,
+  `HOLD_PATTERNS`) держит на ручном мерже всё, что трогает `prisma/migrations/**`,
+  `prisma/schema.prisma`, `infra/**`, `docker-compose*`, `Dockerfile*`,
+  деплой/ops-workflow'ы, скрипты деплоя и бэкапа, а также PR-ы на 5+ модулей.
+  Остальные `claude/**` и `feature/**` PR-ы не мержатся автоматически.
+  Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
+  `2026-08-10-autonomous-issue-cleanup-adr.md`.
 
 ### Code
 - TypeScript strict mode always; no `any`

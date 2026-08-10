@@ -1,0 +1,60 @@
+name: Issue Queue — Grooming & Dashboard
+
+# Сопровождение автономной очереди разгрузки бэклога. AI здесь нет вообще —
+# это детерминированная уборка, которая должна работать, даже когда воркер мёртв.
+#
+# Что делает:
+#   1. reconcile — снимает протухшие локи auto:wip (сессия воркера умерла, не
+#      дойдя до PR), помечает wip issues, у которых PR уже открыт.
+#   2. report    — перерисовывает issue-дашборд «что в работе / что дальше /
+#      что ждёт владельца».
+#
+# Кто делает саму работу: Routine Claude Code (внешний планировщик), который
+# будит свежую сессию и гоняет .claude/commands/next-issue.md. Этот workflow —
+# только ledger и сторож, он ничего не чинит в коде.
+
+on:
+  schedule:
+    - cron: "17 * * * *" # ежечасно, не в :00 — не толкаться с остальными кронами
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: issue-queue
+  cancel-in-progress: false
+
+jobs:
+  groom:
+    name: Reconcile + dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      - name: Reconcile queue state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx tsx scripts/issue-queue.ts reconcile
+
+      - name: Refresh dashboard issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx tsx scripts/issue-queue.ts report
+
+      - name: Show next pick in run summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo '## Следующая задача очереди'
+            echo '```json'
+            npx tsx scripts/issue-queue.ts next
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -35,6 +35,23 @@ jobs:
       - uses: ./.github/actions/setup-node
       - run: npm run lint
 
+  # Отдельная джоба, потому что setup-node ставит зависимости через `npm install`,
+  # который молча дописывает лок-файл вместо падения. Именно поэтому рассинхрон
+  # из issue #445 прожил в main незамеченным: все остальные джобы «чинили» его на лету.
+  lockfile:
+    name: Lockfile in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: npm ci (падает при рассинхроне package.json ↔ package-lock.json)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
   test:
     name: Test
     runs-on: ubuntu-latest
