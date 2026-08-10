@@ -351,8 +351,10 @@ describe('summarizeChecks', () => {
     },
   );
 
-  it('пустой список чеков — формально зелено (CI ещё не зарегистрировался)', () => {
-    expect(summarizeChecks([])).toMatchObject({ done: true, green: true });
+  // Регрессия: раньше пустой список считался зелёным. Сразу после push чеков
+  // ещё нет, и pr-merge мержил бы непроверенный код — прямиком в прод.
+  it('пустой список чеков — НЕ зелено: CI просто ещё не стартовал', () => {
+    expect(summarizeChecks([])).toMatchObject({ done: false, green: false });
   });
 });
 

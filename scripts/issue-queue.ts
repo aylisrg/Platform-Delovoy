@@ -328,7 +328,17 @@ function cmdPrWait(prNumber: number, timeoutMin: number): void {
       return;
     }
     if (Date.now() > deadline) {
-      console.log(JSON.stringify({ pr: prNumber, state: 'timeout', pending: s.pending.map((r) => r.name) }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            pr: prNumber,
+            state: 'timeout',
+            pending: s.pending.length ? s.pending.map((r) => r.name) : ['CI так и не стартовал'],
+          },
+          null,
+          2,
+        ),
+      );
       process.exitCode = 4;
       return;
     }
@@ -355,11 +365,13 @@ function cmdPrMerge(prNumber: number): void {
     return;
   }
 
-  const s = summarizeChecks(checksFor(prNumber));
+  const runs = checksFor(prNumber);
+  const s = summarizeChecks(runs);
   if (!s.green) {
+    const reason = runs.length === 0 ? 'CI не стартовал — чеков нет вообще' : s.done ? 'CI красный' : 'CI ещё идёт';
     console.log(
       JSON.stringify(
-        { merged: false, reason: s.done ? 'CI красный' : 'CI ещё идёт', failed: s.failed.map((r) => r.name), pending: s.pending.map((r) => r.name) },
+        { merged: false, reason, failed: s.failed.map((r) => r.name), pending: s.pending.map((r) => r.name) },
         null,
         2,
       ),

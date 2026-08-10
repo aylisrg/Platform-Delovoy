@@ -251,7 +251,7 @@ export interface ChecksSummary {
   failed: CheckRun[];
   /** Все чеки завершились — дальше ждать нечего. */
   done: boolean;
-  /** Завершились и ни один не упал. */
+  /** Завершились, ни один не упал, и их было не ноль. */
   green: boolean;
 }
 
@@ -260,11 +260,15 @@ export function summarizeChecks(runs: CheckRun[]): ChecksSummary {
   const failed = runs.filter(
     (r) => r.status === 'completed' && !PASSING_CONCLUSIONS.has(r.conclusion ?? ''),
   );
+  // Пустой список — это «CI ещё не зарегистрировал прогон», а не «всё прошло».
+  // Сразу после push чеков секунду-другую нет вообще; посчитать это зелёным
+  // значит разрешить мерж кода, который никто не проверял.
+  const registered = runs.length > 0;
   return {
     pending,
     failed,
-    done: pending.length === 0,
-    green: pending.length === 0 && failed.length === 0,
+    done: registered && pending.length === 0,
+    green: registered && pending.length === 0 && failed.length === 0,
   };
 }
 
