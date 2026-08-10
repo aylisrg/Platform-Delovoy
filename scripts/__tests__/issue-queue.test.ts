@@ -10,6 +10,8 @@ import {
   priorityOf,
   snapshot,
   staleWipIssues,
+  summarizeChecks,
+  type CheckRun,
   type QueueConfig,
   type QueueIssue,
 } from '../lib/issue-queue';
@@ -259,6 +261,54 @@ describe('classifyMergeGate', () => {
       config({ autoMerge: false }),
     );
     expect(gate.reasons.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('summarizeChecks', () => {
+  const run = (name: string, status: string, conclusion: string | null = null): CheckRun => ({
+    name,
+    status,
+    conclusion,
+  });
+
+  it('всё прошло — зелено и завершено', () => {
+    const s = summarizeChecks([run('Test', 'completed', 'success'), run('Lint', 'completed', 'success')]);
+    expect(s).toMatchObject({ done: true, green: true });
+    expect(s.failed).toEqual([]);
+  });
+
+  it('skipped и neutral не считаются провалом — джобы ci.yml пропускаются по условиям', () => {
+    const s = summarizeChecks([
+      run('Test', 'completed', 'success'),
+      run('Auto-merge release-please', 'completed', 'skipped'),
+      run('Advisory', 'completed', 'neutral'),
+    ]);
+    expect(s.green).toBe(true);
+  });
+
+  it('незавершённый чек — pending, ещё не red', () => {
+    const s = summarizeChecks([run('Build', 'in_progress'), run('Test', 'completed', 'success')]);
+    expect(s.done).toBe(false);
+    expect(s.green).toBe(false);
+    expect(s.pending.map((r) => r.name)).toEqual(['Build']);
+  });
+
+  it('падение ловится и называется поимённо', () => {
+    const s = summarizeChecks([run('Test', 'completed', 'failure'), run('Lint', 'completed', 'success')]);
+    expect(s.done).toBe(true);
+    expect(s.green).toBe(false);
+    expect(s.failed.map((r) => r.name)).toEqual(['Test']);
+  });
+
+  it.each(['failure', 'cancelled', 'timed_out', 'action_required', 'stale', null])(
+    'conclusion=%s считается провалом',
+    (conclusion) => {
+      expect(summarizeChecks([run('X', 'completed', conclusion)]).green).toBe(false);
+    },
+  );
+
+  it('пустой список чеков — формально зелено (CI ещё не зарегистрировался)', () => {
+    expect(summarizeChecks([])).toMatchObject({ done: true, green: true });
   });
 });
 

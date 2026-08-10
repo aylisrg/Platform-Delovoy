@@ -222,6 +222,39 @@ export function classifyMergeGate(changedFiles: string[], config: QueueConfig): 
   return { tier: reasons.length === 0 ? 'auto' : 'hold', reasons, modules };
 }
 
+// ── Состояние CI ────────────────────────────────────────────────────────────
+
+export interface CheckRun {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
+/** `skipped`/`neutral` — не провал: джобы CI намеренно пропускаются по условиям в ci.yml. */
+const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
+
+export interface ChecksSummary {
+  pending: CheckRun[];
+  failed: CheckRun[];
+  /** Все чеки завершились — дальше ждать нечего. */
+  done: boolean;
+  /** Завершились и ни один не упал. */
+  green: boolean;
+}
+
+export function summarizeChecks(runs: CheckRun[]): ChecksSummary {
+  const pending = runs.filter((r) => r.status !== 'completed');
+  const failed = runs.filter(
+    (r) => r.status === 'completed' && !PASSING_CONCLUSIONS.has(r.conclusion ?? ''),
+  );
+  return {
+    pending,
+    failed,
+    done: pending.length === 0,
+    green: pending.length === 0 && failed.length === 0,
+  };
+}
+
 // ── Дашборд ─────────────────────────────────────────────────────────────────
 
 export interface QueueSnapshot {
