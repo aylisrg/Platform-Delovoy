@@ -82,7 +82,7 @@ jobs:
             $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
 
             # -s 256: хватает, чтобы увидеть тип TLS-записи и тип handshake.
-            $SUDO timeout "$SECS" tcpdump -i "$IFACE" -n -s 256 -w "$CAP" 'tcp port 443' >/dev/null 2>&1
+            $SUDO timeout "$SECS" tcpdump -i "$IFACE" -n -s 0 -w "$CAP" 'tcp port 443' >/dev/null 2>&1
             echo "Захват завершён: $(du -h "$CAP" 2>/dev/null | awk '{print $1}')"
 
             # Смещение TCP-payload: ((tcp[12:1] & 0xf0) >> 2)
@@ -122,6 +122,26 @@ jobs:
             echo "--- Из них НЕ получили ServerHello:          $(wc -l < "$WORK/stalled.txt")"
             echo "--- Примеры зависших (до 15, только IP) ---"
             sed 's/\.[0-9]*$//' "$WORK/stalled.txt" | sort -u | head -15
+
+            # РЕШАЮЩИЙ ЗАМЕР. Большой ClientHello едет двумя TCP-сегментами.
+            # Счётчик выше видит только ПЕРВЫЙ сегмент, поэтому сам по себе не
+            # доказывает, что рукопожатие дошло целиком. Считаем, сколько
+            # пакетов с полезной нагрузкой прислал каждый зависший клиент:
+            #   1 пакет  → продолжение ClientHello потерялось в транзите
+            #              (лечится не сервером);
+            #   2+ пакета → полный ClientHello у нас, молчит наш TLS-стек
+            #              (лечится обновлением OpenSSL / включением ML-KEM).
+            PAYLOAD='(((ip[2:2] - ((ip[0]&0x0f)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
+            echo ""
+            echo "--- Зависшие соединения: сколько сегментов прислал клиент ---"
+            head -8 "$WORK/stalled.txt" | while read -r C; do
+              [ -z "$C" ] && continue
+              IPA="${C%.*}"; PRT="${C##*.}"
+              OUT=$($SUDO tcpdump -r "$CAP" -n "src host $IPA and src port $PRT and $PAYLOAD" 2>/dev/null)
+              NPKT=$(printf '%s\n' "$OUT" | grep -c 'IP ')
+              BYTES=$(printf '%s\n' "$OUT" | grep -o 'length [0-9]*' | awk '{s+=$2} END {print s+0}')
+              echo "  ${IPA}  сегментов с данными: ${NPKT}, суммарно байт: ${BYTES}"
+            done
 
             # Размеры ClientHello: >1400 почти наверняка постквантовый.
             echo ""
