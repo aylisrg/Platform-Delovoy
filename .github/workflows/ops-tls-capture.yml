@@ -1,0 +1,132 @@
+# Диагностика TLS-рукопожатий на проде (read-only, ничего не меняет).
+#
+# Зачем: с 2026-08-10 браузеры (Chrome 151 / Safari на macOS, iOS, Android)
+# получают ERR_TIMED_OUT и 0 байт, при этом curl/OpenSSL из любой точки мира,
+# включая RU-ноды, отдаёт 200 за 0.1–0.2 с. Маршрут и MTU проверены и чисты
+# (1500 байт с DF проходят, 0% потерь), в nginx-логах запросов от браузера
+# НЕТ вообще. Значит соединение умирает до nginx.
+#
+# Современные Chrome/Safari шлют X25519MLKEM768 (постквантовый) key share —
+# ClientHello раздувается за ~1500 байт и уезжает двумя TCP-сегментами.
+# Сервер PQ-группу не поддерживает (namedGroups: только x25519/secp*/ffdhe*),
+# поэтому обязан ответить HelloRetryRequest.
+#
+# Этот воркфлоу отвечает на единственный оставшийся вопрос:
+#   ClientHello вообще ДОЕЗЖАЕТ до сервера?
+#     - доезжает, ServerHello уходит, дальше тишина → ломается HRR-раунд,
+#       чинится на сервере (включить PQ-группу → HRR исчезает);
+#     - доезжает, ServerHello НЕ уходит → проблема на сервере/в nginx;
+#     - НЕ доезжает (SYN есть, ClientHello нет) → дропает транзит/DPI,
+#       сервером не лечится, нужен другой edge.
+#
+# Считает по ВСЕМУ боевому трафику, а не по одному устройству, — поэтому
+# показывает масштаб: сколько реальных клиентов не могут завершить рукопожатие.
+#
+# push-триггер регистрирует воркфлоу до мержа (workflow_dispatch доступен
+# только с main); push-запуск = захват с дефолтными 90 секундами.
+name: Ops — TLS Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Длительность захвата, секунд"
+        required: false
+        default: "90"
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-tls-capture.yml"]
+
+concurrency:
+  group: ops-tls-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: "TLS: доезжает ли ClientHello"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Захват и разбор на VPS (read-only)
+        uses: appleboy/ssh-action@v1
+        env:
+          SECONDS_IN: ${{ inputs.seconds || '90' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: SECONDS_IN
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            SECS="${SECONDS_IN:-90}"
+            CAP=/tmp/tls-capture-$$.pcap
+            WORK=/tmp/tls-capture-$$
+            mkdir -p "$WORK"
+
+            if ! command -v tcpdump >/dev/null 2>&1; then
+              echo "tcpdump отсутствует — ставлю"
+              export DEBIAN_FRONTEND=noninteractive
+              APT="apt-get"; [ -n "$SUDO" ] && APT="$SUDO -E apt-get"
+              $APT update -qq >/dev/null 2>&1
+              $APT install -y -qq tcpdump >/dev/null 2>&1
+            fi
+            command -v tcpdump >/dev/null 2>&1 || { echo "::error::tcpdump не установился"; exit 1; }
+
+            IFACE=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+            [ -z "$IFACE" ] && IFACE=eth0
+            echo "############ Интерфейс: $IFACE, захват $SECS с ############"
+
+            echo "--- ss: состояния TCP до захвата ---"
+            $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
+
+            # -s 256: хватает, чтобы увидеть тип TLS-записи и тип handshake.
+            $SUDO timeout "$SECS" tcpdump -i "$IFACE" -n -s 256 -w "$CAP" 'tcp port 443' >/dev/null 2>&1
+            echo "Захват завершён: $(du -h "$CAP" 2>/dev/null | awk '{print $1}')"
+
+            # Смещение TCP-payload: ((tcp[12:1] & 0xf0) >> 2)
+            # TLS record type 22 = handshake; далее байт +5 = тип handshake:
+            #   1 = ClientHello, 2 = ServerHello (в т.ч. HelloRetryRequest)
+            CH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 1'
+            SH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 2'
+
+            SYN=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack = 0' 2>/dev/null | wc -l)
+            SYNACK=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & (tcp-syn|tcp-ack) = (tcp-syn|tcp-ack)' 2>/dev/null | wc -l)
+            RST=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-rst != 0' 2>/dev/null | wc -l)
+
+            $SUDO tcpdump -r "$CAP" -n "$CH_F" 2>/dev/null > "$WORK/ch.txt"
+            $SUDO tcpdump -r "$CAP" -n "$SH_F" 2>/dev/null > "$WORK/sh.txt"
+            CH=$(wc -l < "$WORK/ch.txt")
+            SH=$(wc -l < "$WORK/sh.txt")
+
+            echo ""
+            echo "############ Итог за $SECS с ############"
+            echo "SYN (попытки соединения):      $SYN"
+            echo "SYN-ACK (сервер принял):       $SYNACK"
+            echo "ClientHello (доехал до нас):   $CH"
+            echo "ServerHello/HRR (мы ответили): $SH"
+            echo "RST:                           $RST"
+
+            # Клиенты, чей ClientHello доехал, но ответа не получили.
+            awk '{print $3}' "$WORK/ch.txt" | sed 's/:$//' | sort -u > "$WORK/ch_clients.txt"
+            awk '{print $5}' "$WORK/sh.txt" | sed 's/:$//' | sort -u > "$WORK/sh_clients.txt"
+            comm -23 "$WORK/ch_clients.txt" "$WORK/sh_clients.txt" > "$WORK/stalled.txt"
+            echo ""
+            echo "--- Уникальных клиентов прислали ClientHello: $(wc -l < "$WORK/ch_clients.txt")"
+            echo "--- Из них НЕ получили ServerHello:          $(wc -l < "$WORK/stalled.txt")"
+            echo "--- Примеры зависших (до 15, только IP) ---"
+            sed 's/\.[0-9]*$//' "$WORK/stalled.txt" | sort -u | head -15
+
+            # Размеры ClientHello: >1400 почти наверняка постквантовый.
+            echo ""
+            echo "--- Размеры пакетов с ClientHello ---"
+            grep -o 'length [0-9]*' "$WORK/ch.txt" | awk '{print $2}' | awk '
+              {n++; if ($1>1400) big++; else if ($1>1000) mid++; else small++}
+              END {printf "  <=1000: %d\n  1001-1400: %d\n  >1400 (PQ-размер): %d\n  всего: %d\n", small, mid, big, n}'
+
+            echo ""
+            echo "--- ss: состояния TCP после захвата ---"
+            $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
+
+            $SUDO rm -f "$CAP"; rm -rf "$WORK"
