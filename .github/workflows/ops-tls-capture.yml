@@ -1,0 +1,338 @@
+# Диагностика TLS-рукопожатий на проде (read-only, ничего не меняет).
+#
+# Зачем: с 2026-08-10 браузеры (Chrome 151 / Safari на macOS, iOS, Android)
+# получают ERR_TIMED_OUT и 0 байт, при этом curl/OpenSSL из любой точки мира,
+# включая RU-ноды, отдаёт 200 за 0.1–0.2 с. Маршрут и MTU проверены и чисты
+# (1500 байт с DF проходят, 0% потерь), в nginx-логах запросов от браузера
+# НЕТ вообще. Значит соединение умирает до nginx.
+#
+# Современные Chrome/Safari шлют X25519MLKEM768 (постквантовый) key share —
+# ClientHello раздувается за ~1500 байт и уезжает двумя TCP-сегментами.
+# Сервер PQ-группу не поддерживает (namedGroups: только x25519/secp*/ffdhe*),
+# поэтому обязан ответить HelloRetryRequest.
+#
+# Этот воркфлоу отвечает на единственный оставшийся вопрос:
+#   ClientHello вообще ДОЕЗЖАЕТ до сервера?
+#     - доезжает, ServerHello уходит, дальше тишина → ломается HRR-раунд,
+#       чинится на сервере (включить PQ-группу → HRR исчезает);
+#     - доезжает, ServerHello НЕ уходит → проблема на сервере/в nginx;
+#     - НЕ доезжает (SYN есть, ClientHello нет) → дропает транзит/DPI,
+#       сервером не лечится, нужен другой edge.
+#
+# Считает по ВСЕМУ боевому трафику, а не по одному устройству, — поэтому
+# показывает масштаб: сколько реальных клиентов не могут завершить рукопожатие.
+#
+# push-триггер регистрирует воркфлоу до мержа (workflow_dispatch доступен
+# только с main); push-запуск = захват с дефолтными 90 секундами.
+name: Ops — TLS Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Длительность захвата, секунд"
+        required: false
+        default: "150"
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-tls-capture.yml"]
+
+concurrency:
+  group: ops-tls-capture
+  cancel-in-progress: false
+
+jobs:
+  # РЕШАЮЩИЙ ЭКСПЕРИМЕНТ. Постквантовый клиент против нашего сервера с чистой
+  # сети (Hetzner, Германия — без российского DPI) и с самого VPS (трафик даже
+  # не выходит за пределы Timeweb).
+  #
+  # Go шлёт X25519MLKEM768 первым key share по умолчанию — ровно как Chrome и
+  # Safari. Сервер эту группу не умеет (OpenSSL 3.0.13), поэтому обязан ответить
+  # HelloRetryRequest и договориться на x25519.
+  #
+  # Читать так:
+  #   PQ падает и с Hetzner, и с VPS  → виноват наш TLS-стек, апгрейд оправдан;
+  #   PQ проходит с обеих точек       → сервер здоров, ломается путь до клиентов
+  #                                     в РФ, и апгрейд OpenSSL ничего не решит.
+  # curve=29 в ответе = x25519 (сработал HelloRetryRequest, это норма),
+  # curve=4588 = X25519MLKEM768 (сервер умеет PQ — сейчас не должен).
+  pq-probe:
+    name: "PQ-проба: постквантовый ClientHello"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Проба с Hetzner (вне РФ) и с самого VPS
+        run: |
+          cat > /tmp/pqprobe.go <<'GOEOF'
+          package main
+
+          import (
+          	"crypto/tls"
+          	"fmt"
+          	"net"
+          	"time"
+          )
+
+          func probe(name string, cfg *tls.Config) {
+          	d := &net.Dialer{Timeout: 12 * time.Second}
+          	start := time.Now()
+          	c, err := tls.DialWithDialer(d, "tcp", "delovoy-park.ru:443", cfg)
+          	el := time.Since(start).Truncate(time.Millisecond)
+          	if err != nil {
+          		fmt.Printf("  %-24s FAIL  %-8v  %v\n", name, el, err)
+          		return
+          	}
+          	st := c.ConnectionState()
+          	fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",
+          		name, el, st.Version, st.CurveID, st.NegotiatedProtocol)
+          	c.Close()
+          }
+
+          func main() {
+          	probe("PQ (как Chrome)", &tls.Config{ServerName: "delovoy-park.ru"})
+          	probe("только классический", &tls.Config{
+          		ServerName:       "delovoy-park.ru",
+          		CurvePreferences: []tls.CurveID{tls.X25519},
+          	})
+          }
+          GOEOF
+          echo "Программа готова. Go по умолчанию отправляет X25519MLKEM768 — как Chrome 151."
+          cp /tmp/pqprobe.go "$GITHUB_WORKSPACE/pqprobe.go"
+
+      - name: Hetzner (Германия, чистая сеть)
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.AGENT_HETZNER_HOST }}
+          username: ${{ secrets.AGENT_HETZNER_USER }}
+          key: ${{ secrets.AGENT_HETZNER_SSH_KEY }}
+          command_timeout: 6m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cat > /tmp/pqprobe.go <<'GOEOF'
+            package main
+            import ("crypto/tls";"fmt";"net";"time")
+            func probe(n string, c *tls.Config){
+              d:=&net.Dialer{Timeout:12*time.Second}; s:=time.Now()
+              cn,err:=tls.DialWithDialer(d,"tcp","delovoy-park.ru:443",c)
+              e:=time.Since(s).Truncate(time.Millisecond)
+              if err!=nil{fmt.Printf("  %-24s FAIL  %-8v  %v\n",n,e,err);return}
+              st:=cn.ConnectionState()
+              fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",n,e,st.Version,st.CurveID,st.NegotiatedProtocol)
+              cn.Close()
+            }
+            func main(){
+              probe("PQ (как Chrome)",&tls.Config{ServerName:"delovoy-park.ru"})
+              probe("только классический",&tls.Config{ServerName:"delovoy-park.ru",CurvePreferences:[]tls.CurveID{tls.X25519}})
+            }
+            GOEOF
+            echo "=== Hetzner → delovoy-park.ru ==="
+            if $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1; then
+              :
+            else
+              echo "docker/golang недоступен — пробую системный openssl"
+              openssl version
+              openssl s_client -groups X25519MLKEM768 -connect delovoy-park.ru:443 \
+                -servername delovoy-park.ru </dev/null 2>&1 | grep -iE 'negotiated|error|Cipher|Protocol' | head -5
+            fi
+
+      - name: Сам VPS (трафик не покидает Timeweb)
+        uses: appleboy/ssh-action@v1
+        continue-on-error: true
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 6m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            cat > /tmp/pqprobe.go <<'GOEOF'
+            package main
+            import ("crypto/tls";"fmt";"net";"time")
+            func probe(n string, c *tls.Config){
+              d:=&net.Dialer{Timeout:12*time.Second}; s:=time.Now()
+              cn,err:=tls.DialWithDialer(d,"tcp","delovoy-park.ru:443",c)
+              e:=time.Since(s).Truncate(time.Millisecond)
+              if err!=nil{fmt.Printf("  %-24s FAIL  %-8v  %v\n",n,e,err);return}
+              st:=cn.ConnectionState()
+              fmt.Printf("  %-24s OK    %-8v  tls=0x%04x curve=%d alpn=%q\n",n,e,st.Version,st.CurveID,st.NegotiatedProtocol)
+              cn.Close()
+            }
+            func main(){
+              probe("PQ (как Chrome)",&tls.Config{ServerName:"delovoy-park.ru"})
+              probe("только классический",&tls.Config{ServerName:"delovoy-park.ru",CurvePreferences:[]tls.CurveID{tls.X25519}})
+            }
+            GOEOF
+            echo "=== VPS → сам себя ==="
+            $SUDO docker run --rm -v /tmp/pqprobe.go:/p.go:ro golang:alpine go run /p.go 2>&1 \
+              || echo "docker/golang недоступен на VPS (возможен блок Docker Hub из РФ)"
+
+            # Есть ли фильтрация на самой машине, помимо ufw. Ищем правила,
+            # которые мог навесить провайдер или прошлые «героические скрипты»:
+            # DROP/REJECT на 443, u32-матчи по содержимому пакета, ipset,
+            # сторонние демоны фильтрации.
+            echo ""
+            echo "=== nftables: полный ruleset ==="
+            $SUDO nft list ruleset 2>/dev/null | head -60 || echo "  nft недоступен"
+            echo ""
+            echo "=== iptables: filter/mangle/raw ==="
+            for T in filter mangle raw; do
+              echo "--- table $T ---"
+              $SUDO iptables -t $T -S 2>/dev/null | head -25 || echo "  недоступно"
+            done
+            echo ""
+            echo "=== Правила, трогающие 443 / содержимое пакетов ==="
+            $SUDO iptables-save 2>/dev/null | grep -iE 'dport 443|u32|string|DROP|REJECT|TCPMSS|length' | head -20 \
+              || echo "  ничего не найдено"
+            echo ""
+            echo "=== Сторонние агенты фильтрации ==="
+            $SUDO systemctl list-units --type=service --state=running 2>/dev/null \
+              | grep -iE 'guard|ddos|filter|shield|protect|antiddos' || echo "  не найдено"
+            echo ""
+            echo "=== MSS/MTU на внешнем интерфейсе ==="
+            ip link show "$(ip route show default | awk '/default/{print $5; exit}')" 2>/dev/null | head -2
+            $SUDO iptables -t mangle -S 2>/dev/null | grep -i tcpmss || echo "  клампинга MSS нет"
+
+  capture:
+    name: "TLS: доезжает ли ClientHello"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Захват и разбор на VPS (read-only)
+        uses: appleboy/ssh-action@v1
+        env:
+          SECONDS_IN: ${{ inputs.seconds || '150' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: SECONDS_IN
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            SECS="${SECONDS_IN:-90}"
+            CAP=/tmp/tls-capture-$$.pcap
+            WORK=/tmp/tls-capture-$$
+            mkdir -p "$WORK"
+
+            if ! command -v tcpdump >/dev/null 2>&1; then
+              echo "tcpdump отсутствует — ставлю"
+              export DEBIAN_FRONTEND=noninteractive
+              APT="apt-get"; [ -n "$SUDO" ] && APT="$SUDO -E apt-get"
+              $APT update -qq >/dev/null 2>&1
+              $APT install -y -qq tcpdump >/dev/null 2>&1
+            fi
+            command -v tcpdump >/dev/null 2>&1 || { echo "::error::tcpdump не установился"; exit 1; }
+
+            IFACE=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+            [ -z "$IFACE" ] && IFACE=eth0
+            echo "############ Интерфейс: $IFACE, захват $SECS с ############"
+
+            echo "--- ss: состояния TCP до захвата ---"
+            $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
+
+            # -s 256: хватает, чтобы увидеть тип TLS-записи и тип handshake.
+            $SUDO timeout "$SECS" tcpdump -i "$IFACE" -n -s 0 -w "$CAP" 'tcp port 443' >/dev/null 2>&1
+            echo "Захват завершён: $(du -h "$CAP" 2>/dev/null | awk '{print $1}')"
+
+            # Смещение TCP-payload: ((tcp[12:1] & 0xf0) >> 2)
+            # TLS record type 22 = handshake; далее байт +5 = тип handshake:
+            #   1 = ClientHello, 2 = ServerHello (в т.ч. HelloRetryRequest)
+            CH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 1'
+            SH_F='tcp[((tcp[12:1] & 0xf0) >> 2)] = 22 and tcp[((tcp[12:1] & 0xf0) >> 2) + 5] = 2'
+
+            # TLS record type 21 = alert. Нужен, чтобы отличить «сервер молчит»
+            # от «сервер шлёт fatal alert» — это разные диагнозы.
+            ALERT=$($SUDO tcpdump -r "$CAP" -n 'tcp[((tcp[12:1] & 0xf0) >> 2)] = 21' 2>/dev/null | wc -l)
+
+            SYN=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack = 0' 2>/dev/null | wc -l)
+            SYNACK=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & (tcp-syn|tcp-ack) = (tcp-syn|tcp-ack)' 2>/dev/null | wc -l)
+            RST=$($SUDO tcpdump -r "$CAP" -n 'tcp[tcpflags] & tcp-rst != 0' 2>/dev/null | wc -l)
+
+            $SUDO tcpdump -r "$CAP" -n "$CH_F" 2>/dev/null > "$WORK/ch.txt"
+            $SUDO tcpdump -r "$CAP" -n "$SH_F" 2>/dev/null > "$WORK/sh.txt"
+            CH=$(wc -l < "$WORK/ch.txt")
+            SH=$(wc -l < "$WORK/sh.txt")
+
+            echo ""
+            echo "############ Итог за $SECS с ############"
+            echo "SYN (попытки соединения):      $SYN"
+            echo "SYN-ACK (сервер принял):       $SYNACK"
+            echo "ClientHello (доехал до нас):   $CH"
+            echo "ServerHello/HRR (мы ответили): $SH"
+            echo "RST:                           $RST"
+            echo "TLS alert (record type 21):    $ALERT"
+
+            # Клиенты, чей ClientHello доехал, но ответа не получили.
+            awk '{print $3}' "$WORK/ch.txt" | sed 's/:$//' | sort -u > "$WORK/ch_clients.txt"
+            awk '{print $5}' "$WORK/sh.txt" | sed 's/:$//' | sort -u > "$WORK/sh_clients.txt"
+            comm -23 "$WORK/ch_clients.txt" "$WORK/sh_clients.txt" > "$WORK/stalled.txt"
+            echo ""
+            echo "!!! Ориентировочно, не доказательство. Счётчики выше считают"
+            echo "!!! ПАКЕТЫ, а не рукопожатия: ретрансмиссии учитываются повторно"
+            echo "!!! (наблюдалось SYN-ACK > SYN), а большой ClientHello занимает"
+            echo "!!! два сегмента, из которых виден только первый. Для вывода"
+            echo "!!! 'клиент не получил ответа' нужен per-connection разбор со"
+            echo "!!! сборкой TLS-записи — здесь его нет. Опираться на прямой"
+            echo "!!! опыт (job pq-probe), а не на эти цифры."
+            echo "--- Уникальных источников с ClientHello-пакетом: $(wc -l < "$WORK/ch_clients.txt")"
+            echo "--- Без парного ServerHello-пакета (сырой счёт): $(wc -l < "$WORK/stalled.txt")"
+
+            # РЕШАЮЩИЙ ЗАМЕР. Большой ClientHello едет двумя TCP-сегментами.
+            # Счётчик выше видит только ПЕРВЫЙ сегмент, поэтому сам по себе не
+            # доказывает, что рукопожатие дошло целиком. Считаем, сколько
+            # пакетов с полезной нагрузкой прислал каждый зависший клиент:
+            #   1 пакет  → продолжение ClientHello потерялось в транзите
+            #              (лечится не сервером);
+            #   2+ пакета → полный ClientHello у нас, молчит наш TLS-стек
+            #              (лечится обновлением OpenSSL / включением ML-KEM).
+            PAYLOAD='(((ip[2:2] - ((ip[0]&0x0f)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
+            echo ""
+            echo "--- Зависшие соединения: сколько сегментов прислал клиент ---"
+            head -8 "$WORK/stalled.txt" | while read -r C; do
+              [ -z "$C" ] && continue
+              IPA="${C%.*}"; PRT="${C##*.}"
+              OUT=$($SUDO tcpdump -r "$CAP" -n "src host $IPA and src port $PRT and $PAYLOAD" 2>/dev/null)
+              NPKT=$(printf '%s\n' "$OUT" | grep -c 'IP ')
+              BYTES=$(printf '%s\n' "$OUT" | grep -o 'length [0-9]*' | awk '{s+=$2} END {print s+0}')
+              echo "  ${IPA}  сегментов с данными: ${NPKT}, суммарно байт: ${BYTES}"
+            done
+
+            # Размеры ClientHello: >1400 почти наверняка постквантовый.
+            echo ""
+            echo "--- Размеры пакетов с ClientHello ---"
+            grep -o 'length [0-9]*' "$WORK/ch.txt" | awk '{print $2}' | awk '
+              {n++; if ($1>1400) big++; else if ($1>1000) mid++; else small++}
+              END {printf "  <=1000: %d\n  1001-1400: %d\n  >1400 (PQ-размер): %d\n  всего: %d\n", small, mid, big, n}'
+
+            echo ""
+            echo "--- ss: состояния TCP после захвата ---"
+            $SUDO ss -tan 2>/dev/null | awk 'NR>1{print $1}' | sort | uniq -c | sort -rn
+
+            # Версии TLS-стека: определяют, поддерживается ли X25519MLKEM768.
+            # ML-KEM появился только в OpenSSL 3.5; на 3.0/3.2 сервер обязан
+            # отвечать HelloRetryRequest — и если он вместо этого молчит,
+            # лечение именно здесь.
+            echo ""
+            echo "############ Версии TLS-стека ############"
+            nginx -v 2>&1 | head -1
+            echo "--- OpenSSL, с которым СОБРАН nginx ---"
+            nginx -V 2>&1 | tr ' ' '\n' | grep -i -A0 'openssl' | head -5
+            nginx -V 2>&1 | grep -o 'built with OpenSSL[^ ]* [0-9][^ ]*' | head -1
+            echo "--- OpenSSL в системе (runtime) ---"
+            openssl version -a 2>/dev/null | head -3
+            echo "--- Поддерживает ли runtime-OpenSSL ML-KEM ---"
+            if openssl list -kem-algorithms 2>/dev/null | grep -qi 'ml-kem\|mlkem\|kyber'; then
+              openssl list -kem-algorithms 2>/dev/null | grep -i 'ml-kem\|mlkem\|kyber' | head -5
+            else
+              echo "  ML-KEM/Kyber НЕ поддерживается (ожидаемо для OpenSSL < 3.5)"
+            fi
+
+            echo ""
+            echo "############ nginx error.log: последние TLS-ошибки ############"
+            $SUDO grep -iE 'ssl|handshake|tls' /var/log/nginx/error.log 2>/dev/null | tail -25 || echo "  (нет записей)"
+
+            $SUDO rm -f "$CAP"; rm -rf "$WORK"
