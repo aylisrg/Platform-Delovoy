@@ -4,19 +4,20 @@
     "enabled=false останавливает воркер целиком: он проснётся, увидит флаг и уйдёт спать.",
     "autoMerge=false оставляет всё как есть, но PR-ы будут ждать ручного мержа.",
     "Мерж в main запускает CI → deploy.yml → прод. autoMerge=true означает выкатку без человека.",
-    "maxAttempts — потолок на брошенные попытки: задача, которую воркер не вытягивает, снимается с очереди в auto:blocked, а не крутится вечно."
+    "maxAttempts — потолок на брошенные попытки: задача, которую воркер не вытягивает, снимается с очереди в auto:blocked, а не крутится вечно.",
+    "heartbeatIdleHours/heartbeatCooldownHours — сторож простоя: ready>0 без PR-активности дольше idle-порога → Telegram-алерт, не чаще одного в cooldown."
   ],
   "enabled": true,
   "autoMerge": true,
   "maxOpenPrs": 2,
   "staleWipHours": 6,
   "maxAttempts": 3,
+  "heartbeatIdleHours": 3,
+  "heartbeatCooldownHours": 12,
   "pinned": [
-    428,
     429,
     424,
     423,
-    371,
     432,
     430
   ]

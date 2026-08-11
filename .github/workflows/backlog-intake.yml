@@ -1,0 +1,189 @@
+name: Backlog Intake — ошибки, фидбек, инциденты
+
+# Автопополнение бэклога: три источника сигналов превращаются в issues
+# автоочереди (prio:* + auto:ready), которые разбирает сессия /next-issue.
+#
+#   1. analyze-errors      — новые паттерны ERROR/CRITICAL в SystemEvent против
+#                            недельного базлайна + всплески WARNING
+#                            (client-beacon, rate-limit);
+#   2. feedback-to-issues  — фидбек пользователей (FeedbackItem, status=NEW):
+#                            BUG сразу в очередь, SUGGESTION — на триаж;
+#   3. escalate-incidents  — >=3 циклов site-down/notifications-down/ci-failure
+#                            за неделю → одна root-cause задача.
+#
+# Прод-Postgres недоступен раннерам напрямую, поэтому данные приезжают psql-дампом
+# по SSH (тот же паттерн, что beacon-divergence в site-watchdog.yml). AI здесь нет —
+# только детерминированные скрипты; их пороги и дедуп описаны в ADR
+# docs/architecture/2026-08-11-backlog-intake-adr.md.
+#
+# Этот файл входит в HOLD_PATTERNS: он чеканит auto:ready из внешних данных,
+# и менять его правила автоматика сама не может.
+
+on:
+  schedule:
+    - cron: "43 3 * * *" # ежедневно, мимо «стадных» минут остальных кронов
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Только показать, что было бы создано, без записи"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: backlog-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    name: Сигналы прода → issues очереди
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      - name: Убедиться, что лейблы интейка существуют
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create "auto-detected" --color BFD4F2 --description "Заведена анализатором ошибок прода" || true
+          gh label create "from-feedback" --color C2E0C6 --description "Заведена из фидбека пользователя" || true
+          gh label create "root-cause" --color D93F0B --description "Корневая причина повторяющегося инцидента" || true
+
+      - name: Дамп событий и фидбека с прода (SSH → psql)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::VPS_HOST/VPS_USER/VPS_SSH_KEY не заданы — дамп с прода невозможен"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/intake_key
+          chmod 600 ~/.ssh/intake_key
+
+          # SQL едет через два слоя shell (локальный → ssh → удалённый), поэтому
+          # в нём нет ни одной одинарной кавычки: строковые литералы — $$...$$
+          # (не раскрываются: на удалённой стороне SQL обёрнут в одинарные
+          # кавычки), интервал — make_interval. Heredoc с 'SQL' глушит локальную
+          # интерполяцию. 15 дней покрывают окно 24ч + недельный базлайн.
+          EVENTS_SQL=$(cat <<'SQL'
+          SELECT COALESCE(json_agg(t), $$[]$$::json) FROM (
+            SELECT "createdAt", level::text AS level, source, left(message, 500) AS message, metadata
+            FROM "SystemEvent"
+            WHERE "createdAt" > now() - make_interval(days => 15)
+              AND (level::text IN ($$ERROR$$, $$CRITICAL$$)
+                   OR (level::text = $$WARNING$$ AND source IN ($$client-beacon$$, $$rate-limit$$)))
+            ORDER BY "createdAt" DESC LIMIT 20000
+          ) t;
+          SQL
+          )
+
+          FEEDBACK_SQL=$(cat <<'SQL'
+          SELECT COALESCE(json_agg(t), $$[]$$::json) FROM (
+            SELECT id, type::text AS type, left(description, 2000) AS description,
+                   "pageUrl", "isUrgent", status::text AS status,
+                   "createdAt", "screenshotPath"
+            FROM "FeedbackItem"
+            WHERE status::text = $$NEW$$
+            ORDER BY "createdAt" ASC LIMIT 200
+          ) t;
+          SQL
+          )
+
+          run_psql() {
+            ssh -i ~/.ssh/intake_key \
+                -o StrictHostKeyChecking=accept-new \
+                -o ConnectTimeout=15 \
+                "$VPS_USER@$VPS_HOST" \
+                "docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc '$1'"
+          }
+
+          run_psql "$EVENTS_SQL" > events.json
+          run_psql "$FEEDBACK_SQL" > feedback.json
+
+          # Валидность — сразу и громко: молча-пустой интейк неотличим от рабочего.
+          jq -e 'type == "array"' events.json > /dev/null
+          jq -e 'type == "array"' feedback.json > /dev/null
+          echo "events: $(jq length events.json) записей, feedback: $(jq length feedback.json) записей"
+
+      - name: Флаг dry-run
+        id: dry
+        env:
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_INPUT" = "true" ]; then
+            echo "flag=--dry-run" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Паттерны ошибок → issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/analyze-errors.ts --events-file events.json ${{ steps.dry.outputs.flag }} \
+            | tee analyze.log
+
+      - name: Фидбек → issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/feedback-to-issues.ts --file feedback.json ${{ steps.dry.outputs.flag }} \
+            | tee feedback.log
+
+      - name: Эскалация инцидентов
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/escalate-incidents.ts ${{ steps.dry.outputs.flag }} | tee incidents.log
+
+      - name: Итог в summary
+        if: always()
+        run: |
+          {
+            echo '## Backlog intake'
+            echo
+            echo '### Ошибки прода'
+            echo '```'
+            tail -20 analyze.log 2>/dev/null || echo 'шаг не дошёл'
+            echo '```'
+            echo '### Фидбек'
+            echo '```'
+            tail -10 feedback.log 2>/dev/null || echo 'шаг не дошёл'
+            echo '```'
+            echo '### Инциденты'
+            echo '```'
+            tail -10 incidents.log 2>/dev/null || echo 'шаг не дошёл'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram — интейк сломан
+        if: failure()
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram secrets not set — skipping alert"; exit 0
+          fi
+          TEXT="🧺 <b>Backlog Intake упал</b>"
+          TEXT+=$'\n\n'
+          TEXT+="Автопополнение бэклога (ошибки/фидбек/инциденты) не отработало."$'\n'
+          TEXT+="Молчащий интейк выглядит как «всё хорошо», поэтому этот алерт важен."$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true

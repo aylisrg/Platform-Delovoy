@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PatternExtractor } from '../lib/pattern-extractor';
+import { DEFAULT_SPIKE_OPTIONS, PatternExtractor, detectWarningSpikes } from '../lib/pattern-extractor';
 import { LogEntry } from '../lib/log-reader';
 
 describe('PatternExtractor', () => {
@@ -255,5 +255,58 @@ describe('PatternExtractor', () => {
       expect(patterns[0].sampleMessage).toBe(longMessage);
       // The fingerprint should be based on truncated message
     });
+
+    it('паттерн несёт максимальную серьёзность своих событий', () => {
+      const entry = (level: LogEntry['level']): LogEntry => ({
+        timestamp: new Date('2026-05-10T10:00:00Z'),
+        level,
+        source: 'payments',
+        message: 'same message',
+      });
+      const patterns = extractor.extract([entry('ERROR'), entry('CRITICAL'), entry('ERROR')]);
+      expect(patterns).toHaveLength(1);
+      expect(patterns[0].level).toBe('CRITICAL');
+    });
+  });
+});
+
+describe('detectWarningSpikes', () => {
+  const warn = (source: string, hour: number): LogEntry => ({
+    timestamp: new Date(Date.UTC(2026, 7, 10, hour % 24)),
+    level: 'WARNING',
+    source,
+    message: `warning ${hour}`,
+  });
+  const many = (source: string, n: number) => Array.from({ length: n }, (_, i) => warn(source, i));
+  const opts = { ...DEFAULT_SPIKE_OPTIONS, hours: 24, baselineDays: 7, minCount: 50, factor: 3 };
+
+  it('всплеск при нулевом базлайне: minCount достаточно', () => {
+    const spikes = detectWarningSpikes(many('client-beacon', 60), [], opts);
+    expect(spikes).toHaveLength(1);
+    expect(spikes[0]).toMatchObject({ source: 'client-beacon', count: 60, baselinePerDay: 0 });
+    expect(spikes[0].examples.length).toBeLessThanOrEqual(3);
+  });
+
+  it('ниже minCount всплеска нет, даже при пустом базлайне', () => {
+    expect(detectWarningSpikes(many('client-beacon', 49), [], opts)).toEqual([]);
+  });
+
+  it('фактор против базлайна: обычный темп — не всплеск, трёхкратный — всплеск', () => {
+    const baseline = many('rate-limit', 700); // 100/сутки
+    expect(detectWarningSpikes(many('rate-limit', 120), baseline, opts)).toEqual([]);
+    const spikes = detectWarningSpikes(many('rate-limit', 320), baseline, opts);
+    expect(spikes).toHaveLength(1);
+    expect(spikes[0].baselinePerDay).toBe(100);
+  });
+
+  it('источники независимы: всплеск одного не задевает другой', () => {
+    const current = [...many('client-beacon', 60), ...many('rate-limit', 10)];
+    const spikes = detectWarningSpikes(current, [], opts);
+    expect(spikes.map((s) => s.source)).toEqual(['client-beacon']);
+  });
+
+  it('не-WARNING события игнорируются в обоих окнах', () => {
+    const errs: LogEntry[] = many('client-beacon', 60).map((e) => ({ ...e, level: 'ERROR' as const }));
+    expect(detectWarningSpikes(errs, [], opts)).toEqual([]);
   });
 });

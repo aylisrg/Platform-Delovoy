@@ -4,12 +4,16 @@ import { LogEntry } from './log-reader';
 export interface ErrorPattern {
   fingerprint: string;
   source: string;
+  /** Максимальная серьёзность среди событий паттерна — от неё зависит prio issue. */
+  level: LogEntry['level'];
   sampleMessage: string;
   count: number;
   firstSeen: Date;
   lastSeen: Date;
   examples: LogEntry[];
 }
+
+const LEVEL_RANK: Record<LogEntry['level'], number> = { WARNING: 0, ERROR: 1, CRITICAL: 2 };
 
 export class PatternExtractor {
   extract(entries: LogEntry[]): ErrorPattern[] {
@@ -22,6 +26,7 @@ export class PatternExtractor {
         patternMap.set(fingerprint, {
           fingerprint,
           source: entry.source,
+          level: entry.level,
           sampleMessage: entry.message,
           count: 0,
           firstSeen: entry.timestamp,
@@ -32,6 +37,7 @@ export class PatternExtractor {
 
       const pattern = patternMap.get(fingerprint)!;
       pattern.count++;
+      if (LEVEL_RANK[entry.level] > LEVEL_RANK[pattern.level]) pattern.level = entry.level;
       pattern.lastSeen = entry.timestamp > pattern.lastSeen ? entry.timestamp : pattern.lastSeen;
       pattern.firstSeen = entry.timestamp < pattern.firstSeen ? entry.timestamp : pattern.firstSeen;
 
@@ -89,4 +95,83 @@ export class PatternExtractor {
 
     return normalized;
   }
+}
+
+// ── Всплески WARNING ────────────────────────────────────────────────────────
+//
+// client-beacon и rate-limit не фингерпринтуются: их сообщения слишком
+// разнородны (у каждого браузера свой текст ошибки), а поодиночке они
+// безобидны. Сигнал — объём: заметно больше событий, чем в спокойную неделю.
+
+export interface WarningSpike {
+  source: string;
+  /** Событий в текущем окне. */
+  count: number;
+  /** Средний темп базлайна, событий в сутки. */
+  baselinePerDay: number;
+  examples: LogEntry[];
+}
+
+export interface SpikeOptions {
+  /** Длина текущего окна, часов. */
+  hours: number;
+  /** Длина базлайн-окна, дней. */
+  baselineDays: number;
+  /** Минимум событий в окне — ниже него всплеск не объявляется вовсе. */
+  minCount: number;
+  /** Во сколько раз темп должен превысить базлайн. */
+  factor: number;
+}
+
+export const DEFAULT_SPIKE_OPTIONS: SpikeOptions = {
+  hours: 24,
+  baselineDays: 7,
+  // Суточный аналог живого порога watchdog-а (15 событий за 30 мин у
+  // beacon-divergence в site-watchdog.yml): редкий фон не шумит, устойчивый
+  // всплеск виден.
+  minCount: 50,
+  factor: 3,
+};
+
+export function detectWarningSpikes(
+  currentWarnings: LogEntry[],
+  baselineWarnings: LogEntry[],
+  opts: SpikeOptions = DEFAULT_SPIKE_OPTIONS,
+): WarningSpike[] {
+  const bySource = (entries: LogEntry[]) => {
+    const map = new Map<string, LogEntry[]>();
+    for (const e of entries) {
+      if (e.level !== 'WARNING') continue;
+      const list = map.get(e.source) ?? [];
+      list.push(e);
+      map.set(e.source, list);
+    }
+    return map;
+  };
+
+  const current = bySource(currentWarnings);
+  const baseline = bySource(baselineWarnings);
+  const spikes: WarningSpike[] = [];
+
+  for (const [source, entries] of current) {
+    const count = entries.length;
+    if (count < opts.minCount) continue;
+
+    const baselineCount = baseline.get(source)?.length ?? 0;
+    const baselinePerHour = baselineCount / (opts.baselineDays * 24);
+    const currentPerHour = count / opts.hours;
+    // Нулевой базлайн не делает всплеском любую мелочь: minCount уже отсёк фон,
+    // а ε не даёт делить на ноль.
+    const threshold = opts.factor * Math.max(baselinePerHour, 1e-9);
+    if (currentPerHour < threshold) continue;
+
+    spikes.push({
+      source,
+      count,
+      baselinePerDay: Math.round((baselineCount / opts.baselineDays) * 10) / 10,
+      examples: entries.slice(0, 3),
+    });
+  }
+
+  return spikes.sort((a, b) => b.count - a.count);
 }
