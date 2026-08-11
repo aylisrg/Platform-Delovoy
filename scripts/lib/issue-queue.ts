@@ -189,7 +189,7 @@ export const HOLD_PATTERNS: RegExp[] = [
   /^Dockerfile/,
   /^\.github\/workflows\/(deploy|ops-|timeweb-|release)/,
   // Автоматизация не мержит сама себя без присмотра.
-  /^\.github\/workflows\/issue-queue\.yml$/,
+  /^\.github\/workflows\/issue-(queue|worker)\.yml$/,
   /^\.github\/issue-queue\.json$/,
   /^scripts\/(deploy|restore|backup|pre-migration|apply-nginx)/,
 ];

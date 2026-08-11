@@ -146,8 +146,9 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 ## Автоочередь разгрузки бэклога
 
-Бэклог issues разбирается автономно: Routine будит сессию, она берёт верхнюю
-задачу очереди и доводит до мержа. ADR — `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`,
+Бэклог issues разбирается автономно: `.github/workflows/issue-worker.yml` каждые
+4 часа берёт верхнюю задачу очереди и доводит до PR. Нужен секрет
+`ANTHROPIC_API_KEY` либо `CLAUDE_CODE_OAUTH_TOKEN` — без него воркер не запускается. ADR — `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`,
 инструкция воркера — `.claude/commands/next-issue.md`.
 
 **Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность; `auto:ready` —
@@ -167,7 +168,8 @@ npx tsx scripts/issue-queue.ts reconcile   # снять протухшие ло�
 
 Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
 `staleWipHours`, `maxAttempts`, `pinned`). Учёт и уборка — `.github/workflows/issue-queue.yml`
-(ежечасно, без AI). Дашборд — issue с лейблом `auto:dashboard`.
+(ежечасно, без AI). Исполнитель — `.github/workflows/issue-worker.yml` (раз в 4 ч).
+Дашборд — issue с лейблом `auto:dashboard`.
 
 ---
 

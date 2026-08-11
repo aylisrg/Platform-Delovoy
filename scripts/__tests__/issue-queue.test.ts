@@ -259,9 +259,14 @@ describe('classifyMergeGate', () => {
     expect(gate.reasons.join(' ')).toContain('прод-инфру');
   });
 
-  it('автоматизация не мержит сама себя', () => {
+  it('автоматизация не мержит сама себя — ни учёт, ни исполнителя, ни конфиг', () => {
     expect(classifyMergeGate(['.github/workflows/issue-queue.yml'], config()).tier).toBe('hold');
+    expect(classifyMergeGate(['.github/workflows/issue-worker.yml'], config()).tier).toBe('hold');
     expect(classifyMergeGate(['.github/issue-queue.json'], config()).tier).toBe('hold');
+  });
+
+  it('чужие workflow с похожим именем под правило не попадают', () => {
+    expect(classifyMergeGate(['.github/workflows/issue-templates.yml'], config()).tier).toBe('auto');
   });
 
   it('5+ модулей — scope creep по правилу CLAUDE.md #5', () => {

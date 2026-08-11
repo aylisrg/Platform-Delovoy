@@ -1,0 +1,147 @@
+name: Issue Worker — автономная разгрузка бэклога
+
+# Исполнитель автоочереди. Берёт верхнюю задачу из `auto:ready`, чинит, открывает PR.
+# Учёт и уборка — в issue-queue.yml (там AI нет вообще), решение о мерже — в
+# scripts/lib/issue-queue.ts (HOLD_PATTERNS). ADR — docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md
+#
+# ПОЧЕМУ ЗДЕСЬ, А НЕ В СЕССИИ CLAUDE CODE.
+# Первая версия исполнителя жила во внешнем планировщике (Routine), который будил
+# свежую сессию каждые 4 часа. Не заработало: такие сессии стартуют без
+# примонтированного репозитория, без доступа к GitHub API (он привязан к
+# сконфигурированным репозиториям сессии) и упираются в классификатор разрешений
+# на `add_repo`, `git clone` и `curl api.github.com`. Одобрить их некому — в том и
+# смысл автономности. Диагностика: сессии DIAG/DIAG-2 от 2026-08-11,
+# вердикт «blocked by classifier; needs add_repo + git clone + curl perms».
+# В GitHub Actions классификатора нет, репозиторий на месте, GITHUB_TOKEN выдан.
+
+on:
+  schedule:
+    - cron: "23 */4 * * *" # каждые 4 часа, вразнобой с issue-queue.yml (:17)
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Взять конкретную issue вместо верхней в очереди (номер)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: issue-worker # строгая сериализация: один воркер за раз
+  cancel-in-progress: false
+
+jobs:
+  work:
+    name: Взять задачу и довести до PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-node
+
+      # ── Предполётные проверки ────────────────────────────────────────────
+      # Дешёвые и без AI: если брать нечего или ключа нет, до Claude не доходим.
+
+      - name: Проверить, что есть чем авторизоваться
+        id: creds
+        env:
+          API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$API_KEY" ] || [ -n "$OAUTH" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            {
+              echo '## Воркер не запущен — нет ключа'
+              echo
+              echo 'Ни `ANTHROPIC_API_KEY`, ни `CLAUDE_CODE_OAUTH_TOKEN` не заданы в'
+              echo 'Settings → Secrets and variables → Actions.'
+              echo
+              echo 'Это единственное, что нужно владельцу сделать руками. Всё остальное —'
+              echo 'очередь, гейт, дашборд, уборка — уже работает и ждёт исполнителя.'
+              echo 'Проще всего выпустить токен командой `/install-github-app` в Claude Code.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Спросить очередь, что делать
+        id: pick
+        if: steps.creds.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCED: ${{ inputs.issue }}
+        run: |
+          set -euo pipefail
+          if [ -n "$FORCED" ]; then
+            echo "issue=$FORCED" >> "$GITHUB_OUTPUT"
+            echo "Взята вручную: #$FORCED" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          OUT=$(npx tsx scripts/issue-queue.ts next)
+          echo "$OUT"
+          NUM=$(echo "$OUT" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);process.stdout.write(j.picked?String(j.picked):"")})')
+          echo "issue=$NUM" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Очередь'
+            echo '```json'
+            echo "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Собственно работа ────────────────────────────────────────────────
+
+      - name: Claude Code — реализовать задачу
+        if: steps.creds.outputs.have == 'true' && steps.pick.outputs.issue != ''
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch_prefix: "claude/issue-"
+          claude_args: |
+            --model claude-opus-5
+            --max-turns 120
+          prompt: |
+            Ты — воркер автономной разгрузки бэклога Platform Delovoy. Рядом никого нет:
+            всё, что ты не доведёшь до конца, останется недоделанным.
+
+            Твоя задача — issue #${{ steps.pick.outputs.issue }}. Очередь её уже выбрала,
+            перевыбирать не надо.
+
+            Прочитай `.claude/commands/next-issue.md` и выполни его буквально, начиная с
+            шага «Взять лок» (`npx tsx scripts/issue-queue.ts claim ${{ steps.pick.outputs.issue }}`).
+            Шаг выбора задачи пропусти — она уже выбрана.
+
+            Ключевые правила оттуда, чтобы не потерялись:
+            - Правь только то, что описано в issue. Заметил рядом другой баг — не чини,
+              заведи отдельную issue с лейблами `prio:*` и `auto:ready`.
+            - Тесты пишутся в том же коммите, что и код. Баг-фикс без теста,
+              который падал до фикса, не считается сделанным.
+            - Перед коммитом: `npm test && npx tsc --noEmit && npm run lint` — все три зелёные.
+            - Ветка `claude/issue-${{ steps.pick.outputs.issue }}-<короткий-slug>`,
+              в теле PR обязательно `Closes #${{ steps.pick.outputs.issue }}`.
+            - Проверь себя субагентами `code-reviewer`, затем (только после PASS) `qa-engineer`.
+              До трёх кругов правок; после третьего — оставь PR как есть и опиши в теле, где застрял.
+            - Нужен новый модуль, которого нет в таблице модулей CLAUDE.md — это scope creep:
+              `npx tsx scripts/issue-queue.ts release ${{ steps.pick.outputs.issue }} "причина"` и выходи.
+
+            Мерж решает гейт, не ты:
+            `npx tsx scripts/issue-queue.ts gate <PR>` → `tier: auto` — мержишь
+            (`pr-merge`), `tier: hold` — вешаешь на PR лейбл `needs-owner`, комментируешь
+            причины и делаешь `park ${{ steps.pick.outputs.issue }} "причина"`, чтобы
+            очередь не встала. Никогда не мержи hold и никогда не пушь в main напрямую.
+
+            Мерж в main запускает деплой в прод — это не учебный PR.
+
+      - name: Обновить дашборд
+        if: always() && steps.creds.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx tsx scripts/issue-queue.ts report
