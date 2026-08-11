@@ -15,6 +15,11 @@ vi.mock("@/lib/google-calendar", () => ({
   deleteCalendarEvent: vi.fn(),
 }));
 
+// createAdminBooking дедуплицирует гостя по E.164-телефону перед записью брони.
+vi.mock("@/modules/clients/service", () => ({
+  upsertClientByPhone: vi.fn().mockResolvedValue({ id: "client-1" }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -59,6 +64,7 @@ vi.mock("@/lib/db", () => ({
 
 import {
   createBooking,
+  createAdminBooking,
   updateBookingStatus,
   cancelBooking,
   getAvailability,
@@ -1692,5 +1698,70 @@ describe("сериализация слота (#429)", () => {
     await extendBooking("booking-1", "manager-1");
 
     expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+});
+
+// ===== createAdminBooking =====
+//
+// Функция не была покрыта ни одним тестом вообще — её даже не импортировали в
+// этот файл. Обнаружено код-ревью #429: авторитетный чек под блокировкой слота
+// числился «закрытым местом», но ни разу не исполнялся в тестах.
+describe("createAdminBooking", () => {
+  const validAdminInput = {
+    resourceId: "table-1",
+    date: FUTURE_DATE,
+    startTime: "12:00",
+    endTime: "13:00",
+    clientName: "Иван Петров",
+    clientPhone: "+79991234567",
+  };
+
+  it("создаёт подтверждённую бронь с привязкой к клиенту и менеджеру", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CONFIRMED",
+          managerId: "admin-1",
+          userId: "client-1",
+          clientName: "Иван Петров",
+        }),
+      })
+    );
+  });
+
+  it("отказывает на очевидном конфликте, не доходя до транзакции", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as never);
+
+    await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow("уже занято");
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  // Гонка: внешний pre-check увидел «свободно», а пока создавался клиент и
+  // событие календаря, слот заняли. Ловит авторитетный чек под блокировкой (#429).
+  it("отказывает, если конфликт нашёлся только под блокировкой слота", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(mockBooking() as never);
+
+    await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow("уже занято");
+
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("отказывает, если стол не найден", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(null);
+
+    await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow(
+      "Стол не найден"
+    );
   });
 });
