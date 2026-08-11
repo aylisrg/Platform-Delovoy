@@ -112,3 +112,18 @@ export const moduleSettingsSchema = z.object({
 export const channelTestMessageSchema = z.object({
   chatId: z.string().max(64).optional(),
 });
+
+/**
+ * Алерт «сессия заканчивается» из админ-панели.
+ * Длины ограничены жёстко: значения уходят в текст Telegram-сообщения, и без
+ * потолка одним запросом можно забить админ-чат простынёй.
+ */
+export const sessionEndingAlertSchema = z.object({
+  bookingId: z.string().min(1, "ID брони обязателен").max(64),
+  resourceName: z.string().min(1, "Название стола обязательно").max(100),
+  // nullish, а не optional: до фикса роут терпел любой clientName, включая null,
+  // и админ-панель шлёт его как есть. Строгий optional превратил бы отсутствие
+  // имени клиента в 422 и потерю алерта — регрессия, которую типы не поймают.
+  clientName: z.string().max(200).nullish(),
+  remainingMinutes: z.number().int().min(0).max(600).nullish(),
+});
