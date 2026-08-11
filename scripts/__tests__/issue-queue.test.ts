@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_CONFIG,
   classifyMergeGate,
+  destructiveSqlIn,
   isEligible,
   laneOf,
   moduleOf,
@@ -234,6 +235,44 @@ describe('moduleOf', () => {
   });
 });
 
+describe('destructiveSqlIn', () => {
+  const added = (sql: string) => sql.split('\n').map((l) => `+${l}`).join('\n');
+
+  it.each([
+    ['DROP TABLE "Booking";', 'DROP TABLE'],
+    ['ALTER TABLE "Booking" DROP COLUMN "note";', 'DROP COLUMN'],
+    ['TRUNCATE "Booking";', 'TRUNCATE'],
+    ['DELETE FROM "Booking" WHERE id = 1;', 'DELETE FROM'],
+    ['ALTER TYPE "Status" RENAME TO "OldStatus";', 'ALTER TYPE'],
+    ['ALTER TABLE "Booking" ALTER COLUMN "x" SET NOT NULL;', 'SET NOT NULL'],
+    ['ALTER TABLE "Booking" DROP CONSTRAINT "fk";', 'DROP CONSTRAINT'],
+  ])('ловит %s', (sql, expected) => {
+    expect(destructiveSqlIn(added(sql))).toContain(expected);
+  });
+
+  it.each([
+    'CREATE TABLE "Blackout" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));',
+    'ALTER TABLE "Booking" ADD COLUMN "note" TEXT;',
+    'CREATE INDEX "Booking_date_idx" ON "Booking"("date");',
+    'CREATE UNIQUE INDEX "u" ON "Booking"("id");',
+  ])('пропускает аддитивное: %s', (sql) => {
+    expect(destructiveSqlIn(added(sql))).toEqual([]);
+  });
+
+  it('регистр не важен', () => {
+    expect(destructiveSqlIn(added('drop table "X";'))).toContain('DROP TABLE');
+  });
+
+  // NOT NULL в CREATE TABLE — это объявление колонки, а не ALTER существующей.
+  it('NOT NULL внутри CREATE TABLE не считается деструктивным', () => {
+    expect(destructiveSqlIn(added('CREATE TABLE "X" ("id" TEXT NOT NULL);'))).toEqual([]);
+  });
+
+  it('удалённые строки не считаются — важно только то, что добавили', () => {
+    expect(destructiveSqlIn('-DROP TABLE "Booking";\n+CREATE INDEX "i" ON "X"("y");')).toEqual([]);
+  });
+});
+
 describe('classifyMergeGate', () => {
   it('обычный код приложения мержится автоматически', () => {
     const gate = classifyMergeGate(
@@ -244,8 +283,10 @@ describe('classifyMergeGate', () => {
     expect(gate.reasons).toEqual([]);
   });
 
+  // Решение владельца 2026-08-11: катим сами. Инфраструктура, деплой-workflow'ы и
+  // схема БД больше не держат PR — защита переехала на CI, ревью-агентов,
+  // blue-green и автооткат.
   it.each([
-    ['prisma/migrations/20260810_x/migration.sql', 'миграция'],
     ['prisma/schema.prisma', 'схема'],
     ['infra/nginx/delovoy-park.conf', 'nginx'],
     ['docker-compose.prod.yml', 'compose'],
@@ -253,15 +294,13 @@ describe('classifyMergeGate', () => {
     ['.github/workflows/deploy.yml', 'деплой'],
     ['.github/workflows/ops-nginx.yml', 'ops'],
     ['scripts/deploy-bluegreen.sh', 'скрипт деплоя'],
-  ])('%s держит PR на hold (%s)', (file) => {
+  ])('%s больше не держит PR (%s)', (file) => {
     const gate = classifyMergeGate(['src/modules/booking/service.ts', file], config());
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('прод-инфру');
+    expect(gate.tier).toBe('auto');
   });
 
-  it('автоматизация не мержит сама себя — ни учёт, ни исполнителя, ни конфиг', () => {
+  it('автоматизация не мержит собственные рубильники', () => {
     expect(classifyMergeGate(['.github/workflows/issue-queue.yml'], config()).tier).toBe('hold');
-    expect(classifyMergeGate(['.github/workflows/issue-worker.yml'], config()).tier).toBe('hold');
     expect(classifyMergeGate(['.github/issue-queue.json'], config()).tier).toBe('hold');
   });
 
@@ -298,6 +337,39 @@ describe('classifyMergeGate', () => {
     expect(gate.tier).toBe('auto');
   });
 
+  it('аддитивная миграция мержится сама', () => {
+    const gate = classifyMergeGate(
+      [{ filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+ALTER TABLE "Booking" ADD COLUMN "note" TEXT;' }],
+      config(),
+    );
+    expect(gate.tier).toBe('auto');
+  });
+
+  it('деструктивная миграция держит PR — потеря данных необратима', () => {
+    const gate = classifyMergeGate(
+      [
+        { filename: 'src/modules/booking/service.ts' },
+        { filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+ALTER TABLE "Booking" DROP COLUMN "note";' },
+      ],
+      config(),
+    );
+    expect(gate.tier).toBe('hold');
+    expect(gate.reasons.join(' ')).toContain('DROP COLUMN');
+  });
+
+  it('миграция без диффа считается безопасной — GitHub не отдаёт patch для больших файлов', () => {
+    const gate = classifyMergeGate([{ filename: 'prisma/migrations/20260811_x/migration.sql' }], config());
+    expect(gate.tier).toBe('auto');
+  });
+
+  it('деструктивный SQL вне prisma/migrations гейт не трогает', () => {
+    const gate = classifyMergeGate(
+      [{ filename: 'scripts/seeds/cleanup.ts', patch: '+await prisma.$executeRaw`DROP TABLE tmp`;' }],
+      config(),
+    );
+    expect(gate.tier).toBe('auto');
+  });
+
   it('глобальный autoMerge=false держит всё', () => {
     const gate = classifyMergeGate(['src/modules/booking/service.ts'], config({ autoMerge: false }));
     expect(gate.tier).toBe('hold');
@@ -306,10 +378,17 @@ describe('classifyMergeGate', () => {
 
   it('собирает все причины сразу, а не только первую', () => {
     const gate = classifyMergeGate(
-      ['prisma/schema.prisma', 'infra/nginx/x.conf'],
+      [
+        { filename: '.github/issue-queue.json' },
+        { filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+DROP TABLE "Booking";' },
+      ],
       config({ autoMerge: false }),
     );
     expect(gate.reasons.length).toBeGreaterThanOrEqual(3);
+    const joined = gate.reasons.join(' ');
+    expect(joined).toContain('выключен');
+    expect(joined).toContain('рубильники');
+    expect(joined).toContain('DROP TABLE');
   });
 });
 

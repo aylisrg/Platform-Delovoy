@@ -146,10 +146,11 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 ## Автоочередь разгрузки бэклога
 
-Бэклог issues разбирается автономно: `.github/workflows/issue-worker.yml` каждые
-4 часа берёт верхнюю задачу очереди и доводит до PR. Нужен секрет
-`ANTHROPIC_API_KEY` либо `CLAUDE_CODE_OAUTH_TOKEN` — без него воркер не запускается. ADR — `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`,
-инструкция воркера — `.claude/commands/next-issue.md`.
+Бэклог issues разбирается в обычной сессии Claude Code по инструкции
+`.claude/commands/next-issue.md`: взял верхнюю задачу → починил с тестами → PR →
+зелёный CI → мерж → сразу следующая. Внешний планировщик и GitHub Actions как
+исполнители пробовались и отвергнуты — почему, см. ADR
+`docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`.
 
 **Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность; `auto:ready` —
 можно брать, `auto:wip` — занято (лок живой сессии), `auto:review` — PR открыт и
@@ -168,8 +169,7 @@ npx tsx scripts/issue-queue.ts reconcile   # снять протухшие ло�
 
 Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
 `staleWipHours`, `maxAttempts`, `pinned`). Учёт и уборка — `.github/workflows/issue-queue.yml`
-(ежечасно, без AI). Исполнитель — `.github/workflows/issue-worker.yml` (раз в 4 ч).
-Дашборд — issue с лейблом `auto:dashboard`.
+(ежечасно, без AI). Дашборд — issue с лейблом `auto:dashboard`.
 
 ---
 
@@ -181,11 +181,14 @@ npx tsx scripts/issue-queue.ts reconcile   # снять протухшие ло�
 - Commits: conventional commits (`feat:`, `fix:`, `chore:`, `docs:`)
 - **Never push directly to `main`** — always PR
 - **Auto-merge — только для PR автоочереди и только уровня `auto`.** Мерж в `main`
-  запускает CI → `deploy.yml` → прод, поэтому гейт (`scripts/lib/issue-queue.ts`,
-  `HOLD_PATTERNS`) держит на ручном мерже всё, что трогает `prisma/migrations/**`,
-  `prisma/schema.prisma`, `infra/**`, `docker-compose*`, `Dockerfile*`,
-  деплой/ops-workflow'ы, скрипты деплоя и бэкапа, а также PR-ы на 5+ модулей.
-  Остальные `claude/**` и `feature/**` PR-ы не мержатся автоматически.
+  запускает CI → `deploy.yml` → прод. Гейт (`scripts/lib/issue-queue.ts`) держит на
+  ручном мерже два класса, оба про необратимость: рубильники самой автоматики
+  (`.github/issue-queue.json`, `.github/workflows/issue-queue.yml`) и деструктивные
+  миграции (`DROP TABLE/COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`,
+  `ALTER TYPE`, `SET NOT NULL`). Плюс PR-ы на 5+ модулей — правило #5 выше.
+  Всё остальное, включая `infra/**`, деплой-workflow'ы и аддитивные миграции,
+  мержится автоматически после зелёного CI и PASS от `code-reviewer` и `qa-engineer`.
+  Обычные `claude/**` и `feature/**` PR-ы вне очереди не мержатся автоматически.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
   `2026-08-10-autonomous-issue-cleanup-adr.md`.
 
