@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.10.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.9.0...v2.10.0) (2026-08-11)
+
+
+### Features
+
+* **ops:** исполнитель автоочереди переезжает в GitHub Actions ([#468](https://github.com/aylisrg/Platform-Delovoy/issues/468)) ([6ceb3b1](https://github.com/aylisrg/Platform-Delovoy/commit/6ceb3b1bb0d4d90e1c17f95b8fd43374ea0d453b))
+* **ops:** очередь разбирается в сессии Claude Code, гейт сужен до необратимого ([#470](https://github.com/aylisrg/Platform-Delovoy/issues/470)) ([3d0c523](https://github.com/aylisrg/Platform-Delovoy/commit/3d0c523af23afb3d952fd65acc2cbbb37498d1cb))
+* **queue:** автопополнение бэклога, автотриаж и починка движка очереди ([#474](https://github.com/aylisrg/Platform-Delovoy/issues/474)) ([c85915c](https://github.com/aylisrg/Platform-Delovoy/commit/c85915c9524670629163352b92096c8ebf0aa00d))
+
+
+### Bug Fixes
+
+* **booking:** сериализовать слот advisory-блокировкой — конец двойным броням ([#475](https://github.com/aylisrg/Platform-Delovoy/issues/475)) ([ee9c19e](https://github.com/aylisrg/Platform-Delovoy/commit/ee9c19e5f347964809a1cc69522067100db2f717))
+* **ps-park:** закрыть публичный session-ending-alert — auth, Zod, escape, rate limit ([#472](https://github.com/aylisrg/Platform-Delovoy/issues/472)) ([22ba187](https://github.com/aylisrg/Platform-Delovoy/commit/22ba18743a49a3717630dc014e43a76b996b363b))
+
 ## [2.9.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.8.1...v2.9.0) (2026-08-11)
 
 
