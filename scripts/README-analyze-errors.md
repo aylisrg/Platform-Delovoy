@@ -8,12 +8,16 @@ Automated error pattern detection and GitHub issue creation for Platform Delovoy
 
 ## Features
 
-- **Multi-source log aggregation**: Reads from SystemEvent DB + file logs via SSH
+- **Multi-source log aggregation**: SystemEvent DB, psql-дамп (`--events-file`) или file logs via SSH
 - **Pattern fingerprinting**: Groups errors by normalized message patterns
 - **Baseline comparison**: Compares current errors against historical 7-day window
-- **Automatic issue creation**: Creates GitHub issues via `gh` CLI
-- **Duplicate prevention**: Checks existing issues before creating new ones
-- **Rate limiting**: Max 5 issues per run to prevent spam
+- **WARNING spikes**: всплески `client-beacon`/`rate-limit` против недельного базлайна (≥50/сутки и ≥3×)
+- **Automatic issue creation**: issues сразу с `prio:*` + `auto:ready` — их видит автоочередь; API через curl (`ghApi`), не `gh` CLI
+- **Duplicate prevention**: маркер `<!-- error-fingerprint:… -->` / `<!-- warning-spike:… -->` в теле issue
+- **Rate limiting**: Max 5 pattern-issues per run to prevent spam
+
+Продовый запуск — ежедневный workflow `.github/workflows/backlog-intake.yml`
+(SSH-дамп → `--events-file`), см. ADR `docs/architecture/2026-08-11-backlog-intake-adr.md`.
 
 ## Quick Start
 
@@ -36,17 +40,18 @@ npm run analyze-errors -- --db-only
 | `--baseline-days <N>` | 7 | Use N days for baseline comparison |
 | `--dry-run` | false | Don't create issues, just preview |
 | `--db-only` | false | Skip file logs, use SystemEvent DB only |
-| `--max-issues <N>` | 5 | Maximum issues to create per run |
+| `--max-issues <N>` | 5 | Maximum pattern issues to create per run |
+| `--events-file <path>` | - | Read events from a psql `json_agg` dump (no DB needed) |
 | `--help` | - | Show help message |
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | Prisma database connection string |
+| `DATABASE_URL` | Only without `--events-file` | Prisma database connection string |
 | `SSH_HOST` | No | VPS host for file logs (e.g., `root@delovoy-park.ru`) |
 | `SSH_LOG_PATH` | No | Path to error log on VPS (default: `/var/log/delovoy/error.log`) |
-| `GITHUB_TOKEN` | No | GitHub token (only if `gh` CLI not authenticated) |
+| `GH_TOKEN` | In Actions | GitHub token; сессии Claude Code ходят через agent-proxy без токена |
 
 ## How It Works
 
@@ -55,9 +60,12 @@ npm run analyze-errors -- --db-only
 Reads error logs from two sources:
 
 **DB Source (`DbLogReader`)**:
-- Queries `SystemEvent` table for ERROR/CRITICAL level events
+- Queries `SystemEvent`: ERROR/CRITICAL целиком + WARNING для `client-beacon`/`rate-limit`
 - Time-filtered by `createdAt` field
-- Always available
+
+**Dump Source (`JsonEventsReader`, `--events-file`)**:
+- psql `json_agg`-дамп, снятый по SSH в `backlog-intake.yml` (прод-БД недоступна раннерам)
+- Не требует Prisma/DATABASE_URL
 
 **File Source (`FileLogReader`)**:
 - Connects via SSH to VPS
@@ -120,17 +128,16 @@ BOOKING_CONFLICT: Slot already taken for resource xyz
 3. 2026-05-10 09:01:33 - metadata: {...}
 ```
 
-**Labels**: `bug`, `auto-detected`
+**Labels**: `bug`, `auto-detected`, `prio:P1|P2`, `auto:ready`
+(CRITICAL или ERROR ≥20/сутки → P1, иначе P2; всплески WARNING — всегда P2)
 
-**Duplicate Check**: Searches for open issues with same fingerprint before creating
+**Duplicate Check**: маркер fingerprint в телах открытых `auto-detected` issues
 
 ## Example Usage
 
-### Daily Monitoring (Cron)
-```bash
-# Add to crontab on VPS
-0 9 * * * cd /app && npm run analyze-errors >> /var/log/error-analysis.log 2>&1
-```
+### Daily Monitoring
+Работает из коробки: `.github/workflows/backlog-intake.yml`, ежедневно 03:43 UTC
+(плюс ручной `workflow_dispatch` с `dry_run`). Крон на VPS не нужен.
 
 ### Custom Time Windows
 ```bash
@@ -158,10 +165,12 @@ scripts/
 ├── lib/
 │   ├── log-reader.ts           # LogReader interface + DB/File adapters
 │   ├── pattern-extractor.ts    # Fingerprinting + grouping logic
-│   └── github-issues.ts        # gh CLI wrapper
+│   ├── gh-api.ts               # curl-обёртка GitHub API (общая с issue-queue)
+│   └── github-issues.ts        # мост «паттерн → issue очереди»
 └── __tests__/
     ├── log-reader.test.ts      # LogReader tests
-    └── pattern-extractor.test.ts # PatternExtractor tests
+    ├── pattern-extractor.test.ts # PatternExtractor + spikes tests
+    └── github-issues.test.ts   # label bridge + issue bodies
 ```
 
 ## Testing
@@ -178,20 +187,6 @@ npm run test:coverage -- scripts/__tests__
 ```
 
 ## Troubleshooting
-
-### "gh: command not found"
-
-Install GitHub CLI:
-```bash
-# macOS
-brew install gh
-
-# Ubuntu/Debian
-sudo apt install gh
-
-# Authenticate
-gh auth login
-```
 
 ### "SSH connection failed"
 
@@ -221,14 +216,15 @@ npm run analyze-errors -- --max-issues 3
 - SSH keys should be read-only for log files
 - GitHub token (if used) needs `repo` scope for issue creation
 - Log parsing is safe (no code execution from log content)
-- All inputs sanitized before shell execution
+- Сообщения ошибок не проходят через shell вовсе: issue создаётся curl-ом с
+  JSON-телом (`ghApi`), в теле issue текст огорожен и помечен как данные
 
 ## Future Enhancements
 
 - [ ] Slack/Telegram notifications via existing bot
 - [ ] Web UI for pattern management
 - [ ] Auto-close issues when pattern disappears
-- [ ] Pattern severity scoring (based on frequency + level)
+- [x] Pattern severity scoring (based on frequency + level) → `labelsForPattern`
 - [ ] Integration with monitoring dashboard
 
 ## Related
