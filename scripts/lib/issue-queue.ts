@@ -175,24 +175,61 @@ export function staleWipIssues(
 
 // ── Merge gate ──────────────────────────────────────────────────────────────
 //
-// Мерж в main запускает CI → deploy.yml → прод. Значит «замержить автоматически»
-// буквально означает «выкатить в прод без человека». Поэтому изменения делятся на
-// два класса: обратимый код приложения (мержим) и всё, что меняет саму
-// инфраструктуру или схему БД (PR готовим, мерж ждёт владельца).
+// Мерж в main запускает CI → deploy.yml → прод, то есть «замержить автоматически»
+// буквально означает «выкатить в прод без человека». По решению владельца от
+// 2026-08-11 катим сами: инфраструктура, деплой-workflow'ы и аддитивные миграции
+// уехали в авто-мерж. Защита — CI, два ревью-агента, blue-green, снапшот VPS,
+// бэкап БД, smoke-тесты и автооткат.
+//
+// Тормоз остался ровно на двух классах, и оба — про необратимость.
 
-/** Пути, мерж которых меняет прод-инфру или схему БД — авто-мерж запрещён. */
+/**
+ * Пути, которые автоматика не мержит сама: это её собственные рубильники.
+ * Сюда входит и реализация гейта — иначе защита циклична: агент мог бы ослабить
+ * правило и тем же прогоном замержить это ослабление.
+ */
 export const HOLD_PATTERNS: RegExp[] = [
-  /^prisma\/migrations\//,
-  /^prisma\/schema\.prisma$/,
-  /^infra\//,
-  /^docker-compose.*\.ya?ml$/,
-  /^Dockerfile/,
-  /^\.github\/workflows\/(deploy|ops-|timeweb-|release)/,
-  // Автоматизация не мержит сама себя без присмотра.
-  /^\.github\/workflows\/issue-(queue|worker)\.yml$/,
+  /^\.github\/workflows\/issue-queue\.yml$/,
   /^\.github\/issue-queue\.json$/,
-  /^scripts\/(deploy|restore|backup|pre-migration|apply-nginx)/,
+  /^scripts\/lib\/issue-queue\.ts$/,
+  /^scripts\/issue-queue\.ts$/,
 ];
+
+/**
+ * SQL, который теряет данные. Код откатывается коммитом, а неудачно выполненный
+ * DROP — только восстановлением бэкапа, то есть с окном потерь. Поэтому
+ * деструктивные миграции остаются человеку, а аддитивные (CREATE TABLE,
+ * ADD COLUMN, CREATE INDEX) мержатся сами.
+ */
+const DESTRUCTIVE_SQL: { pattern: RegExp; what: string }[] = [
+  { pattern: /\bDROP\s+TABLE\b/i, what: 'DROP TABLE' },
+  { pattern: /\bDROP\s+COLUMN\b/i, what: 'DROP COLUMN' },
+  { pattern: /\bDROP\s+(?:SCHEMA|DATABASE)\b/i, what: 'DROP SCHEMA/DATABASE' },
+  { pattern: /\bTRUNCATE\b/i, what: 'TRUNCATE' },
+  { pattern: /\bDELETE\s+FROM\b/i, what: 'DELETE FROM' },
+  { pattern: /\bALTER\s+TYPE\b/i, what: 'ALTER TYPE' },
+  { pattern: /\bSET\s+NOT\s+NULL\b/i, what: 'SET NOT NULL' },
+  { pattern: /\bDROP\s+CONSTRAINT\b/i, what: 'DROP CONSTRAINT' },
+];
+
+/**
+ * Ищет деструктивный SQL в диффе миграции. На вход — `patch` из GitHub API,
+ * поэтому считаются только добавленные строки: удаление старой миграции из
+ * истории (строки с `-`) ничего в проде не роняет.
+ */
+export function destructiveSqlIn(patch: string): string[] {
+  const added = patch
+    .split('\n')
+    .filter((l) => l.startsWith('+'))
+    .join('\n');
+  return DESTRUCTIVE_SQL.filter(({ pattern }) => pattern.test(added)).map((d) => d.what);
+}
+
+export interface ChangedFile {
+  filename: string;
+  /** Дифф файла; у бинарных и слишком больших файлов GitHub его не отдаёт. */
+  patch?: string;
+}
 
 export interface MergeGate {
   tier: 'auto' | 'hold';
@@ -212,8 +249,18 @@ export function moduleOf(file: string): string | null {
 /**
  * Решение о том, можно ли этот PR мержить автоматически.
  * Строго: любая одна причина из списка переводит PR в `hold`.
+ *
+ * Принимает и просто имена файлов, и объекты с `patch` — дифф нужен, чтобы
+ * отличить аддитивную миграцию от деструктивной. Без диффа миграция считается
+ * безопасной: GitHub не отдаёт `patch` для слишком больших файлов, и ронять на
+ * этом всю очередь неправильно — CI и ревью-агенты остаются на месте.
  */
-export function classifyMergeGate(changedFiles: string[], config: QueueConfig): MergeGate {
+export function classifyMergeGate(
+  changedFiles: (string | ChangedFile)[],
+  config: QueueConfig,
+): MergeGate {
+  const files: ChangedFile[] = changedFiles.map((f) => (typeof f === 'string' ? { filename: f } : f));
+  const names = files.map((f) => f.filename);
   const reasons: string[] = [];
 
   if (!config.autoMerge) {
@@ -221,13 +268,21 @@ export function classifyMergeGate(changedFiles: string[], config: QueueConfig): 
   }
 
   for (const pattern of HOLD_PATTERNS) {
-    const hit = changedFiles.filter((f) => pattern.test(f));
+    const hit = names.filter((f) => pattern.test(f));
     if (hit.length > 0) {
-      reasons.push(`трогает прод-инфру/схему: ${hit.slice(0, 3).join(', ')}`);
+      reasons.push(`трогает рубильники самой автоматики: ${hit.slice(0, 3).join(', ')}`);
     }
   }
 
-  const modules = [...new Set(changedFiles.map(moduleOf).filter((m): m is string => m !== null))].sort();
+  for (const file of files) {
+    if (!/^prisma\/migrations\//.test(file.filename) || !file.patch) continue;
+    const found = destructiveSqlIn(file.patch);
+    if (found.length > 0) {
+      reasons.push(`деструктивная миграция ${file.filename}: ${found.join(', ')} — потеря данных необратима`);
+    }
+  }
+
+  const modules = [...new Set(names.map(moduleOf).filter((m): m is string => m !== null))].sort();
   if (modules.length >= 5) {
     reasons.push(`scope creep: затронуто ${modules.length} модулей (${modules.join(', ')}) — правило CLAUDE.md #5`);
   }

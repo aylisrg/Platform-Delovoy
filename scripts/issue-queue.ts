@@ -36,6 +36,7 @@ import {
   snapshot,
   staleWipIssues,
   summarizeChecks,
+  type ChangedFile,
   type CheckRun,
   type QueueConfig,
   type QueueIssue,
@@ -201,13 +202,13 @@ function cmdPark(num: number, reason: string): void {
 
 function cmdGate(prNumber: number): void {
   const config = loadConfig();
-  const files: { filename: string }[] = [];
+  const files: ChangedFile[] = [];
   for (let page = 1; page <= 10; page++) {
-    const batch = gh<{ filename: string }[]>(`/repos/${REPO}/pulls/${prNumber}/files?per_page=100&page=${page}`);
+    const batch = gh<ChangedFile[]>(`/repos/${REPO}/pulls/${prNumber}/files?per_page=100&page=${page}`);
     files.push(...batch);
     if (batch.length < 100) break;
   }
-  const gate = classifyMergeGate(files.map((f) => f.filename), config);
+  const gate = classifyMergeGate(files, config);
   console.log(JSON.stringify({ pr: prNumber, files: files.length, ...gate }, null, 2));
   if (gate.tier === 'hold') process.exitCode = 3; // отличимо от ошибки сети/скрипта
 }
@@ -352,13 +353,13 @@ function cmdPrWait(prNumber: number, timeoutMin: number): void {
  */
 function cmdPrMerge(prNumber: number): void {
   const config = loadConfig();
-  const files: { filename: string }[] = [];
+  const files: ChangedFile[] = [];
   for (let page = 1; page <= 10; page++) {
-    const batch = gh<{ filename: string }[]>(`/repos/${REPO}/pulls/${prNumber}/files?per_page=100&page=${page}`);
+    const batch = gh<ChangedFile[]>(`/repos/${REPO}/pulls/${prNumber}/files?per_page=100&page=${page}`);
     files.push(...batch);
     if (batch.length < 100) break;
   }
-  const gate = classifyMergeGate(files.map((f) => f.filename), config);
+  const gate = classifyMergeGate(files, config);
   if (gate.tier === 'hold') {
     console.log(JSON.stringify({ merged: false, reason: 'gate=hold', reasons: gate.reasons }, null, 2));
     process.exitCode = 3;
