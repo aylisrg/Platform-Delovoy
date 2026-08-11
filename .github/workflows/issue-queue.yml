@@ -9,9 +9,13 @@ name: Issue Queue — Grooming & Dashboard
 #   2. report    — перерисовывает issue-дашборд «что в работе / что дальше /
 #      что ждёт владельца».
 #
-# Кто делает саму работу: Routine Claude Code (внешний планировщик), который
-# будит свежую сессию и гоняет .claude/commands/next-issue.md. Этот workflow —
-# только ledger и сторож, он ничего не чинит в коде.
+#   3. heartbeat — сторож простоя: исполнитель очереди — смертная интерактивная
+#      сессия Claude Code, и если она умерла при непустой очереди, это не видно
+#      нигде. Алерт уходит в Telegram, дедуп — маркер-комментарий на дашборде.
+#
+# Кто делает саму работу: интерактивная сессия Claude Code, которая гоняет
+# .claude/commands/next-issue.md. Этот workflow — только ledger и сторож,
+# он ничего не чинит в коде.
 
 on:
   schedule:
@@ -58,3 +62,43 @@ jobs:
             npx tsx scripts/issue-queue.ts next
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Решение «пора ли алертить» принимает CLI (после report — дашборд-issue
+      # гарантированно существует, на нём живёт дедуп-маркер). Секреты Telegram
+      # в CLI не попадают — сам вызов ниже, отдельным шагом.
+      - name: Heartbeat — queue idle check
+        id: hb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/issue-queue.ts heartbeat > hb.json
+          cat hb.json
+          {
+            echo "alert=$(jq -r .alert hb.json)"
+            echo "ready=$(jq -r .ready hb.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Telegram — queue idle alert
+        if: steps.hb.outputs.alert == 'true'
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          READY: ${{ steps.hb.outputs.ready }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram secrets not set — skipping alert"; exit 0
+          fi
+          TEXT="⏸ <b>Автоочередь простаивает</b>"
+          TEXT+=$'\n\n'
+          TEXT+="В очереди ${READY} задач(и) auto:ready, в работе никого, PR-активности давно нет."$'\n'
+          TEXT+="Исполнитель — интерактивная сессия Claude Code; похоже, живой сессии не осталось."$'\n'
+          TEXT+="Запусти сессию и скажи ей: <code>/next-issue</code>."$'\n'
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true

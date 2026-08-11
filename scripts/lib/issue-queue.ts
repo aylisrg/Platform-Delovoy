@@ -53,6 +53,10 @@ export interface QueueConfig {
    * Без этого потолка задача, которую воркер не вытягивает, крутится вечно и жжёт бюджет.
    */
   maxAttempts: number;
+  /** Через сколько часов без PR-активности очереди считать её простаивающей. */
+  heartbeatIdleHours: number;
+  /** Не слать повторный алерт о простое чаще, чем раз в столько часов. */
+  heartbeatCooldownHours: number;
 }
 
 export const DEFAULT_CONFIG: QueueConfig = {
@@ -62,6 +66,8 @@ export const DEFAULT_CONFIG: QueueConfig = {
   pinned: [],
   staleWipHours: 6,
   maxAttempts: 3,
+  heartbeatIdleHours: 3,
+  heartbeatCooldownHours: 12,
 };
 
 const PRIORITY_ORDER: Record<Priority, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
@@ -168,9 +174,162 @@ export function staleWipIssues(
   const cutoffMs = config.staleWipHours * 60 * 60 * 1000;
   return issues.filter((i) => {
     if (laneOf(i.labels) !== 'wip') return false;
-    if (i.hasOpenPr) return false; // PR есть — работа реально идёт, лок законный
+    if (i.hasOpenPr) return false; // PR есть — этот случай разбирает staleWipWithPr
     return now.getTime() - new Date(i.updatedAt).getTime() > cutoffMs;
   });
+}
+
+/**
+ * Локи, у которых PR открыт, но мёртв: сессия умерла после pr-open, и PR
+ * перестал обновляться. Живая сессия держит `updated_at` PR-а свежим пушами и
+ * комментариями; сам issue при этом может не обновляться часами — поэтому
+ * свежесть меряется именно по PR. Такие задачи уезжают в `auto:review`:
+ * PR остаётся ждать человека или следующую сессию, а очередь идёт дальше.
+ */
+export function staleWipWithPr(
+  issues: QueueIssue[],
+  prUpdatedAt: Map<number, string>,
+  config: QueueConfig,
+  now: Date,
+): QueueIssue[] {
+  const cutoffMs = config.staleWipHours * 60 * 60 * 1000;
+  return issues.filter((i) => {
+    if (laneOf(i.labels) !== 'wip' || !i.hasOpenPr) return false;
+    const updated = prUpdatedAt.get(i.number);
+    if (!updated) return false;
+    return now.getTime() - new Date(updated).getTime() > cutoffMs;
+  });
+}
+
+// ── Маркеры служебных комментариев ──────────────────────────────────────────
+//
+// Всё состояние очереди, которому нужна история (попытки, алерты, парковки),
+// живёт в её же комментариях с HTML-маркерами — отдельной БД нет намеренно.
+
+/** Комментарий «лок снят, задача возвращена в очередь» — считается попыткой. */
+export const STALE_MARKER = '<!-- issue-queue-stale-release -->';
+/** Терминальный комментарий «снята с очереди» — сбрасывает счётчик попыток. */
+export const GIVEUP_MARKER = '<!-- issue-queue-gave-up -->';
+/** Комментарий «сессия умерла после pr-open, задача припаркована». */
+export const STALE_PR_MARKER = '<!-- issue-queue-parked-stale-pr -->';
+/** Комментарий-алерт heartbeat на дашборде (дедуп повторных алертов). */
+export const HEARTBEAT_MARKER = '<!-- issue-queue-heartbeat -->';
+/** Комментарий «эпик разобран на задачи» — /plan-epic второй раз не приходит. */
+export const EPIC_PLANNED_MARKER = '<!-- epic-planned -->';
+/** Фраза старых терминальных комментариев (до появления GIVEUP_MARKER). */
+const LEGACY_GIVEUP = 'Задача снята с автоочереди';
+
+/**
+ * Сколько попыток «подобрали и бросили» накопилось у задачи.
+ * Считаются только stale-комментарии ПОСЛЕ последнего give-up: иначе задача,
+ * которую владелец вернул в очередь после `auto:blocked`, мгновенно блокируется
+ * обратно старыми маркерами — счётчик был бы дверью в один конец.
+ */
+export function countAttempts(commentBodiesInOrder: string[]): number {
+  let attempts = 0;
+  for (const body of commentBodiesInOrder) {
+    if (body.includes(GIVEUP_MARKER) || body.includes(LEGACY_GIVEUP)) {
+      attempts = 0; // give-up закрывает эпоху; сам он попыткой не считается
+      continue;
+    }
+    if (body.includes(STALE_MARKER)) attempts++;
+  }
+  return attempts;
+}
+
+// ── Backpressure ────────────────────────────────────────────────────────────
+
+export interface PrLink {
+  prNumber: number;
+  /** Ветка PR принадлежит очереди (`claude/issue-*`, `claude/epic-*`). */
+  queueBranch: boolean;
+  /** Lanes открытых issues, которые этот PR закрывает; пусто — сирота. */
+  issueLanes: Lane[];
+}
+
+/** Ветки, PR-ы с которых принадлежат автоочереди. */
+export const QUEUE_BRANCH_RE = /^claude\/(?:issue|epic)-/;
+
+/**
+ * Сколько открытых PR-ов реально давят на очередь.
+ *
+ * Давление создают только PR-ы, за которыми очередь должна прийти снова:
+ * связанные с issue в `ready|wip|untriaged`, либо сироты на ветках очереди
+ * (issue закрыта или не найдена — консервативно считаем). PR-ы, чьи issues все
+ * в `review|blocked|prod-apply|epic|parked`, — это инбокс владельца: они ждут
+ * человека, и очередь из-за них вставать не должна. Иначе два припаркованных
+ * hold-PR замораживают всё — ровно то, от чего `park` и должен был спасать.
+ * Чужие PR-ы (release-please, dependabot, ручные ветки) — не давление.
+ */
+export function countBackpressurePrs(links: PrLink[]): number {
+  const pressing = new Set<number>();
+  for (const link of links) {
+    const pressure =
+      link.issueLanes.some((lane) => lane === 'ready' || lane === 'wip' || lane === 'untriaged') ||
+      (link.issueLanes.length === 0 && link.queueBranch);
+    if (pressure) pressing.add(link.prNumber);
+  }
+  return pressing.size;
+}
+
+// ── Heartbeat ───────────────────────────────────────────────────────────────
+
+export interface HeartbeatInput {
+  enabled: boolean;
+  readyCount: number;
+  wipCount: number;
+  /** `updated_at` самого свежего PR очереди (state=all); null — PR-ов не было. */
+  lastQueuePrActivityAt: string | null;
+  /** Время последнего heartbeat-алерта; null — алертов ещё не было. */
+  lastAlertAt: string | null;
+  now: Date;
+  idleHours: number;
+  cooldownHours: number;
+}
+
+/**
+ * Исполнитель очереди — смертная интерактивная сессия, и «очередь стоит» сам
+ * никто не заметит. Алерт уходит, когда есть что брать, никто не работает,
+ * PR-активности давно нет — и мы не спамили этим же алертом только что.
+ */
+export function shouldHeartbeat(i: HeartbeatInput): { alert: boolean; reason: string } {
+  const hoursSince = (iso: string) => (i.now.getTime() - new Date(iso).getTime()) / 3.6e6;
+
+  if (!i.enabled) return { alert: false, reason: 'очередь выключена' };
+  if (i.readyCount === 0) return { alert: false, reason: 'очередь пуста — простой законный' };
+  if (i.wipCount > 0) return { alert: false, reason: 'есть задача в работе' };
+  if (i.lastQueuePrActivityAt !== null && hoursSince(i.lastQueuePrActivityAt) <= i.idleHours) {
+    return { alert: false, reason: `PR-активность была ${hoursSince(i.lastQueuePrActivityAt).toFixed(1)} ч назад` };
+  }
+  if (i.lastAlertAt !== null && hoursSince(i.lastAlertAt) <= i.cooldownHours) {
+    return { alert: false, reason: `алерт уже был ${hoursSince(i.lastAlertAt).toFixed(1)} ч назад — кулдаун` };
+  }
+  return {
+    alert: true,
+    reason: `очередь простаивает: ready=${i.readyCount}, wip=0, PR-активности нет дольше ${i.idleHours} ч`,
+  };
+}
+
+// ── Триаж ───────────────────────────────────────────────────────────────────
+
+/**
+ * Инцидент-лейблы watchdog'ов. Такие issues живут своим циклом (открылась при
+ * падении — закрылась при восстановлении) и в очередь не попадают; в бэклог
+ * их превращает эскалация повторов (scripts/escalate-incidents.ts).
+ */
+export const INCIDENT_LABELS = ['site-down', 'notifications-down', 'ci-failure'] as const;
+
+/** Issue, которую должен разобрать автоматический триаж. */
+export function isUntriaged(issue: QueueIssue): boolean {
+  if (laneOf(issue.labels) !== 'untriaged') return false;
+  // `auto:dashboard` — не lane, laneOf его не видит; исключаем явно.
+  if (issue.labels.includes('auto:dashboard')) return false;
+  if (issue.labels.some((l) => (INCIDENT_LABELS as readonly string[]).includes(l))) return false;
+  return true;
+}
+
+export function untriagedIssues(issues: QueueIssue[]): QueueIssue[] {
+  return issues.filter(isUntriaged).sort((a, b) => a.number - b.number);
 }
 
 // ── Merge gate ──────────────────────────────────────────────────────────────
@@ -193,6 +352,9 @@ export const HOLD_PATTERNS: RegExp[] = [
   /^\.github\/issue-queue\.json$/,
   /^scripts\/lib\/issue-queue\.ts$/,
   /^scripts\/issue-queue\.ts$/,
+  // Интейк чеканит auto:ready-issues из внешних данных (фидбек, client-beacon) —
+  // менять его правила без присмотра автоматика не должна.
+  /^\.github\/workflows\/backlog-intake\.yml$/,
 ];
 
 /**

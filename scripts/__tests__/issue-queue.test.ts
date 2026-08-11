@@ -1,18 +1,28 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_CONFIG,
+  GIVEUP_MARKER,
+  STALE_MARKER,
   classifyMergeGate,
+  countAttempts,
+  countBackpressurePrs,
   destructiveSqlIn,
   isEligible,
+  isUntriaged,
   laneOf,
   moduleOf,
   orderQueue,
   pickNext,
   priorityOf,
+  shouldHeartbeat,
   snapshot,
   staleWipIssues,
+  staleWipWithPr,
   summarizeChecks,
+  untriagedIssues,
   type CheckRun,
+  type HeartbeatInput,
+  type PrLink,
   type QueueConfig,
   type QueueIssue,
 } from '../lib/issue-queue';
@@ -306,6 +316,8 @@ describe('classifyMergeGate', () => {
     // ослабить правило и тем же прогоном замержить своё ослабление.
     'scripts/lib/issue-queue.ts',
     'scripts/issue-queue.ts',
+    // Интейк чеканит auto:ready из внешних данных — его правила меняет человек.
+    '.github/workflows/backlog-intake.yml',
   ])('автоматизация не мержит собственный рубильник %s', (file) => {
     expect(classifyMergeGate([file], config()).tier).toBe('hold');
   });
@@ -449,6 +461,189 @@ describe('summarizeChecks', () => {
   // ещё нет, и pr-merge мержил бы непроверенный код — прямиком в прод.
   it('пустой список чеков — НЕ зелено: CI просто ещё не стартовал', () => {
     expect(summarizeChecks([])).toMatchObject({ done: false, green: false });
+  });
+});
+
+describe('countBackpressurePrs', () => {
+  const link = (prNumber: number, over: Partial<PrLink> = {}): PrLink => ({
+    prNumber,
+    queueBranch: true,
+    issueLanes: [],
+    ...over,
+  });
+
+  it('PR с issue в wip/ready/untriaged — давление', () => {
+    expect(countBackpressurePrs([link(1, { issueLanes: ['wip'] })])).toBe(1);
+    expect(countBackpressurePrs([link(1, { issueLanes: ['ready'] })])).toBe(1);
+    expect(countBackpressurePrs([link(1, { issueLanes: ['untriaged'] })])).toBe(1);
+  });
+
+  // Регрессия: два припаркованных hold-PR раньше выедали maxOpenPrs=2 и намертво
+  // замораживали очередь — ровно то, от чего park должен был спасать.
+  it('PR-ы инбокса владельца (review/blocked/prod-apply/epic/parked) — не давление', () => {
+    const links = (['review', 'blocked', 'prod-apply', 'epic', 'parked'] as const).map((lane, i) =>
+      link(i + 1, { issueLanes: [lane] }),
+    );
+    expect(countBackpressurePrs(links)).toBe(0);
+  });
+
+  it('сирота на ветке очереди считается — консервативно', () => {
+    expect(countBackpressurePrs([link(1, { issueLanes: [] })])).toBe(1);
+  });
+
+  it('чужие PR-ы (release-please, dependabot, ручные ветки) — не давление', () => {
+    expect(countBackpressurePrs([link(1, { queueBranch: false, issueLanes: [] })])).toBe(0);
+  });
+
+  it('PR с двумя issues считается один раз', () => {
+    expect(countBackpressurePrs([link(7, { issueLanes: ['wip'] }), link(7, { issueLanes: ['ready'] })])).toBe(1);
+  });
+
+  it('смешанные lanes: хватает одной wip, чтобы PR давил', () => {
+    expect(countBackpressurePrs([link(1, { issueLanes: ['review', 'wip'] })])).toBe(1);
+  });
+});
+
+describe('staleWipWithPr', () => {
+  const now = new Date('2026-08-10T12:00:00Z');
+  const cfg = config({ staleWipHours: 6 });
+
+  it('wip с замершим PR протухает по updated_at PR-а', () => {
+    const stale = staleWipWithPr(
+      [issue(1, ['auto:wip'], { hasOpenPr: true })],
+      new Map([[1, '2026-08-10T03:00:00Z']]),
+      cfg,
+      now,
+    );
+    expect(stale.map((i) => i.number)).toEqual([1]);
+  });
+
+  it('живой PR (свежий updated_at) лок не отдаёт', () => {
+    const stale = staleWipWithPr(
+      [issue(1, ['auto:wip'], { hasOpenPr: true })],
+      new Map([[1, '2026-08-10T11:00:00Z']]),
+      cfg,
+      now,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it('wip без PR — не его случай, этим занимается staleWipIssues', () => {
+    const stale = staleWipWithPr(
+      [issue(1, ['auto:wip'], { hasOpenPr: false, updatedAt: '2026-08-01T00:00:00Z' })],
+      new Map(),
+      cfg,
+      now,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it('review-задачи не трогает — они намеренно ждут владельца', () => {
+    const stale = staleWipWithPr(
+      [issue(1, ['auto:review'], { hasOpenPr: true })],
+      new Map([[1, '2026-08-01T00:00:00Z']]),
+      cfg,
+      now,
+    );
+    expect(stale).toEqual([]);
+  });
+});
+
+describe('countAttempts', () => {
+  it('считает stale-маркеры', () => {
+    expect(countAttempts([STALE_MARKER, 'обычный комментарий', STALE_MARKER])).toBe(2);
+  });
+
+  // Регрессия: терминальный комментарий раньше нёс тот же маркер, что и попытки,
+  // и возвращённая владельцем задача мгновенно блокировалась обратно.
+  it('give-up сбрасывает счётчик — возвращённая задача начинает с нуля', () => {
+    expect(countAttempts([STALE_MARKER, STALE_MARKER, GIVEUP_MARKER])).toBe(0);
+    expect(countAttempts([STALE_MARKER, GIVEUP_MARKER, STALE_MARKER])).toBe(1);
+  });
+
+  it('легаси-фраза старых терминальных комментариев тоже сбрасывает', () => {
+    // Так выглядели give-up комментарии до разделения маркеров: STALE_MARKER + фраза.
+    const legacy = `${STALE_MARKER}\n\nЗадача снята с автоочереди: 3 попытки подряд...`;
+    expect(countAttempts([STALE_MARKER, STALE_MARKER, legacy])).toBe(0);
+  });
+
+  it('сам give-up попыткой не считается', () => {
+    expect(countAttempts([GIVEUP_MARKER])).toBe(0);
+  });
+});
+
+describe('shouldHeartbeat', () => {
+  const base: HeartbeatInput = {
+    enabled: true,
+    readyCount: 5,
+    wipCount: 0,
+    lastQueuePrActivityAt: null,
+    lastAlertAt: null,
+    now: new Date('2026-08-10T12:00:00Z'),
+    idleHours: 3,
+    cooldownHours: 12,
+  };
+
+  it('очередь стоит, PR-ов не было, алертов не было → алерт', () => {
+    expect(shouldHeartbeat(base).alert).toBe(true);
+  });
+
+  it('выключенная очередь — простой законный', () => {
+    expect(shouldHeartbeat({ ...base, enabled: false }).alert).toBe(false);
+  });
+
+  it('пустая очередь — простой законный', () => {
+    expect(shouldHeartbeat({ ...base, readyCount: 0 }).alert).toBe(false);
+  });
+
+  it('есть wip — кто-то работает, не алертим', () => {
+    expect(shouldHeartbeat({ ...base, wipCount: 1 }).alert).toBe(false);
+  });
+
+  it('свежая PR-активность гасит алерт, старая — нет', () => {
+    expect(shouldHeartbeat({ ...base, lastQueuePrActivityAt: '2026-08-10T10:30:00Z' }).alert).toBe(false);
+    expect(shouldHeartbeat({ ...base, lastQueuePrActivityAt: '2026-08-10T05:00:00Z' }).alert).toBe(true);
+  });
+
+  it('ровно idleHours назад — ещё не простой (граница включительно)', () => {
+    expect(shouldHeartbeat({ ...base, lastQueuePrActivityAt: '2026-08-10T09:00:00Z' }).alert).toBe(false);
+  });
+
+  it('кулдаун: недавний алерт не повторяется, старый — повторяется', () => {
+    expect(shouldHeartbeat({ ...base, lastAlertAt: '2026-08-10T02:00:00Z' }).alert).toBe(false);
+    expect(shouldHeartbeat({ ...base, lastAlertAt: '2026-08-09T22:00:00Z' }).alert).toBe(true);
+  });
+});
+
+describe('isUntriaged / untriagedIssues', () => {
+  it('issue без лейблов и issue с одними prio/bug — входящие для триажа', () => {
+    expect(isUntriaged(issue(1, []))).toBe(true);
+    expect(isUntriaged(issue(2, ['bug', 'prio:P1']))).toBe(true);
+  });
+
+  it('любой auto:* лейбл выводит из триажа', () => {
+    for (const lane of ['auto:ready', 'auto:wip', 'auto:review', 'auto:blocked', 'auto:epic', 'auto:parked']) {
+      expect(isUntriaged(issue(1, [lane]))).toBe(false);
+    }
+  });
+
+  it('дашборд — не входящая, хотя auto:dashboard не lane', () => {
+    expect(isUntriaged(issue(1, ['auto:dashboard']))).toBe(false);
+  });
+
+  it('инцидент-issues watchdog-ов не триажируются — у них свой цикл', () => {
+    for (const label of ['site-down', 'notifications-down', 'ci-failure']) {
+      expect(isUntriaged(issue(1, [label]))).toBe(false);
+    }
+  });
+
+  it('untriagedIssues фильтрует и сортирует по номеру', () => {
+    const list = untriagedIssues([
+      issue(30, ['bug']),
+      issue(10, []),
+      issue(20, ['auto:ready']),
+    ]);
+    expect(list.map((i) => i.number)).toEqual([10, 30]);
   });
 });
 
