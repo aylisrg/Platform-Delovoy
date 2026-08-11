@@ -18,6 +18,7 @@ import {
 import type { BookingItemSnapshot, BookingItemInput } from "@/modules/inventory/types";
 import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
+import { lockSlot } from "@/modules/booking/slot-lock";
 import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
@@ -165,22 +166,9 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
     throw new PSBookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      moduleSlug: MODULE_SLUG,
-      deletedAt: null,
-      resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
-      date: bookingDate,
-      OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
-    },
-  });
-
-  if (conflict) {
-    throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
-  }
-
-  // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED)
+  // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED).
+  // До транзакции: ходит в БД за товарами, к слоту отношения не имеет, и держать
+  // блокировку слота на время этих запросов незачем.
   let itemSnapshots: BookingItemSnapshot[] = [];
   let itemsTotal = 0;
   if (items && items.length > 0) {
@@ -196,27 +184,48 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
     itemsTotal
   );
 
-  const booking = await prisma.booking.create({
-    data: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      userId,
-      date: bookingDate,
-      startTime: start,
-      endTime: end,
-      status: "PENDING",
-      metadata: {
-        ...(playerCount && { playerCount }),
-        ...(comment && { comment }),
-        ...(itemSnapshots.length > 0 && {
-          items: itemSnapshots,
-          itemsTotal: itemsTotal.toFixed(2),
-        }),
-        basePrice: pricing.basePrice,
-        pricePerHour: pricing.pricePerHour,
-        totalPrice: pricing.totalPrice,
+  // Конфликт-чек и запись — в одной транзакции под блокировкой слота, иначе два
+  // одновременных запроса на популярный стол оба видят «свободно» (#429).
+  const booking = await prisma.$transaction(async (tx) => {
+    await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
+
+    const conflict = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        deletedAt: null,
+        resourceId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: bookingDate,
+        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
       },
-    },
+    });
+
+    if (conflict) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+
+    return tx.booking.create({
+      data: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        userId,
+        date: bookingDate,
+        startTime: start,
+        endTime: end,
+        status: "PENDING",
+        metadata: {
+          ...(playerCount && { playerCount }),
+          ...(comment && { comment }),
+          ...(itemSnapshots.length > 0 && {
+            items: itemSnapshots,
+            itemsTotal: itemsTotal.toFixed(2),
+          }),
+          basePrice: pricing.basePrice,
+          pricePerHour: pricing.pricePerHour,
+          totalPrice: pricing.totalPrice,
+        },
+      },
+    });
   });
 
   enqueueNotification({
@@ -903,6 +912,9 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     },
   });
 
+  // Предварительный чек — намеренно неавторитетный: нужен, чтобы при очевидном
+  // конфликте не создавать клиента и не ходить в Google Calendar. Настоящая
+  // проверка — под блокировкой слота внутри транзакции ниже.
   if (conflict) {
     throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
@@ -953,6 +965,26 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
   }
 
   const booking = await prisma.$transaction(async (tx) => {
+    // Авторитетный конфликт-чек: под блокировкой слота и в одной транзакции с
+    // записью. Предварительный чек выше её не заменяет — между ним и этим местом
+    // успевает вклиниться параллельный запрос (#429).
+    await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
+
+    const raced = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        deletedAt: null,
+        resourceId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: bookingDate,
+        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+      },
+    });
+
+    if (raced) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+
     const b = await tx.booking.create({
       data: {
         moduleSlug: MODULE_SLUG,
@@ -1447,26 +1479,34 @@ export async function extendBooking(bookingId: string, managerId: string) {
     throw new PSBookingError("BEYOND_CLOSING", "Нельзя продлить за пределы рабочего времени (до 23:00)");
   }
 
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      moduleSlug: MODULE_SLUG,
-      deletedAt: null,
-      resourceId: booking.resourceId,
-      id: { not: bookingId },
-      status: { in: ["PENDING", "CONFIRMED"] },
-      date: booking.date,
-      startTime: { lt: newEndTime },
-      endTime: { gt: booking.endTime },
-    },
-  });
+  // Продление — та же гонка, что и создание: два менеджера продлевают соседние
+  // сессии, либо продление гоняется с новой бронью на следующий час, и оба видят
+  // «свободно». Issue #429 этого места не перечисляла (в ps-park нет
+  // rescheduleBooking, вместо него продление), но класс бага тот же.
+  return prisma.$transaction(async (tx) => {
+    await lockSlot(tx, MODULE_SLUG, booking.resourceId, booking.date);
 
-  if (conflict) {
-    throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
-  }
+    const conflict = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        deletedAt: null,
+        resourceId: booking.resourceId,
+        id: { not: bookingId },
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: booking.date,
+        startTime: { lt: newEndTime },
+        endTime: { gt: booking.endTime },
+      },
+    });
 
-  return prisma.booking.update({
-    where: { id: bookingId },
-    data: { endTime: newEndTime, managerId },
+    if (conflict) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
+    }
+
+    return tx.booking.update({
+      where: { id: bookingId },
+      data: { endTime: newEndTime, managerId },
+    });
   });
 }
 

@@ -14,6 +14,7 @@ import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import { assertValidTransition } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
+import { lockSlot } from "@/modules/booking/slot-lock";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY, PREPAID_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { createOnlinePayment, autoRefundOnCancellation } from "@/modules/payments/service";
@@ -230,24 +231,9 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     );
   }
 
-  // Check for conflicting bookings
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
-      date: bookingDate,
-      OR: [
-        { startTime: { lt: end }, endTime: { gt: start } },
-      ],
-    },
-  });
-
-  if (conflict) {
-    throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
-  }
-
-  // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED)
+  // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED).
+  // Делается до транзакции: ходит в БД за товарами и к слоту отношения не имеет,
+  // а держать блокировку слота на время этих запросов незачем.
   let itemSnapshots: BookingItemSnapshot[] = [];
   let itemsTotal = 0;
   if (items && items.length > 0) {
@@ -265,31 +251,53 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     itemsTotal
   );
 
-  const booking = await prisma.booking.create({
-    data: {
-      moduleSlug: MODULE_SLUG,
-      resourceId,
-      userId,
-      // For guest bookings, store contact info on the row itself so managers
-      // can reach out. For authed users this stays NULL.
-      clientName: userId ? null : guestName,
-      clientPhone: userId ? null : guestPhone,
-      date: bookingDate,
-      startTime: start,
-      endTime: end,
-      status: "PENDING",
-      metadata: {
-        ...(guestCount && { guestCount }),
-        ...(comment && { comment }),
-        ...(itemSnapshots.length > 0 && {
-          items: itemSnapshots,
-          itemsTotal: itemsTotal.toFixed(2),
-        }),
-        basePrice: pricing.basePrice,
-        pricePerHour: pricing.pricePerHour,
-        totalPrice: pricing.totalPrice,
+  // Конфликт-чек и запись — в одной транзакции под блокировкой слота, иначе
+  // два одновременных запроса на популярный слот оба видят «свободно» (#429).
+  const booking = await prisma.$transaction(async (tx) => {
+    await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
+
+    const conflict = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: bookingDate,
+        OR: [
+          { startTime: { lt: end }, endTime: { gt: start } },
+        ],
       },
-    },
+    });
+
+    if (conflict) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+
+    return tx.booking.create({
+      data: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        userId,
+        // For guest bookings, store contact info on the row itself so managers
+        // can reach out. For authed users this stays NULL.
+        clientName: userId ? null : guestName,
+        clientPhone: userId ? null : guestPhone,
+        date: bookingDate,
+        startTime: start,
+        endTime: end,
+        status: "PENDING",
+        metadata: {
+          ...(guestCount && { guestCount }),
+          ...(comment && { comment }),
+          ...(itemSnapshots.length > 0 && {
+            items: itemSnapshots,
+            itemsTotal: itemsTotal.toFixed(2),
+          }),
+          basePrice: pricing.basePrice,
+          pricePerHour: pricing.pricePerHour,
+          totalPrice: pricing.totalPrice,
+        },
+      },
+    });
   });
 
   enqueueNotification({
@@ -413,6 +421,9 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     );
   }
 
+  // Предварительный чек — вне транзакции и намеренно неавторитетный. Нужен, чтобы
+  // при очевидном конфликте не ходить в Google Calendar и не плодить осиротевшее
+  // событие. Настоящая проверка — под блокировкой слота внутри транзакции ниже.
   const conflict = await prisma.booking.findFirst({
     where: {
       moduleSlug: MODULE_SLUG,
@@ -461,6 +472,25 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
 
   // Admin booking is auto-CONFIRMED, so deduct inventory atomically
   const booking = await prisma.$transaction(async (tx) => {
+    // Авторитетный конфликт-чек: под блокировкой слота и в одной транзакции с
+    // записью. Предварительный чек выше её не заменяет — между ним и этим местом
+    // успевает вклиниться параллельный запрос (#429).
+    await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
+
+    const raced = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        resourceId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        date: bookingDate,
+        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+      },
+    });
+
+    if (raced) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+
     const b = await tx.booking.create({
       data: {
         moduleSlug: MODULE_SLUG,
@@ -601,23 +631,6 @@ export async function rescheduleBooking(
     effStart !== curStart ||
     effEnd !== curEnd;
 
-  // Конфликт с ДРУГИМИ бронями того же ресурса (саму себя исключаем).
-  if (timeOrResourceChanged) {
-    const conflict = await prisma.booking.findFirst({
-      where: {
-        moduleSlug: MODULE_SLUG,
-        resourceId: effResourceId,
-        id: { not: bookingId },
-        status: { in: ["PENDING", "CONFIRMED"] },
-        date: new Date(effDate),
-        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
-      },
-    });
-    if (conflict) {
-      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
-    }
-  }
-
   // Пересчёт цены (учёт выходных) при изменении времени/даты/ресурса.
   const itemsTotal = Number(meta.itemsTotal ?? 0) || 0;
   const pricing = timeOrResourceChanged
@@ -659,17 +672,42 @@ export async function rescheduleBooking(
     ],
   };
 
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      resourceId: effResourceId,
-      date: new Date(effDate),
-      startTime: start,
-      endTime: end,
-      ...(input.clientName !== undefined && { clientName: input.clientName }),
-      ...(input.clientPhone !== undefined && { clientPhone: input.clientPhone }),
-      metadata: JSON.parse(JSON.stringify(newMeta)),
-    },
+  // Конфликт с ДРУГИМИ бронями того же ресурса (саму себя исключаем) — под
+  // блокировкой слота и в одной транзакции с записью: перенос на популярное время
+  // гоняется с созданием брони ровно так же, как создание с созданием (#429).
+  // Блокируется целевой слот; исходный не нужен — освобождение места конфликта
+  // ни у кого не вызывает.
+  const updated = await prisma.$transaction(async (tx) => {
+    if (timeOrResourceChanged) {
+      await lockSlot(tx, MODULE_SLUG, effResourceId, new Date(effDate));
+
+      const conflict = await tx.booking.findFirst({
+        where: {
+          moduleSlug: MODULE_SLUG,
+          resourceId: effResourceId,
+          id: { not: bookingId },
+          status: { in: ["PENDING", "CONFIRMED"] },
+          date: new Date(effDate),
+          OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+        },
+      });
+      if (conflict) {
+        throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+      }
+    }
+
+    return tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        resourceId: effResourceId,
+        date: new Date(effDate),
+        startTime: start,
+        endTime: end,
+        ...(input.clientName !== undefined && { clientName: input.clientName }),
+        ...(input.clientPhone !== undefined && { clientPhone: input.clientPhone }),
+        metadata: JSON.parse(JSON.stringify(newMeta)),
+      },
+    });
   });
 
   // ОБЯЗАТЕЛЬНАЯ запись о правке (особенно при смене времени).
