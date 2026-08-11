@@ -100,6 +100,13 @@ describe("POST /api/ps-park/session-ending-alert", () => {
     expect(mockRateLimit).toHaveBeenCalledWith(expect.anything(), "authenticated", "admin-1");
   });
 
+  // Без этой проверки опечатка в слаге секции прошла бы мимо тестов: мок
+  // requireAdminSection принимает любые аргументы и всё равно вернул бы null.
+  it("проверяет доступ именно к секции ps-park", async () => {
+    await POST(makeRequest(validBody));
+    expect(mockRequireAdminSection).toHaveBeenCalledWith(expect.anything(), "ps-park");
+  });
+
   it.each([
     [{ resourceName: "PS5" }, "нет bookingId"],
     [{ bookingId: "bk-1" }, "нет resourceName"],
