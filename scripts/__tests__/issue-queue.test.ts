@@ -299,9 +299,19 @@ describe('classifyMergeGate', () => {
     expect(gate.tier).toBe('auto');
   });
 
-  it('автоматизация не мержит собственные рубильники', () => {
-    expect(classifyMergeGate(['.github/workflows/issue-queue.yml'], config()).tier).toBe('hold');
-    expect(classifyMergeGate(['.github/issue-queue.json'], config()).tier).toBe('hold');
+  it.each([
+    '.github/workflows/issue-queue.yml',
+    '.github/issue-queue.json',
+    // Реализация гейта — тоже рубильник. Без этого защита циклична: агент мог бы
+    // ослабить правило и тем же прогоном замержить своё ослабление.
+    'scripts/lib/issue-queue.ts',
+    'scripts/issue-queue.ts',
+  ])('автоматизация не мержит собственный рубильник %s', (file) => {
+    expect(classifyMergeGate([file], config()).tier).toBe('hold');
+  });
+
+  it('тесты очереди рубильником не считаются — их правит кто угодно', () => {
+    expect(classifyMergeGate(['scripts/__tests__/issue-queue.test.ts'], config()).tier).toBe('auto');
   });
 
   it('чужие workflow с похожим именем под правило не попадают', () => {

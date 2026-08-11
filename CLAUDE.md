@@ -182,8 +182,8 @@ npx tsx scripts/issue-queue.ts reconcile   # снять протухшие ло�
 - **Never push directly to `main`** — always PR
 - **Auto-merge — только для PR автоочереди и только уровня `auto`.** Мерж в `main`
   запускает CI → `deploy.yml` → прод. Гейт (`scripts/lib/issue-queue.ts`) держит на
-  ручном мерже два класса, оба про необратимость: рубильники самой автоматики
-  (`.github/issue-queue.json`, `.github/workflows/issue-queue.yml`) и деструктивные
+  ручном мерже два класса: рубильники самой автоматики — конфиг, workflow учёта и
+  реализация гейта (`scripts/lib/issue-queue.ts`, `scripts/issue-queue.ts`) — и деструктивные
   миграции (`DROP TABLE/COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`,
   `ALTER TYPE`, `SET NOT NULL`). Плюс PR-ы на 5+ модулей — правило #5 выше.
   Всё остальное, включая `infra/**`, деплой-workflow'ы и аддитивные миграции,

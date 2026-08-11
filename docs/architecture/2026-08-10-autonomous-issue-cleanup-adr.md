@@ -149,8 +149,10 @@ smoke-тестами и автооткатом.
 ровно два класса, и оба про необратимость:
 
 - **рубильники самой автоматики** — `.github/issue-queue.json`,
-  `.github/workflows/issue-queue.yml`. Автоматика не меняет собственные тормоза
-  без присмотра;
+  `.github/workflows/issue-queue.yml`, а также реализация гейта
+  (`scripts/lib/issue-queue.ts`, `scripts/issue-queue.ts`). Без последних двух
+  защита циклична: агент мог бы ослабить правило и тем же прогоном замержить
+  своё ослабление. Тесты очереди сюда не входят — их правит кто угодно;
 - **деструктивные миграции** — `prisma/migrations/**`, в диффе которых есть
   `DROP TABLE`, `DROP COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`,
   `ALTER TYPE` или `SET NOT NULL`. Код откатывается коммитом, а потерянные данные —
