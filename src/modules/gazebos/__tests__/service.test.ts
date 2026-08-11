@@ -869,6 +869,22 @@ describe("createAdminBooking", () => {
       .rejects.toThrow("Это время уже занято");
   });
 
+  // Этот тест ловит конфликт на внешнем pre-check, поэтому до транзакции дело не
+  // доходит и авторитетная проверка под блокировкой не исполняется. Ниже —
+  // сценарий именно для неё: снаружи свободно, под локом занято (#429).
+  it("отказывает, если конфликт нашёлся только под блокировкой слота", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(null) // внешний pre-check: свободно
+      .mockResolvedValueOnce(mockBooking() as never); // под локом: занято
+
+    await expect(createAdminBooking("admin-1", validAdminInput))
+      .rejects.toThrow("Это время уже занято");
+
+    expect(txExecuteRaw).toHaveBeenCalled();
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
   it("should reject past dates", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
 
@@ -1229,7 +1245,11 @@ describe("сериализация слота (#429)", () => {
     vi.mocked(prisma.booking.findFirst)
       .mockResolvedValueOnce(mockBooking() as never) // саму бронь нашли
       .mockResolvedValueOnce(null); // конфликтов на новом слоте нет
-    vi.mocked(prisma.resource.findUnique).mockResolvedValue(mockResource() as never);
+    // Именно findFirst: rescheduleBooking ищет ресурс через него, а findUnique в
+    // gazebos/service.ts не используется вообще. С findUnique тест проходил только
+    // за счёт утечки мока из соседнего теста — clearAllMocks() чистит историю
+    // вызовов, но не реализацию, — и в одиночном прогоне падал.
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
     vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
 
     await rescheduleBooking(
