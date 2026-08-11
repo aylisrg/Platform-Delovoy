@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.8.1...v2.9.0) (2026-08-11)
+
+
+### Features
+
+* **ops:** автономная очередь разгрузки бэклога issues ([#463](https://github.com/aylisrg/Platform-Delovoy/issues/463)) ([c763d33](https://github.com/aylisrg/Platform-Delovoy/commit/c763d330003b641cf7ebcf456f8579af8d7654be)), closes [#445](https://github.com/aylisrg/Platform-Delovoy/issues/445)
+
 ## [2.8.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.8.0...v2.8.1) (2026-08-10)
 
 
