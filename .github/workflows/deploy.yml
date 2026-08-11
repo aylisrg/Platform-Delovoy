@@ -695,6 +695,16 @@ jobs:
           COMMIT_SHA="${{ github.sha }}"
           DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          # deploy.yml runs on every push to main, not only on release-please
+          # version bumps — package.json's version only changes when a
+          # release-please PR merges. Without this guard, every ordinary
+          # commit deployed afterward re-announces the same "new release"
+          # with the already-announced version number (duplicate numbering).
+          if ls docs/releases/"${VERSION}"-*.md >/dev/null 2>&1; then
+            echo "v${VERSION} was already announced (docs/releases/${VERSION}-*.md exists) — skipping duplicate notification"
+            exit 0
+          fi
+
           # --- Step 1: Check for manual release notes in docs/releases/current.md ---
           NOTES=""
           if [ -f "docs/releases/current.md" ]; then
