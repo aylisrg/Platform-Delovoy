@@ -1280,9 +1280,16 @@ describe("сериализация слота (#429)", () => {
 describe("CHECKED_IN занимает слот (#424)", () => {
   it("createBooking отказывает, если слот занят заехавшим гостем", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
-    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({ status: "CHECKED_IN" }) as never
-    );
+    // Мок эмулирует фильтрацию Prisma: заехавший гость «найдётся» только если
+    // запрос действительно спросил CHECKED_IN. С безусловным mockResolvedValue
+    // тест проходил бы и на старом коде — он проверял бы «падаем, когда БД
+    // вернула конфликт», а не «спрашиваем у БД правильный список статусов».
+    vi.mocked(prisma.booking.findFirst).mockImplementation((async (args: {
+      where?: { status?: { in?: string[] } };
+    }) => {
+      const asked = args?.where?.status?.in ?? [];
+      return asked.includes("CHECKED_IN") ? mockBooking({ status: "CHECKED_IN" }) : null;
+    }) as never);
 
     await expect(createBooking("user-1", validBookingInput)).rejects.toThrow("уже занято");
     expect(prisma.booking.create).not.toHaveBeenCalled();
