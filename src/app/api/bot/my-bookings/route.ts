@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { verifyBotRequest } from "@/lib/bot-auth";
 import { prisma } from "@/lib/db";
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     const bookings = await prisma.booking.findMany({
       where: {
         userId: user.id,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: { gte: new Date(new Date().toISOString().split("T")[0]) },
       },
       orderBy: { date: "asc" },

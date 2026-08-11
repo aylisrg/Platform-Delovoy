@@ -92,6 +92,7 @@ import {
 import { prisma } from "@/lib/db";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 
 // Future date safe for all tests
 const FUTURE_DATE = "2030-06-15";
@@ -978,7 +979,10 @@ describe("getTimeline", () => {
     );
   });
 
-  it("should only include PENDING and CONFIRMED bookings", async () => {
+  // Тест раньше закреплял сам баг: требовал ровно ["PENDING","CONFIRMED"] и тем
+  // самым фиксировал отсутствие CHECKED_IN как ожидаемое поведение. Заехавший
+  // гость выпадал из сетки, слот выглядел свободным, менеджер бронировал поверх (#424).
+  it("включает занимающие слот статусы, в том числе CHECKED_IN", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
 
@@ -987,10 +991,17 @@ describe("getTimeline", () => {
     expect(prisma.booking.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: { in: ["PENDING", "CONFIRMED"] },
+          status: { in: ACTIVE_BOOKING_STATUSES },
         }),
       })
     );
+    expect(ACTIVE_BOOKING_STATUSES).toContain("CHECKED_IN");
+  });
+
+  it("не держит освободившиеся слоты: COMPLETED, CANCELLED и NO_SHOW вне выборки", () => {
+    expect(ACTIVE_BOOKING_STATUSES).not.toContain("COMPLETED");
+    expect(ACTIVE_BOOKING_STATUSES).not.toContain("CANCELLED");
+    expect(ACTIVE_BOOKING_STATUSES).not.toContain("NO_SHOW");
   });
 });
 
@@ -1259,5 +1270,48 @@ describe("сериализация слота (#429)", () => {
     );
 
     expect(txExecuteRaw).toHaveBeenCalled();
+  });
+});
+
+// ===== #424: CHECKED_IN занимает слот =====
+//
+// До фикса конфликт-чеки фильтровали ["PENDING","CONFIRMED"], поэтому заехавший
+// гость был невидим: слот считался свободным и менеджер бронировал поверх него.
+describe("CHECKED_IN занимает слот (#424)", () => {
+  it("createBooking отказывает, если слот занят заехавшим гостем", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CHECKED_IN" }) as never
+    );
+
+    await expect(createBooking("user-1", validBookingInput)).rejects.toThrow("уже занято");
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("конфликт-чек createBooking спрашивает у БД все занимающие статусы", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ACTIVE_BOOKING_STATUSES } }),
+      })
+    );
+  });
+
+  it("getAvailability не отдаёт как свободный слот с заехавшим гостем", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    await getAvailability(FUTURE_DATE);
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ACTIVE_BOOKING_STATUSES } }),
+      })
+    );
   });
 });

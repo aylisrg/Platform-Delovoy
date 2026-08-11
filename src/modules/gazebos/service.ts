@@ -11,7 +11,7 @@ import {
   returnBookingItems,
 } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
-import { assertValidTransition } from "@/modules/booking/state-machine";
+import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import { lockSlot } from "@/modules/booking/slot-lock";
@@ -260,7 +260,7 @@ export async function createBooking(userId: string | null, input: CreateBookingI
       where: {
         moduleSlug: MODULE_SLUG,
         resourceId,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
         OR: [
           { startTime: { lt: end }, endTime: { gt: start } },
@@ -428,7 +428,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     where: {
       moduleSlug: MODULE_SLUG,
       resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
       date: bookingDate,
       OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
     },
@@ -481,7 +481,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
       where: {
         moduleSlug: MODULE_SLUG,
         resourceId,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
         OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
       },
@@ -686,7 +686,7 @@ export async function rescheduleBooking(
           moduleSlug: MODULE_SLUG,
           resourceId: effResourceId,
           id: { not: bookingId },
-          status: { in: ["PENDING", "CONFIRMED"] },
+          status: { in: ACTIVE_BOOKING_STATUSES },
           date: new Date(effDate),
           OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
         },
@@ -1296,7 +1296,7 @@ export async function getAvailability(
     where: {
       moduleSlug: MODULE_SLUG,
       date: bookingDate,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
       ...(resourceId && { resourceId }),
     },
   });
@@ -1349,7 +1349,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     where: {
       moduleSlug: MODULE_SLUG,
       date: bookingDate,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
     },
     select: {
       id: true,

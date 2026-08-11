@@ -16,7 +16,7 @@ import {
   returnBookingItems,
 } from "@/modules/inventory/service";
 import type { BookingItemSnapshot, BookingItemInput } from "@/modules/inventory/types";
-import { assertValidTransition } from "@/modules/booking/state-machine";
+import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { lockSlot } from "@/modules/booking/slot-lock";
 import { computeBookingPricing } from "@/modules/booking/pricing";
@@ -194,7 +194,7 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
         moduleSlug: MODULE_SLUG,
         deletedAt: null,
         resourceId,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
         OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
       },
@@ -906,7 +906,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
       moduleSlug: MODULE_SLUG,
       deletedAt: null,
       resourceId,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
       date: bookingDate,
       OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
     },
@@ -975,7 +975,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
         moduleSlug: MODULE_SLUG,
         deletedAt: null,
         resourceId,
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
         OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
       },
@@ -1259,7 +1259,7 @@ export async function getAvailability(date: string, resourceId?: string): Promis
       moduleSlug: MODULE_SLUG,
       deletedAt: null,
       date: bookingDate,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
       ...(resourceId && { resourceId }),
     },
   });
@@ -1299,7 +1299,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       moduleSlug: MODULE_SLUG,
       deletedAt: null,
       date: bookingDate,
-      status: { in: ["PENDING", "CONFIRMED"] },
+      status: { in: ACTIVE_BOOKING_STATUSES },
     },
     select: {
       id: true,
@@ -1492,7 +1492,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
         deletedAt: null,
         resourceId: booking.resourceId,
         id: { not: bookingId },
-        status: { in: ["PENDING", "CONFIRMED"] },
+        status: { in: ACTIVE_BOOKING_STATUSES },
         date: booking.date,
         startTime: { lt: newEndTime },
         endTime: { gt: booking.endTime },

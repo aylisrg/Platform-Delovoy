@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { Badge } from "@/components/ui/badge";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { prisma } from "@/lib/db";
@@ -96,7 +97,7 @@ export default async function PSParkManagerPage() {
       take: 20,
     }),
     prisma.booking.count({
-      where: { moduleSlug: "ps-park", date: today, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { moduleSlug: "ps-park", date: today, status: { in: ACTIVE_BOOKING_STATUSES } },
     }),
     prisma.booking.count({
       where: { moduleSlug: "ps-park", status: "PENDING" },
