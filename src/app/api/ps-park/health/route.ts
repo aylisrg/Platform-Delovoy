@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { prisma } from "@/lib/db";
 
 /**
@@ -12,7 +13,7 @@ export async function GET() {
         where: {
           moduleSlug: "ps-park",
           date: { gte: new Date(new Date().toISOString().split("T")[0]) },
-          status: { in: ["PENDING", "CONFIRMED"] },
+          status: { in: ACTIVE_BOOKING_STATUSES },
         },
       }),
     ]);

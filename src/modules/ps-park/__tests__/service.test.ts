@@ -85,6 +85,7 @@ import {
   getDayReport,
 } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { validateAndSnapshotItems, saleBookingItems, returnBookingItems } from "@/modules/inventory/service";
 
 const FUTURE_DATE = "2030-08-20";
@@ -1762,6 +1763,52 @@ describe("createAdminBooking", () => {
 
     await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow(
       "Стол не найден"
+    );
+  });
+});
+
+// ===== #424: CHECKED_IN занимает слот =====
+describe("CHECKED_IN занимает слот (#424)", () => {
+  it("createBooking отказывает, если стол занят заехавшим гостем", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    // Мок эмулирует фильтрацию Prisma: заехавший гость «найдётся» только если
+    // запрос действительно спросил CHECKED_IN. С безусловным mockResolvedValue
+    // тест проходил бы и на старом коде.
+    vi.mocked(prisma.booking.findFirst).mockImplementation((async (args: {
+      where?: { status?: { in?: string[] } };
+    }) => {
+      const asked = args?.where?.status?.in ?? [];
+      return asked.includes("CHECKED_IN") ? mockBooking({ status: "CHECKED_IN" }) : null;
+    }) as never);
+
+    await expect(createBooking("user-1", validBookingInput)).rejects.toThrow("уже занято");
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("конфликт-чек createBooking спрашивает у БД все занимающие статусы", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ACTIVE_BOOKING_STATUSES } }),
+      })
+    );
+  });
+
+  it("getTimeline показывает заехавшего гостя, иначе сетка врёт менеджеру", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    await getTimeline(FUTURE_DATE);
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ACTIVE_BOOKING_STATUSES } }),
+      })
     );
   });
 });

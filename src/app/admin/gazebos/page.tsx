@@ -1,4 +1,5 @@
 import { StatusWidget } from "@/components/admin/status-widget";
+import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/db";
@@ -51,7 +52,7 @@ export default async function GazebosSchedulePage({
   const [timeline, todayCount, pendingCount, pendingBookings] = await Promise.all([
     getTimeline(requestedDate),
     prisma.booking.count({
-      where: { moduleSlug: "gazebos", date: todayDate, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { moduleSlug: "gazebos", date: todayDate, status: { in: ACTIVE_BOOKING_STATUSES } },
     }),
     prisma.booking.count({
       where: { moduleSlug: "gazebos", status: "PENDING" },

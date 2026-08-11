@@ -8,6 +8,10 @@ type BotContext = Context;
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "⏳ Ожидает",
   CONFIRMED: "✅ Подтверждено",
+  // Заехавшая бронь теперь приходит в списке (#424) — без подписи пользователь
+  // увидел бы сырое "CHECKED_IN". Кнопки отмены у неё нет: фильтр cancellable
+  // ниже пропускает только PENDING и CONFIRMED, и это правильно — гость уже на месте.
+  CHECKED_IN: "🎮 Идёт сейчас",
   CANCELLED: "❌ Отменено",
   COMPLETED: "✔️ Завершено",
 };
