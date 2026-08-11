@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Общий мок advisory-блокировки слота: hoisted, чтобы на него можно было
+// ассертить из тестов (#429) — иначе он пересоздавался бы на каждую транзакцию.
+const { txExecuteRaw } = vi.hoisted(() => ({
+  txExecuteRaw: vi.fn().mockResolvedValue(1),
+}));
+
 vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
 }));
@@ -64,6 +70,8 @@ vi.mock("@/lib/db", () => ({
         financialTransaction: p.financialTransaction,
         inventoryTransaction: { create: vi.fn() },
         inventorySku: { update: vi.fn(), findUnique: vi.fn().mockResolvedValue({ stockQuantity: 100, isActive: true }) },
+        // lockSlot() берёт advisory-блокировку слота первым стейтментом транзакции (#429)
+        $executeRaw: txExecuteRaw,
       };
       return fn(tx);
     }),
@@ -1189,5 +1197,47 @@ describe("createBooking public gate", () => {
     await expect(createBooking("user-1", validBookingInput)).rejects.toThrow(
       "временно недоступно"
     );
+  });
+});
+
+// ===== #429: конфликт-чек и запись под блокировкой слота =====
+//
+// Эти тесты падали бы до фикса: чек делался через prisma вне транзакции, поэтому
+// ни $transaction, ни advisory-блокировки в createBooking не было вовсе.
+describe("сериализация слота (#429)", () => {
+  it("createBooking делает чек и запись в одной транзакции под блокировкой", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(txExecuteRaw).toHaveBeenCalled();
+  });
+
+  it("createBooking не пишет бронь, если конфликт нашёлся уже под блокировкой", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    // Гонка: снаружи было свободно, но к моменту блокировки слот занят.
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as never);
+
+    await expect(createBooking("user-1", validBookingInput)).rejects.toThrow("уже занято");
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("rescheduleBooking блокирует целевой слот при смене времени", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(mockBooking() as never) // саму бронь нашли
+      .mockResolvedValueOnce(null); // конфликтов на новом слоте нет
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await rescheduleBooking(
+      "booking-1",
+      { date: FUTURE_DATE, startTime: "16:00", endTime: "20:00" },
+      "manager-1"
+    );
+
+    expect(txExecuteRaw).toHaveBeenCalled();
   });
 });
