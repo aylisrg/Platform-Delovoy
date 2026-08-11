@@ -25,6 +25,7 @@
     "test:direct": "node --env-file=.env --import tsx/esm scripts/test-direct-api.ts",
     "setup:direct": "node --env-file=.env --import tsx/esm scripts/setup-direct-campaigns.ts",
     "clear-test-inventory": "npx tsx scripts/clear-test-inventory.ts",
+    "analyze-errors": "tsx scripts/analyze-errors.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"
   },

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 
 export interface LogEntry {
@@ -12,17 +13,24 @@ export interface LogReader {
   read(since: Date, until: Date): Promise<LogEntry[]>;
 }
 
+/**
+ * WARNING-источники, которые анализатор всё же читает. Поодиночке такие события
+ * безобидны (429, ошибка в браузере клиента), сигналом становится всплеск —
+ * его ловит detectWarningSpikes, а не фингерпринты.
+ */
+export const WARNING_SOURCES = ['client-beacon', 'rate-limit'] as const;
+
 export class DbLogReader implements LogReader {
   constructor(private prisma: PrismaClient) {}
 
   async read(since: Date, until: Date): Promise<LogEntry[]> {
     const events = await this.prisma.systemEvent.findMany({
       where: {
-        level: { in: ['ERROR', 'CRITICAL'] },
-        createdAt: {
-          gte: since,
-          lte: until,
-        },
+        createdAt: { gte: since, lte: until },
+        OR: [
+          { level: { in: ['ERROR', 'CRITICAL'] } },
+          { level: 'WARNING', source: { in: [...WARNING_SOURCES] } },
+        ],
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -34,6 +42,49 @@ export class DbLogReader implements LogReader {
       message: event.message,
       metadata: event.metadata as Record<string, unknown> | undefined,
     }));
+  }
+}
+
+const VALID_LEVELS = new Set(['ERROR', 'CRITICAL', 'WARNING']);
+
+/**
+ * Парсит дамп SystemEvent, снятый с прода через `psql ... json_agg` (см.
+ * .github/workflows/backlog-intake.yml — прод-Postgres недоступен раннерам
+ * напрямую, дамп приезжает по SSH). Невалидные строки молча пропускаются:
+ * одна битая запись не должна ронять весь интейк.
+ */
+export function parseSystemEventsJson(raw: string): LogEntry[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error('дамп SystemEvent — не JSON-массив');
+  }
+  const entries: LogEntry[] = [];
+  for (const row of parsed as Record<string, unknown>[]) {
+    const level = String(row.level ?? '');
+    const source = row.source;
+    const message = row.message;
+    const timestamp = new Date(String(row.createdAt ?? ''));
+    if (!VALID_LEVELS.has(level)) continue;
+    if (typeof source !== 'string' || typeof message !== 'string') continue;
+    if (Number.isNaN(timestamp.getTime())) continue;
+    entries.push({
+      timestamp,
+      level: level as LogEntry['level'],
+      source,
+      message,
+      metadata: (row.metadata ?? undefined) as Record<string, unknown> | undefined,
+    });
+  }
+  return entries;
+}
+
+/** Читает события из файла-дампа (json_agg) — режим `--events-file` анализатора. */
+export class JsonEventsReader implements LogReader {
+  constructor(private filePath: string) {}
+
+  async read(since: Date, until: Date): Promise<LogEntry[]> {
+    const raw = readFileSync(this.filePath, 'utf8');
+    return parseSystemEventsJson(raw).filter((e) => e.timestamp >= since && e.timestamp <= until);
   }
 }
 
