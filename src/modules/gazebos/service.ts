@@ -25,6 +25,7 @@ import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import { formatTime, getMoscowHour, parseMoscowDateTime } from "@/lib/format";
 import { logAudit } from "@/lib/logger";
+import { upsertClientByPhone } from "@/modules/clients/service";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type { RescheduleBookingInput } from "./validation";
 import type {
@@ -441,6 +442,13 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
   }
 
+  // Дедупликация гостя по E.164-телефону — тот же паттерн, что в ps-park
+  // (ADR F4): без этого каждая телефонная бронь плодит новую карточку в CRM.
+  const { id: clientUserId } = await upsertClientByPhone(clientPhone, {
+    name: clientName,
+    source: "gazebos_booking",
+  });
+
   // Validate items snapshot (admin booking is auto-CONFIRMED, so deduct immediately)
   let itemSnapshots: BookingItemSnapshot[] = [];
   let itemsTotal = 0;
@@ -499,7 +507,8 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
       data: {
         moduleSlug: MODULE_SLUG,
         resourceId,
-        userId: adminId,
+        userId: clientUserId,
+        managerId: adminId,
         date: bookingDate,
         startTime: start,
         endTime: end,
@@ -533,7 +542,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     type: "booking.confirmed",
     moduleSlug: MODULE_SLUG,
     entityId: booking.id,
-    userId: adminId,
+    userId: clientUserId,
     actor: "admin",
     data: { resourceName: resource.name, date, startTime, endTime },
   });

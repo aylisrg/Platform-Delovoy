@@ -28,6 +28,11 @@ vi.mock("@/modules/payments/service", () => ({
   autoRefundOnCancellation: vi.fn().mockResolvedValue({ refunded: false, reason: "no_payment" }),
 }));
 
+// createAdminBooking дедуплицирует гостя по E.164-телефону перед записью брони (#430).
+vi.mock("@/modules/clients/service", () => ({
+  upsertClientByPhone: vi.fn().mockResolvedValue({ id: "client-1" }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     resource: {
@@ -97,6 +102,7 @@ import { prisma } from "@/lib/db";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
+import { upsertClientByPhone } from "@/modules/clients/service";
 
 // Future date safe for all tests
 const FUTURE_DATE = "2030-06-15";
@@ -785,13 +791,29 @@ describe("createAdminBooking", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: "CONFIRMED",
-          userId: "admin-1",
+          userId: "client-1",
+          managerId: "admin-1",
           clientName: "Иванов Иван",
           clientPhone: "+7 999 123-45-67",
           metadata: expect.objectContaining({ bookedByAdmin: true }),
         }),
       })
     );
+  });
+
+  // #430: телефонные брони беседок не создавали карточку гостя в CRM — бронь
+  // писалась на userId=adminId без upsertClientByPhone. Эталон — ps-park.
+  it("дедуплицирует гостя по телефону через upsertClientByPhone", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(upsertClientByPhone).toHaveBeenCalledWith("+7 999 123-45-67", {
+      name: "Иванов Иван",
+      source: "gazebos_booking",
+    });
   });
 
   it("throws DURATION_BELOW_MIN when admin booking is shorter than minBookingHours", async () => {
@@ -855,6 +877,7 @@ describe("createAdminBooking", () => {
         type: "booking.confirmed",
         moduleSlug: "gazebos",
         entityId: "new-booking",
+        userId: "client-1",
       })
     );
   });
