@@ -39,3 +39,4 @@
 | 2026-08-10 | 2026-08-10-booking-relaunch-audit.md | 15 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-423-soft-delete-filter-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-432-patch-booking-zod-qa-report.md | 8 | rbac, api, tests, scope_creep |
+| 2026-08-12 | 2026-08-12-issue-430-admin-booking-crm-attribution-qa-report.md | 7 | rbac, api, typescript, tests, scope_creep |
