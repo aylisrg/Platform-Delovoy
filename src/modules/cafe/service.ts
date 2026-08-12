@@ -20,8 +20,55 @@ const MODULE_SLUG = "cafe";
 
 // === MENU ===
 
+type SortableMenuItem = { category: string; sortOrder: number; name: string };
+
+/**
+ * Ранг категории = минимальный `sortOrder` среди её позиций.
+ *
+ * Алфавит для витрины не годится: кофейный раздел должен идти первым, а
+ * «Кофе» < «Охлаждённые напитки» — совпадение, которое сломается на первой же
+ * новой категории. Хардкодить список категорий тоже нельзя — их заводит
+ * менеджер из админки. Поэтому порядок берётся из данных: в сидах категории
+ * разложены по блокам sortOrder с шагом 100 (кофе — блок 0), а менеджер меняет
+ * порядок, правя sortOrder позиций.
+ */
+function categoryRank(items: SortableMenuItem[]): Map<string, number> {
+  const ranks = new Map<string, number>();
+  for (const item of items) {
+    const current = ranks.get(item.category);
+    if (current === undefined || item.sortOrder < current) {
+      ranks.set(item.category, item.sortOrder);
+    }
+  }
+  return ranks;
+}
+
+/**
+ * Сортировка витрины: категория (по рангу) → позиция внутри категории.
+ * При равных рангах категории разводятся по имени — иначе позиции двух
+ * категорий чередовались бы вперемешку.
+ */
+function compareMenuItems(
+  a: SortableMenuItem,
+  b: SortableMenuItem,
+  ranks: Map<string, number>,
+): number {
+  if (a.category !== b.category) {
+    const byRank = (ranks.get(a.category) ?? 0) - (ranks.get(b.category) ?? 0);
+    if (byRank !== 0) return byRank;
+    return a.category.localeCompare(b.category, "ru");
+  }
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+  return a.name.localeCompare(b.name, "ru");
+}
+
+function sortMenu<T extends SortableMenuItem>(items: T[]): T[] {
+  const ranks = categoryRank(items);
+  return [...items].sort((a, b) => compareMenuItems(a, b, ranks));
+}
+
 export async function getMenu(category?: string): Promise<CafeMenuItem[]> {
-  return prisma.menuItem.findMany({
+  const items = await prisma.menuItem.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
       isAvailable: true,
@@ -30,24 +77,28 @@ export async function getMenu(category?: string): Promise<CafeMenuItem[]> {
     },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
   });
+  return sortMenu(items);
 }
 
 export async function getMenuCategories(): Promise<string[]> {
   const items = await prisma.menuItem.findMany({
     where: { moduleSlug: MODULE_SLUG, isAvailable: true, deletedAt: null },
-    select: { category: true },
-    distinct: ["category"],
-    orderBy: { category: "asc" },
+    select: { category: true, sortOrder: true },
+    orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
   });
-  return items.map((i) => i.category);
+  const ranks = categoryRank(items.map((i) => ({ ...i, name: "" })));
+  return [...ranks.keys()].sort(
+    (a, b) => (ranks.get(a) ?? 0) - (ranks.get(b) ?? 0) || a.localeCompare(b, "ru"),
+  );
 }
 
 /** Полное меню для админ-каталога (включая скрытые, без soft-deleted). */
 export async function getMenuAdmin() {
-  return prisma.menuItem.findMany({
+  const items = await prisma.menuItem.findMany({
     where: { moduleSlug: MODULE_SLUG, deletedAt: null },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
   });
+  return sortMenu(items);
 }
 
 export async function getMenuItem(id: string) {

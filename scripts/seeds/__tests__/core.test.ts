@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { seedCore } from "../core";
+import { CAFE_MENU } from "../../lib/cafe-menu";
 import { createFakePrisma, asPrisma, type FakePrisma } from "./fake-prisma";
 
 describe("seedCore", () => {
@@ -40,8 +41,13 @@ describe("seedCore", () => {
     // 5 gazebos + 4 ps-park tables = 9 resources
     expect(fake.resource.__store.rows.length).toBe(9);
 
-    // 8 menu items
-    expect(fake.menuItem.__store.rows.length).toBe(8);
+    // Меню кафе с настенного прайса (3 кофе + 8 пицц + 19 напитков)
+    expect(fake.menuItem.__store.rows.length).toBe(CAFE_MENU.length);
+    // Кофе — первый раздел витрины: минимальный sortOrder в меню у него.
+    const firstItem = [...fake.menuItem.__store.rows].sort(
+      (a, b) => (a.sortOrder as number) - (b.sortOrder as number),
+    )[0];
+    expect(firstItem.category).toBe("Кофе");
 
     // 5 demo offices
     expect(fake.office.__store.rows.length).toBe(5);
@@ -98,7 +104,7 @@ describe("seedCore", () => {
       data: {
         moduleSlug: "cafe",
         category: "Напитки",
-        name: "Американо",
+        name: "Капучино", // есть в прайсе — сид всё равно не трогает цену
         price: 9999, // edited price
         sortOrder: 0,
       },
@@ -119,10 +125,12 @@ describe("seedCore", () => {
     expect(office101?.pricePerMonth).toBe(99999);
 
     // MenuItem: цена сохранилась — найденный existing просто пропускается.
-    const americano = fake.menuItem.__store.rows.find(
-      (r) => r.name === "Американо",
+    // Синхронизация цен с прайсом — отдельный scripts/update-cafe-menu.ts.
+    const cappuccino = fake.menuItem.__store.rows.filter(
+      (r) => r.name === "Капучино",
     );
-    expect(americano?.price).toBe(9999);
+    expect(cappuccino).toHaveLength(1); // дубль не создан
+    expect(cappuccino[0].price).toBe(9999);
   });
 
   it("legacy admin migration: converts email-admin to telegram-admin", async () => {

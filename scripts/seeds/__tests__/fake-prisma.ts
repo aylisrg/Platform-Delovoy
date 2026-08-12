@@ -3,7 +3,7 @@
  * необходимого для тестов сидеров. Покрывает:
  *
  *   - findUnique по уникальным полям
- *   - findFirst по where
+ *   - findFirst / findMany по where
  *   - upsert (create or update по where)
  *   - update по id
  *   - create
@@ -68,6 +68,7 @@ function violatesUnique(store: ModelStore, candidate: Row, ignoreId?: string) {
 interface ModelDelegate {
   findUnique: (args: { where: WhereCondition }) => Promise<Row | null>;
   findFirst: (args: { where: WhereCondition }) => Promise<Row | null>;
+  findMany: (args?: { where?: WhereCondition }) => Promise<Row[]>;
   create: (args: { data: Record<string, unknown> }) => Promise<Row>;
   update: (args: {
     where: WhereCondition;
@@ -108,6 +109,12 @@ function makeDelegate(uniqueKeys: string[][]): ModelDelegate {
     },
     async findFirst({ where }) {
       return store.rows.find((r) => matches(r, where)) ?? null;
+    },
+    async findMany(args) {
+      const where = args?.where;
+      // Копия массива: вызывающий код часто сортирует результат на месте.
+      if (!where) return [...store.rows];
+      return store.rows.filter((r) => matches(r, where));
     },
     async create({ data }) {
       const row: Row = {

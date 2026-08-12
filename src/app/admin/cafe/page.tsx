@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db";
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { OrderActions } from "@/components/admin/cafe/order-actions";
 import { MenuManager } from "@/components/admin/cafe/menu-manager";
+import { getMenuAdmin } from "@/modules/cafe/service";
 import { formatTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -73,10 +74,9 @@ export default async function CafeManagerPage({
   };
 
   const [menuItems, orders, todayCount, activeCount, todayRevenue] = await Promise.all([
-    prisma.menuItem.findMany({
-      where: { moduleSlug: "cafe", deletedAt: null },
-      orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-    }),
+    // Через сервис — чтобы каталог в админке шёл в том же порядке категорий,
+    // что и публичная витрина (кофе первым), а не по алфавиту.
+    getMenuAdmin(),
     prisma.order.findMany({
       where: ordersWhere,
       include: {
