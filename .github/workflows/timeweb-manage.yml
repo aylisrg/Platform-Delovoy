@@ -20,6 +20,7 @@ on:
           - server-logs            # Логи контейнеров (через SSH)
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
+          - ops-net-diagnose       # Сетевой слой: кто слушает 80/443, nginx, firewall, curl по слоям (read-only)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -296,6 +297,101 @@ jobs:
             echo ""
             echo "=== Top memory processes ==="
             ps aux --sort=-%mem | head -12
+
+      # Сетевой слой — слепое пятно всех остальных диагностик и watchdog'а:
+      # они смотрят контейнеры и память, но никогда — кто держит 80/443,
+      # что говорит firewall и доходит ли запрос до nginx. Инцидент 2026-08-12:
+      # сервер здоров, контейнеры healthy, `nginx -t` ok, а снаружи и с самого
+      # сервера публичный URL не отвечает. Строго read-only.
+      - name: Network Diagnose (via SSH)
+        if: inputs.action == 'ops-net-diagnose'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== Listening sockets (TCP) ==="
+            $SUDO ss -ltnp 2>/dev/null || $SUDO netstat -ltnp 2>/dev/null || echo "no ss/netstat"
+
+            echo ""
+            echo "=== nginx service ==="
+            systemctl is-active nginx 2>/dev/null || echo "is-active: FAILED"
+            systemctl is-enabled nginx 2>/dev/null || echo "is-enabled: FAILED"
+            $SUDO systemctl status nginx --no-pager -l 2>/dev/null | head -25 || true
+
+            echo ""
+            echo "=== nginx: effective listen directives ==="
+            $SUDO nginx -T 2>/dev/null | grep -nE "^\s*(listen|server_name|proxy_pass)" | head -40 || echo "nginx -T failed"
+
+            echo ""
+            echo "=== nginx: enabled vhosts ==="
+            ls -la /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null || true
+
+            echo ""
+            echo "=== Firewall: ufw ==="
+            $SUDO ufw status verbose 2>/dev/null || echo "ufw unavailable"
+            echo ""
+            echo "=== Firewall: nft ruleset (first 60) ==="
+            $SUDO nft list ruleset 2>/dev/null | head -60 || echo "nft unavailable"
+            echo ""
+            echo "=== Firewall: iptables -S ==="
+            $SUDO iptables -S 2>/dev/null | head -40 || echo "iptables unavailable"
+
+            echo ""
+            echo "=== Public IPs on interfaces ==="
+            ip -brief addr 2>/dev/null || ifconfig 2>/dev/null | head -20
+
+            echo ""
+            echo "=== DNS resolution from server ==="
+            getent hosts delovoy-park.ru || echo "RESOLUTION FAILED"
+
+            echo ""
+            echo "=== Layered curl from the server itself ==="
+            probe() {
+              printf '%-46s -> ' "$1"
+              curl -sS -o /dev/null -k --max-time 12 \
+                -w 'code=%{http_code} time=%{time_total}s\n' "$1" 2>&1 | tail -1
+            }
+            probe "http://127.0.0.1:3000/api/health"
+            probe "http://127.0.0.1:3001/api/health"
+            probe "http://127.0.0.1:8443/api/health"
+            probe "http://127.0.0.1/api/health"
+            probe "https://127.0.0.1/api/health"
+            for IP in $(ip -4 -brief addr 2>/dev/null | awk '{print $3}' | cut -d/ -f1 | grep -v '^127\.'); do
+              probe "http://$IP/api/health"
+              probe "https://$IP/api/health"
+            done
+            probe "https://delovoy-park.ru/api/health"
+
+            echo ""
+            echo "=== Outbound reachability from server ==="
+            curl -sS -o /dev/null --max-time 12 -w 'github.com: code=%{http_code}\n' https://github.com 2>&1 | tail -1
+
+            echo ""
+            echo "=== TLS cert on local :443 ==="
+            echo | timeout 15 openssl s_client -connect 127.0.0.1:443 -servername delovoy-park.ru 2>/dev/null \
+              | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "no TLS on local :443"
+
+            echo ""
+            echo "=== nginx error log (last 40) ==="
+            $SUDO tail -40 /var/log/nginx/error.log 2>/dev/null || echo "no error.log"
+
+            echo ""
+            echo "=== nginx access log (last 15) ==="
+            $SUDO tail -15 /var/log/nginx/access.log 2>/dev/null || echo "no access.log"
+
+            echo ""
+            echo "=== Containers with ports ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
+
+            echo ""
+            echo "=== ACTIVE_SLOT ==="
+            cat /opt/delovoy-park/ACTIVE_SLOT 2>/dev/null || echo "no ACTIVE_SLOT file (=slot a)"
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'
