@@ -5,6 +5,7 @@ import {
   createOrderSchema,
   orderFilterSchema,
   checkoutSchema,
+  receiptEmailSchema,
   statsQuerySchema,
 } from "@/modules/cafe/validation";
 
@@ -166,6 +167,25 @@ describe("orderFilterSchema", () => {
   });
 });
 
+// Той же схемой форма чекаута проверяет ввод до отправки, поэтому её поведение
+// зафиксировано отдельно от checkoutSchema.
+describe("receiptEmailSchema", () => {
+  it("принимает валидный адрес", () => {
+    expect(receiptEmailSchema.safeParse("guest@example.ru").success).toBe(true);
+  });
+
+  it("отклоняет строку без @ — типичная опечатка гостя", () => {
+    expect(receiptEmailSchema.safeParse("Иван").success).toBe(false);
+    expect(receiptEmailSchema.safeParse("").success).toBe(false);
+    expect(receiptEmailSchema.safeParse("+79991234567").success).toBe(false);
+  });
+
+  it("режет адрес длиннее 200 символов", () => {
+    const long = `${"a".repeat(200)}@example.ru`;
+    expect(receiptEmailSchema.safeParse(long).success).toBe(false);
+  });
+});
+
 describe("checkoutSchema", () => {
   const items = [{ menuItemId: "item-1", quantity: 1 }];
 
@@ -173,18 +193,25 @@ describe("checkoutSchema", () => {
     expect(checkoutSchema.safeParse({ items }).success).toBe(true);
   });
 
-  it("принимает контакт для чека (email или телефон)", () => {
+  it("принимает email для чека", () => {
     expect(
       checkoutSchema.safeParse({ items, customerEmail: "a@b.ru" }).success
     ).toBe(true);
-    expect(
-      checkoutSchema.safeParse({ items, customerPhone: "+7 (916) 123-45-67" }).success
-    ).toBe(true);
   });
 
-  it("отклоняет некорректный email и телефон", () => {
+  it("отклоняет некорректный email", () => {
     expect(checkoutSchema.safeParse({ items, customerEmail: "не-почта" }).success).toBe(false);
-    expect(checkoutSchema.safeParse({ items, customerPhone: "abc" }).success).toBe(false);
+  });
+
+  // «Чеки от ЮKassa» доставляют чек только на почту, поэтому телефон в чекаут
+  // не принимается: принятый, он дал бы оплаченный заказ без доставленного чека.
+  it("телефон не попадает в чекаут — только email", () => {
+    const result = checkoutSchema.safeParse({
+      items,
+      customerPhone: "+7 (916) 123-45-67",
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && "customerPhone" in result.data).toBe(false);
   });
 
   it("не принимает bookingId (публичный чекаут не привязывается к броням)", () => {

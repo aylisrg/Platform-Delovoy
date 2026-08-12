@@ -5,6 +5,7 @@ import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
+import { auth } from "@/lib/auth";
 
 // Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -76,12 +77,15 @@ export const metadata: Metadata = {
 };
 
 export default async function CafePage() {
-  const [items, categories] = await Promise.all([
+  const [items, categories, session] = await Promise.all([
     getMenu(),
     getMenuCategories(),
+    auth(),
   ]);
   const paymentsEnabled = isYooKassaConfigured();
   const receiptsRequired = receiptsEnabled();
+  // Залогиненный не перепечатывает свою почту: поле приезжает заполненным.
+  const defaultEmail = session?.user?.email ?? "";
 
   return (
     <>
@@ -107,6 +111,7 @@ export default async function CafePage() {
               categories={categories}
               paymentsEnabled={paymentsEnabled}
               receiptsRequired={receiptsRequired}
+              defaultEmail={defaultEmail}
             />
           </main>
           <Footer />

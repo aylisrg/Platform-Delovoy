@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { reachGoal } from "@/lib/metrika";
+import { receiptEmailSchema } from "@/modules/cafe/validation";
 import type { CafeMenuItem } from "@/modules/cafe/types";
 
 type CartItem = {
@@ -18,8 +19,10 @@ type Props = {
   categories: string[];
   /** ЮKassa настроена: кнопка ведёт на онлайн-оплату. */
   paymentsEnabled: boolean;
-  /** Фискализация включена: контакт для чека обязателен. */
+  /** Фискализация включена: email для чека обязателен. */
   receiptsRequired: boolean;
+  /** Почта залогиненного — поле приезжает заполненным. Гостю пустая строка. */
+  defaultEmail: string;
 };
 
 /**
@@ -62,18 +65,47 @@ function writeStoredCart(cart: CartItem[]): void {
   }
 }
 
+/**
+ * Почта для чека переживает визиты: кафе — это одни и те же люди каждый день,
+ * и повторный заказ не должен стоить ввода адреса.
+ */
+const EMAIL_STORAGE_KEY = "cafe-email-v1";
+
+function readStoredEmail(): string {
+  try {
+    return localStorage.getItem(EMAIL_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredEmail(email: string): void {
+  try {
+    localStorage.setItem(EMAIL_STORAGE_KEY, email);
+  } catch {
+    // приватный режим / переполненное хранилище — просто не запоминаем
+  }
+}
+
 type SuccessInfo = {
   orderNumber: string;
   paid: boolean;
 };
 
-export function MenuList({ items, categories, paymentsEnabled, receiptsRequired }: Props) {
+export function MenuList({
+  items,
+  categories,
+  paymentsEnabled,
+  receiptsRequired,
+  defaultEmail,
+}: Props) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [deliveryTo, setDeliveryTo] = useState("");
   const [comment, setComment] = useState("");
-  const [contact, setContact] = useState("");
-  const [contactError, setContactError] = useState(false);
+  const [showDelivery, setShowDelivery] = useState(false);
+  const [email, setEmail] = useState(defaultEmail);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [isOrdering, setIsOrdering] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
@@ -95,6 +127,11 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
         if (menuItem) restored.push({ menuItem, quantity: Math.min(s.quantity, 99) });
       }
       if (restored.length > 0) setCart(restored);
+    }
+    // Почта профиля приоритетнее запомненной: залогиненный видит свою.
+    if (!defaultEmail) {
+      const storedEmail = readStoredEmail();
+      if (storedEmail) setEmail(storedEmail);
     }
     hydrated.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,18 +187,22 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
   async function submitOrder() {
     if (cart.length === 0) return;
 
-    if (paymentsEnabled && receiptsRequired && !contact.trim()) {
-      setContactError(true);
-      setMessage({ type: "error", text: "Укажите email или телефон — на него придёт чек" });
+    // Проверяем той же схемой, что и сервер: иначе опечатка доезжает до API,
+    // а тот создаёт заказ и тут же отменяет его — мусорный CANCELLED в БД.
+    const parsedEmail = receiptEmailSchema.safeParse(email.trim());
+    if (paymentsEnabled && receiptsRequired && !parsedEmail.success) {
+      setEmailError(
+        email.trim() ? "Проверьте адрес почты" : "Укажите email — на него придёт чек"
+      );
       return;
     }
+    // Фискализация выключена — поля на экране нет, поэтому негодный сохранённый
+    // адрес молча не отправляем вместо блокировки невидимой ошибкой.
+    const customerEmail = parsedEmail.success ? parsedEmail.data : undefined;
 
     setIsOrdering(true);
     setMessage(null);
-    setContactError(false);
-
-    const trimmedContact = contact.trim();
-    const isEmail = trimmedContact.includes("@");
+    setEmailError(null);
 
     try {
       const res = await fetch("/api/cafe/checkout", {
@@ -174,8 +215,7 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
           })),
           deliveryTo: deliveryTo || undefined,
           comment: comment || undefined,
-          ...(trimmedContact && isEmail && { customerEmail: trimmedContact }),
-          ...(trimmedContact && !isEmail && { customerPhone: trimmedContact }),
+          ...(customerEmail && { customerEmail }),
         }),
       });
 
@@ -183,6 +223,7 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
 
       if (data.success) {
         reachGoal("cafe_order_submit");
+        if (customerEmail) writeStoredEmail(customerEmail);
 
         const confirmationUrl: string | undefined = data.data?.payment?.confirmationUrl;
         if (confirmationUrl) {
@@ -197,11 +238,12 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
         setCart([]);
         setDeliveryTo("");
         setComment("");
+        setShowDelivery(false);
         setSuccess({ orderNumber, paid: false });
       } else {
         const code = data.error?.code;
         if (code === "PAYMENT_CONTACT_REQUIRED") {
-          setContactError(true);
+          setEmailError("Укажите email — на него придёт чек");
         }
         if (code === "ITEM_NOT_FOUND") {
           setMessage({
@@ -365,41 +407,68 @@ export function MenuList({ items, categories, paymentsEnabled, receiptsRequired 
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Принести в офис № (необязательно)"
-                    value={deliveryTo}
-                    onChange={(e) => setDeliveryTo(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Комментарий (необязательно)"
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
                   {paymentsEnabled && receiptsRequired && (
                     <div>
                       <input
-                        type="text"
-                        placeholder="Email или телефон (для чека)"
-                        value={contact}
+                        type="email"
+                        inputMode="email"
+                        autoComplete="email"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        placeholder="Email для чека"
+                        value={email}
                         onChange={(e) => {
-                          setContact(e.target.value);
-                          setContactError(false);
+                          setEmail(e.target.value);
+                          setEmailError(null);
                         }}
                         className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
-                          contactError
+                          emailError
                             ? "border-red-400 focus:ring-red-500"
                             : "border-zinc-300 focus:ring-blue-500"
                         }`}
                       />
-                      <p className="mt-1 text-xs text-zinc-400">
-                        Сюда придёт электронный чек об оплате
+                      <p
+                        className={`mt-1 text-xs ${
+                          emailError ? "text-red-600" : "text-zinc-400"
+                        }`}
+                      >
+                        {emailError ?? "Сюда придёт электронный чек об оплате"}
                       </p>
                     </div>
                   )}
+
+                  {/* Самовывоз у стойки — самый частый сценарий, поэтому поля
+                      доставки свёрнуты: пустой deliveryTo = заказ сразу
+                      DELIVERED после оплаты, персонал ничего не нажимает. */}
+                  {showDelivery ? (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Номер офиса"
+                        value={deliveryTo}
+                        onChange={(e) => setDeliveryTo(e.target.value)}
+                        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        placeholder="Комментарий (необязательно)"
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowDelivery(true)}
+                      className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      + Принести в офис
+                    </button>
+                  )}
+
                   <Button
                     className="w-full"
                     onClick={submitOrder}

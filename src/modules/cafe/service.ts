@@ -242,7 +242,7 @@ export async function createCheckout(
   userId: string | null,
   input: CheckoutInput
 ): Promise<CheckoutResult> {
-  const { customerEmail, customerPhone, ...orderInput } = input;
+  const { customerEmail, ...orderInput } = input;
 
   const attemptPayment = isYooKassaConfigured();
   const order = await createOrder(userId, orderInput, {
@@ -252,7 +252,7 @@ export async function createCheckout(
 
   let payment: CheckoutResult["payment"] = null;
   if (attemptPayment && Number(order.totalAmount) > 0) {
-    const contact = await resolvePaymentContact(userId, customerEmail, customerPhone);
+    const receiptEmail = await resolvePaymentEmail(userId, customerEmail);
     try {
       const created = await createOnlinePayment({
         subjectType: "ORDER",
@@ -261,8 +261,7 @@ export async function createCheckout(
         amount: Number(order.totalAmount),
         description: `Кафе: заказ ${orderNumber}`,
         userId,
-        customerEmail: contact.email,
-        customerPhone: contact.phone,
+        customerEmail: receiptEmail,
         receiptItems: order.items.map((item) => ({
           description: item.name ?? "Позиция",
           amount: Number(item.price),
@@ -309,23 +308,24 @@ function appBaseUrl(): string {
 }
 
 /**
- * Контакт плательщика для чека 54-ФЗ: приоритет — явно указанный на чекауте,
- * затем профиль залогиненного пользователя; у гостя — только форма.
+ * Адрес для чека 54-ФЗ: приоритет — указанный на чекауте, затем почта профиля
+ * залогиненного; у гостя — только форма.
+ *
+ * Телефон сознательно не используется: «Чеки от ЮKassa» шлют чек только на
+ * почту, поэтому телефон из профиля дал бы оплаченный заказ с недоставленным
+ * чеком вместо честного PAYMENT_CONTACT_REQUIRED.
  */
-async function resolvePaymentContact(
+async function resolvePaymentEmail(
   userId: string | null,
-  inputEmail?: string,
-  inputPhone?: string
-): Promise<{ email: string | null; phone: string | null }> {
-  if (inputEmail || inputPhone) {
-    return { email: inputEmail ?? null, phone: inputPhone ?? null };
-  }
-  if (!userId) return { email: null, phone: null };
+  inputEmail?: string
+): Promise<string | null> {
+  if (inputEmail) return inputEmail;
+  if (!userId) return null;
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, phone: true },
+    select: { email: true },
   });
-  return { email: user?.email ?? null, phone: user?.phone ?? null };
+  return user?.email ?? null;
 }
 
 export async function listOrders(filter?: OrderFilter) {
