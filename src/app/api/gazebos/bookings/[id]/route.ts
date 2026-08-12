@@ -14,7 +14,7 @@ import { getBooking, updateBookingStatus, cancelBooking, rescheduleBooking, Book
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { formatTime } from "@/lib/format";
 import { hasRole } from "@/lib/permissions";
-import { checkoutDiscountSchema } from "@/modules/booking/validation";
+import { checkoutDiscountSchema, updateBookingStatusSchema } from "@/modules/booking/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import { rescheduleBookingSchema } from "@/modules/gazebos/validation";
 
@@ -48,8 +48,12 @@ export async function PATCH(
     if (!session?.user?.id) return apiUnauthorized();
 
     const { id } = await params;
-    const body = await request.json();
-    const { status } = body;
+    const body: unknown = await request.json().catch(() => null);
+    if (body === null || typeof body !== "object") {
+      return apiError("VALIDATION_ERROR", "Некорректное тело запроса", 422);
+    }
+    const raw = body as Record<string, unknown>;
+    const { status } = raw;
 
     // Режим редактирования брони (без status): смена времени / ресурса /
     // клиента. Только менеджеры своего раздела. Факт правки логируется в сервисе.
@@ -69,11 +73,17 @@ export async function PATCH(
       return apiResponse(rescheduled);
     }
 
-    const { reason, confirmPenalty, cashAmount, cardAmount } = body;
+    // Смена статуса: тело целиком через Zod (#432) — статус только из enum,
+    // суммы кассовой разбивки неотрицательные, причина с потолком длины.
+    const parsedStatus = updateBookingStatusSchema.safeParse(raw);
+    if (!parsedStatus.success) {
+      return apiError("VALIDATION_ERROR", parsedStatus.error.issues[0].message, 422);
+    }
+    const { status: newStatus, reason, confirmPenalty, cashAmount, cardAmount } = parsedStatus.data;
     let updated;
 
     // Users can only cancel their own bookings
-    if (status === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
+    if (newStatus === "CANCELLED" && !hasRole(session.user, "MANAGER")) {
       const result = await cancelBooking(id, session.user.id, reason, confirmPenalty === true);
       if (result.penaltyRequired) {
         return apiError("PENALTY_CONFIRMATION_REQUIRED", "Требуется подтверждение штрафа", 402);
@@ -85,12 +95,20 @@ export async function PATCH(
       if (denied) return denied;
 
       // Parse discount fields for COMPLETED checkout
+      // Скидка = ноль/отсутствует → чекаут без скидки; всё остальное (включая
+      // мусор вроде строки) уходит в схему и падает в 422, как и до фикса.
+      const rawPercent = raw.discountPercent;
+      const wantsDiscount =
+        typeof rawPercent === "number"
+          ? rawPercent > 0
+          : rawPercent !== undefined && rawPercent !== null;
+
       let discountInput: CheckoutDiscountInput | undefined;
-      if (status === "COMPLETED" && body.discountPercent !== undefined && body.discountPercent > 0) {
+      if (newStatus === "COMPLETED" && wantsDiscount) {
         const parsed = checkoutDiscountSchema.safeParse({
-          discountPercent: body.discountPercent,
-          discountReason: body.discountReason,
-          discountNote: body.discountNote,
+          discountPercent: raw.discountPercent,
+          discountReason: raw.discountReason,
+          discountNote: raw.discountNote,
         });
         if (!parsed.success) {
           return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
@@ -100,11 +118,11 @@ export async function PATCH(
 
       updated = await updateBookingStatus(
         id,
-        status,
+        newStatus,
         session.user.id,
         reason,
-        typeof cashAmount === "number" ? cashAmount : undefined,
-        typeof cardAmount === "number" ? cardAmount : undefined,
+        cashAmount,
+        cardAmount,
         discountInput
       );
     } else {
@@ -112,7 +130,7 @@ export async function PATCH(
     }
 
     await logAudit(session.user.id, "booking.status_change", "Booking", id, {
-      newStatus: status,
+      newStatus,
     });
 
     // Enrich response with top-level discount fields per AC-1.8

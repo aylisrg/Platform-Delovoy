@@ -12,7 +12,7 @@ import { logAudit } from "@/lib/logger";
 import { authorizeSuperadminDeletion, logDeletion } from "@/lib/deletion";
 import { getBooking, updateBookingStatus, cancelBooking, PSBookingError, softDeleteBooking, hardDeleteBooking } from "@/modules/ps-park/service";
 import { hasRole } from "@/lib/permissions";
-import { checkoutDiscountSchema } from "@/modules/booking/validation";
+import { checkoutDiscountSchema, updateBookingStatusSchema } from "@/modules/booking/validation";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 
 /**
@@ -45,14 +45,30 @@ export async function PATCH(
     if (!session?.user?.id) return apiUnauthorized();
 
     const { id } = await params;
-    const body = await request.json();
-    const { status } = body;
+    const body: unknown = await request.json().catch(() => null);
+    if (body === null || typeof body !== "object") {
+      return apiError("VALIDATION_ERROR", "Некорректное тело запроса", 422);
+    }
+    const raw = body as Record<string, unknown>;
 
-    if (!status) {
+    if (raw.status === undefined || raw.status === null || raw.status === "") {
       return apiError("VALIDATION_ERROR", "Укажите статус", 422);
     }
 
-    const { reason, confirmPenalty, cashAmount, cardAmount, subscriptionId } = body;
+    // Тело целиком через Zod (#432) — статус только из enum, суммы кассовой
+    // разбивки неотрицательные, причина с потолком длины.
+    const parsedStatus = updateBookingStatusSchema.safeParse(raw);
+    if (!parsedStatus.success) {
+      return apiError("VALIDATION_ERROR", parsedStatus.error.issues[0].message, 422);
+    }
+    const {
+      status,
+      reason,
+      confirmPenalty,
+      cashAmount,
+      cardAmount,
+      subscriptionId,
+    } = parsedStatus.data;
     let updated;
 
     // Users can only cancel their own bookings
@@ -66,13 +82,21 @@ export async function PATCH(
       const denied = await requireAdminSection(session, "ps-park");
       if (denied) return denied;
 
-      // Parse discount fields for COMPLETED checkout
+      // Parse discount fields for COMPLETED checkout.
+      // Скидка = ноль/отсутствует → чекаут без скидки; всё остальное (включая
+      // мусор вроде строки) уходит в схему и падает в 422, как и до фикса.
+      const rawPercent = raw.discountPercent;
+      const wantsDiscount =
+        typeof rawPercent === "number"
+          ? rawPercent > 0
+          : rawPercent !== undefined && rawPercent !== null;
+
       let discountInput: CheckoutDiscountInput | undefined;
-      if (status === "COMPLETED" && body.discountPercent !== undefined && body.discountPercent > 0) {
+      if (status === "COMPLETED" && wantsDiscount) {
         const parsed = checkoutDiscountSchema.safeParse({
-          discountPercent: body.discountPercent,
-          discountReason: body.discountReason,
-          discountNote: body.discountNote,
+          discountPercent: raw.discountPercent,
+          discountReason: raw.discountReason,
+          discountNote: raw.discountNote,
         });
         if (!parsed.success) {
           return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
@@ -85,13 +109,11 @@ export async function PATCH(
         status,
         session.user.id,
         reason,
-        typeof cashAmount === "number" ? cashAmount : undefined,
-        typeof cardAmount === "number" ? cardAmount : undefined,
+        cashAmount,
+        cardAmount,
         discountInput,
         "MANAGER",
-        typeof subscriptionId === "string" && subscriptionId.length > 0
-          ? subscriptionId
-          : undefined
+        subscriptionId
       );
     } else {
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);

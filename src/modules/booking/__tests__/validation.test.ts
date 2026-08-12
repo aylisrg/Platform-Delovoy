@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkoutDiscountSchema } from "../validation";
+import { checkoutDiscountSchema, updateBookingStatusSchema } from "../validation";
 
 describe("checkoutDiscountSchema", () => {
   it("accepts valid discount with reason", () => {
@@ -127,6 +127,97 @@ describe("checkoutDiscountSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.discountNote).toBeUndefined();
+    }
+  });
+});
+
+describe("updateBookingStatusSchema (#432)", () => {
+  it("принимает корректную кассовую разбивку", () => {
+    const result = updateBookingStatusSchema.safeParse({
+      status: "COMPLETED",
+      cashAmount: 600,
+      cardAmount: 400,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.cashAmount).toBe(600);
+      expect(result.data.cardAmount).toBe(400);
+    }
+  });
+
+  // Пара 2000 нал / −1000 карта при счёте 1000 сходилась по сумме и проезжала
+  // гейт PAYMENT_REQUIRED, оставляя в FinancialTransaction отрицательную карту.
+  it.each([
+    ["cashAmount", { status: "COMPLETED", cashAmount: -1, cardAmount: 0 }],
+    ["cardAmount", { status: "COMPLETED", cashAmount: 2000, cardAmount: -1000 }],
+  ])("отклоняет отрицательный %s", (_field, body) => {
+    expect(updateBookingStatusSchema.safeParse(body).success).toBe(false);
+  });
+
+  it("отклоняет суммы выше потолка и нечисловые", () => {
+    expect(
+      updateBookingStatusSchema.safeParse({ status: "COMPLETED", cashAmount: 10_000_001 }).success
+    ).toBe(false);
+    expect(
+      updateBookingStatusSchema.safeParse({ status: "COMPLETED", cashAmount: "1000" }).success
+    ).toBe(false);
+  });
+
+  it("принимает все статусы из enum BookingStatus и отклоняет посторонние", () => {
+    for (const status of ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "NO_SHOW"]) {
+      expect(updateBookingStatusSchema.safeParse({ status }).success).toBe(true);
+    }
+    for (const status of ["PAID", "completed", "", 42, null, undefined]) {
+      expect(updateBookingStatusSchema.safeParse({ status }).success).toBe(false);
+    }
+  });
+
+  it("ограничивает длину причины 500 символами", () => {
+    expect(
+      updateBookingStatusSchema.safeParse({ status: "CANCELLED", reason: "a".repeat(500) }).success
+    ).toBe(true);
+    expect(
+      updateBookingStatusSchema.safeParse({ status: "CANCELLED", reason: "a".repeat(501) }).success
+    ).toBe(false);
+  });
+
+  // null приходит от клиентов наравне с пропуском ключа — иначе завершение
+  // брони падало бы в 422 на пустых полях формы.
+  it("превращает null в undefined для сумм, причины и абонемента", () => {
+    const result = updateBookingStatusSchema.safeParse({
+      status: "CONFIRMED",
+      cashAmount: null,
+      cardAmount: null,
+      reason: null,
+      subscriptionId: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.cashAmount).toBeUndefined();
+      expect(result.data.cardAmount).toBeUndefined();
+      expect(result.data.reason).toBeUndefined();
+      expect(result.data.subscriptionId).toBeUndefined();
+    }
+  });
+
+  it("считает пустой subscriptionId отсутствием абонемента", () => {
+    const result = updateBookingStatusSchema.safeParse({
+      status: "COMPLETED",
+      subscriptionId: "",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.subscriptionId).toBeUndefined();
+  });
+
+  it("отбрасывает неизвестные ключи вместо падения", () => {
+    const result = updateBookingStatusSchema.safeParse({
+      status: "COMPLETED",
+      discountPercent: 10,
+      discountReason: "promo",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("discountPercent" in result.data).toBe(false);
     }
   });
 });
