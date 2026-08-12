@@ -22,6 +22,7 @@ on:
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
           - ops-net-diagnose       # Сетевой слой: кто слушает 80/443, nginx, firewall, curl по слоям (read-only)
           - ops-bind-secondary-ip  # Вернуть на eth0 доп. IPv4, пропавший из DHCP-аренды (runtime, с авто-откатом)
+          - ops-persist-secondary-ip # Закрепить доп. IPv4 в netplan, чтобы пережил ребут (с авто-откатом)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -496,6 +497,103 @@ jobs:
             $SUDO ip addr del "$TARGET_IP/32" dev eth0 || true
             echo "RESULT=rolled-back (Timeweb routing for $TARGET_IP is gone, not just DHCP)"
             exit 1
+
+      # Закрепление адреса из ops-bind-secondary-ip. Отдельный netplan-файл, а
+      # не правка существующего: netplan сливает конфиги по ключам, поэтому
+      # 99-й файл лишь добавляет адрес к eth0, ничего не переопределяя, и
+      # снимается удалением одного файла.
+      #
+      # `netplan apply` теоретически может уронить eth0 — единственный канал
+      # управления, и тогда откатывать будет некому. Поэтому перед apply в
+      # фоне взводится сторож: через 90 с он проверяет здоровье сайта и, если
+      # тот не отвечает, сам возвращает бэкап и применяет его. Сторож переживает
+      # разрыв SSH (setsid + nohup).
+      - name: Persist secondary IP in netplan (via SSH)
+        if: inputs.action == 'ops-persist-secondary-ip' && inputs.ip_address != ''
+        uses: appleboy/ssh-action@v1
+        env:
+          TARGET_IP: ${{ inputs.ip_address }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: TARGET_IP
+          command_timeout: 10m
+          script: |
+            set -u
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+            NP="/etc/netplan/99-delovoy-secondary-ip.yaml"
+            STAMP=$(date -u '+%Y%m%d-%H%M%S')
+
+            echo "=== netplan BEFORE ==="
+            ls -la /etc/netplan/
+            $SUDO mkdir -p /root/netplan-backups
+            $SUDO tar czf "/root/netplan-backups/netplan-$STAMP.tgz" -C /etc netplan
+            echo "backup: /root/netplan-backups/netplan-$STAMP.tgz"
+
+            echo ""
+            echo "=== Writing $NP ==="
+            $SUDO tee "$NP" > /dev/null <<EOF
+            # Инцидент 2026-08-12: дополнительный IPv4 перестал приходить в
+            # DHCP-аренде Timeweb, а A-запись delovoy-park.ru смотрит именно
+            # на него — сайт стал недоступен по имени при полностью живом
+            # сервере. Держим адрес статически, /32: не создаёт подсеть и не
+            # трогает default route от DHCP.
+            network:
+              version: 2
+              ethernets:
+                eth0:
+                  addresses:
+                    - $TARGET_IP/32
+            EOF
+            $SUDO chmod 600 "$NP"
+            $SUDO cat "$NP"
+
+            echo ""
+            echo "=== netplan generate (syntax gate) ==="
+            if ! $SUDO netplan generate; then
+              echo "netplan generate FAILED — removing $NP, nothing applied."
+              $SUDO rm -f "$NP"
+              $SUDO netplan generate || true
+              exit 1
+            fi
+
+            echo ""
+            echo "=== Arming rollback watchdog (fires in 90s if site is down) ==="
+            $SUDO tee /root/netplan-rollback.sh > /dev/null <<EOF
+            #!/bin/bash
+            sleep 90
+            if curl -sf --max-time 15 https://delovoy-park.ru/api/health > /dev/null 2>&1; then
+              logger -t netplan-rollback "site healthy after netplan apply — keeping config"
+              exit 0
+            fi
+            logger -t netplan-rollback "site DOWN after netplan apply — restoring backup"
+            rm -f "$NP"
+            tar xzf "/root/netplan-backups/netplan-$STAMP.tgz" -C /etc
+            netplan apply
+            EOF
+            $SUDO chmod +x /root/netplan-rollback.sh
+            $SUDO setsid nohup /root/netplan-rollback.sh > /var/log/netplan-rollback.log 2>&1 < /dev/null &
+            echo "watchdog armed"
+
+            echo ""
+            echo "=== netplan apply ==="
+            $SUDO netplan apply
+            sleep 8
+
+            echo ""
+            echo "=== AFTER ==="
+            ip -4 addr show eth0
+            CODE=$(curl -sS -o /dev/null -k --max-time 15 -w '%{http_code}' \
+              https://delovoy-park.ru/api/health 2>/dev/null || echo 000)
+            echo "https://delovoy-park.ru/api/health -> $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "RESULT=persisted (watchdog will confirm and stand down)"
+            else
+              echo "RESULT=degraded — rollback watchdog will restore the backup within 90s"
+              exit 1
+            fi
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'
