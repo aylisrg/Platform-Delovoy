@@ -84,6 +84,10 @@ import {
   updateBookingStatus,
   cancelBooking,
   rescheduleBooking,
+  checkInBooking,
+  markNoShow,
+  listBookings,
+  getBooking,
   getAvailability,
   getTimeline,
   getAnalytics,
@@ -1318,6 +1322,207 @@ describe("CHECKED_IN занимает слот (#424)", () => {
     expect(prisma.booking.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: { in: ACTIVE_BOOKING_STATUSES } }),
+      })
+    );
+  });
+});
+
+// ===== #423: soft-deleted брони исключены из чтения =====
+//
+// До фикса `deletedAt: null` стоял только в rescheduleBooking — удалённая через
+// админку бронь навсегда блокировала слот (конфликт-чек её видел), возвращалась
+// в списки после перезагрузки и попадала в аналитику.
+describe("soft-delete filter (deletedAt: null) в чтениях (#423)", () => {
+  it("listBookings добавляет deletedAt: null в where", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookings();
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null, moduleSlug: "gazebos" }),
+      })
+    );
+    expect(prisma.booking.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getBooking фильтрует по deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await getBooking("some-id");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("createBooking игнорирует soft-deleted брони в конфликт-чеке", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("createAdminBooking игнорирует soft-deleted брони в обоих конфликт-чеках", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    const calls = vi.mocked(prisma.booking.findFirst).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const [args] of calls) {
+      expect((args as { where: Record<string, unknown> }).where).toMatchObject({ deletedAt: null });
+    }
+  });
+
+  it("updateBookingStatus ищет бронь с фильтром deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(updateBookingStatus("booking-1", "CONFIRMED")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("cancelBooking ищет бронь с фильтром deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(cancelBooking("booking-1", "user-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("checkInBooking ищет бронь с фильтром deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(checkInBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("markNoShow ищет бронь с фильтром deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(markNoShow("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getAvailability не блокирует слот soft-deleted бронью", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+    // С нулём (не считая soft-deleted) броней каждый слот свободен.
+    expect(result.resources[0].slots.every((s) => s.isAvailable)).toBe(true);
+  });
+
+  it("getTimeline фильтрует soft-deleted брони", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+
+    await getTimeline(FUTURE_DATE);
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getAnalytics фильтрует soft-deleted брони", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.financialTransaction.aggregate).mockResolvedValue({
+      _sum: { totalAmount: null },
+    } as never);
+
+    await getAnalytics("month");
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("listBookingsPaginated фильтрует soft-deleted брони", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listBookingsPaginated({});
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("rescheduleBooking игнорирует soft-deleted брони в конфликт-чеке целевого слота", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(mockBooking() as never) // саму бронь нашли
+      .mockResolvedValueOnce(null as never); // конфликтов (среди живых) на новом слоте нет
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await rescheduleBooking(
+      "booking-1",
+      { date: FUTURE_DATE, startTime: "16:00", endTime: "20:00" },
+      "manager-1"
+    );
+
+    // Второй вызов findFirst — это конфликт-чек внутри транзакции переноса.
+    expect(prisma.booking.findFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
       })
     );
   });
