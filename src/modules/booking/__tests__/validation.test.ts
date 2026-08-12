@@ -155,6 +155,10 @@ describe("updateBookingStatusSchema (#432)", () => {
   });
 
   it("отклоняет суммы выше потолка и нечисловые", () => {
+    // Потолок включительный: 10 000 000 проходит, 10 000 001 — уже нет.
+    expect(
+      updateBookingStatusSchema.safeParse({ status: "COMPLETED", cashAmount: 10_000_000 }).success
+    ).toBe(true);
     expect(
       updateBookingStatusSchema.safeParse({ status: "COMPLETED", cashAmount: 10_000_001 }).success
     ).toBe(false);
