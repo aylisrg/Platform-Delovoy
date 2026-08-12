@@ -347,6 +347,22 @@ jobs:
             ip -brief addr 2>/dev/null || ifconfig 2>/dev/null | head -20
 
             echo ""
+            echo "=== Interface detail (eth0) ==="
+            ip addr show eth0 2>/dev/null || true
+            echo ""
+            echo "=== Routes ==="
+            ip route 2>/dev/null || true
+            ip -6 route 2>/dev/null | head -10 || true
+
+            echo ""
+            echo "=== netplan / cloud-init network config ==="
+            ls -la /etc/netplan/ 2>/dev/null || true
+            $SUDO cat /etc/netplan/*.yaml 2>/dev/null || echo "no netplan yaml"
+            echo "--- cloud-init network state ---"
+            ls -la /etc/cloud/cloud.cfg.d/ 2>/dev/null || true
+            $SUDO cat /run/systemd/network/*.network 2>/dev/null | head -30 || echo "no systemd-networkd files"
+
+            echo ""
             echo "=== DNS resolution from server ==="
             getent hosts delovoy-park.ru || echo "RESOLUTION FAILED"
 
