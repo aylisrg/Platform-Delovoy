@@ -1504,4 +1504,26 @@ describe("soft-delete filter (deletedAt: null) в чтениях (#423)", () => 
       })
     );
   });
+
+  it("rescheduleBooking игнорирует soft-deleted брони в конфликт-чеке целевого слота", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(mockBooking() as never) // саму бронь нашли
+      .mockResolvedValueOnce(null as never); // конфликтов (среди живых) на новом слоте нет
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await rescheduleBooking(
+      "booking-1",
+      { date: FUTURE_DATE, startTime: "16:00", endTime: "20:00" },
+      "manager-1"
+    );
+
+    // Второй вызов findFirst — это конфликт-чек внутри транзакции переноса.
+    expect(prisma.booking.findFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
 });

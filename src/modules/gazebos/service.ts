@@ -688,6 +688,7 @@ export async function rescheduleBooking(
       const conflict = await tx.booking.findFirst({
         where: {
           moduleSlug: MODULE_SLUG,
+          deletedAt: null,
           resourceId: effResourceId,
           id: { not: bookingId },
           status: { in: ACTIVE_BOOKING_STATUSES },
