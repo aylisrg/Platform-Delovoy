@@ -46,8 +46,24 @@ jobs:
           script: |
             set -e
             cd /opt/delovoy-park
+
+            # exec по имени контейнера, а не по имени сервиса compose: при
+            # blue-green активным может быть слот app-b, который лежит в
+            # профиле "bluegreen" и для `compose exec app` невидим — оттуда
+            # «service "app" is not running». Слот читаем из ACTIVE_SLOT,
+            # как это делает deploy.yml.
+            APP_CONT=delovoy-app
+            if [ "$(cat ACTIVE_SLOT 2>/dev/null || echo a)" = "b" ]; then
+              APP_CONT=delovoy-app-b
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "$APP_CONT"; then
+              echo "❌ Контейнер $APP_CONT не запущен — прод в неожиданном состоянии"
+              docker ps --format '  {{.Names}}\t{{.Status}}'
+              exit 1
+            fi
+
             FLAG=""
             if [ "$DRY_RUN" = "true" ]; then FLAG="--dry-run"; fi
-            echo "=== Applying cafe menu price list $FLAG ==="
-            docker compose exec -T app npx tsx scripts/update-cafe-menu.ts $FLAG
+            echo "=== Applying cafe menu price list via $APP_CONT $FLAG ==="
+            docker exec "$APP_CONT" npx tsx scripts/update-cafe-menu.ts $FLAG
             echo "=== Done ==="
