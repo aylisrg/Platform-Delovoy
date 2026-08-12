@@ -20,6 +20,9 @@ on:
           - server-logs            # Логи контейнеров (через SSH)
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
+          - ops-net-diagnose       # Сетевой слой: кто слушает 80/443, nginx, firewall, curl по слоям (read-only)
+          - ops-bind-secondary-ip  # Вернуть на eth0 доп. IPv4, пропавший из DHCP-аренды (runtime, с авто-откатом)
+          - ops-persist-secondary-ip # Закрепить доп. IPv4 в netplan, чтобы пережил ребут (с авто-откатом)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -68,6 +71,10 @@ on:
         description: "Protocol (tcp/udp)"
         required: false
         default: "tcp"
+      ip_address:
+        description: "IPv4 to bind (for ops-bind-secondary-ip)"
+        required: false
+        default: "85.193.89.242"
       custom_endpoint:
         description: "API endpoint (for custom-api, e.g. /api/v1/servers)"
         required: false
@@ -296,6 +303,297 @@ jobs:
             echo ""
             echo "=== Top memory processes ==="
             ps aux --sort=-%mem | head -12
+
+      # Сетевой слой — слепое пятно всех остальных диагностик и watchdog'а:
+      # они смотрят контейнеры и память, но никогда — кто держит 80/443,
+      # что говорит firewall и доходит ли запрос до nginx. Инцидент 2026-08-12:
+      # сервер здоров, контейнеры healthy, `nginx -t` ok, а снаружи и с самого
+      # сервера публичный URL не отвечает. Строго read-only.
+      - name: Network Diagnose (via SSH)
+        if: inputs.action == 'ops-net-diagnose'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== Listening sockets (TCP) ==="
+            $SUDO ss -ltnp 2>/dev/null || $SUDO netstat -ltnp 2>/dev/null || echo "no ss/netstat"
+
+            echo ""
+            echo "=== nginx service ==="
+            systemctl is-active nginx 2>/dev/null || echo "is-active: FAILED"
+            systemctl is-enabled nginx 2>/dev/null || echo "is-enabled: FAILED"
+            $SUDO systemctl status nginx --no-pager -l 2>/dev/null | head -25 || true
+
+            echo ""
+            echo "=== nginx: effective listen directives ==="
+            $SUDO nginx -T 2>/dev/null | grep -nE "^\s*(listen|server_name|proxy_pass)" | head -40 || echo "nginx -T failed"
+
+            echo ""
+            echo "=== nginx: enabled vhosts ==="
+            ls -la /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null || true
+
+            echo ""
+            echo "=== Firewall: ufw ==="
+            $SUDO ufw status verbose 2>/dev/null || echo "ufw unavailable"
+            echo ""
+            echo "=== Firewall: nft ruleset (first 60) ==="
+            $SUDO nft list ruleset 2>/dev/null | head -60 || echo "nft unavailable"
+            echo ""
+            echo "=== Firewall: iptables -S ==="
+            $SUDO iptables -S 2>/dev/null | head -40 || echo "iptables unavailable"
+
+            echo ""
+            echo "=== Public IPs on interfaces ==="
+            ip -brief addr 2>/dev/null || ifconfig 2>/dev/null | head -20
+
+            echo ""
+            echo "=== Interface detail (eth0) ==="
+            ip addr show eth0 2>/dev/null || true
+            echo ""
+            echo "=== Routes ==="
+            ip route 2>/dev/null || true
+            ip -6 route 2>/dev/null | head -10 || true
+
+            echo ""
+            echo "=== netplan / cloud-init network config ==="
+            ls -la /etc/netplan/ 2>/dev/null || true
+            $SUDO cat /etc/netplan/*.yaml 2>/dev/null || echo "no netplan yaml"
+            echo "--- cloud-init network state ---"
+            ls -la /etc/cloud/cloud.cfg.d/ 2>/dev/null || true
+            $SUDO cat /run/systemd/network/*.network 2>/dev/null | head -30 || echo "no systemd-networkd files"
+
+            echo ""
+            echo "=== DNS resolution from server ==="
+            getent hosts delovoy-park.ru || echo "RESOLUTION FAILED"
+
+            echo ""
+            echo "=== Layered curl from the server itself ==="
+            probe() {
+              printf '%-46s -> ' "$1"
+              curl -sS -o /dev/null -k --max-time 12 \
+                -w 'code=%{http_code} time=%{time_total}s\n' "$1" 2>&1 | tail -1
+            }
+            probe "http://127.0.0.1:3000/api/health"
+            probe "http://127.0.0.1:3001/api/health"
+            probe "http://127.0.0.1:8443/api/health"
+            probe "http://127.0.0.1/api/health"
+            probe "https://127.0.0.1/api/health"
+            for IP in $(ip -4 -brief addr 2>/dev/null | awk '{print $3}' | cut -d/ -f1 | grep -v '^127\.'); do
+              probe "http://$IP/api/health"
+              probe "https://$IP/api/health"
+            done
+            probe "https://delovoy-park.ru/api/health"
+
+            echo ""
+            echo "=== Outbound reachability from server ==="
+            curl -sS -o /dev/null --max-time 12 -w 'github.com: code=%{http_code}\n' https://github.com 2>&1 | tail -1
+
+            echo ""
+            echo "=== TLS cert on local :443 ==="
+            echo | timeout 15 openssl s_client -connect 127.0.0.1:443 -servername delovoy-park.ru 2>/dev/null \
+              | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "no TLS on local :443"
+
+            echo ""
+            echo "=== nginx error log (last 40) ==="
+            $SUDO tail -40 /var/log/nginx/error.log 2>/dev/null || echo "no error.log"
+
+            echo ""
+            echo "=== nginx access log (last 15) ==="
+            $SUDO tail -15 /var/log/nginx/access.log 2>/dev/null || echo "no access.log"
+
+            echo ""
+            echo "=== Containers with ports ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
+
+            echo ""
+            echo "=== ACTIVE_SLOT ==="
+            cat /opt/delovoy-park/ACTIVE_SLOT 2>/dev/null || echo "no ACTIVE_SLOT file (=slot a)"
+
+      # Инцидент 2026-08-12. Сеть сервера настроена целиком по DHCP
+      # (/run/systemd/network: DHCP=yes, статики нет). Дополнительный IPv4,
+      # на который смотрит A-запись delovoy-park.ru, перестал приходить в
+      # аренде — в биллинге Timeweb он за сервером, а на eth0 его нет.
+      # Итог: сайт полностью жив на главном IP и недоступен по имени.
+      #
+      # Привязка идёт как /32: не создаёт подсеть, не трогает default route,
+      # снимается одной командой. Персист (netplan) — отдельным шагом уже
+      # после того, как сайт поднимется: netplan apply мид-инцидент рискует
+      # оборвать SSH, а runtime-привязка не рискует ничем.
+      - name: "Verify IP belongs to this server (Timeweb API)"
+        id: verify_ip
+        if: inputs.action == 'ops-bind-secondary-ip'
+        run: |
+          set -e
+          IP="${{ inputs.ip_address }}"
+          if [ -z "$IP" ]; then echo "ip_address is required"; exit 1; fi
+          OWNED=$(curl -s -H "Authorization: Bearer $TW_TOKEN" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ steps.detect.outputs.server_id }}/ips" \
+            | jq -r --arg ip "$IP" '.server_ips[] | select(.ip == $ip) | .ip')
+          if [ "$OWNED" != "$IP" ]; then
+            echo "REFUSING: $IP is not listed as an IP of server ${{ steps.detect.outputs.server_id }}"
+            exit 1
+          fi
+          echo "OK: $IP is assigned to this server in Timeweb"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Bind secondary IP (via SSH)
+        if: inputs.action == 'ops-bind-secondary-ip' && steps.verify_ip.outputs.ip != ''
+        uses: appleboy/ssh-action@v1
+        env:
+          TARGET_IP: ${{ steps.verify_ip.outputs.ip }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: TARGET_IP
+          command_timeout: 10m
+          script: |
+            set -u
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== BEFORE ==="
+            ip -4 addr show eth0
+            echo "public health before:"
+            curl -sS -o /dev/null --max-time 12 -w 'https://delovoy-park.ru/api/health -> %{http_code}\n' \
+              https://delovoy-park.ru/api/health || echo "  (failed)"
+
+            if ip -4 addr show eth0 | grep -qw "$TARGET_IP"; then
+              echo "$TARGET_IP already bound — nothing to do."
+              exit 0
+            fi
+
+            echo ""
+            echo "=== Binding $TARGET_IP/32 on eth0 ==="
+            if ! $SUDO ip addr add "$TARGET_IP/32" dev eth0; then
+              echo "ip addr add FAILED"; exit 1
+            fi
+            # Сообщить вышестоящему маршрутизатору о новом адресе.
+            $SUDO arping -A -c 3 -I eth0 "$TARGET_IP" 2>/dev/null || true
+            sleep 3
+
+            echo ""
+            echo "=== AFTER ==="
+            ip -4 addr show eth0
+
+            echo ""
+            echo "=== Verify public URL from the server ==="
+            CODE=$(curl -sS -o /dev/null -k --max-time 15 -w '%{http_code}' \
+              https://delovoy-park.ru/api/health 2>/dev/null || echo 000)
+            echo "https://delovoy-park.ru/api/health -> $CODE"
+
+            if [ "$CODE" = "200" ]; then
+              echo "RESULT=restored"
+              exit 0
+            fi
+
+            echo "Still not reachable by name — rolling back the binding."
+            $SUDO ip addr del "$TARGET_IP/32" dev eth0 || true
+            echo "RESULT=rolled-back (Timeweb routing for $TARGET_IP is gone, not just DHCP)"
+            exit 1
+
+      # Закрепление адреса из ops-bind-secondary-ip. Отдельный netplan-файл, а
+      # не правка существующего: netplan сливает конфиги по ключам, поэтому
+      # 99-й файл лишь добавляет адрес к eth0, ничего не переопределяя, и
+      # снимается удалением одного файла.
+      #
+      # `netplan apply` теоретически может уронить eth0 — единственный канал
+      # управления, и тогда откатывать будет некому. Поэтому перед apply в
+      # фоне взводится сторож: через 90 с он проверяет здоровье сайта и, если
+      # тот не отвечает, сам возвращает бэкап и применяет его. Сторож переживает
+      # разрыв SSH (setsid + nohup).
+      - name: Persist secondary IP in netplan (via SSH)
+        if: inputs.action == 'ops-persist-secondary-ip' && inputs.ip_address != ''
+        uses: appleboy/ssh-action@v1
+        env:
+          TARGET_IP: ${{ inputs.ip_address }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: TARGET_IP
+          command_timeout: 10m
+          script: |
+            set -u
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+            NP="/etc/netplan/99-delovoy-secondary-ip.yaml"
+            STAMP=$(date -u '+%Y%m%d-%H%M%S')
+
+            echo "=== netplan BEFORE ==="
+            ls -la /etc/netplan/
+            $SUDO mkdir -p /root/netplan-backups
+            $SUDO tar czf "/root/netplan-backups/netplan-$STAMP.tgz" -C /etc netplan
+            echo "backup: /root/netplan-backups/netplan-$STAMP.tgz"
+
+            echo ""
+            echo "=== Writing $NP ==="
+            $SUDO tee "$NP" > /dev/null <<EOF
+            # Инцидент 2026-08-12: дополнительный IPv4 перестал приходить в
+            # DHCP-аренде Timeweb, а A-запись delovoy-park.ru смотрит именно
+            # на него — сайт стал недоступен по имени при полностью живом
+            # сервере. Держим адрес статически, /32: не создаёт подсеть и не
+            # трогает default route от DHCP.
+            network:
+              version: 2
+              ethernets:
+                eth0:
+                  addresses:
+                    - $TARGET_IP/32
+            EOF
+            $SUDO chmod 600 "$NP"
+            $SUDO cat "$NP"
+
+            echo ""
+            echo "=== netplan generate (syntax gate) ==="
+            if ! $SUDO netplan generate; then
+              echo "netplan generate FAILED — removing $NP, nothing applied."
+              $SUDO rm -f "$NP"
+              $SUDO netplan generate || true
+              exit 1
+            fi
+
+            echo ""
+            echo "=== Arming rollback watchdog (fires in 90s if site is down) ==="
+            $SUDO tee /root/netplan-rollback.sh > /dev/null <<EOF
+            #!/bin/bash
+            sleep 90
+            if curl -sf --max-time 15 https://delovoy-park.ru/api/health > /dev/null 2>&1; then
+              logger -t netplan-rollback "site healthy after netplan apply — keeping config"
+              exit 0
+            fi
+            logger -t netplan-rollback "site DOWN after netplan apply — restoring backup"
+            rm -f "$NP"
+            tar xzf "/root/netplan-backups/netplan-$STAMP.tgz" -C /etc
+            netplan apply
+            EOF
+            $SUDO chmod +x /root/netplan-rollback.sh
+            $SUDO setsid nohup /root/netplan-rollback.sh > /var/log/netplan-rollback.log 2>&1 < /dev/null &
+            echo "watchdog armed"
+
+            echo ""
+            echo "=== netplan apply ==="
+            $SUDO netplan apply
+            sleep 8
+
+            echo ""
+            echo "=== AFTER ==="
+            ip -4 addr show eth0
+            CODE=$(curl -sS -o /dev/null -k --max-time 15 -w '%{http_code}' \
+              https://delovoy-park.ru/api/health 2>/dev/null || echo 000)
+            echo "https://delovoy-park.ru/api/health -> $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "RESULT=persisted (watchdog will confirm and stand down)"
+            else
+              echo "RESULT=degraded — rollback watchdog will restore the backup within 90s"
+              exit 1
+            fi
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'
