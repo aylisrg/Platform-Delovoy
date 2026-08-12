@@ -37,3 +37,4 @@
 | 2026-05-04 | 2026-05-04-clients-guest-cards-crud-qa-report.md | 1 | rbac, api, tests |
 | 2026-05-04 | 2026-05-04-gazebos-payment-required-on-complete-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-10 | 2026-08-10-booking-relaunch-audit.md | 15 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-12 | 2026-08-12-issue-423-soft-delete-filter-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
