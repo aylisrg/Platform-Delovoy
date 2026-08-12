@@ -126,6 +126,7 @@ export async function updateResource(id: string, input: UpdateResourceInput) {
 export async function listBookings(filter?: BookingFilter) {
   const where = {
     moduleSlug: MODULE_SLUG,
+    deletedAt: null,
     ...(filter?.status && { status: filter.status }),
     ...(filter?.resourceId && { resourceId: filter.resourceId }),
     ...(filter?.userId && { userId: filter.userId }),
@@ -153,7 +154,7 @@ export async function listBookings(filter?: BookingFilter) {
 
 export async function getBooking(id: string) {
   return prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 }
 
@@ -259,6 +260,7 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     const conflict = await tx.booking.findFirst({
       where: {
         moduleSlug: MODULE_SLUG,
+        deletedAt: null,
         resourceId,
         status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
@@ -427,6 +429,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
   const conflict = await prisma.booking.findFirst({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       resourceId,
       status: { in: ACTIVE_BOOKING_STATUSES },
       date: bookingDate,
@@ -480,6 +483,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     const raced = await tx.booking.findFirst({
       where: {
         moduleSlug: MODULE_SLUG,
+        deletedAt: null,
         resourceId,
         status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
@@ -734,7 +738,7 @@ export async function updateBookingStatus(
   actorRole: import("@/modules/booking/state-machine").ActorRole = "MANAGER"
 ) {
   const booking = await prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) {
@@ -1065,7 +1069,7 @@ export async function cancelBooking(
   policy: CancellationPolicy = DEFAULT_CANCELLATION_POLICY
 ): Promise<{ penaltyRequired: true; penaltyAmount: number; basePrice: number } | { penaltyRequired: false; booking: ReturnType<typeof prisma.booking.update> extends Promise<infer T> ? T : never }> {
   const booking = await prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) {
@@ -1193,7 +1197,7 @@ export async function cancelBooking(
 
 export async function checkInBooking(bookingId: string, managerId: string) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
   if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
@@ -1239,7 +1243,7 @@ export async function markNoShow(
   reason: "manual" | "auto" = "manual"
 ) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
   if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
@@ -1295,6 +1299,7 @@ export async function getAvailability(
   const existingBookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       date: bookingDate,
       status: { in: ACTIVE_BOOKING_STATUSES },
       ...(resourceId && { resourceId }),
@@ -1348,6 +1353,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
   const bookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       date: bookingDate,
       status: { in: ACTIVE_BOOKING_STATUSES },
     },
@@ -1403,6 +1409,7 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
   const bookings = await prisma.booking.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       date: { gte: dateFrom },
     },
   });
@@ -1520,7 +1527,7 @@ export async function listBookingsPaginated(params: {
   const perPage = params.perPage ?? 20;
   const skip = (page - 1) * perPage;
 
-  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG };
+  const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG, deletedAt: null };
   if (params.status) where.status = params.status;
   if (params.resourceId) where.resourceId = params.resourceId;
   if (params.dateFrom || params.dateTo) {
