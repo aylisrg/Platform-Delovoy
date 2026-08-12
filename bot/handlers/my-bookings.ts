@@ -51,46 +51,80 @@ export function registerMyBookingsHandler(bot: Bot<BotContext>) {
   bot.callbackQuery(/^mybookings_do_cancel:(.+)$/, async (ctx) => {
     const bookingId = ctx.match[1];
     await ctx.answerCallbackQuery("Отменяем...");
+    await performCancel(ctx, bookingId, false);
+  });
 
-    const telegramId = ctx.from?.id?.toString();
-    if (!telegramId) {
-      await ctx.editMessageText("Ошибка авторизации.");
+  // #427: поздняя отмена требует подтверждения штрафа — отдельная кнопка вместо
+  // тихого "✅ отменено" на брони, которая на самом деле осталась активной.
+  bot.callbackQuery(/^mybookings_confirm_penalty:(.+)$/, async (ctx) => {
+    const bookingId = ctx.match[1];
+    await ctx.answerCallbackQuery("Отменяем со штрафом...");
+    await performCancel(ctx, bookingId, true);
+  });
+}
+
+/**
+ * Отменяет бронь через /api/bot/cancel-booking. На PENALTY_CONFIRMATION_REQUIRED
+ * (#427) не показывает ложный успех — предлагает подтвердить штраф отдельной
+ * кнопкой, которая повторяет запрос с confirmPenalty: true.
+ */
+export async function performCancel(ctx: BotContext, bookingId: string, confirmPenalty: boolean) {
+  const telegramId = ctx.from?.id?.toString();
+  if (!telegramId) {
+    await ctx.editMessageText("Ошибка авторизации.");
+    return;
+  }
+
+  try {
+    const res = await botFetch("/api/bot/cancel-booking", {
+      method: "POST",
+      body: JSON.stringify({ telegramId, bookingId, confirmPenalty }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      await ctx.editMessageText(
+        "✅ Бронирование отменено.",
+        {
+          reply_markup: new InlineKeyboard()
+            .text("📋 Мои брони", "mybookings:list")
+            .text("← Меню", "menu:main"),
+        }
+      );
       return;
     }
 
-    try {
-      const res = await botFetch("/api/bot/cancel-booking", {
-        method: "POST",
-        body: JSON.stringify({ telegramId, bookingId }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        await ctx.editMessageText(
-          "✅ Бронирование отменено.",
-          {
-            reply_markup: new InlineKeyboard()
-              .text("📋 Мои брони", "mybookings:list")
-              .text("← Меню", "menu:main"),
-          }
-        );
-      } else {
-        await ctx.editMessageText(
-          `❌ ${data.error?.message || "Не удалось отменить."}`,
-          {
-            reply_markup: new InlineKeyboard()
-              .text("📋 Назад", "mybookings:list")
-              .text("← Меню", "menu:main"),
-          }
-        );
-      }
-    } catch {
-      await ctx.editMessageText("Ошибка сети. Попробуйте позже.", {
-        reply_markup: new InlineKeyboard().text("← Меню", "menu:main"),
-      });
+    if (data.error?.code === "PENALTY_CONFIRMATION_REQUIRED") {
+      const penaltyAmount = data.error?.metadata?.penaltyAmount;
+      const amountText =
+        typeof penaltyAmount === "number"
+          ? `${penaltyAmount.toLocaleString("ru-RU")} ₽`
+          : "штраф";
+      await ctx.editMessageText(
+        `⚠️ Отмена позже допустимого срока — удерживается ${amountText}.\n\nВсё равно отменить?`,
+        {
+          reply_markup: new InlineKeyboard()
+            .text("✅ Да, отменить со штрафом", `mybookings_confirm_penalty:${bookingId}`)
+            .text("❌ Нет", "mybookings:list"),
+        }
+      );
+      return;
     }
-  });
+
+    await ctx.editMessageText(
+      `❌ ${data.error?.message || "Не удалось отменить."}`,
+      {
+        reply_markup: new InlineKeyboard()
+          .text("📋 Назад", "mybookings:list")
+          .text("← Меню", "menu:main"),
+      }
+    );
+  } catch {
+    await ctx.editMessageText("Ошибка сети. Попробуйте позже.", {
+      reply_markup: new InlineKeyboard().text("← Меню", "menu:main"),
+    });
+  }
 }
 
 async function loadBookings(ctx: BotContext) {
