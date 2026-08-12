@@ -222,6 +222,13 @@ export const STALE_PR_MARKER = '<!-- issue-queue-parked-stale-pr -->';
 export const HEARTBEAT_MARKER = '<!-- issue-queue-heartbeat -->';
 /** Комментарий «эпик разобран на задачи» — /plan-epic второй раз не приходит. */
 export const EPIC_PLANNED_MARKER = '<!-- epic-planned -->';
+/**
+ * Комментарий «не смог снять черновик» на PR. Снятие draft умеет только мутация
+ * GraphQL, и если она недоступна, подметальщик молча пропускал бы такой PR каждые
+ * 15 минут — а черновик для веб-сессий норма, то есть дыра была бы в основном пути.
+ * Маркер дедупит: один видимый комментарий на PR вместо тишины или спама.
+ */
+export const DRAFT_STUCK_MARKER = '<!-- issue-queue-draft-stuck -->';
 /** Фраза старых терминальных комментариев (до появления GIVEUP_MARKER). */
 const LEGACY_GIVEUP = 'Задача снята с автоочереди';
 

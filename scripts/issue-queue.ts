@@ -37,6 +37,7 @@ import { resolve } from 'node:path';
 import { REPO, ghApi as gh } from './lib/gh-api';
 import {
   DEFAULT_CONFIG,
+  DRAFT_STUCK_MARKER,
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
   HEARTBEAT_MARKER,
@@ -626,6 +627,23 @@ function cmdAutoMerge(dryRun: boolean): void {
       // `Closes #N` закроет issue сам — лейблы очереди уедут вместе с ней.
       results.push({ pr: pr.number, merged: true, closes });
       continue;
+    }
+
+    // Снятие черновика — единственный шаг подметальщика, зависящий от GraphQL.
+    // Если мутация недоступна, PR не молчит: один видимый комментарий с прямой
+    // просьбой нажать «Ready for review». `needs-owner` при этом НЕ вешаем — сбой
+    // может быть транзиентным, и лейбл вывел бы PR из-под подметальщика навсегда.
+    if (result.reason === 'не удалось снять draft автоматически') {
+      const seen = allComments(pr.number).some((c) => c.body.includes(DRAFT_STUCK_MARKER));
+      if (!seen) {
+        comment(
+          pr.number,
+          `${DRAFT_STUCK_MARKER}\n\nPR готов к мержу — гейт вернул \`auto\`, CI зелёный, — но снять ` +
+            `черновик автоматически не вышло: мутация GraphQL недоступна ` +
+            `(\`${result.detail ?? 'без деталей'}\`).\n\nНажми «Ready for review» — дальше подметальщик ` +
+            `домержит сам, ничего больше не требуется.`,
+        );
+      }
     }
 
     if (result.hold) {
