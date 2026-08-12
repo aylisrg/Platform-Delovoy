@@ -21,6 +21,7 @@ on:
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
           - ops-net-diagnose       # Сетевой слой: кто слушает 80/443, nginx, firewall, curl по слоям (read-only)
+          - ops-bind-secondary-ip  # Вернуть на eth0 доп. IPv4, пропавший из DHCP-аренды (runtime, с авто-откатом)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
           - db-migrate             # Применить pending migration (birthday/gender)
           # --- Бэкапы ---
@@ -69,6 +70,10 @@ on:
         description: "Protocol (tcp/udp)"
         required: false
         default: "tcp"
+      ip_address:
+        description: "IPv4 to bind (for ops-bind-secondary-ip)"
+        required: false
+        default: "85.193.89.242"
       custom_endpoint:
         description: "API endpoint (for custom-api, e.g. /api/v1/servers)"
         required: false
@@ -408,6 +413,89 @@ jobs:
             echo ""
             echo "=== ACTIVE_SLOT ==="
             cat /opt/delovoy-park/ACTIVE_SLOT 2>/dev/null || echo "no ACTIVE_SLOT file (=slot a)"
+
+      # Инцидент 2026-08-12. Сеть сервера настроена целиком по DHCP
+      # (/run/systemd/network: DHCP=yes, статики нет). Дополнительный IPv4,
+      # на который смотрит A-запись delovoy-park.ru, перестал приходить в
+      # аренде — в биллинге Timeweb он за сервером, а на eth0 его нет.
+      # Итог: сайт полностью жив на главном IP и недоступен по имени.
+      #
+      # Привязка идёт как /32: не создаёт подсеть, не трогает default route,
+      # снимается одной командой. Персист (netplan) — отдельным шагом уже
+      # после того, как сайт поднимется: netplan apply мид-инцидент рискует
+      # оборвать SSH, а runtime-привязка не рискует ничем.
+      - name: "Verify IP belongs to this server (Timeweb API)"
+        id: verify_ip
+        if: inputs.action == 'ops-bind-secondary-ip'
+        run: |
+          set -e
+          IP="${{ inputs.ip_address }}"
+          if [ -z "$IP" ]; then echo "ip_address is required"; exit 1; fi
+          OWNED=$(curl -s -H "Authorization: Bearer $TW_TOKEN" \
+            "${{ env.TIMEWEB_API }}/api/v1/servers/${{ steps.detect.outputs.server_id }}/ips" \
+            | jq -r --arg ip "$IP" '.server_ips[] | select(.ip == $ip) | .ip')
+          if [ "$OWNED" != "$IP" ]; then
+            echo "REFUSING: $IP is not listed as an IP of server ${{ steps.detect.outputs.server_id }}"
+            exit 1
+          fi
+          echo "OK: $IP is assigned to this server in Timeweb"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Bind secondary IP (via SSH)
+        if: inputs.action == 'ops-bind-secondary-ip' && steps.verify_ip.outputs.ip != ''
+        uses: appleboy/ssh-action@v1
+        env:
+          TARGET_IP: ${{ steps.verify_ip.outputs.ip }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: TARGET_IP
+          command_timeout: 10m
+          script: |
+            set -u
+            SUDO=""
+            [ "$(id -u)" != "0" ] && SUDO="sudo"
+
+            echo "=== BEFORE ==="
+            ip -4 addr show eth0
+            echo "public health before:"
+            curl -sS -o /dev/null --max-time 12 -w 'https://delovoy-park.ru/api/health -> %{http_code}\n' \
+              https://delovoy-park.ru/api/health || echo "  (failed)"
+
+            if ip -4 addr show eth0 | grep -qw "$TARGET_IP"; then
+              echo "$TARGET_IP already bound — nothing to do."
+              exit 0
+            fi
+
+            echo ""
+            echo "=== Binding $TARGET_IP/32 on eth0 ==="
+            if ! $SUDO ip addr add "$TARGET_IP/32" dev eth0; then
+              echo "ip addr add FAILED"; exit 1
+            fi
+            # Сообщить вышестоящему маршрутизатору о новом адресе.
+            $SUDO arping -A -c 3 -I eth0 "$TARGET_IP" 2>/dev/null || true
+            sleep 3
+
+            echo ""
+            echo "=== AFTER ==="
+            ip -4 addr show eth0
+
+            echo ""
+            echo "=== Verify public URL from the server ==="
+            CODE=$(curl -sS -o /dev/null -k --max-time 15 -w '%{http_code}' \
+              https://delovoy-park.ru/api/health 2>/dev/null || echo 000)
+            echo "https://delovoy-park.ru/api/health -> $CODE"
+
+            if [ "$CODE" = "200" ]; then
+              echo "RESULT=restored"
+              exit 0
+            fi
+
+            echo "Still not reachable by name — rolling back the binding."
+            $SUDO ip addr del "$TARGET_IP/32" dev eth0 || true
+            echo "RESULT=rolled-back (Timeweb routing for $TARGET_IP is gone, not just DHCP)"
+            exit 1
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'
