@@ -30,10 +30,12 @@ export type CreateOrderInput = {
   bookingId?: string; // optional link to Booking (PS Park session, gazebo) — F5 ADR
 };
 
-/** Публичный QR-чекаут: заказ + онлайн-оплата. Контакт — для чека 54-ФЗ. */
+/**
+ * Публичный QR-чекаут: заказ + онлайн-оплата. Email — адрес доставки чека
+ * 54-ФЗ; телефона нет намеренно, «Чеки от ЮKassa» шлют только на почту.
+ */
 export type CheckoutInput = Omit<CreateOrderInput, "bookingId"> & {
   customerEmail?: string;
-  customerPhone?: string;
 };
 
 export type CheckoutResult = Order & {

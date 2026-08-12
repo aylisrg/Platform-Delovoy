@@ -32,17 +32,23 @@ export const createOrderSchema = z.object({
 });
 
 /**
+ * Адрес доставки чека 54-ФЗ. Вынесен отдельно, чтобы форма чекаута проверяла
+ * ввод той же схемой до отправки: иначе опечатка доезжает до сервера, а тот
+ * создаёт заказ и тут же отменяет его (см. createCheckout) — мусор в БД.
+ */
+export const receiptEmailSchema = z.string().email("Некорректный email").max(200);
+
+/**
  * Публичный QR-чекаут. Контакт для чека 54-ФЗ опционален на уровне схемы:
  * обязательность при включённой фискализации проверяет сервис платежей
  * (PAYMENT_CONTACT_REQUIRED) — единственный источник знания об этом режиме.
+ *
+ * Только email: фискализация — «Чеки от ЮKassa», а она доставляет чек
+ * исключительно на почту (СМС недоступна). Принятый телефон означал бы
+ * успешный платёж с недоставленным чеком, то есть нарушение 54-ФЗ.
  */
 export const checkoutSchema = createOrderSchema.omit({ bookingId: true }).extend({
-  customerEmail: z.string().email("Некорректный email").max(200).optional(),
-  customerPhone: z
-    .string()
-    .max(30)
-    .regex(/^[\d\s()+-]{6,}$/, "Некорректный телефон")
-    .optional(),
+  customerEmail: receiptEmailSchema.optional(),
 });
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;

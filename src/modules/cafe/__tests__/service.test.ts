@@ -565,7 +565,7 @@ describe("createCheckout", () => {
     expect(enqueueNotification).not.toHaveBeenCalled();
   });
 
-  it("залогиненный без явного контакта: email/телефон берутся из профиля", async () => {
+  it("залогиненный без явного контакта: email берётся из профиля", async () => {
     vi.mocked(isYooKassaConfigured).mockReturnValue(true);
     mockMenuForCheckout();
     vi.mocked(prisma.order.create).mockResolvedValue(
@@ -573,7 +573,6 @@ describe("createCheckout", () => {
     );
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       email: "user@example.com",
-      phone: "+79991234567",
     } as never);
     vi.mocked(createOnlinePayment).mockResolvedValue({
       id: "pay-1",
@@ -584,7 +583,29 @@ describe("createCheckout", () => {
 
     const args = vi.mocked(createOnlinePayment).mock.calls[0][0];
     expect(args.customerEmail).toBe("user@example.com");
-    expect(args.customerPhone).toBe("+79991234567");
+    expect(args.customerPhone).toBeUndefined();
+  });
+
+  // «Чеки от ЮKassa» шлют чек только на почту. Телефон из профиля выглядел бы
+  // контактом, но чек не доставил бы — честнее явный PAYMENT_CONTACT_REQUIRED.
+  it("залогиненный без email в профиле: телефон не подставляется вместо почты", async () => {
+    vi.mocked(isYooKassaConfigured).mockReturnValue(true);
+    mockMenuForCheckout();
+    vi.mocked(prisma.order.create).mockResolvedValue(checkoutOrder() as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      email: null,
+      phone: "+79991234567",
+    } as never);
+    vi.mocked(createOnlinePayment).mockResolvedValue({
+      id: "pay-1",
+      confirmationUrl: "url",
+    } as never);
+
+    await createCheckout("user-1", checkoutInput);
+
+    const args = vi.mocked(createOnlinePayment).mock.calls[0][0];
+    expect(args.customerEmail).toBeNull();
+    expect(args.customerPhone).toBeUndefined();
   });
 
   it("PAYMENT_CREATE_FAILED: заказ остаётся, payment null, order.placed уходит", async () => {
