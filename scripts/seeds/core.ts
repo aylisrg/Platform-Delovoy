@@ -3,7 +3,7 @@
  *   - SUPERADMIN (Telegram-based)
  *   - Module rows (cafe, ps-park, gazebos, parking, rental, inventory, management)
  *   - Resources: gazebos (5), PS tables (4)
- *   - MenuItem (cafe demo menu)
+ *   - MenuItem (меню кафе с настенного прайса — scripts/lib/cafe-menu.ts)
  *   - Office (5 demo offices)
  *   - RecurringExpense (3 IT-инфраструктура заглушек с amount=0)
  *
@@ -14,6 +14,7 @@
  * НЕ содержит PII.
  */
 import type { PrismaClient } from "@prisma/client";
+import { CAFE_MENU } from "../lib/cafe-menu";
 
 export async function seedCore(prisma: PrismaClient): Promise<void> {
   const startedAt = new Date().toISOString();
@@ -306,53 +307,24 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   console.log(`  ✓ Плей Парк tables: ${psTables.length}`);
 
   // === MENU ITEMS: Кафе ===
+  // Прайс с настенных лайтбоксов — scripts/lib/cafe-menu.ts.
   // У MenuItem нет уникального ограничения. Создаём только если name+moduleSlug
   // ещё не существует. Существующие записи НЕ обновляем — менеджер кафе мог
-  // подкрутить цены и описания через UI.
-  const menuItems = [
-    { category: "Напитки", name: "Американо", price: 180 },
-    { category: "Напитки", name: "Капучино", price: 250 },
-    { category: "Напитки", name: "Латте", price: 280 },
-    { category: "Напитки", name: "Чай чёрный", price: 120 },
-    {
-      category: "Пицца",
-      name: "Маргарита",
-      price: 550,
-      description: "Томатный соус, моцарелла, базилик",
-    },
-    {
-      category: "Пицца",
-      name: "Пепперони",
-      price: 650,
-      description: "Томатный соус, моцарелла, пепперони",
-    },
-    {
-      category: "Основное",
-      name: "Бизнес-ланч",
-      price: 450,
-      description: "Суп + горячее + напиток",
-    },
-    {
-      category: "Основное",
-      name: "Цезарь с курицей",
-      price: 420,
-      description: "Салат Цезарь с куриной грудкой",
-    },
-  ];
-
+  // подкрутить цены и описания через UI. Разовая синхронизация цен с прайсом
+  // на уже наполненной БД — scripts/update-cafe-menu.ts.
   let menuCreated = 0;
-  for (const [i, item] of menuItems.entries()) {
+  for (const item of CAFE_MENU) {
     const existing = await prisma.menuItem.findFirst({
       where: { name: item.name, moduleSlug: "cafe" },
     });
     if (!existing) {
       await prisma.menuItem.create({
-        data: { ...item, moduleSlug: "cafe", sortOrder: i },
+        data: { ...item, moduleSlug: "cafe" },
       });
       menuCreated += 1;
     }
   }
-  console.log(`  ✓ Menu items: ${menuItems.length} total, ${menuCreated} new`);
+  console.log(`  ✓ Menu items: ${CAFE_MENU.length} total, ${menuCreated} new`);
 
   // === OFFICES (демо) ===
   // Office имеет составной unique (building, floor, number). Цена/площадь

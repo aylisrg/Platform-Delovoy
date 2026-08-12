@@ -44,6 +44,9 @@ import {
   createOrder,
   createCheckout,
   getCafeStats,
+  getMenu,
+  getMenuAdmin,
+  getMenuCategories,
   updateOrderStatus,
   cancelOrder,
   OrderError,
@@ -78,6 +81,89 @@ const mockOrder = (overrides = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isYooKassaConfigured).mockReturnValue(false);
+});
+
+// ===== MENU ORDERING =====
+
+/**
+ * Prisma отдаёт строки в алфавитном порядке категорий — «Десерты» раньше
+ * «Кофе». Сервис обязан переупорядочить витрину по блокам sortOrder, иначе
+ * кофейный раздел перестанет быть первым, как только заведут категорию на
+ * букву раньше «К».
+ */
+const boardRows = [
+  mockMenuItem({ id: "d1", category: "Десерты", name: "Чизкейк", sortOrder: 300 }),
+  mockMenuItem({ id: "k1", category: "Кофе", name: "Эспрессо", sortOrder: 0 }),
+  mockMenuItem({ id: "k2", category: "Кофе", name: "Капучино", sortOrder: 1 }),
+  mockMenuItem({ id: "k3", category: "Кофе", name: "Латте", sortOrder: 2 }),
+  mockMenuItem({ id: "p1", category: "Пицца", name: "Пепперони", sortOrder: 100 }),
+];
+
+describe("getMenu ordering", () => {
+  it("puts the coffee block first regardless of category alphabet", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue(boardRows as never);
+
+    const items = await getMenu();
+
+    expect(items.map((i) => i.category)).toEqual([
+      "Кофе",
+      "Кофе",
+      "Кофе",
+      "Пицца",
+      "Десерты",
+    ]);
+  });
+
+  it("keeps items inside a category in sortOrder, not alphabetical", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue(boardRows as never);
+
+    const items = await getMenu();
+
+    expect(items.slice(0, 3).map((i) => i.name)).toEqual([
+      "Эспрессо",
+      "Капучино",
+      "Латте",
+    ]);
+  });
+
+  it("keeps categories grouped when their ranks tie", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue([
+      mockMenuItem({ id: "a1", category: "Альфа", name: "A1", sortOrder: 0 }),
+      mockMenuItem({ id: "b1", category: "Бета", name: "B1", sortOrder: 0 }),
+      mockMenuItem({ id: "a2", category: "Альфа", name: "A2", sortOrder: 1 }),
+      mockMenuItem({ id: "b2", category: "Бета", name: "B2", sortOrder: 1 }),
+    ] as never);
+
+    const items = await getMenu();
+
+    expect(items.map((i) => i.category)).toEqual(["Альфа", "Альфа", "Бета", "Бета"]);
+  });
+
+  it("admin catalog uses the same order as the public menu", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue(boardRows as never);
+
+    const items = await getMenuAdmin();
+
+    expect(items.map((i) => i.id)).toEqual(["k1", "k2", "k3", "p1", "d1"]);
+  });
+});
+
+describe("getMenuCategories", () => {
+  it("returns distinct categories ranked by their lowest sortOrder", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue(
+      boardRows.map((r) => ({ category: r.category, sortOrder: r.sortOrder })) as never,
+    );
+
+    const categories = await getMenuCategories();
+
+    expect(categories).toEqual(["Кофе", "Пицца", "Десерты"]);
+  });
+
+  it("returns an empty list for an empty menu", async () => {
+    vi.mocked(prisma.menuItem.findMany).mockResolvedValue([] as never);
+
+    expect(await getMenuCategories()).toEqual([]);
+  });
 });
 
 // ===== createOrder =====
