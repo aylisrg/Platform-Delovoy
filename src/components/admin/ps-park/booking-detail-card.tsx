@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { TimelineBooking } from "@/modules/ps-park/types";
+import type { TimelineBooking, BookingBill } from "@/modules/ps-park/types";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
+import { SessionBillModal, type PaymentSplit } from "./session-bill-modal";
+
+type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
+type ApiOkBody = { success: true; data: unknown };
 
 type Props = {
   booking: TimelineBooking;
@@ -23,6 +27,11 @@ export function BookingDetailCard({
   onStatusChanged,
 }: Props) {
   const [actionLoading, setActionLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [bill, setBill] = useState<BookingBill | null>(null);
+  const [loadingBill, setLoadingBill] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [maxDiscount, setMaxDiscount] = useState(30);
 
   const meta = booking.metadata as Record<string, unknown> | null;
   const playerCount = meta?.playerCount as number | undefined;
@@ -43,15 +52,86 @@ export function BookingDetailCard({
 
   async function updateStatus(status: string) {
     setActionLoading(true);
+    setApiError(null);
     try {
       const res = await fetch(`/api/ps-park/bookings/${booking.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (res.ok) onStatusChanged();
+      const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
+      if (!res.ok || !body || body.success === false) {
+        const message =
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось обновить статус (HTTP ${res.status})`;
+        setApiError(message);
+        return;
+      }
+      onStatusChanged();
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Сетевая ошибка");
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  // «Завершить» — тот же паттерн, что уже работает в CompleteSessionButton
+  // (таблица активных сессий): счёт с товарами/скидкой требует сначала
+  // подтянуть /bill и /settings, а не слать пустой PATCH { status: "COMPLETED" }.
+  async function handleCompleteClick() {
+    setLoadingBill(true);
+    setApiError(null);
+    try {
+      const [billRes, settingsRes] = await Promise.all([
+        fetch(`/api/ps-park/bookings/${booking.id}/bill`),
+        fetch("/api/ps-park/settings"),
+      ]);
+      const billData = await billRes.json();
+      if (billData.success) {
+        setBill(billData.data);
+      } else {
+        setApiError(billData.error?.message ?? "Не удалось загрузить счёт");
+      }
+      const settingsData = await settingsRes.json();
+      if (settingsData.success && typeof settingsData.data?.maxDiscountPercent === "number") {
+        setMaxDiscount(settingsData.data.maxDiscountPercent);
+      }
+    } catch {
+      setApiError("Ошибка при загрузке счёта");
+    } finally {
+      setLoadingBill(false);
+    }
+  }
+
+  async function handleConfirmBill(split: PaymentSplit) {
+    setConfirming(true);
+    try {
+      const payload: Record<string, unknown> = {
+        status: "COMPLETED",
+        cashAmount: split.cashAmount,
+        cardAmount: split.cardAmount,
+      };
+      if (split.discountPercent && split.discountPercent > 0 && split.discountReason) {
+        payload.discountPercent = split.discountPercent;
+        payload.discountReason = split.discountReason;
+        if (split.discountNote) payload.discountNote = split.discountNote;
+      }
+      const res = await fetch(`/api/ps-park/bookings/${booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.success) {
+        setBill(null);
+        onStatusChanged();
+      } else {
+        setApiError(data?.error?.message ?? "Ошибка при завершении");
+      }
+    } catch {
+      setApiError("Не удалось завершить сессию");
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -192,6 +272,12 @@ export function BookingDetailCard({
         </div>
       )}
 
+      {apiError && !bill && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">
+          {apiError}
+        </p>
+      )}
+
       {/* Actions */}
       <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2">
         {isPending && (
@@ -207,10 +293,10 @@ export function BookingDetailCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => updateStatus("COMPLETED")}
-            disabled={actionLoading}
+            onClick={handleCompleteClick}
+            disabled={actionLoading || loadingBill}
           >
-            Завершить
+            {loadingBill ? "..." : "Завершить"}
           </Button>
         )}
         <Button
@@ -229,6 +315,18 @@ export function BookingDetailCard({
           Закрыть
         </button>
       </div>
+
+      {bill && (
+        <SessionBillModal
+          bill={bill}
+          isOpen={!!bill}
+          onClose={() => { setBill(null); setApiError(null); }}
+          onConfirm={handleConfirmBill}
+          confirming={confirming}
+          maxDiscountPercent={maxDiscount}
+          apiError={apiError}
+        />
+      )}
     </div>
   );
 }
