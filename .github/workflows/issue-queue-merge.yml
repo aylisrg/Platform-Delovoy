@@ -85,17 +85,23 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Без PAT мерж не порождает push-события, и цепочка CI → deploy.yml не
-      # заводится. Дожимаем деплой явным диспатчем: он выкатывает текущий main
-      # HEAD, а недостающий образ доберёт своим fallback-шагом сборки.
-      - name: Kick deploy (no PAT available)
+      # Без PAT мерж не порождает push-события, поэтому всё, что висит на
+      # `push: branches: [main]`, молча не запустится: deploy.yml (код осел бы в
+      # main незадеплоенным) и auto-rebase.yml (остальные PR-ы не ребейзнулись бы
+      # на новый main и накопили конфликты). Дожимаем оба явным диспатчем —
+      # workflow_dispatch одно из двух событий, которые GITHUB_TOKEN всё же
+      # порождает. deploy.yml без входного sha выкатывает текущий main HEAD и
+      # доберёт недостающий образ своим fallback-шагом сборки.
+      - name: Kick push-triggered workflows (no PAT available)
         if: steps.sweep.outputs.merged != '0' && env.HAS_PAT == 'no'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" \
-            -d '{"ref":"main"}'
-          echo "Deploy dispatched for main HEAD"
+          for wf in deploy.yml auto-rebase.yml; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$wf/dispatches" \
+              -d '{"ref":"main"}')
+            echo "$wf dispatch → $code"
+          done
