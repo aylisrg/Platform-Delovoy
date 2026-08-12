@@ -93,8 +93,9 @@ jobs:
           TEXT="⏸ <b>Автоочередь простаивает</b>"
           TEXT+=$'\n\n'
           TEXT+="В очереди ${READY} задач(и) auto:ready, в работе никого, PR-активности давно нет."$'\n'
-          TEXT+="Исполнитель — интерактивная сессия Claude Code; похоже, живой сессии не осталось."$'\n'
-          TEXT+="Запусти сессию и скажи ей: <code>/next-issue</code>."$'\n'
+          TEXT+="Сессии воркера запускает Routine «Автоочередь: разбор бэклога» раз в 2 часа."$'\n'
+          TEXT+="Раз задач никто не берёт — сломан сам планировщик, а не очередь:"$'\n'
+          TEXT+="проверь Routine на claude.ai/settings/routines (включён ли, не падают ли запуски)."$'\n'
           TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
