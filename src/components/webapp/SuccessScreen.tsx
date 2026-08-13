@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useTelegram } from "./TelegramProvider";
+import { Button, Card, Icon } from "./ui";
 
 interface SuccessScreenProps {
   title: string;
@@ -25,42 +26,43 @@ export function SuccessScreen({
   }, [haptic]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 tg-page-enter">
-      {/* Animated checkmark */}
+    <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 py-8 tg-page-enter">
+      {/* Отметка успеха — на акценте темы, без фирменных цветов (AC-7.2) */}
       <div
         className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
-        style={{ background: "#dcfce7" }}
+        style={{
+          background: "color-mix(in srgb, var(--tg-accent) 14%, transparent)",
+          color: "var(--tg-accent)",
+        }}
       >
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+        <Icon name="check" size={40} strokeWidth={2.5} />
       </div>
 
       <h2 className="text-[22px] font-bold text-center">{title}</h2>
       {subtitle && (
-        <p className="mt-2 text-[15px] text-center" style={{ color: "var(--tg-hint)" }}>
+        <p
+          className="mt-2 text-[15px] text-center"
+          style={{ color: "var(--tg-subtitle)" }}
+        >
           {subtitle}
         </p>
       )}
 
       {details && details.length > 0 && (
-        <div
-          className="mt-6 w-full rounded-2xl p-4 space-y-2"
-          style={{ background: "var(--tg-secondary-bg)" }}
-        >
+        <Card className="mt-6 w-full p-4 space-y-2">
           {details.map((d) => (
-            <div key={d.label} className="flex justify-between text-[15px]">
+            <div key={d.label} className="flex justify-between gap-4 text-[15px]">
               <span style={{ color: "var(--tg-hint)" }}>{d.label}</span>
-              <span className="font-medium">{d.value}</span>
+              <span className="font-medium text-right">{d.value}</span>
             </div>
           ))}
-        </div>
+        </Card>
       )}
 
       {onAction && (
-        <button onClick={onAction} className="tg-button mt-8">
-          {actionLabel}
-        </button>
+        <div className="mt-8 w-full">
+          <Button onClick={onAction}>{actionLabel}</Button>
+        </div>
       )}
     </div>
   );

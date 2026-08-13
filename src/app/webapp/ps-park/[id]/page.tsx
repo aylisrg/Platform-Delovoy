@@ -6,6 +6,7 @@ import { useTelegram } from "@/components/webapp/TelegramProvider";
 import { SlotPicker } from "@/components/webapp/SlotPicker";
 import { BookingConfirm } from "@/components/webapp/BookingConfirm";
 import { SuccessScreen } from "@/components/webapp/SuccessScreen";
+import { Badge, Button, EmptyState, Icon, Skeleton } from "@/components/webapp/ui";
 
 interface PSResource {
   id: string;
@@ -26,7 +27,8 @@ type Step = "select" | "confirm" | "success";
 export default function PSParkBookingPage() {
   const params = useParams();
   const router = useRouter();
-  const { ready, apiFetch, showBackButton, onBackButtonClick } = useTelegram();
+  const { ready, apiFetch, showBackButton, onBackButtonClick, haptic } =
+    useTelegram();
 
   const [resource, setResource] = useState<PSResource | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,9 +97,9 @@ export default function PSParkBookingPage() {
   if (loading) {
     return (
       <div className="px-4 pt-4 space-y-4">
-        <div className="tg-skeleton h-8 w-48 rounded-lg" />
-        <div className="tg-skeleton h-4 w-64 rounded-lg" />
-        <div className="tg-skeleton h-48 rounded-2xl mt-4" />
+        <Skeleton className="h-8 w-48 rounded-lg" />
+        <Skeleton className="h-4 w-64 rounded-lg" />
+        <Skeleton className="h-48 rounded-2xl mt-4" />
       </div>
     );
   }
@@ -105,10 +107,16 @@ export default function PSParkBookingPage() {
   if (!resource) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <span className="text-4xl">😕</span>
-        <p className="mt-3 text-[15px]" style={{ color: "var(--tg-hint)" }}>
-          Стол не найден
-        </p>
+        <EmptyState
+          icon="alert"
+          title="Стол не найден"
+          hint="Возможно, его сняли с бронирования"
+          action={
+            <Button onClick={() => router.push("/webapp/ps-park")}>
+              Все залы
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -140,6 +148,7 @@ export default function PSParkBookingPage() {
         pricePerHour={pricePerHour}
         onConfirm={handleConfirm}
         onCancel={() => setStep("select")}
+        icon="gamepad"
       />
     );
   }
@@ -148,15 +157,30 @@ export default function PSParkBookingPage() {
     <div className="tg-page-enter">
       <div className="px-4 pt-4 pb-2">
         <h1 className="text-[22px] font-bold">{resource.name}</h1>
-        <div className="flex items-center gap-3 mt-1 text-[14px]" style={{ color: "var(--tg-hint)" }}>
-          {resource.capacity && <span>до {resource.capacity} чел.</span>}
-          {pricePerHour && <span>{pricePerHour.toLocaleString("ru-RU")} ₽/час</span>}
-        </div>
         {resource.description && (
-          <p className="mt-2 text-[14px]" style={{ color: "var(--tg-hint)" }}>
+          <p
+            className="mt-1 text-[14px] leading-snug"
+            style={{ color: "var(--tg-subtitle)" }}
+          >
             {resource.description}
           </p>
         )}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {pricePerHour && (
+            <Badge tone="accent">
+              {pricePerHour.toLocaleString("ru-RU")} ₽/час
+            </Badge>
+          )}
+          {resource.capacity ? (
+            <span
+              className="inline-flex items-center gap-1 text-[13px]"
+              style={{ color: "var(--tg-hint)" }}
+            >
+              <Icon name="users" size={14} />
+              до {resource.capacity} чел.
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-2">
@@ -169,9 +193,14 @@ export default function PSParkBookingPage() {
 
       {selectedStart && selectedEnd && (
         <div className="px-4 mt-6 pb-4 tg-page-enter">
-          <button onClick={() => setStep("confirm")} className="tg-button">
+          <Button
+            onClick={() => {
+              haptic.impact("light");
+              setStep("confirm");
+            }}
+          >
             Далее — {selectedStart} – {selectedEnd}
-          </button>
+          </Button>
         </div>
       )}
     </div>

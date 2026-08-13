@@ -10,6 +10,7 @@ export type WebAppIconName =
   | "gamepad"
   | "calendar"
   | "user"
+  | "users"
   | "bell"
   | "settings"
   | "news"

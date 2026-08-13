@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import type { WebAppIconName } from "@/lib/webapp/icon-names";
 import { useTelegram } from "./TelegramProvider";
+import { Button, Card, Icon } from "./ui";
 
 interface BookingConfirmProps {
   resourceName: string;
@@ -11,6 +13,8 @@ interface BookingConfirmProps {
   pricePerHour?: number | null;
   onConfirm: () => Promise<void>;
   onCancel: () => void;
+  /** Иконка ресурса вместо эмодзи (AC-7.3). */
+  icon?: WebAppIconName;
 }
 
 function formatDateRu(dateStr: string): string {
@@ -40,6 +44,7 @@ export function BookingConfirm({
   pricePerHour,
   onConfirm,
   onCancel,
+  icon = "calendar",
 }: BookingConfirmProps) {
   const { haptic } = useTelegram();
   const [loading, setLoading] = useState(false);
@@ -67,76 +72,87 @@ export function BookingConfirm({
     <div className="px-4 py-6 tg-page-enter">
       <h2 className="text-[22px] font-bold text-center">Подтвердите бронь</h2>
 
-      <div className="mt-6 rounded-2xl overflow-hidden" style={{ background: "var(--tg-secondary-bg)" }}>
+      <Card className="mt-6">
         {/* Resource */}
         <div className="p-4 flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl" style={{ background: "var(--tg-bg)" }}>
-            {resourceName.includes("PS") || resourceName.includes("Стол") ? "🎮" : "🏕"}
-          </div>
-          <div>
-            <p className="text-[17px] font-semibold">{resourceName}</p>
-            <p className="text-[14px]" style={{ color: "var(--tg-hint)" }}>
+          <span
+            className="flex items-center justify-center w-12 h-12 rounded-xl shrink-0"
+            style={{
+              background: "var(--tg-secondary-bg)",
+              color: "var(--tg-accent)",
+            }}
+          >
+            <Icon name={icon} size={24} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[17px] font-semibold truncate">{resourceName}</p>
+            <p className="text-[14px]" style={{ color: "var(--tg-subtitle)" }}>
               Бизнес-парк «Деловой»
             </p>
           </div>
         </div>
 
-        <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)" }} />
+        <div style={{ borderTop: "0.5px solid var(--tg-separator)" }} />
 
         {/* Details */}
-        <div className="p-4 space-y-3">
-          <div className="flex justify-between">
+        <div className="p-4 space-y-3 text-[15px]">
+          <div className="flex justify-between gap-4">
             <span style={{ color: "var(--tg-hint)" }}>Дата</span>
-            <span className="font-medium">{formatDateRu(date)}</span>
+            <span className="font-medium text-right">{formatDateRu(date)}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <span style={{ color: "var(--tg-hint)" }}>Время</span>
-            <span className="font-medium">{startTime} — {endTime}</span>
+            <span className="font-medium">
+              {startTime} — {endTime}
+            </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <span style={{ color: "var(--tg-hint)" }}>Длительность</span>
             <span className="font-medium">{hours} ч.</span>
           </div>
           {total !== null && (
-            <>
-              <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)" }} className="pt-3">
-                <div className="flex justify-between">
-                  <span className="font-semibold">Итого</span>
-                  <span className="text-[19px] font-bold">
-                    {total.toLocaleString("ru-RU")} ₽
-                  </span>
-                </div>
-              </div>
-            </>
+            <div
+              className="pt-3 flex justify-between items-center gap-4"
+              style={{ borderTop: "0.5px solid var(--tg-separator)" }}
+            >
+              <span className="font-semibold">Итого</span>
+              <span className="text-[19px] font-bold">
+                {total.toLocaleString("ru-RU")} ₽
+              </span>
+            </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {error && (
-        <div className="mt-4 p-3 rounded-xl text-center text-[14px] font-medium" style={{ background: "#fef2f2", color: "#dc2626" }}>
-          {error}
-        </div>
+        <Card className="mt-4 p-3">
+          <div
+            className="flex items-start gap-2 text-[14px] font-medium"
+            style={{ color: "var(--tg-destructive)" }}
+          >
+            <span className="shrink-0 mt-0.5">
+              <Icon name="alert" size={18} />
+            </span>
+            <span>{error}</span>
+          </div>
+        </Card>
       )}
 
       <div className="mt-6 space-y-3">
-        <button
-          onClick={handleConfirm}
-          disabled={loading}
-          className="tg-button"
-        >
+        <Button onClick={handleConfirm} disabled={loading}>
           {loading ? "Бронируем..." : "Забронировать"}
-        </button>
+        </Button>
 
-        <button
+        <Button
+          variant="secondary"
+          disabled={loading}
           onClick={() => {
             haptic.impact("light");
             onCancel();
           }}
-          className="tg-button"
-          style={{ background: "var(--tg-secondary-bg)", color: "var(--tg-text)" }}
         >
           Назад
-        </button>
+        </Button>
       </div>
     </div>
   );
