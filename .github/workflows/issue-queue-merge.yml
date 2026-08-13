@@ -1,0 +1,107 @@
+name: Issue Queue — Auto-merge
+
+# Подметальщик авто-мержа. AI здесь нет, как и в issue-queue.yml: решение
+# «мержить или нет» полностью детерминировано (`classifyMergeGate` + состояние
+# чеков), а значит его место в кроне, а не в смертной сессии.
+#
+# Зачем он появился. Раньше мерж умела делать только живая сессия воркера:
+# `/next-issue` открывал PR, ждал CI и мержил сам. Сессия смертна, и если она
+# умирала между `pr-open` и `pr-merge`, готовый PR — с зелёным CI и разрешающим
+# гейтом — оставался висеть, пока владелец не замержит его руками. Так был
+# смержен #483: вручную, владельцем, через 14 часов после того, как всё сошлось.
+#
+# Что делает: обходит открытые PR-ы автоматики и домерживает те, где гейт вернул
+# `auto`, CI зелёный, нет лейбла `needs-owner` и PR не обновлялся последние
+# `automergeQuietMinutes` минут. PR-ы уровня `hold` получают `needs-owner`, а их
+# issue уезжает в `auto:review` — очередь идёт дальше, не дожидаясь человека.
+#
+# Владелец остаётся ровно там, где нужно именно его решение: рубильники самой
+# автоматики и деструктивные миграции. Список — HOLD_PATTERNS в
+# scripts/lib/issue-queue.ts, обоснование — ADR 2026-08-10.
+
+on:
+  # Основной триггер: CI позеленел — возможно, появился PR, готовый к мержу.
+  workflow_run:
+    workflows: ["CI — Lint, Test, Build"]
+    types: [completed]
+  # Страховка: PR мог стать готовым без события CI — окно тишины истекло,
+  # владелец снял `needs-owner`, гейт перестал держать после правки.
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Только показать, что было бы смержено"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write # нужен для workflow_dispatch деплоя — см. шаг «Kick deploy»
+
+concurrency:
+  # Два одновременных подметальщика мержили бы один и тот же PR дважды.
+  group: issue-queue-merge
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Merge what the gate already allowed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HAS_PAT: ${{ (secrets.AUTOMATION_TOKEN != '' || secrets.QUEUE_MERGE_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      # PAT предпочтительнее GITHUB_TOKEN: push, сделанный GITHUB_TOKEN, по
+      # loop-protection GitHub не порождает событий, то есть после такого мержа
+      # не запустится ни CI, ни deploy.yml — код молча осел бы в main
+      # незадеплоенным. Если PAT нет, деплой добивается явным dispatch ниже
+      # (workflow_dispatch — одно из двух событий, которые GITHUB_TOKEN всё же
+      # порождает), поэтому отсутствие секрета ничего не ломает.
+      - name: Sweep mergeable PRs
+        id: sweep
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          DRY: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/issue-queue.ts automerge $DRY | tee sweep.json
+          echo "merged=$(jq -r '.merged' sweep.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        run: |
+          {
+            echo '## Подметальщик авто-мержа'
+            echo ''
+            echo "Смержено: **$(jq -r '.merged' sweep.json)** из $(jq -r '.considered' sweep.json) открытых PR."
+            echo ''
+            echo '```json'
+            cat sweep.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Без PAT мерж не порождает push-события, поэтому всё, что висит на
+      # `push: branches: [main]`, молча не запустится: deploy.yml (код осел бы в
+      # main незадеплоенным) и auto-rebase.yml (остальные PR-ы не ребейзнулись бы
+      # на новый main и накопили конфликты). Дожимаем оба явным диспатчем —
+      # workflow_dispatch одно из двух событий, которые GITHUB_TOKEN всё же
+      # порождает. deploy.yml без входного sha выкатывает текущий main HEAD и
+      # доберёт недостающий образ своим fallback-шагом сборки.
+      - name: Kick push-triggered workflows (no PAT available)
+        if: steps.sweep.outputs.merged != '0' && env.HAS_PAT == 'no'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for wf in deploy.yml auto-rebase.yml; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$wf/dispatches" \
+              -d '{"ref":"main"}')
+            echo "$wf dispatch → $code"
+          done

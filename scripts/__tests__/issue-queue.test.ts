@@ -3,6 +3,7 @@ import {
   DEFAULT_CONFIG,
   GIVEUP_MARKER,
   STALE_MARKER,
+  autoMergeSkipReason,
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
@@ -25,6 +26,7 @@ import {
   type PrLink,
   type QueueConfig,
   type QueueIssue,
+  type SweepPr,
 } from '../lib/issue-queue';
 
 function issue(number: number, labels: string[], over: Partial<QueueIssue> = {}): QueueIssue {
@@ -666,5 +668,61 @@ describe('snapshot', () => {
     // #5 занята — воркер не берёт ничего нового
     expect(snap.next.issue).toBeNull();
     expect(snap.ordered.map((i) => i.number)).toEqual([1, 2]);
+  });
+});
+
+describe('autoMergeSkipReason', () => {
+  const NOW = new Date('2026-08-12T12:00:00Z');
+  // По умолчанию PR давно тихий — тесты, где тишина не проверяется, о ней не думают.
+  const pr = (over: Partial<SweepPr> = {}): SweepPr => ({
+    prNumber: 500,
+    branch: 'claude/issue-445-lockfile',
+    labels: [],
+    issueLanes: ['wip'],
+    updatedAt: '2026-08-12T10:00:00Z',
+    ...over,
+  });
+
+  it('пропускает PR ветки очереди', () => {
+    expect(autoMergeSkipReason(pr(), config(), NOW)).toBeNull();
+  });
+
+  it('пропускает PR ветки агента вне очереди — по ней приходят разборы инцидентов', () => {
+    // Ровно случай PR #491: ветка claude/{task}, issue инцидента уже закрыта
+    // watchdog'ом, привязки к очереди нет никакой. Раньше такой PR оседал у владельца.
+    expect(
+      autoMergeSkipReason(pr({ branch: 'claude/delovoy-park-accessibility-9w4cyc', issueLanes: [] }), config(), NOW),
+    ).toBeNull();
+  });
+
+  it('пропускает PR с чужой веткой, если он закрывает issue очереди', () => {
+    // Случай PR #483: ветку сессия назвала по-своему, связь только через `Closes #482`.
+    expect(autoMergeSkipReason(pr({ branch: 'hotfix/release-numbering', issueLanes: ['wip'] }), config(), NOW)).toBeNull();
+  });
+
+  it('не трогает чужие PR — release-please, dependabot, ручные ветки', () => {
+    for (const branch of ['release-please--branches--main', 'dependabot/npm_and_yarn/next-15', 'feature/cafe-qr']) {
+      expect(autoMergeSkipReason(pr({ branch, issueLanes: [] }), config(), NOW)).toMatch(/не PR автоматики/);
+    }
+  });
+
+  it('не трогает PR, помеченный needs-owner', () => {
+    expect(autoMergeSkipReason(pr({ labels: ['needs-owner'] }), config(), NOW)).toMatch(/needs-owner/);
+  });
+
+  it('ждёт тишины: свежий PR может дописывать живая сессия', () => {
+    const fresh = pr({ updatedAt: '2026-08-12T11:55:00Z' }); // 5 минут назад
+    expect(autoMergeSkipReason(fresh, config({ automergeQuietMinutes: 20 }), NOW)).toMatch(/жду 20 мин тишины/);
+  });
+
+  it('черновик сам по себе не причина пропустить — флаг снимет подметальщик', () => {
+    // Сессии Claude Code на вебе обязаны открывать PR черновиком. Если считать
+    // draft стоп-сигналом, каждый такой PR ждёт клика владельца — то есть ровно
+    // того участия, ради устранения которого подметальщик и написан.
+    expect(autoMergeSkipReason(pr(), config(), NOW)).toBeNull();
+  });
+
+  it('issue в auto:review не блокирует мерж — туда уезжают PR умерших сессий', () => {
+    expect(autoMergeSkipReason(pr({ branch: 'x/y', issueLanes: ['review'] }), config(), NOW)).toBeNull();
   });
 });

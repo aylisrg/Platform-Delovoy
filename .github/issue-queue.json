@@ -5,7 +5,8 @@
     "autoMerge=false оставляет всё как есть, но PR-ы будут ждать ручного мержа.",
     "Мерж в main запускает CI → deploy.yml → прод. autoMerge=true означает выкатку без человека.",
     "maxAttempts — потолок на брошенные попытки: задача, которую воркер не вытягивает, снимается с очереди в auto:blocked, а не крутится вечно.",
-    "heartbeatIdleHours/heartbeatCooldownHours — сторож простоя: ready>0 без PR-активности дольше idle-порога → Telegram-алерт, не чаще одного в cooldown."
+    "heartbeatIdleHours/heartbeatCooldownHours — сторож простоя: ready>0 без PR-активности дольше idle-порога → Telegram-алерт, не чаще одного в cooldown.",
+    "automergeQuietMinutes — сколько минут PR должен не обновляться, прежде чем подметальщик (issue-queue-merge.yml) его замержит. Защита от мержа середины работы живой сессии."
   ],
   "enabled": true,
   "autoMerge": true,
@@ -14,6 +15,7 @@
   "maxAttempts": 3,
   "heartbeatIdleHours": 3,
   "heartbeatCooldownHours": 12,
+  "automergeQuietMinutes": 20,
   "pinned": [
     429,
     424,

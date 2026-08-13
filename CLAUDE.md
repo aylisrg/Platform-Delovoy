@@ -152,6 +152,19 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 планировщик и GitHub Actions как исполнители пробовались и отвергнуты —
 почему, см. ADR `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`.
 
+**Владелец в цикле не участвует.** Сессия смертна, поэтому два шага, которые
+раньше держались только на ней, вынесены наружу:
+
+- **Запуск сессий** — Routine «Автоочередь: разбор бэклога» (claude.ai, раз в
+  2 часа) заводит свежую сессию воркера. Просить владельца «запусти `/next-issue`»
+  больше не нужно и нельзя.
+- **Мерж** — `.github/workflows/issue-queue-merge.yml` (каждые 15 минут, без AI)
+  домерживает PR-ы, где гейт вернул `auto` и CI зелёный. Умершая сессия больше не
+  оставляет готовый PR висеть до ручного мержа.
+
+Владельцу остаётся ровно то, что требует его решения: PR с лейблом `needs-owner`
+(гейт вернул `hold`) и issue в `auto:blocked` (нужны доступы).
+
 **Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность; `auto:ready` —
 можно брать, `auto:wip` — занято (лок живой сессии), `auto:review` — PR открыт и
 ждёт владельца, `auto:blocked` — нужны доступы владельца, `auto:prod-apply` — код
@@ -177,16 +190,25 @@ npx tsx scripts/issue-queue.ts next        # что дальше
 npx tsx scripts/issue-queue.ts untriaged   # входящие для триажа
 npx tsx scripts/issue-queue.ts epics       # эпики и разобраны ли они
 npx tsx scripts/issue-queue.ts gate <PR>   # можно ли авто-мержить
+npx tsx scripts/issue-queue.ts automerge --dry-run  # что домержит подметальщик
 npx tsx scripts/issue-queue.ts reconcile   # снять протухшие локи
 npx tsx scripts/issue-queue.ts heartbeat --dry-run  # стоит ли очередь
 ```
 
 Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
 `staleWipHours`, `maxAttempts`, `heartbeatIdleHours`, `heartbeatCooldownHours`,
-`pinned`). Учёт, уборка и heartbeat-алерт «очередь стоит — запусти `/next-issue`» —
+`automergeQuietMinutes`, `pinned`). Учёт, уборка и heartbeat-алерт «очередь стоит — запусти `/next-issue`» —
 `.github/workflows/issue-queue.yml` (ежечасно, без AI). Дашборд — issue с лейблом
 `auto:dashboard`; его закрытие не выключает очередь (переоткроется) — выключатель
 только `enabled=false`.
+
+**Секрет `AUTOMATION_TOKEN`** (fine-grained PAT: contents write, pull-requests
+write, actions write) — его читают `auto-rebase.yml`, `issue-queue-merge.yml` и
+`release.yml`. Без него очередь работает, но каждый авто-ребейз паркует CI ветки в
+`action_required`: GitHub требует ручного «Approve and run» для прогонов, приписанных
+`github-actions[bot]`. Пуш под PAT приписывается человеку, и гейт не срабатывает.
+Подробности и отвергнутые альтернативы — ADR `2026-08-10-autonomous-issue-cleanup-adr.md`,
+раздел «Обновление 2026-08-13».
 
 ---
 
@@ -197,7 +219,7 @@ npx tsx scripts/issue-queue.ts heartbeat --dry-run  # стоит ли очере
 - Ветки автоочереди: `claude/issue-{номер}-{slug}` — по префиксу PR связывается с issue
 - Commits: conventional commits (`feat:`, `fix:`, `chore:`, `docs:`)
 - **Never push directly to `main`** — always PR
-- **Auto-merge — только для PR автоочереди и только уровня `auto`.** Мерж в `main`
+- **Auto-merge — только для PR агента и только уровня `auto`.** Мерж в `main`
   запускает CI → `deploy.yml` → прод. Гейт (`scripts/lib/issue-queue.ts`) держит на
   ручном мерже два класса: рубильники самой автоматики — конфиг, workflow учёта и
   реализация гейта (`scripts/lib/issue-queue.ts`, `scripts/issue-queue.ts`) — и деструктивные
@@ -205,7 +227,11 @@ npx tsx scripts/issue-queue.ts heartbeat --dry-run  # стоит ли очере
   `ALTER TYPE`, `SET NOT NULL`). Плюс PR-ы на 5+ модулей — правило #5 выше.
   Всё остальное, включая `infra/**`, деплой-workflow'ы и аддитивные миграции,
   мержится автоматически после зелёного CI и PASS от `code-reviewer` и `qa-engineer`.
-  Обычные `claude/**` и `feature/**` PR-ы вне очереди не мержатся автоматически.
+  Под авто-мерж попадают **все ветки `claude/**`**, не только `claude/issue-*`:
+  сессия, заведённая не через `/next-issue` (разбор инцидента, задача от владельца
+  в чате), проходит тот же CI и тот же гейт, а её PR раньше оседал у владельца
+  просто из-за имени ветки. `feature/**`, `release-please--*` и ручные ветки
+  владельца по-прежнему мержатся руками.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
   `2026-08-10-autonomous-issue-cleanup-adr.md`.
 

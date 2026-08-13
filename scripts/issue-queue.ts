@@ -26,6 +26,7 @@
  *   gate 463                                 можно ли авто-мержить
  *   pr-ready 463                             снять черновик (GraphQL; в сессии воркера недоступен)
  *   pr-merge 463                             мерж (сам перепроверяет гейт и CI)
+ *   automerge [--dry-run]                    крон: домержить все готовые PR очереди
  *
  * HTTP-путь к GitHub — scripts/lib/gh-api.ts (curl: в Actions с $GH_TOKEN,
  * в сессии Claude Code через agent-proxy).
@@ -36,12 +37,14 @@ import { resolve } from 'node:path';
 import { REPO, ghApi as gh } from './lib/gh-api';
 import {
   DEFAULT_CONFIG,
+  DRAFT_STUCK_MARKER,
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
   HEARTBEAT_MARKER,
   QUEUE_BRANCH_RE,
   STALE_MARKER,
   STALE_PR_MARKER,
+  autoMergeSkipReason,
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
@@ -394,36 +397,39 @@ function cmdPrOpen(issueNumber: number, branch: string, draft: boolean, refsOnly
  * markPullRequestReadyForReview), а /graphql agent-proxy не пропускает —
  * поэтому в сессии воркера команда честно сообщает, что не смогла.
  */
+function markReady(nodeId: string): { ok: boolean; detail?: string } {
+  const query = {
+    query: 'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}',
+    variables: { id: nodeId },
+  };
+  try {
+    const res = gh<{ errors?: { message: string }[] }>('https://api.github.com/graphql', 'POST', query);
+    if (res?.errors?.length) throw new Error(res.errors.map((e) => e.message).join('; '));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, detail: String(err).slice(0, 200) };
+  }
+}
+
 function cmdPrReady(prNumber: number): void {
   const pr = gh<{ draft: boolean; node_id: string }>(`/repos/${REPO}/pulls/${prNumber}`);
   if (!pr.draft) {
     console.log(JSON.stringify({ pr: prNumber, draft: false, changed: false }, null, 2));
     return;
   }
-  const query = {
-    query: 'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}',
-    variables: { id: pr.node_id },
-  };
-  try {
-    const res = gh<{ errors?: { message: string }[] }>('https://api.github.com/graphql', 'POST', query);
-    if (res?.errors?.length) throw new Error(res.errors.map((e) => e.message).join('; '));
+  const res = markReady(pr.node_id);
+  if (res.ok) {
     console.log(JSON.stringify({ pr: prNumber, draft: false, changed: true }, null, 2));
-  } catch (err) {
-    console.log(
-      JSON.stringify(
-        {
-          pr: prNumber,
-          draft: true,
-          changed: false,
-          reason: 'не удалось снять draft автоматически',
-          detail: String(err).slice(0, 200),
-        },
-        null,
-        2,
-      ),
-    );
-    process.exitCode = 3;
+    return;
   }
+  console.log(
+    JSON.stringify(
+      { pr: prNumber, draft: true, changed: false, reason: 'не удалось снять draft автоматически', detail: res.detail },
+      null,
+      2,
+    ),
+  );
+  process.exitCode = 3;
 }
 
 function cmdPrStatus(prNumber: number): void {
@@ -478,45 +484,59 @@ function cmdPrWait(prNumber: number, timeoutMin: number): void {
   }
 }
 
-/**
- * Последний предохранитель перед прод-деплоем: мержит, только если гейт разрешает
- * И весь CI зелёный. Проверяет сам, а не верит вызывающему.
- */
-function cmdPrMerge(prNumber: number): void {
-  const config = loadConfig();
+function changedFiles(prNumber: number): ChangedFile[] {
   const files: ChangedFile[] = [];
   for (let page = 1; page <= 10; page++) {
     const batch = gh<ChangedFile[]>(`/repos/${REPO}/pulls/${prNumber}/files?per_page=100&page=${page}`);
     files.push(...batch);
     if (batch.length < 100) break;
   }
-  const gate = classifyMergeGate(files, config);
+  return files;
+}
+
+interface MergeAttempt {
+  merged: boolean;
+  reason?: string;
+  /** Гейт запретил — ждать нечего, PR нужно отдать владельцу. */
+  hold?: boolean;
+  reasons?: string[];
+  failed?: string[];
+  pending?: string[];
+  detail?: string;
+}
+
+/**
+ * Последний предохранитель перед прод-деплоем: мержит, только если гейт разрешает
+ * И весь CI зелёный. Проверяет сам, а не верит вызывающему — а вызывающих теперь
+ * двое: сессия воркера (`pr-merge`) и крон-подметальщик (`automerge`).
+ */
+function attemptMerge(
+  prNumber: number,
+  config: QueueConfig,
+  opts: { promoteDraft?: boolean } = {},
+): MergeAttempt {
+  const gate = classifyMergeGate(changedFiles(prNumber), config);
   if (gate.tier === 'hold') {
-    console.log(JSON.stringify({ merged: false, reason: 'gate=hold', reasons: gate.reasons }, null, 2));
-    process.exitCode = 3;
-    return;
+    return { merged: false, reason: 'gate=hold', hold: true, reasons: gate.reasons };
   }
 
   const runs = checksFor(prNumber);
   const s = summarizeChecks(runs);
   if (!s.green) {
     const reason = runs.length === 0 ? 'CI не стартовал — чеков нет вообще' : s.done ? 'CI красный' : 'CI ещё идёт';
-    console.log(
-      JSON.stringify(
-        { merged: false, reason, failed: s.failed.map((r) => r.name), pending: s.pending.map((r) => r.name) },
-        null,
-        2,
-      ),
-    );
-    process.exitCode = 3;
-    return;
+    return { merged: false, reason, failed: s.failed.map((r) => r.name), pending: s.pending.map((r) => r.name) };
   }
 
-  const pr = gh<{ draft: boolean; title: string }>(`/repos/${REPO}/pulls/${prNumber}`);
+  const pr = gh<{ draft: boolean; title: string; node_id: string }>(`/repos/${REPO}/pulls/${prNumber}`);
   if (pr.draft) {
-    console.log(JSON.stringify({ merged: false, reason: 'PR всё ещё черновик — сними draft явно' }, null, 2));
-    process.exitCode = 3;
-    return;
+    // Снимаем черновик только здесь — когда гейт и CI уже сказали «да». До этой
+    // точки PR мог быть незакончен, после неё флаг остаётся единственным, что
+    // отделяет готовый PR от мержа.
+    if (!opts.promoteDraft) return { merged: false, reason: 'PR всё ещё черновик — сними draft явно' };
+    const ready = markReady(pr.node_id);
+    if (!ready.ok) {
+      return { merged: false, reason: 'не удалось снять draft автоматически', detail: ready.detail };
+    }
   }
 
   try {
@@ -524,14 +544,130 @@ function cmdPrMerge(prNumber: number): void {
       merge_method: 'squash',
       commit_title: `${pr.title} (#${prNumber})`,
     });
-    console.log(JSON.stringify({ merged: true, pr: prNumber }, null, 2));
+    return { merged: true };
   } catch (err) {
     // Обычно это branch protection (нужен ревью) — не наша ошибка, а решение владельца.
-    console.log(
-      JSON.stringify({ merged: false, reason: 'GitHub отказал в мерже', detail: String(err).slice(0, 300) }, null, 2),
-    );
-    process.exitCode = 3;
+    return { merged: false, reason: 'GitHub отказал в мерже', detail: String(err).slice(0, 300) };
   }
+}
+
+function cmdPrMerge(prNumber: number): void {
+  const result = attemptMerge(prNumber, loadConfig());
+  console.log(JSON.stringify({ pr: prNumber, ...result }, null, 2));
+  if (!result.merged) process.exitCode = 3;
+}
+
+/**
+ * Крон-подметальщик: обходит открытые PR-ы очереди и домерживает всё, что гейт и
+ * зелёный CI уже разрешили. Раньше это умела только живая сессия, и её смерть
+ * между `pr-open` и `pr-merge` отправляла готовый PR в инбокс владельца.
+ *
+ * PR, который гейт не пропустил, здесь же получает лейбл `needs-owner`, а его
+ * issue уезжает в `auto:review`: иначе очередь стояла бы до `staleWipHours`,
+ * ожидая сессию, которой нет.
+ */
+function cmdAutoMerge(dryRun: boolean): void {
+  const config = loadConfig();
+  // Рубильник должен глушить подметальщика целиком, а не через гейт: при
+  // `autoMerge: false` гейт возвращает hold на каждый PR, и обход ниже развесил бы
+  // `needs-owner` на весь бэклог — выключатель обязан быть тихим.
+  if (!config.enabled || !config.autoMerge) {
+    const which = !config.enabled ? 'enabled' : 'autoMerge';
+    console.log(JSON.stringify({ merged: 0, considered: 0, off: `${which}=false в .github/issue-queue.json` }, null, 2));
+    return;
+  }
+
+  const { issues, prs } = collect();
+  const laneByNumber = new Map<number, Lane>(issues.map((i) => [i.number, laneOf(i.labels)]));
+  const labelsByNumber = new Map<number, string[]>(issues.map((i) => [i.number, i.labels]));
+  const results: Record<string, unknown>[] = [];
+  const now = new Date();
+  let merged = 0;
+
+  for (const pr of prs) {
+    const closes = closedIssueNumbers(pr);
+    // Лейблы PR живут в /issues/{n} — у PR-ов и issues общее пространство номеров.
+    const prLabels = gh<{ labels: { name: string }[] }>(`/repos/${REPO}/issues/${pr.number}`).labels.map(
+      (l) => l.name,
+    );
+    const skip = autoMergeSkipReason(
+      {
+        prNumber: pr.number,
+        branch: pr.head.ref,
+        labels: prLabels,
+        issueLanes: closes.map((n) => laneByNumber.get(n)).filter((l): l is Lane => l !== undefined),
+        updatedAt: pr.updated_at,
+      },
+      config,
+      now,
+    );
+    if (skip) {
+      results.push({ pr: pr.number, merged: false, skipped: skip });
+      continue;
+    }
+
+    if (dryRun) {
+      const gate = classifyMergeGate(changedFiles(pr.number), config);
+      const s = summarizeChecks(checksFor(pr.number));
+      results.push({
+        pr: pr.number,
+        merged: false,
+        dryRun: true,
+        wouldMerge: gate.tier === 'auto' && s.green,
+        tier: gate.tier,
+        draft: pr.draft,
+        ci: s.green ? 'green' : s.done ? 'red' : 'pending',
+      });
+      continue;
+    }
+
+    const result = attemptMerge(pr.number, config, { promoteDraft: true });
+    if (result.merged) {
+      merged++;
+      // `Closes #N` закроет issue сам — лейблы очереди уедут вместе с ней.
+      results.push({ pr: pr.number, merged: true, closes });
+      continue;
+    }
+
+    // Снятие черновика — единственный шаг подметальщика, зависящий от GraphQL.
+    // Если мутация недоступна, PR не молчит: один видимый комментарий с прямой
+    // просьбой нажать «Ready for review». `needs-owner` при этом НЕ вешаем — сбой
+    // может быть транзиентным, и лейбл вывел бы PR из-под подметальщика навсегда.
+    if (result.reason === 'не удалось снять draft автоматически') {
+      const seen = allComments(pr.number).some((c) => c.body.includes(DRAFT_STUCK_MARKER));
+      if (!seen) {
+        comment(
+          pr.number,
+          `${DRAFT_STUCK_MARKER}\n\nPR готов к мержу — гейт вернул \`auto\`, CI зелёный, — но снять ` +
+            `черновик автоматически не вышло: мутация GraphQL недоступна ` +
+            `(\`${result.detail ?? 'без деталей'}\`).\n\nНажми «Ready for review» — дальше подметальщик ` +
+            `домержит сам, ничего больше не требуется.`,
+        );
+      }
+    }
+
+    if (result.hold) {
+      // Решение нужно от человека — зовём его сразу и явно, а не молчаливым
+      // протуханием лока через несколько часов.
+      if (!prLabels.includes('needs-owner')) {
+        gh(`/repos/${REPO}/issues/${pr.number}/labels`, 'POST', { labels: ['needs-owner'] });
+        comment(
+          pr.number,
+          `Авто-мерж запрещён гейтом:\n\n${(result.reasons ?? []).map((r) => `- ${r}`).join('\n')}\n\n` +
+            `Очередь идёт дальше, PR ждёт решения владельца.`,
+        );
+      }
+      for (const num of closes) {
+        const labels = labelsByNumber.get(num);
+        if (labels && laneOf(labels) === 'wip') {
+          setLabels(num, swapLane(labels, 'auto:review'));
+        }
+      }
+    }
+    results.push({ pr: pr.number, ...result });
+  }
+
+  console.log(JSON.stringify({ merged, considered: prs.length, results }, null, 2));
 }
 
 function cmdReconcile(): void {
@@ -764,7 +900,8 @@ function cmdHeartbeat(dryRun: boolean): void {
     comment(
       dash[0].number,
       `${HEARTBEAT_MARKER}\n\n⏸ Очередь простаивает: ready=${ready}, wip=0, PR-активности нет ` +
-        `дольше ${config.heartbeatIdleHours} ч. Нужна живая сессия \`/next-issue\`.`,
+        `дольше ${config.heartbeatIdleHours} ч. Сессии воркера заводит Routine раз в 2 часа — ` +
+        `значит, сломан планировщик, а не очередь.`,
     );
   }
   console.log(JSON.stringify({ alert: verdict.alert, reason: verdict.reason, ready, wip }, null, 2));
@@ -792,6 +929,7 @@ try {
     case 'pr-status': cmdPrStatus(Number(rest[0])); break;
     case 'pr-wait': cmdPrWait(Number(rest[0]), Number(rest[1] ?? 30)); break;
     case 'pr-merge': cmdPrMerge(Number(rest[0])); break;
+    case 'automerge': cmdAutoMerge(rest.includes('--dry-run')); break;
     default:
       console.error(
         'usage: issue-queue.ts <next|claim|release|park|gate|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
