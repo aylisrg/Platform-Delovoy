@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { BookingStatus } from "@prisma/client";
 import { GazeboBillModal, type PaymentSplit } from "./gazebo-bill-modal";
+import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
 
 type Props = {
   bookingId: string;
@@ -31,24 +32,57 @@ export function BookingActions({
 }: Props) {
   const router = useRouter();
   const [billOpen, setBillOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
+  // Счёт заполнен, но PATCH ещё не ушёл — ждём явного «Да, завершить» (AC-1).
+  const [pendingSplit, setPendingSplit] = useState<PaymentSplit | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  async function updateStatus(status: BookingStatus) {
-    const res = await fetch(`/api/gazebos/bookings/${bookingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-
-    if (res.ok) {
+  /** Возвращает текст ошибки или null при успехе. */
+  async function updateStatus(
+    status: BookingStatus,
+    extra?: Record<string, unknown>
+  ): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/gazebos/bookings/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, ...extra }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success: true }
+        | { success: false; error?: { message?: string } }
+        | null;
+      if (!res.ok || !body || body.success === false) {
+        return (
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось обновить статус (HTTP ${res.status})`
+        );
+      }
       router.refresh();
+      return null;
+    } catch {
+      return "Сетевая ошибка";
     }
   }
 
-  async function handleConfirmBill(split: PaymentSplit) {
-    setCompleting(true);
+  async function handleConfirmCancel(reason: string | null) {
+    const message = await updateStatus("CANCELLED", reason ? { reason } : undefined);
+    if (message) return message;
+    setCancelOpen(false);
+    return null;
+  }
+
+  /** Счёт заполнен — показываем последний вопрос вместо немедленного PATCH. */
+  function handleConfirmBill(split: PaymentSplit) {
     setApiError(null);
+    setPendingSplit(split);
+  }
+
+  async function handleConfirmComplete(): Promise<string | null> {
+    const split = pendingSplit;
+    if (!split) return "Счёт не заполнен";
+    setCompleting(true);
     try {
       const payload: Record<string, unknown> = {
         status: "COMPLETED",
@@ -66,15 +100,16 @@ export function BookingActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (data.success) {
-        setBillOpen(false);
-        router.refresh();
-      } else {
-        setApiError(data.error?.message ?? "Ошибка при завершении");
+      const data = await res.json().catch(() => null);
+      if (!data?.success) {
+        return data?.error?.message ?? "Ошибка при завершении";
       }
+      setPendingSplit(null);
+      setBillOpen(false);
+      router.refresh();
+      return null;
     } catch {
-      setApiError("Не удалось завершить бронь");
+      return "Не удалось завершить бронь";
     } finally {
       setCompleting(false);
     }
@@ -99,10 +134,38 @@ export function BookingActions({
             Завершить
           </Button>
         )}
-        <Button size="sm" variant="danger" onClick={() => updateStatus("CANCELLED")}>
+        <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
           Отменить
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Отменить бронь?"
+        description="Бронь исчезнет из расписания, слот освободится и его сможет занять другой гость."
+        details={[
+          { label: "Гость", value: clientName },
+          { label: "Беседка", value: resourceName },
+          {
+            label: "Время",
+            value: [date, [startTime, endTime].filter(Boolean).join("–")]
+              .filter(Boolean)
+              .join(", ") || "—",
+          },
+          ...(totalPrice > 0
+            ? [{ label: "Сумма", value: `${totalPrice.toLocaleString("ru-RU")} ₽` }]
+            : []),
+        ]}
+        warning="Отмена не восстанавливается автоматически — вернуть бронь сможет только суперадмин."
+        confirmLabel="Да, отменить бронь"
+        variant="danger"
+        reason={{
+          label: "Причина отмены",
+          placeholder: "Гость отказался, погода, дубль…",
+        }}
+        onCancel={() => setCancelOpen(false)}
+        onConfirm={handleConfirmCancel}
+      />
 
       {billOpen && (
         <GazeboBillModal
@@ -115,6 +178,36 @@ export function BookingActions({
           apiError={apiError}
         />
       )}
+
+      {/* Последний вопрос перед необратимым завершением (AC-1). */}
+      <ConfirmDialog
+        open={pendingSplit !== null}
+        title="Завершить бронь?"
+        description="Бронь пропадёт из расписания, слот станет доступен для новых броней."
+        details={[
+          { label: "Гость", value: clientName },
+          { label: "Беседка", value: resourceName },
+          {
+            label: "Время",
+            value: [date, [startTime, endTime].filter(Boolean).join("–")]
+              .filter(Boolean)
+              .join(", ") || "—",
+          },
+          {
+            label: "Наличные",
+            value: `${(pendingSplit?.cashAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+          {
+            label: "Карта",
+            value: `${(pendingSplit?.cardAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+        ]}
+        warning="Завершение нельзя отменить самостоятельно — переоткрыть бронь сможет только суперадмин."
+        confirmLabel="Да, завершить"
+        variant="neutral"
+        onCancel={() => setPendingSplit(null)}
+        onConfirm={handleConfirmComplete}
+      />
     </>
   );
 }

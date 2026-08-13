@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GazeboBookingEditForm } from "./booking-edit-form";
 import { GazeboBillModal, type PaymentSplit } from "./gazebo-bill-modal";
+import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
+import { getBookingPaymentSummary } from "@/modules/booking/payment-status";
 import type { TimelineBooking } from "@/modules/gazebos/types";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
 
@@ -33,6 +36,9 @@ export function GazeboBookingDetailCard({
   const [showEdit, setShowEdit] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  // Счёт заполнен, но PATCH ещё не ушёл — ждём явного «Да, завершить» (AC-1).
+  const [pendingSplit, setPendingSplit] = useState<PaymentSplit | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
   const meta = booking.metadata as Record<string, unknown> | null;
@@ -55,38 +61,65 @@ export function GazeboBookingDetailCard({
 
   // Применённая ставка часа снапшотится в metadata при создании/переносе
   // брони (учитывает выходные). Проп pricePerHour — только fallback (будний).
+  const payment = getBookingPaymentSummary(booking);
   const appliedRate = Number(meta?.pricePerHour ?? pricePerHour ?? 0) || null;
   const totalCost = appliedRate ? Math.round(hours * appliedRate) : null;
   const totalFromMeta = Number(meta?.totalPrice ?? totalCost ?? 0);
 
-  async function updateStatus(status: string) {
+  /**
+   * Возвращает текст ошибки или null при успехе — чтобы вызов из
+   * ConfirmDialog показал ошибку внутри диалога, а не за его спиной.
+   */
+  async function updateStatus(
+    status: string,
+    extra?: Record<string, unknown>
+  ): Promise<string | null> {
     setActionLoading(true);
-    setApiError(null);
     try {
       const res = await fetch(`/api/gazebos/bookings/${booking.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...extra }),
       });
       const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
       if (!res.ok || !body || body.success === false) {
-        const message =
+        return (
           (body && "error" in body && body.error?.message) ||
-          `Не удалось обновить статус (HTTP ${res.status})`;
-        setApiError(message);
-        return;
+          `Не удалось обновить статус (HTTP ${res.status})`
+        );
       }
       onStatusChanged();
+      return null;
     } catch (err) {
-      setApiError(err instanceof Error ? err.message : "Сетевая ошибка");
+      return err instanceof Error ? err.message : "Сетевая ошибка";
     } finally {
       setActionLoading(false);
     }
   }
 
-  async function handleConfirmBill(split: PaymentSplit) {
-    setCompleting(true);
+  async function handleInlineStatus(status: string) {
     setApiError(null);
+    const message = await updateStatus(status);
+    if (message) setApiError(message);
+  }
+
+  async function handleConfirmCancel(reason: string | null) {
+    const message = await updateStatus("CANCELLED", reason ? { reason } : undefined);
+    if (message) return message;
+    setCancelOpen(false);
+    return null;
+  }
+
+  /** Счёт заполнен — показываем последний вопрос вместо немедленного PATCH. */
+  function handleConfirmBill(split: PaymentSplit) {
+    setApiError(null);
+    setPendingSplit(split);
+  }
+
+  async function handleConfirmComplete(): Promise<string | null> {
+    const split = pendingSplit;
+    if (!split) return "Счёт не заполнен";
+    setCompleting(true);
     try {
       const payload: Record<string, unknown> = {
         status: "COMPLETED",
@@ -104,14 +137,15 @@ export function GazeboBookingDetailCard({
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
-      if (data?.success) {
-        setBillOpen(false);
-        onStatusChanged();
-      } else {
-        setApiError(data?.error?.message ?? "Ошибка при завершении");
+      if (!data?.success) {
+        return data?.error?.message ?? "Ошибка при завершении";
       }
+      setPendingSplit(null);
+      setBillOpen(false);
+      onStatusChanged();
+      return null;
     } catch {
-      setApiError("Не удалось завершить бронь");
+      return "Не удалось завершить бронь";
     } finally {
       setCompleting(false);
     }
@@ -142,6 +176,7 @@ export function GazeboBookingDetailCard({
           }`}>
             {isActiveNow ? "Отдыхает" : isPending ? "Ожидает" : "Подтверждена"}
           </span>
+          <PaymentBadge booking={booking} />
         </div>
         <button
           onClick={onClose}
@@ -229,7 +264,7 @@ export function GazeboBookingDetailCard({
         {isPending && (
           <Button
             size="sm"
-            onClick={() => updateStatus("CONFIRMED")}
+            onClick={() => handleInlineStatus("CONFIRMED")}
             disabled={actionLoading}
           >
             Подтвердить
@@ -248,7 +283,7 @@ export function GazeboBookingDetailCard({
         <Button
           size="sm"
           variant="danger"
-          onClick={() => updateStatus("CANCELLED")}
+          onClick={() => { setApiError(null); setCancelOpen(true); }}
           disabled={actionLoading}
         >
           Отменить
@@ -275,6 +310,32 @@ export function GazeboBookingDetailCard({
         />
       )}
 
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Отменить бронь?"
+        description="Бронь исчезнет из расписания, слот освободится и его сможет занять другой гость."
+        details={[
+          { label: "Гость", value: booking.clientName ?? "Без имени" },
+          { label: "Беседка", value: resourceName },
+          {
+            label: "Время",
+            value: `${formatDate(start)}, ${formatTime(start)}–${formatTime(end)}`,
+          },
+          ...(totalCost !== null
+            ? [{ label: "Сумма", value: `${totalFromMeta.toLocaleString("ru-RU")} ₽` }]
+            : []),
+        ]}
+        warning="Отмена не восстанавливается автоматически — вернуть бронь сможет только суперадмин."
+        confirmLabel="Да, отменить бронь"
+        variant="danger"
+        reason={{
+          label: "Причина отмены",
+          placeholder: "Гость отказался, погода, дубль…",
+        }}
+        onCancel={() => setCancelOpen(false)}
+        onConfirm={handleConfirmCancel}
+      />
+
       {billOpen && (
         <GazeboBillModal
           bill={{
@@ -293,6 +354,44 @@ export function GazeboBookingDetailCard({
           apiError={apiError}
         />
       )}
+
+      {/* Последний вопрос перед необратимым завершением (AC-1). Рендерится
+          после модалки счёта, чтобы лечь поверх неё: закрытие диалога
+          возвращает менеджера к заполненному счёту, а не к пустому. */}
+      <ConfirmDialog
+        open={pendingSplit !== null}
+        title="Завершить бронь?"
+        description="Бронь пропадёт из расписания, слот станет доступен для новых броней."
+        details={[
+          { label: "Гость", value: booking.clientName ?? "Без имени" },
+          { label: "Беседка", value: resourceName },
+          {
+            label: "Время",
+            value: `${formatDate(start)}, ${formatTime(start)}–${formatTime(end)}`,
+          },
+          {
+            label: "Наличные",
+            value: `${(pendingSplit?.cashAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+          {
+            label: "Карта",
+            value: `${(pendingSplit?.cardAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+          // AC-2: онлайн-предоплата уже проведена вебхуком — показываем явно,
+          // чтобы менеджер не взял с гостя эти деньги второй раз.
+          ...(payment.online > 0
+            ? [{
+                label: "Оплачено онлайн",
+                value: `${payment.online.toLocaleString("ru-RU")} ₽ (уже учтено)`,
+              }]
+            : []),
+        ]}
+        warning="Завершение нельзя отменить самостоятельно — переоткрыть бронь сможет только суперадмин."
+        confirmLabel="Да, завершить"
+        variant="neutral"
+        onCancel={() => setPendingSplit(null)}
+        onConfirm={handleConfirmComplete}
+      />
     </div>
   );
 }

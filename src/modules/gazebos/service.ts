@@ -1376,6 +1376,8 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       clientName: true,
       clientPhone: true,
       metadata: true,
+      cashAmount: true,
+      cardAmount: true,
     },
     orderBy: { startTime: "asc" },
   });
@@ -1396,6 +1398,8 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       clientName: b.clientName,
       clientPhone: b.clientPhone,
       metadata: b.metadata as Record<string, unknown> | null,
+      cashAmount: b.cashAmount?.toString() ?? null,
+      cardAmount: b.cardAmount?.toString() ?? null,
     })),
     hours,
   };

@@ -440,6 +440,13 @@ export function SessionBillModal({
           </div>
         </div>
 
+        <div className="px-6 pb-4">
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            После завершения сессия уйдёт из расписания и слот освободится.
+            Проверьте суммы — пересчитать закрытый счёт можно только через историю брони.
+          </p>
+        </div>
+
         {/* API error from previous submit attempt (e.g. PAYMENT_REQUIRED). */}
         {apiError && (
           <p className="px-6 pb-3 text-sm text-red-600" role="alert">
