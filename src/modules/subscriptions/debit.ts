@@ -123,3 +123,95 @@ export async function debitFromSession(
 
   return { hoursDebited: hours, remainingAfter, becameDepleted };
 }
+
+export type RefundToSubscriptionArgs = {
+  subscriptionId: string;
+  bookingId: string;
+  hours: number;
+  performedById: string;
+  performedByName: string;
+  reason?: string;
+};
+
+export type RefundToSubscriptionResult = {
+  hoursRefunded: number;
+  remainingAfter: number;
+  reactivated: boolean;
+};
+
+/**
+ * Atomically credit `hours` back to a Subscription within an existing
+ * transaction — the reverse of `debitFromSession()`. Used when a COMPLETED,
+ * subscription-paid ps-park session is restored/cancelled after the fact
+ * (#435): the charge already happened, and without an explicit refund the
+ * guest's hours are gone with no compensation.
+ *
+ * Unlike `debitFromSession`, does NOT require `status: "ACTIVE"` — a charge
+ * that drained the subscription to DEPLETED must still be refundable, and
+ * doing so flips the subscription back to ACTIVE (the exact reverse of the
+ * auto-DEPLETED transition in `debitFromSession`). EXPIRED/CANCELLED
+ * subscriptions are left in that status — the refund still corrects the
+ * balance/ledger, it just doesn't resurrect a subscription past its
+ * `validTo` or one the guest/manager intentionally cancelled.
+ */
+export async function refundToSubscription(
+  tx: Prisma.TransactionClient,
+  args: RefundToSubscriptionArgs
+): Promise<RefundToSubscriptionResult> {
+  const { subscriptionId, bookingId, hours, performedById, performedByName, reason } = args;
+
+  if (hours <= 0) {
+    throw new SubscriptionDebitError(
+      "INVALID_HOURS",
+      "Часы для возврата должны быть положительными",
+      { hours }
+    );
+  }
+
+  const sub = await tx.subscription.findUniqueOrThrow({
+    where: { id: subscriptionId },
+    select: { status: true },
+  });
+  const reactivate = sub.status === "DEPLETED";
+
+  const updated = await tx.subscription.update({
+    where: { id: subscriptionId },
+    data: {
+      remainingHours: { increment: hours },
+      ...(reactivate && { status: "ACTIVE" }),
+    },
+    select: { remainingHours: true },
+  });
+  const remainingAfter = Number(updated.remainingHours);
+
+  await tx.subscriptionTransaction.create({
+    data: {
+      subscriptionId,
+      type: "REFUND",
+      hoursDelta: hours,
+      balanceAfter: remainingAfter,
+      bookingId,
+      reason,
+      performedById,
+      performedByName,
+    },
+  });
+
+  await tx.auditLog.create({
+    data: {
+      userId: performedById,
+      action: "subscription.refund_session",
+      entity: "Subscription",
+      entityId: subscriptionId,
+      metadata: {
+        bookingId,
+        hoursRefunded: hours,
+        remainingAfter,
+        reactivated: reactivate,
+        ...(reason && { reason }),
+      },
+    },
+  });
+
+  return { hoursRefunded: hours, remainingAfter, reactivated: reactivate };
+}
