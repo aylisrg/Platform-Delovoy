@@ -43,3 +43,4 @@
 | 2026-08-12 | 2026-08-12-issue-425-booking-detail-card-errors-qa-report.md | 2 | rbac, api, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-426-webapp-cancel-booking-core-qa-report.md | 4 | rbac, api, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-427-bot-cancel-penalty-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-13 | 2026-08-13-issue-431-booking-history-pagination-qa-report.md | 6 | rbac, api, typescript, tests |
