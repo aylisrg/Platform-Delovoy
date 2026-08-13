@@ -224,3 +224,161 @@ NEEDS_CHANGES выставлен по разделу "Архитектура/к�
   DEPLETED-реактивация, отсутствие эффекта для gazebos и для оплаты не
   абонементом.
 - Runbook обновлён в том же PR, синхронно с поведением.
+
+## Второй круг (коммит f0d5e7f)
+
+Проверка перед этим кругом: `git diff 8e3cb4e..f0d5e7f --stat` — изменены
+ровно 3 файла: `src/modules/booking/restore.ts` (+52/-23),
+`src/modules/booking/__tests__/restore.test.ts` (+50/-6) и сам этот
+QA-отчёт (добавлен целиком, 226 строк — это отчёт первого круга, зафиксирован
+в git тем же коммитом). Scope creep нет.
+
+## Вердикт: PASS
+
+### Проверка устранения блокирующей находки первого круга
+
+Прочитан `src/modules/booking/restore.ts:139-183` целиком. Старое
+допущение `subTx[0].subscriptionId` убрано. Новая логика:
+
+```ts
+const netOwedBySubscription = new Map<string, number>();
+for (const t of subTx) {
+  netOwedBySubscription.set(
+    t.subscriptionId,
+    (netOwedBySubscription.get(t.subscriptionId) ?? 0) - Number(t.hoursDelta)
+  );
+}
+const owed = [...netOwedBySubscription.entries()].filter(([, hours]) => hours > 0);
+...
+for (const [subscriptionId, hours] of owed) {
+  const refund = await refundToSubscription(tx, { subscriptionId, bookingId, hours, ... });
+  subscriptionRefunds.push({ subscriptionId, hoursRefunded: refund.hoursRefunded });
+}
+```
+
+- Группировка корректна: `Map` аккумулирует `-hoursDelta` per-`subscriptionId`,
+  что даёт ровно net-owed этой конкретной подписки (CHARGE отрицательны →
+  вычитание даёт положительный вклад в долг; REFUND положительны → уменьшает
+  долг) — арифметика идентична прежней, но раздельно по группам.
+- `owed` фильтрует только положительный net (уже возвращённые/нулевые
+  подписки не трогаются) — сохраняет защиту от повторного/двойного возврата
+  из первого круга, теперь на уровне каждой подписки отдельно.
+- Порядок вызовов `refundToSubscription` детерминирован в рамках одного
+  запуска (`Map.entries()` — порядок первой вставки ключа, зависящий только
+  от порядка `subTx`), но это не имеет значения для корректности: каждая
+  итерация работает с независимым `subscriptionId` и получает собственный,
+  предварительно посчитанный `hours` — соседние итерации друг на друга не
+  влияют (в отличие от старого кода, где `netOwed` был общий, а
+  `subscriptionId` — только первый).
+- Каждый вызов получает именно net-owed своей подписки, не общий: подтверждено
+  и построчным чтением, и тестом (см. ниже).
+- Комментарий над блоком (`restore.ts:139-149`) переписан и больше не
+  утверждает "списание бывает ровно один раз" — прямо описывает сценарий
+  из первого круга и объясняет, почему группировка обязательна.
+
+Находка первого круга закрыта полностью, без компромиссных guard-заглушек
+(выбран вариант "группировать и вернуть в обе", а не "бросить ошибку" — оба
+были приемлемы по первому отчёту, разработчик выбрал более полезный для
+гостя вариант).
+
+### Проверка нового теста на "упал бы на старом коде"
+
+Тест `restore.test.ts:346-385` ("возвращает часы раздельно по каждому
+абонементу...") воспроизведён вручную на коде коммита `8e3cb4e`
+(`git show 8e3cb4e:src/modules/booking/restore.ts`):
+
+- Входные данные: `[{sub-1, -2}, {sub-1, +2}, {sub-2, -3}]`.
+- Старый код: `netOwed = -((-2)+(2)+(-3)) = -(-3) = 3`;
+  `subscriptionId = subTx[0].subscriptionId = "sub-1"` (первый элемент
+  массива, без `orderBy`). Вызов `refundToSubscription(tx, { subscriptionId:
+  "sub-1", hours: 3, ... })`.
+- Тест ожидает: `tx.subscription.update` **не** вызван с `where: { id:
+  "sub-1" }` и вызван **ровно один раз** с `where: { id: "sub-2" }, data:
+  { remainingHours: { increment: 3 } }`.
+- На старом коде `tx.subscription.update` вызывается с `where: { id: "sub-1"
+  }` (единственный вызов) — оба assert'а провалились бы: и
+  `not.toHaveBeenCalledWith(...sub-1...)` (был вызван), и
+  `toHaveBeenCalledWith(...sub-2...)` (sub-2 не тронут вообще).
+
+Подтверждено: тест — регрессионный, реально ловит именно тот баг, который
+описан в блокирующей находке первого круга (misattribution между двумя
+легитимными подписками), не просто проверяет отсутствие исключения.
+
+### Атомарность — без изменений, всё ещё OK
+
+Цикл `for (const [subscriptionId, hours] of owed) { await
+refundToSubscription(tx, ...) }` (`restore.ts:171-181`) выполняется
+последовательно внутри того же `prisma.$transaction` (открыт на строке 95,
+единственный `tx` передаётся во все вызовы). Если второй (или любой
+последующий) вызов `refundToSubscription` бросит — например,
+`tx.subscription.findUniqueOrThrow` не найдёт подписку
+(`PrismaClientKnownRequestError`) — исключение не перехватывается ни в цикле,
+ни в `restore.ts`, всплывает наружу из callback'а `$transaction`, и Prisma
+откатывает всю interactive transaction целиком, включая уже выполненный
+`refundToSubscription` для первой подписки И уже выполненный
+`booking.updateMany`. Множественные последовательные рефанды внутри одной
+транзакции не создают частичного состояния — стандартное поведение Prisma
+interactive transactions, не изменённое этим фиксом.
+
+### Race/конкурентность двух параллельных restore — не ухудшилось
+
+Барьер на гонку остался ровно тем же и ровно на том же месте:
+`tx.booking.updateMany({ where: { id: bookingId, status: booking.status },
+data: { status: "CONFIRMED", ... } })` (`restore.ts:128-131`) со сторожем
+`res.count === 0 → ALREADY_RESTORED` (`restore.ts:132-137`) — это по-прежнему
+**первый результативный барьер**, выполняется до всего подписочного блока
+(строка 139+). Если два SUPERADMIN одновременно жмут «Восстановить» одну и ту
+же бронь, только первая параллельная транзакция пройдёт `updateMany` (Postgres
+сериализует конкурентные `UPDATE ... WHERE status = X` через блокировку
+строки), вторая получит `count: 0` и бросит `ALREADY_RESTORED` до того, как
+дойдёт до `subscriptionTransaction.findMany`/`refundToSubscription`. Группировка
+по `subscriptionId`, добавленная в этом фиксе, не открывает новый путь для двойного
+исполнения — она просто меняет, сколько раз и на какие подписки вызывается
+уже защищённый барьером блок. Новых рисков конкурентности не найдено.
+
+### Тесты / статическая проверка
+
+- `npm test -- --run` — **214 файлов / 3231 тест, всё зелёное** (совпадает с
+  ожиданием в задании).
+- `npx tsc --noEmit` — 0 ошибок.
+- `npm run lint` — 0 ошибок, 15 предсуществующих warning'ов в несвязанных
+  файлах (`ChatWindow.tsx`, `useChatList.ts`, `vk-community-banner.tsx`,
+  `messenger/types.ts`, `notifications/service.ts`,
+  `telephony/novofon-client.ts`) — ни один не в `restore.ts`/`debit.ts`/
+  `restore.test.ts`, не относится к этому диффу.
+
+### Scope
+
+`git diff 8e3cb4e..f0d5e7f --stat`:
+```
+ docs/qa-reports/2026-08-13-issue-435-subscription-refund-on-cancel-review.md | 226 +++++++++++++++++++++
+ src/modules/booking/__tests__/restore.test.ts                                |  50 ++++-
+ src/modules/booking/restore.ts                                               |  52 +++--
+```
+Только точечный фикс + тест + QA-документ первого круга. Ничего лишнего,
+никаких новых модулей/зависимостей/роутов.
+
+## Security (второй круг)
+
+- **Secrets leakage**: `grep -iE '(password|token|secret|NEXTAUTH|TELEGRAM_.*TOKEN|api[_-]key)'` по изменённым файлам (`restore.ts`, `restore.test.ts`) — 0 совпадений.
+- **RBAC**: не менялся — рефанд по-прежнему выполняется только внутри уже
+  SUPERADMIN-гейтованного `restoreBooking()` / `/api/ps-park/bookings/[id]/restore`.
+  `userId`/`actorId` берётся из `session.user.id` выше по цепочке, не из
+  тела запроса; в этом дифе — без изменений.
+- **Injection**: нет raw SQL, только типизированные Prisma-вызовы; изменение
+  добавляет `Map`/фильтрацию в памяти, не влияет на запросы к БД помимо уже
+  существующего `findMany({ where: { bookingId } })`.
+- **Supply chain**: `package.json`/`package-lock.json` не менялись.
+- **Dangerous ops**: миграций схемы в дифе нет.
+
+Инцидентов не найдено.
+
+## Итог
+
+Блокирующая находка первого круга устранена полностью и подтверждена:
+корректная группировка по `subscriptionId`, регрессионный тест реально ловит
+баг старого кода (вручную проверено на `8e3cb4e`), атомарность и защита от
+гонки при параллельном restore не нарушены. `npm test`/`tsc`/`lint` зелёные.
+Scope точечный. Security-инцидентов нет.
+
+**Вердикт: PASS.**
