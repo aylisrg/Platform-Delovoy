@@ -103,7 +103,9 @@ export type TimelineBooking = {
   resourceId: string;
   startTime: string; // ISO datetime
   endTime: string;
-  status: "PENDING" | "CONFIRMED";
+  // getTimeline() фильтрует по ACTIVE_BOOKING_STATUSES — NO_SHOW туда не
+  // входит (слот освобождается), поэтому в сетке его не бывает (#436).
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN";
   clientName: string | null;
   clientPhone: string | null;
   metadata: Record<string, unknown> | null;

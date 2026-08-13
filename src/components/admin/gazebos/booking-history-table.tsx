@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
+import { Toast } from "@/components/ui/toast";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
 import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import { BookingHistory } from "@/components/admin/shared/booking-history";
@@ -76,6 +77,15 @@ export function GazeboBookingHistoryTable() {
   // Какая строка раскрыта лентой событий. Раскрывается по кнопке, а не по
   // клику в строку — клик уже занят переходом в расписание.
   const [historyId, setHistoryId] = useState<string | null>(null);
+  // Опоздавший гость (NO_SHOW → CHECKED_IN, #436): бронь в этом статусе не
+  // входит в ACTIVE_BOOKING_STATUSES и не попадает в сетку расписания —
+  // единственное место, где её видно и можно заехать, это история.
+  const [checkingInId, setCheckingInId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
+    message: "",
+    type: "success",
+    visible: false,
+  });
   const perPage = 20;
 
   useEffect(() => {
@@ -117,6 +127,28 @@ export function GazeboBookingHistoryTable() {
     }
   }
 
+  async function handleLateCheckIn(bookingId: string) {
+    setCheckingInId(bookingId);
+    try {
+      const res = await fetch(`/api/gazebos/bookings/${bookingId}/checkin`, { method: "POST" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setToast({
+          message: json?.error?.message ?? `Не удалось отметить заезд (HTTP ${res.status})`,
+          type: "error",
+          visible: true,
+        });
+        return;
+      }
+      setToast({ message: "Гость отмечен как заехавший", type: "success", visible: true });
+      await loadBookings();
+    } catch {
+      setToast({ message: "Сетевая ошибка", type: "error", visible: true });
+    } finally {
+      setCheckingInId(null);
+    }
+  }
+
   async function handleDelete(password: string, reason: string | null) {
     if (!deletingId) return "Нет выбранной записи";
     const err = await deleteWithPassword(
@@ -153,6 +185,7 @@ export function GazeboBookingHistoryTable() {
           <option value="">Все статусы</option>
           <option value="PENDING">Ожидает</option>
           <option value="CONFIRMED">Подтверждено</option>
+          <option value="CHECKED_IN">Заехал</option>
           <option value="COMPLETED">Завершено</option>
           <option value="CANCELLED">Отменено</option>
           <option value="NO_SHOW">Не явился</option>
@@ -233,6 +266,16 @@ export function GazeboBookingHistoryTable() {
                     </div>
                   </td>
                   <td className="py-3 text-right whitespace-nowrap">
+                    {b.status === "NO_SHOW" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleLateCheckIn(b.id); }}
+                        disabled={checkingInId === b.id}
+                        className="mr-2 text-emerald-600 hover:text-emerald-800 transition-colors disabled:opacity-50"
+                        title="Гость опоздал — отметить заезд"
+                      >
+                        {checkingInId === b.id ? "…" : "Заехал"}
+                      </button>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setHistoryId(historyId === b.id ? null : b.id); }}
                       className="mr-2 text-zinc-500 hover:text-zinc-800 transition-colors"
@@ -304,6 +347,13 @@ export function GazeboBookingHistoryTable() {
           setDeletingId(null);
         }}
         onConfirm={handleDelete}
+      />
+
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.visible}
+        onClose={() => setToast((t) => ({ ...t, visible: false }))}
       />
     </div>
   );

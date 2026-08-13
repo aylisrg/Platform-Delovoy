@@ -55,10 +55,18 @@ export function GazeboBookingDetailCard({
   const hours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
 
   const isPending = booking.status === "PENDING";
-  const canComplete = booking.status === "CONFIRMED";
+  const isCheckedIn = booking.status === "CHECKED_IN";
+  // CHECKED_IN → COMPLETED разрешён FSM (state-machine.ts), но до #436
+  // CHECKED_IN был недостижим вручную, поэтому заехавшую бронь было нечем
+  // завершить в этой карточке — только отсюда, где её и открывают.
+  const canComplete = booking.status === "CONFIRMED" || booking.status === "CHECKED_IN";
   const canEdit = ["PENDING", "CONFIRMED", "CHECKED_IN"].includes(
     booking.status,
   );
+  // #436: роуты /checkin и /no-show существовали, но ни одна кнопка их не
+  // вызывала — статус CHECKED_IN был недостижим вручную.
+  const canCheckIn = booking.status === "CONFIRMED";
+  const canMarkNoShow = booking.status === "CONFIRMED";
 
   const formatTime = (d: Date) => formatTimeUnified(d);
 
@@ -105,6 +113,46 @@ export function GazeboBookingDetailCard({
   async function handleInlineStatus(status: string) {
     setApiError(null);
     const message = await updateStatus(status);
+    if (message) setApiError(message);
+  }
+
+  /**
+   * Заезд/неявка идут через выделенные роуты (`/checkin`, `/no-show`), а не
+   * общий PATCH { status } — в них живёт конфликт-чек под блокировкой слота
+   * для позднего заезда NO_SHOW → CHECKED_IN (#478); общий PATCH его не
+   * повторяет (#436).
+   */
+  async function updateStatusVia(endpoint: "checkin" | "no-show"): Promise<string | null> {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/gazebos/bookings/${booking.id}/${endpoint}`, {
+        method: "POST",
+      });
+      const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
+      if (!res.ok || !body || body.success === false) {
+        return (
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось выполнить действие (HTTP ${res.status})`
+        );
+      }
+      onStatusChanged();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "Сетевая ошибка";
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleCheckIn() {
+    setApiError(null);
+    const message = await updateStatusVia("checkin");
+    if (message) setApiError(message);
+  }
+
+  async function handleMarkNoShow() {
+    setApiError(null);
+    const message = await updateStatusVia("no-show");
     if (message) setApiError(message);
   }
 
@@ -190,27 +238,33 @@ export function GazeboBookingDetailCard({
   return (
     <div className="mt-3 rounded-xl border border-zinc-200 bg-white shadow-lg overflow-hidden animate-in slide-in-from-top-2 duration-200">
       <div className={`px-4 py-3 flex items-center justify-between ${
-        isActiveNow
+        isActiveNow || isCheckedIn
           ? "bg-emerald-50 border-b border-emerald-200"
           : isPending
           ? "bg-amber-50 border-b border-amber-200"
           : "bg-zinc-50 border-b border-zinc-200"
       }`}>
         <div className="flex items-center gap-2">
-          {isActiveNow && (
+          {(isActiveNow || isCheckedIn) && (
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           )}
           <h3 className="text-sm font-semibold text-zinc-900">
             {booking.clientName ?? "Без имени"}
           </h3>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-            isActiveNow
+            isActiveNow || isCheckedIn
               ? "bg-emerald-200 text-emerald-800"
               : isPending
               ? "bg-amber-200 text-amber-800"
               : "bg-emerald-100 text-emerald-700"
           }`}>
-            {isActiveNow ? "Отдыхает" : isPending ? "Ожидает" : "Подтверждена"}
+            {isCheckedIn
+              ? "Заехал"
+              : isActiveNow
+              ? "Отдыхает"
+              : isPending
+              ? "Ожидает"
+              : "Подтверждена"}
           </span>
           <PaymentBadge booking={booking} />
         </div>
@@ -333,6 +387,25 @@ export function GazeboBookingDetailCard({
             disabled={actionLoading}
           >
             Подтвердить
+          </Button>
+        )}
+        {canCheckIn && (
+          <Button
+            size="sm"
+            onClick={handleCheckIn}
+            disabled={actionLoading}
+          >
+            Заехал
+          </Button>
+        )}
+        {canMarkNoShow && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleMarkNoShow}
+            disabled={actionLoading}
+          >
+            Не пришёл
           </Button>
         )}
         {canComplete && (
