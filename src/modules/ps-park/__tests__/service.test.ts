@@ -87,6 +87,7 @@ import {
 import { prisma } from "@/lib/db";
 import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { validateAndSnapshotItems, saleBookingItems, returnBookingItems } from "@/modules/inventory/service";
+import { enqueueNotification } from "@/modules/notifications/queue";
 
 const FUTURE_DATE = "2030-08-20";
 const PAST_DATE = "2020-03-01";
@@ -1960,6 +1961,33 @@ describe("createAdminBooking", () => {
 
     await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow(
       "Стол не найден"
+    );
+  });
+
+  // #437: booking.confirmed не постится в канал смены (шаблон убран для
+  // публичных PENDING→CONFIRMED) — брони по телефону нужен отдельный
+  // канал-only тип события с данными клиента для шаблона.
+  it("шлёт отдельное событие booking.admin_created для канала смены", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(
+      mockBooking({ id: "new-booking", status: "CONFIRMED" }) as never
+    );
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.admin_created",
+        moduleSlug: "ps-park",
+        entityId: "new-booking",
+        userId: "client-1",
+        data: expect.objectContaining({
+          clientName: "Иван Петров",
+          clientPhone: "+79991234567",
+          bookingId: "new-booking",
+        }),
+      })
     );
   });
 });

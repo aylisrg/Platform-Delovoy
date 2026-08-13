@@ -966,6 +966,31 @@ describe("createAdminBooking", () => {
     );
   });
 
+  // #437: booking.confirmed не постится в канал смены (шаблон убран для
+  // публичных PENDING→CONFIRMED), поэтому брони по телефону нужен отдельный
+  // канал-only тип события с данными клиента для шаблона.
+  it("should enqueue a separate booking.admin_created event for the shift channel", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED", id: "new-booking" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.admin_created",
+        moduleSlug: "gazebos",
+        entityId: "new-booking",
+        userId: "client-1",
+        data: expect.objectContaining({
+          clientName: "Иванов Иван",
+          clientPhone: "+7 999 123-45-67",
+          bookingId: "new-booking",
+        }),
+      })
+    );
+  });
+
   it("should reject if resource not found", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(null as never);
 

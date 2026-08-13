@@ -68,11 +68,17 @@ function gazeboExtendLink(d: Record<string, unknown>): string {
  * на бронь. `booking.created`/`booking.confirmed` намеренно НЕ имеют шаблона —
  * так даже старый сохранённый `telegramChannelEvents` не запостит неоплаченную
  * бронь (render → null) и исключается двойной пост confirmed+paid.
+ *
+ * Исключение — `booking.admin_created` (#437): бронь, принятая админом по
+ * телефону, создаётся сразу CONFIRMED и в канал иначе никогда бы не попала —
+ * у неё есть отдельный шаблон, не завязанный на онлайн-оплату.
  */
 const channelTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
     "booking.paid": (d) =>
       `💳 <b>Бронь оплачена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("gazebos", d)}`,
+    "booking.admin_created": (d) =>
+      `📞 <b>Бронь по телефону</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}${adminLink("gazebos", d)}`,
     "booking.cancelled": (d) =>
       `❌ <b>Бронь отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${adminLink("gazebos", d)}`,
     "booking.completed": (d) =>
@@ -99,6 +105,8 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
     // онлайн-платёж, а не факт полной оплаты сессии.
     "booking.paid": (d) =>
       `💳 <b>Онлайн-оплата сессии</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("ps-park", d)}`,
+    "booking.admin_created": (d) =>
+      `📞 <b>Сессия по телефону</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}${adminLink("ps-park", d)}`,
     "booking.cancelled": (d) =>
       `❌ <b>Сессия отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
     "booking.completed": (d) =>

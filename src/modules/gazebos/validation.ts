@@ -66,9 +66,12 @@ export const analyticsQuerySchema = z.object({
  */
 // В канал шлём только «оплаченные» брони (booking.paid) — booking.created/
 // booking.confirmed убраны, чтобы неоплаченные (PENDING) брони не попадали
-// в канал и не было двойного поста confirmed+paid.
+// в канал и не было двойного поста confirmed+paid. booking.admin_created —
+// исключение: бронь по телефону создаётся сразу CONFIRMED и без него не
+// попадала бы в канал никак (#437).
 export const GAZEBO_CHANNEL_EVENT_TYPES = [
   "booking.paid",
+  "booking.admin_created",
   "booking.cancelled",
   "booking.completed",
   "booking.deleted",
@@ -83,6 +86,7 @@ export const GAZEBO_CHANNEL_EVENTS: {
   label: string;
 }[] = [
   { type: "booking.paid", label: "Оплачено онлайн" },
+  { type: "booking.admin_created", label: "Бронь по телефону (админом)" },
   { type: "booking.cancelled", label: "Бронь отменена" },
   { type: "booking.completed", label: "Бронь завершена" },
   { type: "booking.deleted", label: "Бронь удалена" },
