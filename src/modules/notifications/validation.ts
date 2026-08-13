@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ROUTING_CATEGORY_KEYS } from "./routing-categories";
+import { MANAGED_EVENT_TYPES } from "./catalog";
 
 /** Which module slugs expose a dedicated broadcast channel (own bot token). */
 export const MODULE_CHANNEL_SLUGS = ["gazebos", "ps-park"] as const;
@@ -56,6 +57,23 @@ export const webappPreferenceSchema = z.object({
 });
 
 export type WebappPreferenceInput = z.infer<typeof webappPreferenceSchema>;
+
+/**
+ * Body для `PUT /api/webapp/notification-center` — переключение одного типа
+ * уведомления сотрудником.
+ *
+ * `eventType` — закрытый enum по каталогу Центра: записать предпочтение по
+ * неуправляемому типу (в том числе по угаданному имени инфраструктурного
+ * алерта) через Mini App невозможно в принципе — второй слой защиты AC-5.7.
+ */
+export const notificationCenterUpdateSchema = z.object({
+  eventType: z.enum(MANAGED_EVENT_TYPES),
+  enabled: z.boolean(),
+});
+
+export type NotificationCenterUpdateInput = z.infer<
+  typeof notificationCenterUpdateSchema
+>;
 
 export const historyFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
