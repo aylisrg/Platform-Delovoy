@@ -41,3 +41,4 @@
 | 2026-08-12 | 2026-08-12-issue-432-patch-booking-zod-qa-report.md | 8 | rbac, api, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-430-admin-booking-crm-attribution-qa-report.md | 7 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-12 | 2026-08-12-issue-425-booking-detail-card-errors-qa-report.md | 2 | rbac, api, tests, scope_creep |
+| 2026-08-12 | 2026-08-12-issue-427-bot-cancel-penalty-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
