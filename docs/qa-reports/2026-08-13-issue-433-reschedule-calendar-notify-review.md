@@ -110,3 +110,65 @@ Branch: `claude/issue-433-reschedule-calendar-notify` (single commit `0231dd1`, 
 
 ## Что можно улучшить (non-blocking, не обязательно для этого PR)
 1. `enqueueNotification`'s `data.clientName` (`service.ts:797`) берёт значение клиента ДО обновления — при одновременном переносе времени и смене имени в одном запросе уведомление покажет старое имя. Косметика для admin-канала, не блокер.
+
+---
+
+## Второй круг (коммит d00f687)
+
+### Вердикт: PASS
+
+Ветка `claude/issue-433-reschedule-calendar-notify`, `HEAD = d00f687` ("fix(gazebos): не трогать Google Calendar до конфликт-чека при переносе") поверх `0231dd1` (проверенного в первом круге). Diff `0231dd1..d00f687`: `src/modules/gazebos/service.ts` (+70/-…), `src/modules/gazebos/__tests__/service.test.ts` (+27 нетто, фактически один новый тест + мелкая правка), `docs/qa-reports/2026-08-13-issue-433-reschedule-calendar-notify-review.md` (первый отчёт, добавлен коммитом).
+
+### 1. Устранена ли блокирующая находка первого круга
+
+Да, полностью. Перечитан `rescheduleBooking()` целиком (`src/modules/gazebos/service.ts:564-806`):
+
+- `prisma.$transaction(...)` (строки 694-726) теперь содержит **только** `lockSlot` + авторитетный конфликт-чек (`tx.booking.findFirst`, throw `BookingError("BOOKING_CONFLICT", …)` на несовпадение) + `tx.booking.update` с новыми `resourceId/date/startTime/endTime/…`. Блок Google Calendar sync (`updateCalendarEvent`/`deleteCalendarEvent`/`createCalendarEvent`) целиком перенесён на строки 746-779 — **после** `await prisma.$transaction(...)` (694) и после `logAudit(...)` (729-736).
+- Так как в транзакции при конфликте выполняется `throw new BookingError(...)` (710), а JS/TS `await` над отклонённым промисом немедленно передаёт управление в `catch`/наружу через исключение, код физически не может дойти до строки 746 (calendar sync) — функция прерывается на `await prisma.$transaction(...)` и выходит через throw. Календарь не может быть тронут раньше успешного коммита брони. Это именно то исправление, которое требовал первый отчёт.
+- Комментарий на строках 738-745 корректно и точно описывает новый инвариант и явно ссылается на находку код-ревью — не вводит в заблуждение (в отличие от прежнего неточного "тот же паттерн, что в createAdminBooking").
+
+### 2. Новый риск — два последовательных `update` при смене ресурса
+
+Подтверждаю находку задания: при смене беседки основной `tx.booking.update` (714-725) внутри транзакции **больше не пишет `googleEventId`** (строка `...(googleEventId !== booking.googleEventId && { googleEventId })` убрана из tx-callback — было в `0231dd1`, в `d00f687` отсутствует). Новый `googleEventId` пишется отдельным `prisma.booking.update({ where: { id: bookingId }, data: { googleEventId } })` вне транзакции (777), уже после `delete` старого события и `create` нового. Это действительно неатомарно: между коммитом основной транзакции (новые `resourceId/date/time` уже в БД) и вторым `update` (новый `googleEventId`) есть окно, в котором `booking.googleEventId` в БД временно "врёт" — указывает на уже перенесённый/удалённый ивент старого календаря, а не на актуальный.
+
+Оцениваю это как приемлемый компромисс, не блокер:
+- **Отличается по классу риска от находки первого круга.** Оригинальный баг воспроизводился **гарантированно на каждом** `BOOKING_CONFLICT` — рутинном, часто встречающемся сценарии (менеджер попал на занятый слот). Новый риск требует падения процесса (краш/OOM/убитый под) ровно между `await createCalendarEvent(...)` (769-776) и `await prisma.booking.update(...)` (777) — на порядки более редкое событие, не бизнес-сценарий, а инфраструктурный.
+- **Не теряет саму бронь и не портит календарь чужого слота.** В худшем случае (краш до второго `update`) бронь в БД остаётся с корректными новыми `resourceId/date/time`, просто `googleEventId` устаревший/мёртвый. Следующий вызов `rescheduleBooking` для этой брони либо самостоятельно перезапишет `googleEventId` (если снова меняется ресурс/время), либо (если ресурс/время больше не меняются) просто не тронет календарь — деградация точно такая же, как уже описанная non-blocking находка первого круга про `clientName` в уведомлении: заметный, но не катастрофический артефакт, требующий ручной синхронизации админом в редком случае.
+- **Совпадает с задокументированным паттерном модуля.** `src/lib/google-calendar.ts:1-7`: "DB is source of truth, Google Calendar is a sync target… Errors are logged but never block the booking flow." Ни один вызов calendar API в этом файле (ни в `createAdminBooking`, ни в `updateBookingStatus`, ни здесь) не обёрнут в общую с БД транзакцию — это архитектурно невозможно (внешний HTTP-вызов внутри Prisma-транзакции держал бы БД-соединение открытым на время сетевого round-trip к Google). `updateBookingStatus` (844-864) использует ровно тот же паттерн — вызывает `createCalendarEvent` вне транзакции и пишет `googleEventId` отдельным полем в объекте `data` следующего `update`.
+- Non-blocking, но стоит зафиксировать как известный trade-off (не нашёл явного упоминания в коде/тесте) — рекомендация Developer'у на будущее: комментарий у строки 777 мог бы явно отметить "не атомарно с созданием события, при краше между шагами возможен устаревший googleEventId — self-heals при следующем reschedule". Не блокирует мерж.
+
+### 3. Валидность регрессионного теста
+
+Тест `"не трогает календарь при BOOKING_CONFLICT — конфликт-чек идёт раньше синка"` (`src/modules/gazebos/__tests__/service.test.ts:1337-1362`):
+
+- `mockBooking({ status: "CONFIRMED", googleEventId: "gcal-1", startTime: …T10:00+03:00, endTime: …T11:00+03:00 })` — бронь **с** `googleEventId`, в отличие от единственного прежнего конфликтного теста (без него) — именно то, чего не хватало по итогам первого круга.
+- `vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(booking).mockResolvedValueOnce(mockBooking({id:"other"}))` — проверено по коду: первый реальный вызов `prisma.booking.findFirst` — загрузка брони (строка 569), второй — `tx.booking.findFirst` внутри `$transaction` callback (строка 698). Мок `$transaction` в этом файле (`__tests__/service.test.ts:68-83`) делегирует `tx.booking` на тот же `p.booking` mock, что и верхнеуровневый `prisma.booking` — то есть `tx.booking.findFirst` и `prisma.booking.findFirst` физически один и тот же `vi.fn()`. Порядок `mockResolvedValueOnce` корректно соответствует реальному порядку вызовов (load → conflict).
+- Запрос меняет только `endTime` (`{ endTime: "15:00" }`) на том же ресурсе — это ветка `effResourceId === booking.resourceId` в calendar-sync блоке (patch через `updateCalendarEvent`), самая опасная по находке первого круга (событие патчится на отклонённое время).
+- **Проверено вручную, что тест действительно падал бы на `0231dd1`** (код до фикса): в `0231dd1` calendar sync шёл строго до `prisma.$transaction`, безусловно (единственное условие — `timeOrResourceChanged && booking.googleEventId`, оба true в этом тесте). Значит `updateCalendarEvent` вызывался бы ДО того, как транзакция успевала бросить `BOOKING_CONFLICT` — `expect(updateCalendarEvent).not.toHaveBeenCalled()` был бы нарушен. Тест — валидная регрессия, не tautology.
+- Дополнительно проверяет `enqueueNotification` не вызван — логично (конфликт прерывает выполнение до этого блока), корректно.
+
+### 4. Прогон инструментов
+
+- `npm test -- --run src/modules/gazebos/__tests__/service.test.ts` — 92/92 passed.
+- `npm test -- --run` (весь репозиторий) — **209 test files / 3147 tests passing** (было 3146 в первом круге — ровно +1 новый тест, остальной сьют не задет).
+- `npx tsc --noEmit` — чисто, без ошибок.
+- `npm run lint` — 0 errors / 15 warnings, все warnings в файлах вне диффа этого PR (`ps-park/session-bill-modal.tsx`, `sidebar.tsx`, `vk-community-banner.tsx`, `ChatWindow.tsx`, `useChatList.ts`, `MessageBubble.tsx`, `messenger/types.ts`, `notifications/service.ts`, `novofon-client.ts`) — идентично списку из первого круга, новых warning не добавлено.
+
+### 5. Scope
+
+`git diff main...HEAD --stat` — 7 файлов: `src/modules/gazebos/service.ts`, `src/modules/gazebos/__tests__/service.test.ts`, `src/modules/notifications/events.ts`, `src/modules/notifications/templates.ts`, `src/modules/notifications/module-channel.ts`, `docs/runbooks/booking-operator-guide.md` (все из первого круга, не менялись повторно в `d00f687` кроме двух первых) + `docs/qa-reports/2026-08-13-issue-433-reschedule-calendar-notify-review.md` (сам первый отчёт, коммичен в этом PR). Ровно то, что описано в задании — scope creep нет, новых модулей/зависимостей нет.
+
+### Security
+
+- `git diff 0231dd1..d00f687 | grep -niE '(password|token|secret|NEXTAUTH|TELEGRAM_.*TOKEN|api[_-]key)'` — совпадения только в тексте самого QA-отчёта (это markdown-документация, описывающая security-чеклист, не секрет и не утечка) — реального кода/логов/response, раскрывающих секреты, нет.
+- RBAC: не изменялся в этом коммите (роут `PATCH /api/gazebos/bookings/[id]` вне диффа `d00f687`, уже проверен в первом круге).
+- Injection/XSS: изменения только в порядке вызовов и структуре присваивания переменной `updated`/`googleEventId`, никаких новых источников пользовательского ввода или raw SQL.
+- Supply chain: без изменений, новых зависимостей нет.
+- Dangerous ops: нет.
+- Найденный во втором пункте trade-off (неатомарность двух `update` при смене ресурса) — это вопрос целостности данных при редком инфраструктурном сбое, не security-инцидент по чеклисту `SECURITY.md` (нет утечки данных, нет обхода RBAC, нет инъекции) — не требует NEEDS_CHANGES по правилу "любой security-инцидент → NEEDS_CHANGES".
+
+### Итог
+
+Блокирующая находка первого круга устранена корректно и полно, подтверждено чтением кода и логикой моков (не просто "тест зелёный"). Новый компромисс (неатомарность двух update при смене ресурса) — на порядки более редкий и менее разрушительный сценарий, чем устранённый, соответствует уже задокументированному в кодовой базе паттерну "best-effort calendar sync, DB — источник истины". Тесты/tsc/lint чисты, scope не расширен, security-инцидентов нет.
+
+**Вердикт: PASS.**
