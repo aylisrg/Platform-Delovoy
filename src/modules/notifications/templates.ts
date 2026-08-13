@@ -31,6 +31,8 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Бронирование подтверждено!\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.cancelled": (d) =>
       `Бронирование отменено.\n\n${d.resourceName}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+    "booking.rescheduled": (d) =>
+      `Бронирование перенесено.\n\n${d.resourceName}\nБыло: ${d.oldDate}, ${d.oldStartTime} — ${d.oldEndTime}\nСтало: ${d.date}, ${d.startTime} — ${d.endTime}`,
     "booking.reminder": (d) =>
       `Напоминание: через 1 час начинается ваше бронирование.\n\n${d.resourceName}\nВремя: ${d.startTime}`,
     "booking.ending_soon": (d) =>

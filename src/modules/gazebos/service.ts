@@ -4,6 +4,7 @@ import { enqueueNotification } from "@/modules/notifications/queue";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
+  updateCalendarEvent,
 } from "@/lib/google-calendar";
 import {
   validateAndSnapshotItems,
@@ -690,7 +691,7 @@ export async function rescheduleBooking(
   // гоняется с созданием брони ровно так же, как создание с созданием (#429).
   // Блокируется целевой слот; исходный не нужен — освобождение места конфликта
   // ни у кого не вызывает.
-  const updated = await prisma.$transaction(async (tx) => {
+  let updated = await prisma.$transaction(async (tx) => {
     if (timeOrResourceChanged) {
       await lockSlot(tx, MODULE_SLUG, effResourceId, new Date(effDate));
 
@@ -733,6 +734,73 @@ export async function rescheduleBooking(
     ...(input.clientName !== undefined && { clientNameChanged: true }),
     ...(input.clientPhone !== undefined && { clientPhoneChanged: true }),
   });
+
+  // Google Calendar sync (best-effort) — ТОЛЬКО после успешного коммита брони:
+  // конфликт-чек уже сработал в транзакции выше, так что здесь нет риска
+  // запатчить/удалить валидное событие под отклонённый перенос (code review
+  // #433 — до этого календарь трогали ДО конфликт-чека и осиротевшее событие
+  // осталось бы висеть при BOOKING_CONFLICT). У каждой беседки свой
+  // googleCalendarId, поэтому смена ресурса переносит событие между
+  // календарями: удаляем в старом, создаём в новом. Смена только времени на
+  // том же ресурсе — просто patch.
+  if (timeOrResourceChanged && booking.googleEventId) {
+    if (effResourceId === booking.resourceId) {
+      if (resource.googleCalendarId) {
+        await updateCalendarEvent(resource.googleCalendarId, booking.googleEventId, {
+          startTime: start,
+          endTime: end,
+        });
+      }
+    } else {
+      const oldResource = await prisma.resource.findFirst({
+        where: { id: booking.resourceId, moduleSlug: MODULE_SLUG },
+      });
+      if (oldResource?.googleCalendarId) {
+        await deleteCalendarEvent(oldResource.googleCalendarId, booking.googleEventId);
+      }
+      let googleEventId: string | null = null;
+      if (resource.googleCalendarId) {
+        const user = booking.userId
+          ? await prisma.user.findUnique({
+              where: { id: booking.userId },
+              select: { name: true, phone: true },
+            })
+          : null;
+        const calResult = await createCalendarEvent(resource.googleCalendarId, {
+          summary: `${resource.name} — ${booking.clientName || user?.name || "Клиент"}`,
+          description: `Телефон: ${booking.clientPhone || user?.phone || "не указан"}`,
+          startTime: start,
+          endTime: end,
+        });
+        googleEventId = calResult.success && calResult.eventId ? calResult.eventId : null;
+      }
+      updated = await prisma.booking.update({ where: { id: bookingId }, data: { googleEventId } });
+    }
+  }
+
+  // Клиент и выделенный Telegram-канал узнают о переносе так же, как о других
+  // изменениях статуса (#433) — до фикса тут не было ни одного enqueueNotification.
+  if (timeOrResourceChanged) {
+    enqueueNotification({
+      type: "booking.rescheduled",
+      moduleSlug: MODULE_SLUG,
+      entityId: bookingId,
+      userId: booking.userId ?? undefined,
+      actor: "admin",
+      data: {
+        bookingId,
+        resourceName: resource.name,
+        date: effDate,
+        startTime: effStart,
+        endTime: effEnd,
+        dateISO: effDate,
+        oldDate: curDate,
+        oldStartTime: curStart,
+        oldEndTime: curEnd,
+        clientName: booking.clientName ?? undefined,
+      },
+    });
+  }
 
   return updated;
 }

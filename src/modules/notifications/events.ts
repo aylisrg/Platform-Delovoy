@@ -15,6 +15,9 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   "booking.created": { client: true, admin: true, category: "booking" },
   "booking.confirmed": { client: true, admin: false, category: "booking" },
   "booking.cancelled": { client: true, admin: true, category: "booking" },
+  // Перенос даты/времени/беседки менеджером (#433). Admin-группа не участвует
+  // (перенос делает сам менеджер) — только клиент и выделенный канал.
+  "booking.rescheduled": { client: true, admin: false, category: "booking" },
   "booking.reminder": { client: true, admin: false, category: "reminder" },
   // За 1 час до ОКОНЧАНИЯ брони — предложение продлить. Клиенту (если есть
   // канал) + выделенный Telegram-канал беседок обслуживается отдельно
