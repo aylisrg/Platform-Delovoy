@@ -336,7 +336,13 @@ function BookingTable({
               </td>
               <td className="py-3">
                 <div className="flex items-center gap-3">
-                  <BookingActions bookingId={b.id} currentStatus={b.status} />
+                  <BookingActions
+                    bookingId={b.id}
+                    currentStatus={b.status}
+                    clientName={name}
+                    resourceName={tableName}
+                    timeLabel={`${formatDate(b.date)}, ${formatTime(b.startTime)}–${formatTime(b.endTime)}`}
+                  />
                   {showAddItems && (
                     <AddItemsButton bookingId={b.id} />
                   )}

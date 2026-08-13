@@ -18,6 +18,8 @@ const baseBooking: TimelineBooking = {
   status: "CONFIRMED",
   clientName: "Иван Петров",
   clientPhone: "+79991234567",
+  cashAmount: null,
+  cardAmount: null,
   metadata: { totalPrice: 2000 },
 };
 
@@ -68,7 +70,40 @@ describe("BookingDetailCard (ps-park)", () => {
     cleanup();
   });
 
-  it("показывает ошибку сервера при отмене вместо молчаливого игнорирования", async () => {
+  // #511: «Отменить» срабатывала с одного клика — бронь мгновенно уходила из
+  // сетки, вернуть её было нечем. Теперь между кликом и PATCH стоит диалог.
+  it("«Отменить» открывает подтверждение, а не шлёт PATCH сразу", async () => {
+    renderCard();
+
+    fireEvent.click(screen.getByText("Отменить"));
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("подтверждение отмены шлёт PATCH с причиной", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: { id: "booking-1", status: "CANCELLED" } })
+    );
+
+    const { onStatusChanged } = renderCard();
+    fireEvent.click(screen.getByText("Отменить"));
+    await screen.findByRole("dialog");
+
+    fireEvent.change(screen.getByLabelText(/Причина отмены/), {
+      target: { value: "Гость не приехал" },
+    });
+    fireEvent.click(screen.getByText("Да, отменить бронь"));
+
+    await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
+    const [, options] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse((options as RequestInit).body as string)).toMatchObject({
+      status: "CANCELLED",
+      reason: "Гость не приехал",
+    });
+  });
+
+  it("показывает ошибку сервера при отмене внутри диалога", async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse(
         { success: false, error: { code: "INVALID_STATUS_TRANSITION", message: "Нельзя отменить завершённую бронь" } },
@@ -79,6 +114,8 @@ describe("BookingDetailCard (ps-park)", () => {
 
     const { onStatusChanged } = renderCard();
     fireEvent.click(screen.getByText("Отменить"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByText("Да, отменить бронь"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Нельзя отменить завершённую бронь");
@@ -116,6 +153,12 @@ describe("BookingDetailCard (ps-park)", () => {
     await screen.findByText("Итоговый чек");
 
     fireEvent.click(screen.getByText("Завершить сессию"));
+    // AC-1: между заполненным чеком и PATCH стоит последний вопрос.
+    await screen.findByRole("dialog");
+    expect(
+      vi.mocked(fetch).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "PATCH")
+    ).toBe(false);
+    fireEvent.click(screen.getByText("Да, завершить"));
 
     await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
 

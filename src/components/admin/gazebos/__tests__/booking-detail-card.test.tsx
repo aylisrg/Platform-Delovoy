@@ -18,6 +18,8 @@ const baseBooking: TimelineBooking = {
   status: "CONFIRMED",
   clientName: "Иван Петров",
   clientPhone: "+79991234567",
+  cashAmount: null,
+  cardAmount: null,
   metadata: { totalPrice: 3000, pricePerHour: 1500 },
 };
 
@@ -51,7 +53,54 @@ describe("GazeboBookingDetailCard", () => {
     cleanup();
   });
 
-  it("показывает ошибку сервера при отмене вместо молчаливого игнорирования", async () => {
+  // #511: «Отменить» срабатывала с одного клика — бронь мгновенно уходила из
+  // сетки, вернуть её было нечем. Теперь между кликом и PATCH стоит диалог.
+  it("«Отменить» открывает подтверждение, а не шлёт PATCH сразу", async () => {
+    renderCard();
+
+    fireEvent.click(screen.getByText("Отменить"));
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Да, отменить бронь")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("закрытие диалога отмены не трогает бронь", async () => {
+    const { onStatusChanged } = renderCard();
+    fireEvent.click(screen.getByText("Отменить"));
+    await screen.findByRole("dialog");
+
+    fireEvent.click(screen.getByText("Не сейчас"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onStatusChanged).not.toHaveBeenCalled();
+  });
+
+  it("подтверждение отмены шлёт PATCH с причиной", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: { id: "booking-1", status: "CANCELLED" } })
+    );
+
+    const { onStatusChanged } = renderCard();
+    fireEvent.click(screen.getByText("Отменить"));
+    await screen.findByRole("dialog");
+
+    fireEvent.change(screen.getByLabelText(/Причина отмены/), {
+      target: { value: "Гость отказался" },
+    });
+    fireEvent.click(screen.getByText("Да, отменить бронь"));
+
+    await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/gazebos/bookings/booking-1");
+    expect(JSON.parse((options as RequestInit).body as string)).toMatchObject({
+      status: "CANCELLED",
+      reason: "Гость отказался",
+    });
+  });
+
+  it("показывает ошибку сервера при отмене внутри диалога", async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse(
         { success: false, error: { code: "INVALID_STATUS_TRANSITION", message: "Нельзя отменить завершённую бронь" } },
@@ -62,10 +111,14 @@ describe("GazeboBookingDetailCard", () => {
 
     const { onStatusChanged } = renderCard();
     fireEvent.click(screen.getByText("Отменить"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByText("Да, отменить бронь"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Нельзя отменить завершённую бронь");
     expect(onStatusChanged).not.toHaveBeenCalled();
+    // Диалог остаётся открытым — менеджер видит, что действие не прошло.
+    expect(screen.queryByRole("dialog")).toBeTruthy();
   });
 
   it("«Завершить» на платной брони открывает окно счёта вместо прямого PATCH", async () => {
@@ -88,6 +141,10 @@ describe("GazeboBookingDetailCard", () => {
     await screen.findByText("Завершение брони беседки");
 
     fireEvent.click(screen.getByText("Завершить бронь"));
+    // AC-1: между заполненным счётом и PATCH стоит последний вопрос.
+    await screen.findByRole("dialog");
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Да, завершить"));
 
     await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
 
@@ -111,8 +168,26 @@ describe("GazeboBookingDetailCard", () => {
     await screen.findByText("Завершение брони беседки");
 
     fireEvent.click(screen.getByText("Завершить бронь"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByText("Да, завершить"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Необходимо принять оплату: не хватает 500 ₽");
+  });
+
+  it("отказ в последнем вопросе не завершает бронь и сохраняет заполненный счёт", async () => {
+    const { onStatusChanged } = renderCard({ status: "CONFIRMED" });
+    fireEvent.click(screen.getByText("Завершить"));
+    await screen.findByText("Завершение брони беседки");
+
+    fireEvent.click(screen.getByText("Завершить бронь"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByText("Не сейчас"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onStatusChanged).not.toHaveBeenCalled();
+    // Счёт остался открытым — менеджер не набирает суммы заново.
+    expect(screen.getByText("Завершение брони беседки")).toBeTruthy();
   });
 });

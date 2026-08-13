@@ -84,6 +84,10 @@ export type TimelineBooking = {
   clientName: string | null;
   clientPhone: string | null;
   metadata: Record<string, unknown> | null;
+  // Деньги, принятые на месте. Нужны бейджу оплаты в сетке и в карточке —
+  // без них предоплаченная бронь выглядела бы неоплаченной.
+  cashAmount: string | null;
+  cardAmount: string | null;
 };
 
 // Active session

@@ -113,7 +113,13 @@ export function BookingListMobile({
             )}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <BookingActions bookingId={b.id} currentStatus={b.status} />
+              <BookingActions
+                bookingId={b.id}
+                currentStatus={b.status}
+                clientName={name}
+                resourceName={tableName}
+                timeLabel={`${formatDate(b.date)}, ${formatTime(b.startTime)}–${formatTime(b.endTime)}`}
+              />
               {showAddItems && <AddItemsButton bookingId={b.id} />}
             </div>
           </li>

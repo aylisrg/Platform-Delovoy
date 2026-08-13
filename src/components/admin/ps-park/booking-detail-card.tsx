@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import type { TimelineBooking, BookingBill } from "@/modules/ps-park/types";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 import { SessionBillModal, type PaymentSplit } from "./session-bill-modal";
+import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
+import { getBookingPaymentSummary } from "@/modules/booking/payment-status";
 
 type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
 type ApiOkBody = { success: true; data: unknown };
@@ -31,6 +34,9 @@ export function BookingDetailCard({
   const [bill, setBill] = useState<BookingBill | null>(null);
   const [loadingBill, setLoadingBill] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  // Счёт заполнен, но PATCH ещё не ушёл — ждём явного «Да, завершить» (AC-1).
+  const [pendingSplit, setPendingSplit] = useState<PaymentSplit | null>(null);
   const [maxDiscount, setMaxDiscount] = useState(30);
 
   const meta = booking.metadata as Record<string, unknown> | null;
@@ -45,34 +51,54 @@ export function BookingDetailCard({
   const hours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
 
   const isPending = booking.status === "PENDING";
+  const payment = getBookingPaymentSummary(booking);
 
   const formatTime = (d: Date) => formatTimeUnified(d);
 
   const formatDate = (d: Date) => formatDateUnified(d);
 
-  async function updateStatus(status: string) {
+  /**
+   * Возвращает текст ошибки или null при успехе — чтобы вызов из
+   * ConfirmDialog показал ошибку внутри диалога, а не за его спиной.
+   */
+  async function updateStatus(
+    status: string,
+    extra?: Record<string, unknown>
+  ): Promise<string | null> {
     setActionLoading(true);
-    setApiError(null);
     try {
       const res = await fetch(`/api/ps-park/bookings/${booking.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...extra }),
       });
       const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
       if (!res.ok || !body || body.success === false) {
-        const message =
+        return (
           (body && "error" in body && body.error?.message) ||
-          `Не удалось обновить статус (HTTP ${res.status})`;
-        setApiError(message);
-        return;
+          `Не удалось обновить статус (HTTP ${res.status})`
+        );
       }
       onStatusChanged();
+      return null;
     } catch (err) {
-      setApiError(err instanceof Error ? err.message : "Сетевая ошибка");
+      return err instanceof Error ? err.message : "Сетевая ошибка";
     } finally {
       setActionLoading(false);
     }
+  }
+
+  async function handleInlineStatus(status: string) {
+    setApiError(null);
+    const message = await updateStatus(status);
+    if (message) setApiError(message);
+  }
+
+  async function handleConfirmCancel(reason: string | null) {
+    const message = await updateStatus("CANCELLED", reason ? { reason } : undefined);
+    if (message) return message;
+    setCancelOpen(false);
+    return null;
   }
 
   // «Завершить» — тот же паттерн, что уже работает в CompleteSessionButton
@@ -103,7 +129,15 @@ export function BookingDetailCard({
     }
   }
 
-  async function handleConfirmBill(split: PaymentSplit) {
+  /** Счёт заполнен — показываем последний вопрос вместо немедленного PATCH. */
+  function handleConfirmBill(split: PaymentSplit) {
+    setApiError(null);
+    setPendingSplit(split);
+  }
+
+  async function handleConfirmComplete(): Promise<string | null> {
+    const split = pendingSplit;
+    if (!split) return "Счёт не заполнен";
     setConfirming(true);
     try {
       const payload: Record<string, unknown> = {
@@ -122,14 +156,15 @@ export function BookingDetailCard({
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
-      if (data?.success) {
-        setBill(null);
-        onStatusChanged();
-      } else {
-        setApiError(data?.error?.message ?? "Ошибка при завершении");
+      if (!data?.success) {
+        return data?.error?.message ?? "Ошибка при завершении";
       }
+      setPendingSplit(null);
+      setBill(null);
+      onStatusChanged();
+      return null;
     } catch {
-      setApiError("Не удалось завершить сессию");
+      return "Не удалось завершить сессию";
     } finally {
       setConfirming(false);
     }
@@ -165,6 +200,7 @@ export function BookingDetailCard({
           }`}>
             {isActiveNow ? "Играет" : isPending ? "Ожидает" : "Подтверждена"}
           </span>
+          <PaymentBadge booking={booking} />
         </div>
         <button
           onClick={onClose}
@@ -283,7 +319,7 @@ export function BookingDetailCard({
         {isPending && (
           <Button
             size="sm"
-            onClick={() => updateStatus("CONFIRMED")}
+            onClick={() => handleInlineStatus("CONFIRMED")}
             disabled={actionLoading}
           >
             Подтвердить
@@ -302,7 +338,7 @@ export function BookingDetailCard({
         <Button
           size="sm"
           variant="danger"
-          onClick={() => updateStatus("CANCELLED")}
+          onClick={() => { setApiError(null); setCancelOpen(true); }}
           disabled={actionLoading}
         >
           Отменить
@@ -316,6 +352,32 @@ export function BookingDetailCard({
         </button>
       </div>
 
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Отменить бронь?"
+        description="Бронь исчезнет из расписания, слот освободится и его сможет занять другой гость."
+        details={[
+          { label: "Гость", value: booking.clientName ?? "Без имени" },
+          { label: "Стол", value: resourceName },
+          {
+            label: "Время",
+            value: `${formatDate(start)}, ${formatTime(start)}–${formatTime(end)}`,
+          },
+          ...(totalPrice !== undefined || totalBill > 0
+            ? [{ label: "Сумма", value: `${(totalPrice ?? totalBill).toLocaleString("ru-RU")} ₽` }]
+            : []),
+        ]}
+        warning="Отмена не восстанавливается автоматически — вернуть бронь сможет только суперадмин."
+        confirmLabel="Да, отменить бронь"
+        variant="danger"
+        reason={{
+          label: "Причина отмены",
+          placeholder: "Гость отказался, дубль, техническая накладка…",
+        }}
+        onCancel={() => setCancelOpen(false)}
+        onConfirm={handleConfirmCancel}
+      />
+
       {bill && (
         <SessionBillModal
           bill={bill}
@@ -327,6 +389,42 @@ export function BookingDetailCard({
           apiError={apiError}
         />
       )}
+
+      {/* Последний вопрос перед необратимым завершением (AC-1). Рендерится
+          после модалки счёта, чтобы лечь поверх неё. */}
+      <ConfirmDialog
+        open={pendingSplit !== null}
+        title="Завершить бронь?"
+        description="Бронь пропадёт из расписания, слот станет доступен для новых броней."
+        details={[
+          { label: "Гость", value: booking.clientName ?? "Без имени" },
+          { label: "Стол", value: resourceName },
+          {
+            label: "Время",
+            value: `${formatDate(start)}, ${formatTime(start)}–${formatTime(end)}`,
+          },
+          {
+            label: "Наличные",
+            value: `${(pendingSplit?.cashAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+          {
+            label: "Карта",
+            value: `${(pendingSplit?.cardAmount ?? 0).toLocaleString("ru-RU")} ₽`,
+          },
+          // AC-2: онлайн-предоплата уже проведена — не берём деньги дважды.
+          ...(payment.online > 0
+            ? [{
+                label: "Оплачено онлайн",
+                value: `${payment.online.toLocaleString("ru-RU")} ₽ (уже учтено)`,
+              }]
+            : []),
+        ]}
+        warning="Завершение нельзя отменить самостоятельно — переоткрыть бронь сможет только суперадмин."
+        confirmLabel="Да, завершить"
+        variant="neutral"
+        onCancel={() => setPendingSplit(null)}
+        onConfirm={handleConfirmComplete}
+      />
     </div>
   );
 }
