@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACTIVE_BOOKING_STATUSES, assertValidTransition } from "./state-machine";
 import { lockSlot } from "./slot-lock";
+import { refundToSubscription } from "@/modules/subscriptions/debit";
 
 /**
  * Восстановление ошибочно завершённой или отменённой брони (#511).
@@ -135,6 +136,42 @@ export async function restoreBooking(input: RestoreBookingInput) {
       );
     }
 
+    // #435: если бронь оплачена абонементом ps-park (debitFromSession на
+    // COMPLETED), восстановление обязано вернуть списанные часы — иначе гость
+    // теряет их без компенсации. Сумма hoursDelta по всем
+    // SubscriptionTransaction этой брони (CHARGE отрицательны, REFUND
+    // положительны) — сколько ещё не возвращено; ноль — не списывалось или
+    // уже возвращено. Именно так, а не «есть ли CHARGE», чтобы повторная
+    // отмена/восстановление той же брони не задваивала возврат.
+    let subscriptionRefund:
+      | { subscriptionId: string; hoursRefunded: number }
+      | undefined;
+    if (moduleSlug === "ps-park") {
+      const subTx = await tx.subscriptionTransaction.findMany({
+        where: { bookingId },
+        select: { subscriptionId: true, hoursDelta: true },
+      });
+      const netOwed = -subTx.reduce((sum, t) => sum + Number(t.hoursDelta), 0);
+      if (netOwed > 0) {
+        // Все транзакции по одной брони относятся к одному абонементу —
+        // списание бывает ровно один раз, за сессию.
+        const subscriptionId = subTx[0].subscriptionId;
+        const actor = await tx.user.findUnique({
+          where: { id: actorId },
+          select: { name: true, email: true },
+        });
+        const refund = await refundToSubscription(tx, {
+          subscriptionId,
+          bookingId,
+          hours: netOwed,
+          performedById: actorId,
+          performedByName: actor?.name ?? actor?.email ?? "Администратор",
+          reason: reason ?? "Восстановление отменённой/завершённой брони",
+        });
+        subscriptionRefund = { subscriptionId, hoursRefunded: refund.hoursRefunded };
+      }
+    }
+
     await tx.auditLog.create({
       data: {
         userId: actorId,
@@ -151,6 +188,7 @@ export async function restoreBooking(input: RestoreBookingInput) {
           revenueKept: booking.status === "COMPLETED",
           cashAmount: booking.cashAmount?.toString() ?? null,
           cardAmount: booking.cardAmount?.toString() ?? null,
+          ...(subscriptionRefund && { subscriptionRefund }),
         } as unknown as Prisma.InputJsonValue,
       },
     });

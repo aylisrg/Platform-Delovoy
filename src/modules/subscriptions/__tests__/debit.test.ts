@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 import {
   debitFromSession,
+  refundToSubscription,
   SubscriptionDebitError,
 } from "@/modules/subscriptions/debit";
 
@@ -11,6 +12,7 @@ function makeTx() {
   return {
     subscription: {
       updateMany: vi.fn(),
+      update: vi.fn(),
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
     },
@@ -200,5 +202,127 @@ describe("debitFromSession (F7)", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(SubscriptionDebitError);
     }
+  });
+});
+
+// #435: обратная операция debitFromSession — возврат часов при
+// восстановлении завершённой subscription-оплаченной ps-park-сессии.
+describe("refundToSubscription (F7 reverse, #435)", () => {
+  let tx: ReturnType<typeof makeTx>;
+
+  beforeEach(() => {
+    tx = makeTx();
+  });
+
+  it("happy path: ACTIVE остаётся ACTIVE, баланс растёт", async () => {
+    tx.subscription.findUniqueOrThrow.mockResolvedValue({ status: "ACTIVE" });
+    tx.subscription.update.mockResolvedValue({ remainingHours: dec(7) });
+
+    const result = await refundToSubscription(tx as never, {
+      subscriptionId: "sub-1",
+      bookingId: "book-1",
+      hours: 2,
+      performedById: "superadmin-1",
+      performedByName: "Суперадмин",
+    });
+
+    expect(tx.subscription.update).toHaveBeenCalledWith({
+      where: { id: "sub-1" },
+      data: { remainingHours: { increment: 2 } },
+      select: { remainingHours: true },
+    });
+    expect(tx.subscriptionTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subscriptionId: "sub-1",
+          type: "REFUND",
+          hoursDelta: 2,
+          balanceAfter: 7,
+          bookingId: "book-1",
+        }),
+      })
+    );
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "subscription.refund_session",
+          metadata: expect.objectContaining({
+            bookingId: "book-1",
+            hoursRefunded: 2,
+            remainingAfter: 7,
+            reactivated: false,
+          }),
+        }),
+      })
+    );
+    expect(result).toEqual({ hoursRefunded: 2, remainingAfter: 7, reactivated: false });
+  });
+
+  it("реактивирует DEPLETED → ACTIVE в той же транзакции", async () => {
+    tx.subscription.findUniqueOrThrow.mockResolvedValue({ status: "DEPLETED" });
+    tx.subscription.update.mockResolvedValue({ remainingHours: dec(2) });
+
+    const result = await refundToSubscription(tx as never, {
+      subscriptionId: "sub-1",
+      bookingId: "book-1",
+      hours: 2,
+      performedById: "superadmin-1",
+      performedByName: "Суперадмин",
+    });
+
+    expect(tx.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { remainingHours: { increment: 2 }, status: "ACTIVE" },
+      })
+    );
+    expect(result.reactivated).toBe(true);
+  });
+
+  it("не реактивирует EXPIRED/CANCELLED — только корректирует баланс", async () => {
+    tx.subscription.findUniqueOrThrow.mockResolvedValue({ status: "EXPIRED" });
+    tx.subscription.update.mockResolvedValue({ remainingHours: dec(2) });
+
+    const result = await refundToSubscription(tx as never, {
+      subscriptionId: "sub-1",
+      bookingId: "book-1",
+      hours: 2,
+      performedById: "superadmin-1",
+      performedByName: "Суперадмин",
+    });
+
+    expect(tx.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { remainingHours: { increment: 2 } }, // без status
+      })
+    );
+    expect(result.reactivated).toBe(false);
+  });
+
+  it("rejects hours <= 0 with INVALID_HOURS", async () => {
+    await expect(
+      refundToSubscription(tx as never, {
+        subscriptionId: "sub-1",
+        bookingId: "book-1",
+        hours: 0,
+        performedById: "superadmin-1",
+        performedByName: "Суперадмин",
+      })
+    ).rejects.toMatchObject({ code: "INVALID_HOURS", metadata: { hours: 0 } });
+
+    expect(tx.subscription.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("propagates the error if the subscription no longer exists", async () => {
+    tx.subscription.findUniqueOrThrow.mockRejectedValue(new Error("not found"));
+
+    await expect(
+      refundToSubscription(tx as never, {
+        subscriptionId: "sub-1",
+        bookingId: "book-1",
+        hours: 1,
+        performedById: "x",
+        performedByName: "x",
+      })
+    ).rejects.toThrow("not found");
   });
 });

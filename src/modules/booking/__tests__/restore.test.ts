@@ -54,6 +54,20 @@ function mockTx(overrides: Record<string, unknown> = {}) {
       findUniqueOrThrow: vi.fn(async () => makeBooking({ status: "CONFIRMED" })),
     },
     auditLog: { create: vi.fn() },
+    // #435: возврат часов абонемента при восстановлении ps-park-брони.
+    // Дефолт «нечего возвращать» — не трогает существующие gazebos-тесты
+    // (у них moduleSlug !== "ps-park", до этих вызовов дело не доходит).
+    subscriptionTransaction: {
+      findMany: vi.fn(async () => []),
+      create: vi.fn(),
+    },
+    subscription: {
+      findUniqueOrThrow: vi.fn(async () => ({ status: "ACTIVE" })),
+      update: vi.fn(async () => ({ remainingHours: 0 })),
+    },
+    user: {
+      findUnique: vi.fn(async () => ({ name: "Админ", email: "admin@example.com" })),
+    },
     ...overrides,
   };
   mp.$transaction.mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx));
@@ -202,5 +216,140 @@ describe("restoreBooking", () => {
       revenueKept: true,
       cashAmount: "8000",
     });
+  });
+});
+
+// ===== #435: возврат часов абонемента при восстановлении ps-park-сессии =====
+//
+// debitFromSession() списывает часы на COMPLETED, но восстановление обратно
+// в CONFIRMED (эта функция) их не возвращало — гость терял часы без
+// компенсации. SubscriptionTransaction.REFUND был объявлен в схеме, но
+// нигде не писался.
+describe("restoreBooking возвращает часы абонемента (#435)", () => {
+  const psParkInput = { ...input, moduleSlug: "ps-park" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("возвращает списанные часы и пишет REFUND-транзакцию", async () => {
+    mp.booking.findFirst.mockResolvedValue(
+      makeBooking({ moduleSlug: "ps-park", resourceId: "table-1" })
+    );
+    const tx = mockTx({
+      subscriptionTransaction: {
+        findMany: vi.fn(async () => [{ subscriptionId: "sub-1", hoursDelta: -2 }]),
+        create: vi.fn(),
+      },
+      subscription: {
+        findUniqueOrThrow: vi.fn(async () => ({ status: "ACTIVE" })),
+        update: vi.fn(async () => ({ remainingHours: 5 })),
+      },
+    });
+
+    await restoreBooking(psParkInput);
+
+    expect(tx.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "sub-1" },
+        data: expect.objectContaining({ remainingHours: { increment: 2 } }),
+      })
+    );
+    expect(tx.subscriptionTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subscriptionId: "sub-1",
+          type: "REFUND",
+          hoursDelta: 2,
+          bookingId: "bk-1",
+        }),
+      })
+    );
+    // Два auditLog.create: сперва subscription.refund_session (внутри
+    // refundToSubscription), затем booking.restore — ищем по action, а не
+    // по индексу, чтобы порядок не был скрытой хрупкостью теста.
+    const restoreAudit = tx.auditLog.create.mock.calls.find(
+      (c) => c[0].data.action === "booking.restore"
+    )?.[0].data;
+    expect(restoreAudit.metadata).toMatchObject({
+      subscriptionRefund: { subscriptionId: "sub-1", hoursRefunded: 2 },
+    });
+    const refundAudit = tx.auditLog.create.mock.calls.find(
+      (c) => c[0].data.action === "subscription.refund_session"
+    )?.[0].data;
+    expect(refundAudit.metadata).toMatchObject({
+      bookingId: "bk-1",
+      hoursRefunded: 2,
+      remainingAfter: 5,
+    });
+  });
+
+  it("реактивирует DEPLETED абонемент после возврата часов", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({ moduleSlug: "ps-park" }));
+    const tx = mockTx({
+      subscriptionTransaction: {
+        findMany: vi.fn(async () => [{ subscriptionId: "sub-1", hoursDelta: -3 }]),
+        create: vi.fn(),
+      },
+      subscription: {
+        findUniqueOrThrow: vi.fn(async () => ({ status: "DEPLETED" })),
+        update: vi.fn(async () => ({ remainingHours: 3 })),
+      },
+    });
+
+    await restoreBooking(psParkInput);
+
+    expect(tx.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "ACTIVE" }),
+      })
+    );
+  });
+
+  it("не возвращает часы повторно, если уже возвращены (net owed = 0)", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({ moduleSlug: "ps-park" }));
+    const tx = mockTx({
+      subscriptionTransaction: {
+        // Уже был и CHARGE, и REFUND по этой же брони — сумма даёт 0.
+        findMany: vi.fn(async () => [
+          { subscriptionId: "sub-1", hoursDelta: -2 },
+          { subscriptionId: "sub-1", hoursDelta: 2 },
+        ]),
+        create: vi.fn(),
+      },
+    });
+
+    await restoreBooking(psParkInput);
+
+    expect(tx.subscription.update).not.toHaveBeenCalled();
+    expect(tx.subscriptionTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it("не трогает подписки, если сессия была оплачена не абонементом", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({ moduleSlug: "ps-park" }));
+    const tx = mockTx(); // дефолт: subscriptionTransaction.findMany() → []
+
+    await restoreBooking(psParkInput);
+
+    expect(tx.subscription.update).not.toHaveBeenCalled();
+    expect(tx.subscriptionTransaction.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create.mock.calls[0][0].data.metadata).not.toHaveProperty(
+      "subscriptionRefund"
+    );
+  });
+
+  it("не трогает подписки для брони другого модуля (gazebos)", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({ moduleSlug: "gazebos" }));
+    const tx = mockTx({
+      subscriptionTransaction: {
+        findMany: vi.fn(async () => [{ subscriptionId: "sub-1", hoursDelta: -2 }]),
+        create: vi.fn(),
+      },
+    });
+
+    await restoreBooking(input); // moduleSlug: "gazebos"
+
+    expect(tx.subscriptionTransaction.findMany).not.toHaveBeenCalled();
+    expect(tx.subscription.update).not.toHaveBeenCalled();
   });
 });
