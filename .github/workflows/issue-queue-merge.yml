@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      HAS_PAT: ${{ (secrets.QUEUE_MERGE_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
+      HAS_PAT: ${{ (secrets.AUTOMATION_TOKEN != '' || secrets.QUEUE_MERGE_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
@@ -66,7 +66,7 @@ jobs:
       - name: Sweep mergeable PRs
         id: sweep
         env:
-          GH_TOKEN: ${{ secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           DRY: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
           set -o pipefail

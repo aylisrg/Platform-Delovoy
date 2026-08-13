@@ -17,11 +17,13 @@ jobs:
       # PRs created by GITHUB_TOKEN do NOT trigger pull_request workflows
       # (GitHub's loop-protection). That makes release-please PRs hang forever
       # because branch protection waits for lint/test/build that never run.
-      # Fix: use a PAT with `repo` + `workflow` scopes stored as
-      # RELEASE_PLEASE_TOKEN. Falls back to GITHUB_TOKEN if the secret isn't
-      # set yet — the release PR will still be created but CI must be kicked
-      # manually (close/reopen the PR or push an empty commit to its branch).
+      # Fix: use a PAT with `repo` + `workflow` scopes stored as AUTOMATION_TOKEN
+      # (единый секрет автоматики — его же читают auto-rebase.yml и
+      # issue-queue-merge.yml; RELEASE_PLEASE_TOKEN оставлен как исторический
+      # синоним). Falls back to GITHUB_TOKEN if the secret isn't set yet — the
+      # release PR will still be created but CI must be kicked manually
+      # (close/reopen the PR or push an empty commit to its branch).
       - uses: googleapis/release-please-action@v5
         with:
           release-type: node
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.AUTOMATION_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}

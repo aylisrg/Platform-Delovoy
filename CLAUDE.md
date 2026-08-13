@@ -202,6 +202,14 @@ npx tsx scripts/issue-queue.ts heartbeat --dry-run  # стоит ли очере
 `auto:dashboard`; его закрытие не выключает очередь (переоткроется) — выключатель
 только `enabled=false`.
 
+**Секрет `AUTOMATION_TOKEN`** (fine-grained PAT: contents write, pull-requests
+write, actions write) — его читают `auto-rebase.yml`, `issue-queue-merge.yml` и
+`release.yml`. Без него очередь работает, но каждый авто-ребейз паркует CI ветки в
+`action_required`: GitHub требует ручного «Approve and run» для прогонов, приписанных
+`github-actions[bot]`. Пуш под PAT приписывается человеку, и гейт не срабатывает.
+Подробности и отвергнутые альтернативы — ADR `2026-08-10-autonomous-issue-cleanup-adr.md`,
+раздел «Обновление 2026-08-13».
+
 ---
 
 ## Dev rules

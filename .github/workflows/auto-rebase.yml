@@ -9,6 +9,23 @@ name: Auto-rebase open PRs on main move
 #
 # Это второй слой защиты после GitHub Merge Queue (Settings → Branches →
 # Branch protection → Require merge queue).
+#
+# ── Почему здесь нужен PAT, а не GITHUB_TOKEN ────────────────────────────────
+# С 11.06.2026 GitHub паркует прогоны, приписанные `github-actions[bot]`, в
+# состоянии `action_required`: они не стартуют, пока человек с write-доступом не
+# нажмёт «Approve and run» (github.blog/changelog/2026-06-11-bot-created-pull-
+# requests-can-run-workflows-if-approved). Это защита от того, чтобы
+# сгенерированный код сам запускал workflow с доступом к секретам.
+#
+# Форс-пуш отсюда под GITHUB_TOKEN попадает ровно под это правило, и ветка
+# остаётся БЕЗ CI: запаркованный прогон не создаёт даже check-run, поэтому
+# подметальщик авто-мержа видит «чеков ещё нет» и ждёт вечно, а задача через
+# staleWipHours уезжает в `auto:review`, то есть владельцу. Замерено на PR #493:
+# три ребейза подряд — три ручных «Approve and run».
+#
+# PAT снимает это: пуш приписывается человеку, гейт не срабатывает. Секрет
+# необязателен — без него workflow работает как раньше (и честно предупреждает
+# в step summary), поэтому отсутствие секрета ничего не ломает.
 
 on:
   push:
@@ -26,12 +43,28 @@ concurrency:
 jobs:
   rebase:
     runs-on: ubuntu-latest
+    env:
+      HAS_PAT: ${{ (secrets.AUTOMATION_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # persist-credentials по умолчанию true — этим же токеном пойдёт push ниже.
+          token: ${{ secrets.AUTOMATION_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Warn when no PAT is configured
+        if: env.HAS_PAT == 'no'
+        run: |
+          {
+            echo '## ⚠️ Нет PAT — CI ребейзнутых веток запаркуется'
+            echo ''
+            echo 'Форс-пуш пойдёт под `GITHUB_TOKEN`, поэтому прогоны на затронутых'
+            echo 'ветках встанут в `action_required` и будут ждать ручного'
+            echo '«Approve and run». Чтобы это убрать — заведите секрет'
+            echo '`AUTOMATION_TOKEN` (fine-grained PAT: contents write,'
+            echo 'pull-requests write, actions write).'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Configure git identity
         run: |
@@ -40,7 +73,7 @@ jobs:
 
       - name: Rebase eligible open PRs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
