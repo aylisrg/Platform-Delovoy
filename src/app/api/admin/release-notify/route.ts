@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { apiResponse, apiError } from "@/lib/api-response";
-import { sendReleaseNotification } from "@/modules/notifications/release-notify";
+import { announceRelease } from "@/modules/notifications/release-notify";
 
 /**
  * POST /api/admin/release-notify
  *
  * Called by GitHub Actions after a successful production deploy.
- * Sends a Telegram release notification to all opted-in admins/managers.
+ * Анонсирует релиз подписчикам через dispatch() ровно один раз на версию
+ * (серверная идемпотентность — таблица ReleaseAnnouncement, ADR §6).
+ *
+ * Ответ: { announced, queued, skippedReason? } — по `announced` пайплайн
+ * решает, слать ли групповое fallback-сообщение «Deploy OK».
  *
  * Authentication: RELEASE_NOTIFY_SECRET env var (bearer token in body).
  */
@@ -43,14 +47,22 @@ export async function POST(request: Request) {
     }
 
     const { version, releaseNotes, commitSha, deployedAt } = parsed.data;
-    const stats = await sendReleaseNotification({
+    const result = await announceRelease({
       version,
       releaseNotes,
       commitSha,
       deployedAt,
     });
 
-    return apiResponse({ ...stats });
+    if (result.status === "skipped") {
+      return apiResponse({
+        announced: false,
+        queued: 0,
+        skippedReason: result.reason,
+      });
+    }
+
+    return apiResponse({ announced: true, queued: result.queued });
   } catch {
     return apiError("INTERNAL_ERROR", "Failed to send release notification", 500);
   }

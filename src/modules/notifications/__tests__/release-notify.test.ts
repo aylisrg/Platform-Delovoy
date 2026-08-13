@@ -1,222 +1,424 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock Prisma
 vi.mock("@/lib/db", () => ({
   prisma: {
-    user: {
+    releaseAnnouncement: {
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    notificationEventPreference: {
       findMany: vi.fn(),
+      upsert: vi.fn(),
     },
     notificationPreference: {
       upsert: vi.fn(),
     },
+    userNotificationChannel: {
+      upsert: vi.fn(),
+    },
+    user: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+    },
   },
 }));
 
-// Mock Telegram adapter
-vi.mock("../channels/telegram", () => ({
-  telegramAdapter: {
-    send: vi.fn(),
+vi.mock("@/lib/logger", () => ({
+  log: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    critical: vi.fn(),
   },
+}));
+
+vi.mock("../dispatch/dispatcher", () => ({
+  dispatch: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db";
-import { telegramAdapter } from "../channels/telegram";
+import { log } from "@/lib/logger";
+import { dispatch } from "../dispatch/dispatcher";
 import {
-  sendReleaseNotification,
+  announceRelease,
+  resolveReleaseAudience,
+  setReleaseSubscription,
   setReleaseNotifyPreference,
   getReleaseSubscribers,
   ensureManagerNotifyDefaults,
+  RELEASE_EVENT_TYPE,
 } from "../release-notify";
 
-const mockFindMany = vi.mocked(prisma.user.findMany);
-const mockUpsert = vi.mocked(prisma.notificationPreference.upsert);
-const mockTelegramSend = vi.mocked(telegramAdapter.send);
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+const mockCreate = vi.mocked(prisma.releaseAnnouncement.create);
+const mockUpdate = vi.mocked(prisma.releaseAnnouncement.update);
+const mockPrefFindMany = vi.mocked(prisma.notificationEventPreference.findMany);
+const mockPrefUpsert = vi.mocked(prisma.notificationEventPreference.upsert);
+const mockLegacyUpsert = vi.mocked(prisma.notificationPreference.upsert);
+const mockChannelUpsert = vi.mocked(prisma.userNotificationChannel.upsert);
+const mockUserFindMany = vi.mocked(prisma.user.findMany);
+const mockUserFindUnique = vi.mocked(prisma.user.findUnique);
+const mockDispatch = vi.mocked(dispatch);
 
 const baseRelease = {
   version: "1.2.0",
   releaseNotes: "- New feature A\n- Fixed bug B",
   commitSha: "abc1234567890",
-  deployedAt: "2026-04-16T10:00:00.000Z",
+  deployedAt: "2026-08-13T10:00:00.000Z",
 };
 
-describe("sendReleaseNotification", () => {
-  it("returns zeros when no subscribers", async () => {
-    mockFindMany.mockResolvedValue([]);
+function queuedOutcome(id: string) {
+  return { status: "queued" as const, outgoingId: id, scheduledFor: new Date() };
+}
 
-    const result = await sendReleaseNotification(baseRelease);
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockCreate.mockResolvedValue({} as never);
+  mockUpdate.mockResolvedValue({} as never);
+  mockPrefFindMany.mockResolvedValue([] as never);
+  mockDispatch.mockResolvedValue(queuedOutcome("out-1"));
+});
 
-    expect(result).toEqual({ sent: 0, failed: 0, skipped: 0 });
-    expect(mockTelegramSend).not.toHaveBeenCalled();
-  });
-
-  it("sends to all subscribers with telegramId", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", telegramId: "111" },
-      { id: "u2", telegramId: "222" },
+describe("announceRelease — claim (AC-6.1, 6.2)", () => {
+  it("claims the version and dispatches to every subscriber", async () => {
+    mockPrefFindMany.mockResolvedValue([
+      { userId: "u1" },
+      { userId: "u2" },
     ] as never);
-    mockTelegramSend.mockResolvedValue({ success: true });
 
-    const result = await sendReleaseNotification(baseRelease);
+    const result = await announceRelease(baseRelease);
 
-    expect(mockTelegramSend).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ sent: 2, failed: 0, skipped: 0 });
-  });
-
-  it("counts failed sends without throwing", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", telegramId: "111" },
-      { id: "u2", telegramId: "222" },
-    ] as never);
-    mockTelegramSend
-      .mockResolvedValueOnce({ success: true })
-      .mockResolvedValueOnce({ success: false, error: "Bot blocked by user" });
-
-    const result = await sendReleaseNotification(baseRelease);
-
-    expect(result).toEqual({ sent: 1, failed: 1, skipped: 0 });
-  });
-
-  it("message contains version, short SHA, and notes", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", telegramId: "999" },
-    ] as never);
-    mockTelegramSend.mockResolvedValue({ success: true });
-
-    await sendReleaseNotification(baseRelease);
-
-    const sentMessage = mockTelegramSend.mock.calls[0][1] as string;
-    expect(sentMessage).toContain("v1.2.0");
-    expect(sentMessage).toContain("abc1234"); // short sha
-    expect(sentMessage).toContain("New feature A");
-  });
-
-  it("message omits notes section when releaseNotes is empty", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", telegramId: "999" },
-    ] as never);
-    mockTelegramSend.mockResolvedValue({ success: true });
-
-    await sendReleaseNotification({ ...baseRelease, releaseNotes: "" });
-
-    const sentMessage = mockTelegramSend.mock.calls[0][1] as string;
-    expect(sentMessage).not.toContain("Что выкатилось");
-  });
-
-  it("queries only SUPERADMIN/MANAGER users with notifyReleases=true", async () => {
-    mockFindMany.mockResolvedValue([]);
-
-    await sendReleaseNotification(baseRelease);
-
-    expect(mockFindMany).toHaveBeenCalledWith(
+    expect(mockCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        version: "1.2.0",
+        commitSha: "abc1234567890",
+        releaseNotes: "- New feature A\n- Fixed bug B",
+        source: "deploy",
+      }),
+    });
+    expect(mockDispatch).toHaveBeenCalledTimes(2);
+    expect(mockDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          role: { in: ["SUPERADMIN", "MANAGER"] },
-          notificationPreference: { notifyReleases: true },
-        }),
+        userId: "u1",
+        eventType: "system.release",
+        entityType: "Release",
+        entityId: "1.2.0",
       })
     );
+    expect(result).toEqual({ status: "announced", queued: 2 });
+  });
+
+  it("payload carries version, short sha and the notes", async () => {
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+
+    await announceRelease(baseRelease);
+
+    const event = mockDispatch.mock.calls[0][0];
+    expect(event.payload.title).toContain("v1.2.0");
+    expect(event.payload.body).toContain("abc1234");
+    expect(event.payload.body).toContain("New feature A");
+  });
+
+  it("audits the announcement with an INFO SystemEvent", async () => {
+    mockPrefFindMany.mockResolvedValue([
+      { userId: "u1" },
+      { userId: "u2" },
+    ] as never);
+
+    await announceRelease(baseRelease);
+
+    expect(log.info).toHaveBeenCalledWith(
+      "release-notify",
+      expect.stringContaining("1.2.0"),
+      expect.objectContaining({ version: "1.2.0", queued: 2, audience: 2 })
+    );
+  });
+
+  it("stores the recipient count on the claimed row", async () => {
+    mockPrefFindMany.mockResolvedValue([
+      { userId: "u1" },
+      { userId: "u2" },
+    ] as never);
+
+    await announceRelease(baseRelease);
+
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { version: "1.2.0" },
+      data: { recipientCount: 2 },
+    });
+  });
+
+  it("does not count dispatches the dispatcher skipped", async () => {
+    mockPrefFindMany.mockResolvedValue([
+      { userId: "u1" },
+      { userId: "u2" },
+    ] as never);
+    mockDispatch
+      .mockResolvedValueOnce(queuedOutcome("out-1"))
+      .mockResolvedValueOnce({ status: "skipped", reason: "no available channel" });
+
+    const result = await announceRelease(baseRelease);
+
+    expect(result).toEqual({ status: "announced", queued: 1 });
+  });
+
+  it("survives a single failing dispatch and still announces the rest", async () => {
+    mockPrefFindMany.mockResolvedValue([
+      { userId: "u1" },
+      { userId: "u2" },
+    ] as never);
+    mockDispatch
+      .mockRejectedValueOnce(new Error("channel exploded"))
+      .mockResolvedValueOnce(queuedOutcome("out-2"));
+
+    const result = await announceRelease(baseRelease);
+
+    expect(result).toEqual({ status: "announced", queued: 1 });
+  });
+
+  it("announces with zero recipients when nobody is subscribed", async () => {
+    mockPrefFindMany.mockResolvedValue([] as never);
+
+    const result = await announceRelease(baseRelease);
+
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "announced", queued: 0 });
   });
 });
 
-describe("setReleaseNotifyPreference", () => {
-  it("upserts preference with enabled=true", async () => {
-    mockUpsert.mockResolvedValue({} as never);
+describe("announceRelease — repeat of the same version (AC-6.1, 6.2, 6.7)", () => {
+  it("skips silently on P2002 and never dispatches", async () => {
+    mockCreate.mockRejectedValue({ code: "P2002" });
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
 
-    await setReleaseNotifyPreference("user-1", true);
+    const result = await announceRelease(baseRelease);
 
-    expect(mockUpsert).toHaveBeenCalledWith({
+    expect(result).toEqual({ status: "skipped", reason: "already-announced" });
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("logs an INFO SystemEvent when the duplicate is blocked", async () => {
+    mockCreate.mockRejectedValue({ code: "P2002" });
+
+    await announceRelease(baseRelease);
+
+    expect(log.info).toHaveBeenCalledWith(
+      "release-notify",
+      expect.stringContaining("1.2.0"),
+      expect.objectContaining({ version: "1.2.0", commitSha: "abc1234567890" })
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("announceRelease — fail-open on a non-P2002 error (AC-6.6)", () => {
+  it("still dispatches when the claim itself failed", async () => {
+    mockCreate.mockRejectedValue(new Error("connection refused"));
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+
+    const result = await announceRelease(baseRelease);
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ status: "announced", queued: 1 });
+  });
+
+  it("logs a WARNING and does not touch the (non-existent) row", async () => {
+    mockCreate.mockRejectedValue(new Error("connection refused"));
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+
+    await announceRelease(baseRelease);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      "release-notify",
+      expect.stringContaining("1.2.0"),
+      expect.objectContaining({ version: "1.2.0" })
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the announcement when the recipient count cannot be stored", async () => {
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    mockUpdate.mockRejectedValue(new Error("write conflict"));
+
+    await expect(announceRelease(baseRelease)).resolves.toEqual({
+      status: "announced",
+      queued: 1,
+    });
+  });
+});
+
+describe("resolveReleaseAudience — explicit subscriptions only (ADR §3.3)", () => {
+  it("reads enabled rows of staff users, excluding merged accounts", async () => {
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+
+    const audience = await resolveReleaseAudience();
+
+    expect(mockPrefFindMany).toHaveBeenCalledWith({
+      where: {
+        eventType: "system.release",
+        enabled: true,
+        user: { role: { not: "USER" }, mergedIntoUserId: null },
+      },
+      select: { userId: true },
+    });
+    expect(audience).toEqual(["u1"]);
+  });
+
+  it("a missing preference row is NOT a subscription (empty audience)", async () => {
+    mockPrefFindMany.mockResolvedValue([] as never);
+
+    expect(await resolveReleaseAudience()).toEqual([]);
+  });
+
+  it("opted-out (enabled:false) and USER rows are filtered by the query, not in JS", async () => {
+    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+
+    await resolveReleaseAudience();
+
+    const where = mockPrefFindMany.mock.calls[0][0]?.where as {
+      enabled: boolean;
+      user: { role: { not: string } };
+    };
+    expect(where.enabled).toBe(true);
+    expect(where.user.role).toEqual({ not: "USER" });
+  });
+});
+
+describe("setReleaseSubscription (AC-6.4)", () => {
+  it("writes both the event preference and the legacy mirror", async () => {
+    await setReleaseSubscription("user-1", true);
+
+    expect(mockPrefUpsert).toHaveBeenCalledWith({
+      where: { userId_eventType: { userId: "user-1", eventType: "system.release" } },
+      create: { userId: "user-1", eventType: "system.release", enabled: true },
+      update: { enabled: true },
+    });
+    expect(mockLegacyUpsert).toHaveBeenCalledWith({
       where: { userId: "user-1" },
       create: { userId: "user-1", notifyReleases: true },
       update: { notifyReleases: true },
     });
   });
 
-  it("upserts preference with enabled=false", async () => {
-    mockUpsert.mockResolvedValue({} as never);
+  it("opt-out is written to both sources as well", async () => {
+    await setReleaseSubscription("user-1", false);
 
-    await setReleaseNotifyPreference("user-1", false);
-
-    expect(mockUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: { notifyReleases: false },
-      })
+    expect(mockPrefUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { enabled: false } })
+    );
+    expect(mockLegacyUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { notifyReleases: false } })
     );
   });
-});
 
-describe("getReleaseSubscribers", () => {
-  it("returns notifyReleases=true when no preference row exists (matches column default)", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", notificationPreference: null },
-    ] as never);
+  it("legacy export setReleaseNotifyPreference is the very same write path", async () => {
+    expect(setReleaseNotifyPreference).toBe(setReleaseSubscription);
 
-    const result = await getReleaseSubscribers();
+    await setReleaseNotifyPreference("user-9", true);
 
-    expect(result).toEqual([{ id: "u1", notifyReleases: true }]);
-  });
-
-  it("returns actual preference value when preference exists", async () => {
-    mockFindMany.mockResolvedValue([
-      { id: "u1", notificationPreference: { notifyReleases: true } },
-      { id: "u2", notificationPreference: { notifyReleases: false } },
-    ] as never);
-
-    const result = await getReleaseSubscribers();
-
-    expect(result).toEqual([
-      { id: "u1", notifyReleases: true },
-      { id: "u2", notifyReleases: false },
-    ]);
+    expect(mockPrefUpsert).toHaveBeenCalledTimes(1);
+    expect(mockLegacyUpsert).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ensureManagerNotifyDefaults", () => {
-  it("creates a NotificationPreference row with notifyReleases=true when none exists", async () => {
-    mockUpsert.mockResolvedValue({} as never);
+  it("creates the system.release subscription without clobbering an opt-out", async () => {
+    mockUserFindUnique.mockResolvedValue({ telegramId: null } as never);
 
     await ensureManagerNotifyDefaults("user-42");
 
-    expect(mockUpsert).toHaveBeenCalledWith({
+    expect(mockPrefUpsert).toHaveBeenCalledWith({
+      where: { userId_eventType: { userId: "user-42", eventType: "system.release" } },
+      create: { userId: "user-42", eventType: "system.release", enabled: true },
+      update: {},
+    });
+    expect(mockLegacyUpsert).toHaveBeenCalledWith({
       where: { userId: "user-42" },
       create: { userId: "user-42", notifyReleases: true },
       update: {},
     });
   });
 
-  it("never overwrites an existing preference (update is empty)", async () => {
-    mockUpsert.mockResolvedValue({} as never);
+  it("provisions a verified Telegram channel when the user has a telegramId", async () => {
+    mockUserFindUnique.mockResolvedValue({ telegramId: "555" } as never);
 
     await ensureManagerNotifyDefaults("user-42");
 
-    const call = mockUpsert.mock.calls[0][0];
+    expect(mockChannelUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId_kind_address: {
+            userId: "user-42",
+            kind: "TELEGRAM",
+            address: "555",
+          },
+        },
+        create: expect.objectContaining({
+          kind: "TELEGRAM",
+          address: "555",
+          priority: 10,
+          isActive: true,
+        }),
+        update: {},
+      })
+    );
+  });
+
+  it("does not touch channels when there is no telegramId", async () => {
+    mockUserFindUnique.mockResolvedValue({ telegramId: null } as never);
+
+    await ensureManagerNotifyDefaults("user-42");
+
+    expect(mockChannelUpsert).not.toHaveBeenCalled();
+  });
+
+  it("never reactivates an existing channel (update is empty)", async () => {
+    mockUserFindUnique.mockResolvedValue({ telegramId: "555" } as never);
+
+    await ensureManagerNotifyDefaults("user-42");
+
+    const call = mockChannelUpsert.mock.calls[0][0];
     expect(call.update).toEqual({});
   });
 });
 
-describe("default-on subscription flow", () => {
-  it("a newly created MANAGER with notifyReleases=true is included in sendReleaseNotification", async () => {
-    // Simulates the post-create state: ensureManagerNotifyDefaults() ran,
-    // so the user has a preference row with notifyReleases=true and gets the message.
-    mockFindMany.mockResolvedValue([
-      { id: "new-manager", telegramId: "555" },
+describe("getReleaseSubscribers — reads the new source", () => {
+  it("maps an enabled row to notifyReleases=true", async () => {
+    mockUserFindMany.mockResolvedValue([
+      { id: "u1", notificationEventPrefs: [{ enabled: true }] },
+      { id: "u2", notificationEventPrefs: [{ enabled: false }] },
     ] as never);
-    mockTelegramSend.mockResolvedValue({ success: true });
 
-    const result = await sendReleaseNotification(baseRelease);
+    expect(await getReleaseSubscribers()).toEqual([
+      { id: "u1", notifyReleases: true },
+      { id: "u2", notifyReleases: false },
+    ]);
+  });
 
-    expect(mockFindMany).toHaveBeenCalledWith(
+  it("treats a missing row as not subscribed (explicit-subscription principle)", async () => {
+    mockUserFindMany.mockResolvedValue([
+      { id: "u1", notificationEventPrefs: [] },
+    ] as never);
+
+    expect(await getReleaseSubscribers()).toEqual([
+      { id: "u1", notifyReleases: false },
+    ]);
+  });
+
+  it("queries only staff accounts and the release event type", async () => {
+    mockUserFindMany.mockResolvedValue([] as never);
+
+    await getReleaseSubscribers();
+
+    expect(mockUserFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          role: { in: ["SUPERADMIN", "MANAGER"] },
-          notificationPreference: { notifyReleases: true },
+        where: { role: { not: "USER" }, mergedIntoUserId: null },
+        select: expect.objectContaining({
+          notificationEventPrefs: expect.objectContaining({
+            where: { eventType: RELEASE_EVENT_TYPE },
+          }),
         }),
       })
     );
-    expect(mockTelegramSend).toHaveBeenCalledWith("555", expect.any(String));
-    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
   });
 });

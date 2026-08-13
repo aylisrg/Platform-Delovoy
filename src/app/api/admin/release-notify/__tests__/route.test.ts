@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/modules/notifications/release-notify", () => ({
-  sendReleaseNotification: vi.fn(),
+  announceRelease: vi.fn(),
 }));
 
 vi.mock("@/lib/api-response", () => ({
@@ -20,9 +20,9 @@ vi.mock("@/lib/api-response", () => ({
 }));
 
 import { POST } from "../route";
-import { sendReleaseNotification } from "@/modules/notifications/release-notify";
+import { announceRelease } from "@/modules/notifications/release-notify";
 
-const mockSend = vi.mocked(sendReleaseNotification);
+const mockAnnounce = vi.mocked(announceRelease);
 
 const VALID_SECRET = "test-secret-abc";
 
@@ -52,7 +52,7 @@ describe("POST /api/admin/release-notify", () => {
 
     expect(res.status).toBe(401);
     expect(body.success).toBe(false);
-    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAnnounce).not.toHaveBeenCalled();
   });
 
   it("returns 503 when RELEASE_NOTIFY_SECRET is not configured", async () => {
@@ -66,7 +66,7 @@ describe("POST /api/admin/release-notify", () => {
 
     const res = await POST(req);
     expect(res.status).toBe(503);
-    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAnnounce).not.toHaveBeenCalled();
   });
 
   it("returns 400 when required fields are missing", async () => {
@@ -77,18 +77,18 @@ describe("POST /api/admin/release-notify", () => {
 
     expect(res.status).toBe(400);
     expect(body.success).toBe(false);
-    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAnnounce).not.toHaveBeenCalled();
   });
 
-  it("calls sendReleaseNotification and returns stats on success", async () => {
-    mockSend.mockResolvedValue({ sent: 3, failed: 0, skipped: 0 });
+  it("announces the release and reports announced:true", async () => {
+    mockAnnounce.mockResolvedValue({ status: "announced", queued: 3 });
 
     const req = makeRequest({
       secret: VALID_SECRET,
       version: "1.2.0",
       releaseNotes: "- New feature",
       commitSha: "deadbeef",
-      deployedAt: "2026-04-16T10:00:00.000Z",
+      deployedAt: "2026-08-13T10:00:00.000Z",
     });
 
     const res = await POST(req);
@@ -96,17 +96,43 @@ describe("POST /api/admin/release-notify", () => {
 
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
-    expect(body.data).toEqual({ sent: 3, failed: 0, skipped: 0 });
-    expect(mockSend).toHaveBeenCalledWith({
+    expect(body.data).toEqual({ announced: true, queued: 3 });
+    expect(mockAnnounce).toHaveBeenCalledWith({
       version: "1.2.0",
       releaseNotes: "- New feature",
       commitSha: "deadbeef",
-      deployedAt: "2026-04-16T10:00:00.000Z",
+      deployedAt: "2026-08-13T10:00:00.000Z",
+    });
+  });
+
+  // Пайплайн отличает дубль от реальной отправки по `announced`, чтобы решить,
+  // слать ли групповое fallback-сообщение «Deploy OK» (ADR §6.5).
+  it("returns 200 with announced:false and a reason on a repeated version", async () => {
+    mockAnnounce.mockResolvedValue({
+      status: "skipped",
+      reason: "already-announced",
+    });
+
+    const req = makeRequest({
+      secret: VALID_SECRET,
+      version: "1.2.0",
+      commitSha: "deadbeef",
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual({
+      announced: false,
+      queued: 0,
+      skippedReason: "already-announced",
     });
   });
 
   it("uses empty string for releaseNotes when omitted", async () => {
-    mockSend.mockResolvedValue({ sent: 1, failed: 0, skipped: 0 });
+    mockAnnounce.mockResolvedValue({ status: "announced", queued: 1 });
 
     const req = makeRequest({
       secret: VALID_SECRET,
@@ -116,8 +142,24 @@ describe("POST /api/admin/release-notify", () => {
 
     await POST(req);
 
-    expect(mockSend).toHaveBeenCalledWith(
+    expect(mockAnnounce).toHaveBeenCalledWith(
       expect.objectContaining({ releaseNotes: "" })
     );
+  });
+
+  it("returns 500 without leaking internals when the service throws", async () => {
+    mockAnnounce.mockRejectedValue(new Error("db down"));
+
+    const req = makeRequest({
+      secret: VALID_SECRET,
+      version: "1.0.0",
+      commitSha: "abc1234",
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.error.message).not.toContain("db down");
   });
 });

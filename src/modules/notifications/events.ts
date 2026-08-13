@@ -53,4 +53,10 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   "payment.succeeded": { client: true, admin: true },
   "payment.canceled": { client: true, admin: false },
   "payment.refund.succeeded": { client: true, admin: true },
+
+  // Релиз выкачен на прод. Dispatch-only: маршрутизируется через dispatch() и
+  // явные строки NotificationEventPreference (announceRelease в release-notify.ts),
+  // legacy notify() для него не используется — оба флага false, как у booking.paid.
+  // См. ADR docs/architecture/2026-08-13-miniapp-role-rebuild-adr.md §4, §6.
+  "system.release": { client: false, admin: false },
 };
