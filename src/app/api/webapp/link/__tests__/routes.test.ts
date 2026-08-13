@@ -4,6 +4,10 @@ import { NextRequest } from "next/server";
 // Mock dependencies
 vi.mock("@/lib/webapp-auth", () => ({
   verifyWebAppToken: vi.fn(),
+  // confirm-роут минтит новый JWT через общий helper (фундамент ребилда);
+  // форма "a.b.c" сохраняет проверку json.data.token.split(".").length === 3
+  signWebAppToken: vi.fn().mockResolvedValue("mock.jwt.token"),
+  WebAppAuthConfigError: class WebAppAuthConfigError extends Error {},
 }));
 
 vi.mock("@/modules/telegram-link/service", () => ({
