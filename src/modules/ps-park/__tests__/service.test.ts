@@ -271,14 +271,19 @@ describe("updateBookingStatus", () => {
     expect(prisma.financialTransaction.create).not.toHaveBeenCalled();
   });
 
-  it("throws INVALID_STATUS_TRANSITION for CANCELLED → CONFIRMED", async () => {
+  // #511: переход CANCELLED → CONFIRMED теперь существует, но только для
+  // SUPERADMIN и только через restoreBooking() с проверкой окна и слота.
+  // Обычный PATCH статуса ходит от лица MANAGER и обязан упираться в права,
+  // а не в отсутствие перехода.
+  it("throws FORBIDDEN for CANCELLED → CONFIRMED (MANAGER)", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
       mockBooking({ status: "CANCELLED" }) as never
     );
 
     await expect(updateBookingStatus("booking-1", "CONFIRMED")).rejects.toMatchObject({
-      code: "INVALID_STATUS_TRANSITION",
+      code: "FORBIDDEN",
     });
+    expect(prisma.booking.update).not.toHaveBeenCalled();
   });
 
   it("throws INVALID_STATUS_TRANSITION when completing already completed (assertValidTransition)", async () => {
