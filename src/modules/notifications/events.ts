@@ -27,6 +27,12 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   // (оба false — notify находит роутинг, ничего не шлёт и не варнит), а
   // выделенный Telegram-канал обслуживается dispatchModuleChannel отдельно.
   "booking.paid": { client: false, admin: false },
+  // Канал-only событие «админ принял бронь по телефону» (#437). Клиент уже
+  // получает обычное booking.confirmed DM отдельным enqueueNotification —
+  // это второе, параллельное событие только для канала смены, чтобы не
+  // трогать client/admin-роутинг booking.confirmed (он также приходит от
+  // публичных броней после ручного подтверждения, где второй пост не нужен).
+  "booking.admin_created": { client: false, admin: false },
 
   // Cafe orders
   "order.placed": { client: true, admin: true, category: "order" },

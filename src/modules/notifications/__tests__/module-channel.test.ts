@@ -209,4 +209,55 @@ describe("dispatchModuleChannel", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(sentBody().text).toContain("удалена");
   });
+
+  // #437: брони по телефону создаются сразу CONFIRMED и без отдельного
+  // шаблона не попадали в канал вообще (booking.confirmed шаблон убран).
+  it("sends a template for booking.admin_created (gazebos)", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.admin_created"],
+    });
+
+    await dispatchModuleChannel({
+      ...paidEvent,
+      type: "booking.admin_created",
+      data: { ...paidEvent.data, clientPhone: "+79991234567" },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const text = sentBody().text as string;
+    expect(text).toContain("по телефону");
+    expect(text).toContain("Иванов");
+    expect(text).toContain("+79991234567");
+  });
+
+  it("sends a template for booking.admin_created (ps-park)", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.admin_created"],
+    });
+
+    await dispatchModuleChannel({
+      ...paidEvent,
+      moduleSlug: "ps-park",
+      type: "booking.admin_created",
+      data: { ...paidEvent.data, resourceName: "Стол 1", clientPhone: "+79991234567" },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const text = sentBody().text as string;
+    expect(text).toContain("по телефону");
+    expect(text).toContain("Стол 1");
+  });
+
+  it("booking.admin_created не постится, если событие не включено в настройках канала", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, type: "booking.admin_created" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });

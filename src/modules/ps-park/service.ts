@@ -1076,6 +1076,26 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     data: { resourceName: resource.name, date, startTime, endTime },
   });
 
+  // Отдельное канал-only событие (#437): booking.confirmed выше не постится в
+  // канал смены (шаблон убран, чтобы не дублировать booking.paid), поэтому
+  // брони по телефону иначе никогда бы туда не попадали.
+  enqueueNotification({
+    type: "booking.admin_created",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId: clientUserId,
+    actor: "admin",
+    data: {
+      resourceName: resource.name,
+      date,
+      startTime,
+      endTime,
+      clientName,
+      clientPhone,
+      bookingId: booking.id,
+    },
+  });
+
   return booking;
 }
 

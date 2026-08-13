@@ -74,9 +74,12 @@ export const analyticsQuerySchema = z.object({
 /**
  * Типы событий выделенного Telegram-канала PS Park (зеркало gazebos).
  * В канал шлём только «оплаченные» сессии (booking.paid) + сервисные события.
+ * booking.admin_created — бронь по телефону, создаётся сразу CONFIRMED и без
+ * неё не попадала бы в канал (#437, зеркало gazebos).
  */
 export const PS_PARK_CHANNEL_EVENT_TYPES = [
   "booking.paid",
+  "booking.admin_created",
   "booking.cancelled",
   "booking.completed",
   "booking.reminder",
@@ -89,6 +92,7 @@ export const PS_PARK_CHANNEL_EVENTS: {
   label: string;
 }[] = [
   { type: "booking.paid", label: "Оплачено онлайн" },
+  { type: "booking.admin_created", label: "Бронь по телефону (админом)" },
   { type: "booking.cancelled", label: "Сессия отменена" },
   { type: "booking.completed", label: "Сессия завершена" },
   { type: "booking.reminder", label: "Напоминание (за 1 час)" },
