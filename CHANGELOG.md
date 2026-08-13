@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.11.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.10.0...v2.11.0) (2026-08-13)
+
+
+### Features
+
+* **cafe:** меню и цены с настенного прайса, кофе первым разделом ([#492](https://github.com/aylisrg/Platform-Delovoy/issues/492)) ([db6497a](https://github.com/aylisrg/Platform-Delovoy/commit/db6497a296b60f88bc6ee8d45c6aa37d56cd1644))
+* **cafe:** минимальный чекаут — одно поле вместо трёх ([#497](https://github.com/aylisrg/Platform-Delovoy/issues/497)) ([58e2dc8](https://github.com/aylisrg/Platform-Delovoy/commit/58e2dc829438e50ea3c3e0514537cd7992610c9d))
+
+
+### Bug Fixes
+
+* **booking:** Zod-валидация тела PATCH статуса брони — отрицательные суммы больше не проезжают ([#498](https://github.com/aylisrg/Platform-Delovoy/issues/498)) ([c916b14](https://github.com/aylisrg/Platform-Delovoy/commit/c916b14ee449878863bfee793b1c960950fb3837))
+* **booking:** бот cancel-booking больше не врёт про успех при штрафе ([#505](https://github.com/aylisrg/Platform-Delovoy/issues/505)) ([6292d85](https://github.com/aylisrg/Platform-Delovoy/commit/6292d8570a6716e7af8b5594a7d5794db3ce1fea))
+* **booking:** учитывать CHECKED_IN в конфликт-чеках и таймлайне ([#476](https://github.com/aylisrg/Platform-Delovoy/issues/476)) ([f2ce14a](https://github.com/aylisrg/Platform-Delovoy/commit/f2ce14a6c9f4569609af8a62e5ff85b8159d39c9))
+* **ci:** apply-cafe-menu падал на blue-green — exec по контейнеру, не по сервису ([#496](https://github.com/aylisrg/Platform-Delovoy/issues/496)) ([1102186](https://github.com/aylisrg/Platform-Delovoy/commit/11021860e498c8fa3f622c266f648e374b7c80f2))
+* **deploy:** skip release notification for already-announced version ([#483](https://github.com/aylisrg/Platform-Delovoy/issues/483)) ([9d9bb95](https://github.com/aylisrg/Platform-Delovoy/commit/9d9bb952bf97a07983ee2d8a9c83687b51606a11)), closes [#482](https://github.com/aylisrg/Platform-Delovoy/issues/482)
+* **gazebos,ps-park:** карточка брони в таймлайне показывает ошибки и открывает счёт при завершении ([#501](https://github.com/aylisrg/Platform-Delovoy/issues/501)) ([eb57dcc](https://github.com/aylisrg/Platform-Delovoy/commit/eb57dcca6d10cb124d0370e85fb06c785b36839b))
+* **gazebos:** admин-брони записываются на клиента, а не на админа ([#500](https://github.com/aylisrg/Platform-Delovoy/issues/500)) ([ecf253a](https://github.com/aylisrg/Platform-Delovoy/commit/ecf253a29729997f846b3300dd6b149bc8610b0d))
+* **ops:** сайт недоступен по имени — вернуть доп. IPv4, пропавший из DHCP-аренды Timeweb ([#491](https://github.com/aylisrg/Platform-Delovoy/issues/491)) ([e52f14a](https://github.com/aylisrg/Platform-Delovoy/commit/e52f14ad152474db86a0ba7203bc947bbf08bdfa))
+* **webapp:** отмена брони через Mini App идёт через booking core ([#503](https://github.com/aylisrg/Platform-Delovoy/issues/503)) ([4ddffaa](https://github.com/aylisrg/Platform-Delovoy/commit/4ddffaa790977db70074401f275bff26f1858481))
+
 ## [2.10.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.9.0...v2.10.0) (2026-08-11)
 
 
