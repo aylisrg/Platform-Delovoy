@@ -127,3 +127,96 @@ diff vs `main`. Источник правды — полный текст issue 
 ## Итог
 
 Основной риск — п.1: он материален (реальные деньги, реальный админ-флоу — «сохранить настройки» не требует специально трогать это поле), напрямую противоречит собственной цели фикса ("свести к одному источнику истины") и собственному явному критерию проверки разработчика (item 4 из брифа: "бит-в-бит те же числа"), которое разработчик проверил на уровне сервиса, но не сверил с соседним, не тронутым им файлом. Нужно исправить п.1 (и желательно п.2) и повторно прогнать `npm test` перед мержем.
+
+---
+
+## Второй круг (коммит 26858b5)
+
+## Вердикт: PASS
+
+Diff `6e45c6a..26858b5`: 2 кодовых файла (`src/app/api/ps-park/settings/route.ts`,
+`src/app/api/gazebos/bookings/[id]/route.ts`) + добавление отчёта первого круга
+в этот же коммит. Проверено заново, не доверяя формулировкам коммит-месседжа.
+
+### 1. Блокирующая находка — устранена полностью
+
+`src/app/api/ps-park/settings/route.ts:31` — `defaults.slotRoundingMinutes` теперь
+`15`, с комментарием, явно требующим совпадать с `DEFAULT_SLOT_ROUNDING_MINUTES` в
+`src/modules/ps-park/service.ts:60`. Сверил оба значения построчно — совпадают.
+
+Выбран именно тот вариант, который первый круг рекомендовал как более безопасный
+("поправить `route.ts`", а не поднимать дефолт сервиса до 30) — не меняет текущее
+биллинговое поведение прод-инстансов, только приводит "витрину" дефолта в форме
+настроек в соответствие с реальным поведением биллинга.
+
+Сверка остальных полей объекта `defaults` в `ps-park/settings/route.ts` с
+`DEFAULT_*`-константами в `ps-park/service.ts` (строки 57–61):
+
+| Поле в route.ts `defaults` | Значение | `DEFAULT_*` в service.ts | Совпадает |
+|---|---|---|---|
+| `openHour` | 8 | `DEFAULT_OPEN_HOUR = 8` | Да |
+| `closeHour` | 23 | `DEFAULT_CLOSE_HOUR = 23` | Да |
+| `slotRoundingMinutes` | 15 | `DEFAULT_SLOT_ROUNDING_MINUTES = 15` | Да (пофикшено) |
+| `sessionAlertMinutes` | 10 | `DEFAULT_SESSION_ALERT_MINUTES = 10` | Да |
+| `minBookingHours` | 1 | — (не существует в service.ts) | Н/П — сервис это поле нигде не читает (`grep -n "minBookingHours" src/modules/ps-park/service.ts` не находит использований), подтверждено ещё в первом круге; поле "мёртвое" в том же смысле, что и было до #434, но вне заявленного скоупа issue — не новая находка. |
+
+Расхождений того же класса больше не найдено.
+
+### 2. gazebos/settings/route.ts — сверка (не трогалось в этом коммите)
+
+`src/app/api/gazebos/settings/route.ts:24-27` `defaults`: `openHour: 8, closeHour: 23,
+minBookingHours: 4, maxBookingHours: 8`. `src/modules/gazebos/service.ts:49-53`:
+`DEFAULT_OPEN_HOUR = 8`, `DEFAULT_CLOSE_HOUR = 23`, `DEFAULT_MIN_BOOKING_HOURS = 4`,
+`DEFAULT_MAX_BOOKING_HOURS = 8`. Все четыре значения совпадают байт-в-байт — расхождения
+нет, вторая копия того же бага в gazebos отсутствует.
+
+### 3. DURATION_ABOVE_MAX фикс
+
+`src/app/api/gazebos/bookings/[id]/route.ts:170-178` — `unprocessableCodes` теперь
+`Set(["DISCOUNT_EXCEEDS_LIMIT", "PAYMENT_REQUIRED", "OUTSIDE_WORKING_HOURS",
+"INVALID_TIME_RANGE", "DURATION_BELOW_MIN", "DURATION_ABOVE_MAX", "CAPACITY_EXCEEDED"])` —
+синтаксически корректно, без дублей, `DURATION_ABOVE_MAX` стоит рядом с симметричным
+`DURATION_BELOW_MIN` как и предлагалось.
+
+Перепроверено самостоятельно утверждение о `createBooking`/`createAdminBooking`
+(`src/app/api/gazebos/book/route.ts:80-88`, `src/app/api/gazebos/admin-book/route.ts:37-42`):
+оба catch-блока делают `if (error instanceof BookingError) return apiError(error.code,
+error.message);` — без третьего аргумента `status`. `apiError()` (`src/lib/api-response.ts:34-39`)
+имеет `status = 400` по умолчанию для *любого* `BookingError.code*, включая
+`DURATION_BELOW_MIN` и `DURATION_ABOVE_MAX` симметрично. Там нет `unprocessableCodes`-маппинга
+вообще ни для одного кода — значит, нет и ассиметрии, которую нужно было бы чинить.
+Объяснение из первого круга подтверждено чтением кода, не просто принято на веру.
+
+### 4. Прогон проверок (самостоятельно, второй раз)
+
+- `npm test -- --run` — **214 test files / 3220 tests passing**, 0 failed.
+- `npx tsc --noEmit -p tsconfig.json` — чисто, без ошибок.
+- `npx eslint src/app/api/ps-park/settings/route.ts "src/app/api/gazebos/bookings/[id]/route.ts"` — 0 warnings/errors.
+- `npm run lint` (весь репозиторий) — 0 errors, 15 warnings, все в файлах, не относящихся к диффу (`messenger/useChatList.ts`, `modules/messenger/types.ts`, `modules/notifications/service.ts`, `modules/telephony/novofon-client.ts`) — предсуществующие, не внесены этим коммитом.
+
+### 5. Scope Check
+
+`git diff 6e45c6a..26858b5 --stat` — ровно 3 файла: `src/app/api/ps-park/settings/route.ts`
+(+5/-1), `src/app/api/gazebos/bookings/[id]/route.ts` (+1), и
+`docs/qa-reports/2026-08-13-issue-434-module-settings-dead-config-review.md` (новый,
+129 строк — отчёт первого круга). Никакого лишнего кода, рефакторинга или
+несвязанных изменений. Оба кодовых файла — минимальные точечные правки, ровно
+соответствующие находкам первого круга review, без побочных "улучшений".
+
+### Security (второй круг)
+
+- **Secrets leakage**: `git diff 6e45c6a..26858b5 | grep -niE '(password|token|secret|NEXTAUTH|TELEGRAM_.*TOKEN|api[_-]key)'` — единственные совпадения — `telegramChannelName`/`telegramChannelId`/`telegramChannelEvents`, которые не тронуты этим диффом (не в контексте изменённых строк) и не являются секретами (публично видимые в админке названия/ID Telegram-каналов, а не bot-токены). Ничего нового не утекает.
+- **RBAC**: не изменён. Оба роута (`ps-park/settings`, `gazebos/bookings/[id]`) как и раньше защищены `requireAdminSection`/существующей проверкой роли выше по файлу — эта часть кода не в диффе.
+- **Injection**: нет raw SQL, нет нового пользовательского ввода — правки только числовых констант-дефолтов и записи в `Set` статус-кодов.
+- **Supply chain**: без изменений в `package.json`/`package-lock.json`.
+- **Dangerous ops**: нет.
+
+Инцидентов не найдено.
+
+### Итог второго круга
+
+Блокирующая находка первого круга устранена полностью и без побочных эффектов;
+дополнительная проверка того же класса бага в gazebos/settings и по остальным
+полям ps-park/settings расхождений не выявила. Non-blocking находка (`DURATION_ABOVE_MAX`)
+тоже исправлена корректно. Тесты, typecheck и lint зелёные. Scope чистый — только
+2 точечных изменения кода. **PASS.**
