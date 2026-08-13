@@ -21,8 +21,10 @@ type PopoverState = {
   maxEndTime: string;
 } | null;
 
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 23;
+// Дефолт на случай пустого grid — реальные границы берутся из data.hours
+// (уже посчитаны бэкендом из настроек модуля, #434).
+const FALLBACK_OPEN_HOUR = 8;
+const FALLBACK_CLOSE_HOUR = 23;
 
 function getMoscowHour(d: Date): number {
   return getMoscowHourUnified(d);
@@ -50,6 +52,11 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
 
   const hours = data.hours;
+  // Границы сетки — из data.hours (посчитаны бэкендом из Module.config), а не
+  // захардкожены: `hours` = ["08:00", ..., "22:00"] → openHour=8, closeHour=23.
+  const openHour = hours.length > 0 ? parseInt(hours[0].split(":")[0], 10) : FALLBACK_OPEN_HOUR;
+  const closeHour =
+    hours.length > 0 ? parseInt(hours[hours.length - 1].split(":")[0], 10) + 1 : FALLBACK_CLOSE_HOUR;
 
   // Update current time marker every minute
   useEffect(() => {
@@ -61,8 +68,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
         return;
       }
       const totalMinutes = getMoscowHour(now) * 60 + getMoscowMinute(now);
-      const openMinutes = OPEN_HOUR * 60;
-      const closeMinutes = CLOSE_HOUR * 60;
+      const openMinutes = openHour * 60;
+      const closeMinutes = closeHour * 60;
       if (totalMinutes < openMinutes || totalMinutes > closeMinutes) {
         setCurrentHourOffset(null);
         return;
@@ -75,7 +82,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     updateNowMarker();
     const interval = setInterval(updateNowMarker, 60_000);
     return () => clearInterval(interval);
-  }, [date]);
+  }, [date, openHour, closeHour]);
 
   const loadTimeline = useCallback(async (newDate: string) => {
     setDate(newDate);
@@ -100,8 +107,8 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     const end = new Date(booking.endTime);
     const startHour = getMoscowHour(start) + getMoscowMinute(start) / 60;
     const endHour = getMoscowHour(end) + getMoscowMinute(end) / 60;
-    const totalHours = CLOSE_HOUR - OPEN_HOUR;
-    const left = ((startHour - OPEN_HOUR) / totalHours) * 100;
+    const totalHours = closeHour - openHour;
+    const left = ((startHour - openHour) / totalHours) * 100;
     const width = ((endHour - startHour) / totalHours) * 100;
     return { left: `${left}%`, width: `${width}%` };
   }
@@ -122,7 +129,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     const nextBooking = data.bookings
       .filter((b) => b.resourceId === resourceId && new Date(b.startTime) > clickedStart)
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
-    if (!nextBooking) return `${CLOSE_HOUR.toString().padStart(2, "0")}:00`;
+    if (!nextBooking) return `${closeHour.toString().padStart(2, "0")}:00`;
     const t = new Date(nextBooking.startTime);
     return `${getMoscowHour(t).toString().padStart(2, "0")}:${getMoscowMinute(t).toString().padStart(2, "0")}`;
   }

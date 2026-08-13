@@ -130,6 +130,11 @@ beforeEach(() => {
   vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) =>
     (fn as (tx: typeof prisma) => Promise<unknown>)(prisma)
   );
+  // clearAllMocks() чистит .mock.calls, но НЕ снятые через mockResolvedValue
+  // реализации — без явного сброса тест, который настроил кастомный
+  // Module.config (#434: openHour/closeHour/slotRoundingMinutes/
+  // sessionAlertMinutes), протекал бы в следующие тесты файла.
+  vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
 });
 
 // ===== createBooking =====
@@ -726,6 +731,22 @@ describe("getTimeline", () => {
     expect(result.bookings[0].startTime).toContain(FUTURE_DATE);
     expect(typeof result.bookings[0].startTime).toBe("string");
   });
+
+  // #434: openHour/closeHour были захардкожены — форма настроек значения
+  // валидировала и сохраняла, но сервис их не читал.
+  it("столбцы hours строятся по Module.config, а не по хардкоду 8–23", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 9, closeHour: 20 },
+    } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.hours).toHaveLength(11); // 9,10,...,19
+    expect(result.hours[0]).toBe("09:00");
+    expect(result.hours[result.hours.length - 1]).toBe("19:00");
+  });
 });
 
 // ===== getActiveSessions =====
@@ -784,6 +805,93 @@ describe("getActiveSessions", () => {
 
     vi.useRealTimers();
   });
+
+  // #434: slotRoundingMinutes/sessionAlertMinutes были захардкожены (15 мин
+  // округление счёта, 10 мин порог алерта) — форма настроек их сохраняла,
+  // но сервис не читал. 40 мин длительности: с шагом 15 → 3×15=45мин=0.75ч,
+  // с шагом 30 → 2×30=60мин=1.0ч — разные значения показывают, что читается
+  // именно настроенный slotRoundingMinutes, а не хардкод.
+  it("округляет счёт по настроенному slotRoundingMinutes, а не по хардкоду 15", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-01-15T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const booking = {
+      id: "b-active",
+      resourceId: "table-1",
+      status: "CONFIRMED",
+      date: new Date(now.toISOString().split("T")[0]),
+      startTime: new Date(now.getTime() - 40 * 60 * 1000), // 40 min ago
+      endTime: new Date(now.getTime() + 60 * 60 * 1000),
+      clientName: "Иван",
+      clientPhone: "+79001234567",
+      userId: "user-1",
+      metadata: {},
+    };
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([booking] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([
+      mockTable({ pricePerHour: 600 }),
+    ] as never);
+
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+    const withDefault = await getActiveSessions();
+    expect(withDefault[0].billedHours).toBe(0.75); // дефолт 15 мин: ceil(40/15)=3 → 0.75ч
+
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { slotRoundingMinutes: 30 },
+    } as never);
+    const withConfigured = await getActiveSessions();
+    expect(withConfigured[0].billedHours).toBe(1); // настроено 30 мин: ceil(40/30)=2 → 1.0ч
+
+    vi.useRealTimers();
+  });
+
+  it("выставляет alertMinutes из настроек модуля в каждую активную сессию", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      {
+        id: "b-active",
+        resourceId: "table-1",
+        status: "CONFIRMED",
+        date: new Date(),
+        startTime: new Date(Date.now() - 10 * 60 * 1000),
+        endTime: new Date(Date.now() + 10 * 60 * 1000),
+        clientName: "Иван",
+        clientPhone: "+79001234567",
+        userId: "user-1",
+        metadata: {},
+      },
+    ] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { sessionAlertMinutes: 15 },
+    } as never);
+
+    const result = await getActiveSessions();
+
+    expect(result[0].alertMinutes).toBe(15);
+  });
+
+  it("падает обратно на sessionAlertMinutes=10, если не настроено", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([
+      {
+        id: "b-active",
+        resourceId: "table-1",
+        status: "CONFIRMED",
+        date: new Date(),
+        startTime: new Date(Date.now() - 10 * 60 * 1000),
+        endTime: new Date(Date.now() + 10 * 60 * 1000),
+        clientName: "Иван",
+        clientPhone: "+79001234567",
+        userId: "user-1",
+        metadata: {},
+      },
+    ] as never);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+
+    const result = await getActiveSessions();
+
+    expect(result[0].alertMinutes).toBe(10);
+  });
 });
 
 // ===== extendBooking =====
@@ -841,6 +949,25 @@ describe("extendBooking", () => {
       }) as never
     );
 
+    await expect(extendBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BEYOND_CLOSING",
+    });
+  });
+
+  // #434: closeHour было захардкожено 23 — форма настроек значение сохраняла,
+  // но проверка «не выходит за рабочие часы» его не читала.
+  it("уважает настроенный closeHour, а не хардкод 23:00", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({
+        status: "CONFIRMED",
+        endTime: new Date(`${FUTURE_DATE}T20:00:00+03:00`),
+      }) as never
+    );
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { closeHour: 20 },
+    } as never);
+
+    // Продление на 1ч довело бы до 21:00, но настроено closeHour=20.
     await expect(extendBooking("booking-1", "manager-1")).rejects.toMatchObject({
       code: "BEYOND_CLOSING",
     });
@@ -1137,6 +1264,23 @@ describe("getAvailability", () => {
     expect(slots[0].endTime).toBe("09:00");
     expect(slots[slots.length - 1].startTime).toBe("22:00");
     expect(slots[slots.length - 1].endTime).toBe("23:00");
+  });
+
+  // #434: openHour/closeHour были захардкожены — форма настроек значения
+  // валидировала и сохраняла, но сервис их не читал.
+  it("генерирует слоты по openHour/closeHour из Module.config, а не по хардкоду 8–23", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 10, closeHour: 18 },
+    } as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+    const slots = result[0].slots;
+
+    expect(slots).toHaveLength(8); // 10,11,...,17
+    expect(slots[0].startTime).toBe("10:00");
+    expect(slots[slots.length - 1].endTime).toBe("18:00");
   });
 });
 

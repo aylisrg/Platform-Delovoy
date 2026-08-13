@@ -52,10 +52,50 @@ import type {
 
 const MODULE_SLUG = "ps-park";
 
-// Operating hours (unified: 08:00–23:00)
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 23;
+// Operating hours — дефолты, если в Module.config ничего не настроено
+// (те же значения, что и в дефолтах GET /api/ps-park/settings).
+const DEFAULT_OPEN_HOUR = 8;
+const DEFAULT_CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
+const DEFAULT_SLOT_ROUNDING_MINUTES = 15;
+const DEFAULT_SESSION_ALERT_MINUTES = 10;
+
+/**
+ * Часы работы модуля из настроек (Module.config.openHour/closeHour). Раньше
+ * везде был захардкожен `OPEN_HOUR=8/CLOSE_HOUR=23` — форма настроек значения
+ * сохраняла, но их никто не читал (#434).
+ */
+async function getOpenCloseHours(): Promise<{ openHour: number; closeHour: number }> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const openHour = typeof config?.openHour === "number" ? config.openHour : DEFAULT_OPEN_HOUR;
+  const closeHour = typeof config?.closeHour === "number" ? config.closeHour : DEFAULT_CLOSE_HOUR;
+  return { openHour, closeHour };
+}
+
+/**
+ * Округление счёта (минут) из настроек. Билинг округлял вверх до 15 минут
+ * захардкожено — форма настроек `slotRoundingMinutes` сохраняла, но никто не
+ * читал (#434). Дефолт — те же 15 минут, чтобы не менять счета тем, кто
+ * настройку никогда не трогал.
+ */
+async function getSlotRoundingMinutes(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.slotRoundingMinutes;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_SLOT_ROUNDING_MINUTES;
+}
+
+/**
+ * Порог (минут) для визуального алерта «сессия скоро закончится» в карточке
+ * активной сессии — был захардкожен `<= 10` (#434).
+ */
+async function getSessionAlertMinutes(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.sessionAlertMinutes;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_SESSION_ALERT_MINUTES;
+}
 
 // === RESOURCES (tables) ===
 
@@ -330,7 +370,7 @@ export async function updateBookingStatus(
 
   if (status === "COMPLETED") {
     completedPricePerHour = Number(resource?.pricePerHour ?? 0);
-    completedBilledHours = billedHours(booking.startTime, actualEndTime);
+    completedBilledHours = billedHours(booking.startTime, actualEndTime, await getSlotRoundingMinutes());
     const hoursCost = completedBilledHours * completedPricePerHour;
     const durationMin = Math.round((actualEndTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
     const billItems = items.map((i) => ({
@@ -1283,9 +1323,12 @@ export async function addItemsToBooking(
 // === AVAILABILITY ===
 
 export async function getAvailability(date: string, resourceId?: string): Promise<DayAvailability[]> {
-  const resources = resourceId
-    ? await prisma.resource.findMany({ where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true } })
-    : await prisma.resource.findMany({ where: { moduleSlug: MODULE_SLUG, isActive: true }, orderBy: { name: "asc" } });
+  const [{ openHour, closeHour }, resources] = await Promise.all([
+    getOpenCloseHours(),
+    resourceId
+      ? prisma.resource.findMany({ where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true } })
+      : prisma.resource.findMany({ where: { moduleSlug: MODULE_SLUG, isActive: true }, orderBy: { name: "asc" } }),
+  ]);
 
   const bookingDate = new Date(date);
 
@@ -1303,7 +1346,7 @@ export async function getAvailability(date: string, resourceId?: string): Promis
     const resourceBookings = existingBookings.filter((b) => b.resourceId === resource.id);
     const slots: TimeSlot[] = [];
 
-    for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour += SLOT_DURATION_HOURS) {
+    for (let hour = openHour; hour < closeHour; hour += SLOT_DURATION_HOURS) {
       const slotStart = `${hour.toString().padStart(2, "0")}:00`;
       const slotEnd = `${(hour + SLOT_DURATION_HOURS).toString().padStart(2, "0")}:00`;
       const slotStartDt = parseDatetime(date, slotStart);
@@ -1351,8 +1394,9 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     orderBy: { startTime: "asc" },
   });
 
-  const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) =>
-    `${(OPEN_HOUR + i).toString().padStart(2, "0")}:00`
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const hours = Array.from({ length: closeHour - openHour }, (_, i) =>
+    `${(openHour + i).toString().padStart(2, "0")}:00`
   );
 
   return {
@@ -1393,9 +1437,11 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
   });
 
   const resourceIds = [...new Set(bookings.map((b) => b.resourceId))];
-  const resources = await prisma.resource.findMany({
-    where: { id: { in: resourceIds } },
-  });
+  const [resources, roundingMinutes, alertMinutes] = await Promise.all([
+    prisma.resource.findMany({ where: { id: { in: resourceIds } } }),
+    getSlotRoundingMinutes(),
+    getSessionAlertMinutes(),
+  ]);
   const resourceMap = new Map(resources.map((r) => [r.id, r]));
 
   return bookings.map((b) => {
@@ -1403,7 +1449,7 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
     const metadata = b.metadata as Record<string, unknown> | null;
     const pricePerHour = Number(resource?.pricePerHour ?? 0);
     const liveEnd = effectiveBillingEnd(b.startTime, b.endTime, now);
-    const billed = billedHours(b.startTime, liveEnd);
+    const billed = billedHours(b.startTime, liveEnd, roundingMinutes);
     const durationMin = Math.round((liveEnd.getTime() - b.startTime.getTime()) / (1000 * 60));
     const hoursCost = billed * pricePerHour;
     const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
@@ -1431,6 +1477,7 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
       })),
       itemsTotal,
       totalBill: hoursCost + itemsTotal,
+      alertMinutes,
     };
   });
 }
@@ -1510,12 +1557,16 @@ export async function extendBooking(bookingId: string, managerId: string) {
     throw new PSBookingError("INVALID_STATUS", "Продлить можно только подтверждённое бронирование");
   }
 
+  const { openHour, closeHour } = await getOpenCloseHours();
   const newEndTime = new Date(booking.endTime.getTime() + 60 * 60 * 1000);
   const endHour = getMoscowHour(newEndTime);
   // Handle midnight wrap (0) or exceeding close hour
-  const beyondClosing = endHour > CLOSE_HOUR || endHour < OPEN_HOUR || (endHour === CLOSE_HOUR && newEndTime.getMinutes() > 0);
+  const beyondClosing = endHour > closeHour || endHour < openHour || (endHour === closeHour && newEndTime.getMinutes() > 0);
   if (beyondClosing) {
-    throw new PSBookingError("BEYOND_CLOSING", "Нельзя продлить за пределы рабочего времени (до 23:00)");
+    throw new PSBookingError(
+      "BEYOND_CLOSING",
+      `Нельзя продлить за пределы рабочего времени (до ${closeHour.toString().padStart(2, "0")}:00)`
+    );
   }
 
   // Продление — та же гонка, что и создание: два менеджера продлевают соседние
@@ -1567,7 +1618,7 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     booking.status === "COMPLETED"
       ? booking.endTime
       : effectiveBillingEnd(booking.startTime, booking.endTime, new Date());
-  const billed = billedHours(booking.startTime, liveEnd);
+  const billed = billedHours(booking.startTime, liveEnd, await getSlotRoundingMinutes());
   const durationMin = Math.round((liveEnd.getTime() - booking.startTime.getTime()) / (1000 * 60));
   const hoursCost = billed * pricePerHour;
 
@@ -1622,14 +1673,16 @@ function getMoscowHour(d: Date): number {
 }
 
 /**
- * Rounds duration up to the nearest 15-minute increment for billing.
- * e.g. 1h 01min → 1.25h, 1h 35min → 1.75h, 2h 15min → 2.25h, 2h 16min → 2.5h
+ * Rounds duration up to the nearest `roundingMinutes` increment for billing
+ * (Module.config.slotRoundingMinutes — раньше был захардкожен 15, #434).
+ * e.g. с roundingMinutes=15: 1h 01min → 1.25h, 1h 35min → 1.75h, 2h 15min → 2.25h, 2h 16min → 2.5h
  */
-function billedHours(startTime: Date, endTime: Date): number {
+function billedHours(startTime: Date, endTime: Date, roundingMinutes: number): number {
   const durationMs = endTime.getTime() - startTime.getTime();
   const durationMin = durationMs / (1000 * 60);
   if (durationMin <= 0) return 0;
-  return Math.ceil(durationMin / 15) * 0.25;
+  const roundingHours = roundingMinutes / 60;
+  return Math.ceil(durationMin / roundingMinutes) * roundingHours;
 }
 
 /**
@@ -1847,7 +1900,8 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
   const totalRevenue = transactions.reduce((sum, t) => sum + Number(t.totalAmount), 0);
   const averageCheck = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
 
-  const totalSlots = resources.length * (CLOSE_HOUR - OPEN_HOUR) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const totalSlots = resources.length * (closeHour - openHour) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
   const bookedSlots = bookings.filter((b) => ["CONFIRMED", "COMPLETED", "CHECKED_IN"].includes(b.status)).length;
   const occupancyRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) / 100 : 0;
 

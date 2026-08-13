@@ -141,6 +141,13 @@ const validBookingInput = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks() чистит .mock.calls, но НЕ снятые через mockResolvedValue
+  // реализации — без явного сброса тест, который настроил кастомный
+  // Module.config (#434: openHour/closeHour/maxBookingHours), протекал бы в
+  // следующие тесты файла, даже не относящиеся к нему.
+  vi.mocked(prisma.module.findUnique).mockResolvedValue({
+    config: { maxDiscountPercent: 30, minBookingHours: 4 },
+  } as never);
 });
 
 // ===== createBooking =====
@@ -229,6 +236,27 @@ describe("createBooking", () => {
     await expect(
       createBooking("user-1", { ...validBookingInput, startTime: "10:00", endTime: "14:00" })
     ).resolves.toBeDefined();
+  });
+
+  // #434: maxBookingHours было в форме настроек, но нигде не читалось —
+  // бронь любой длины внутри часов работы проходила.
+  it("throws DURATION_ABOVE_MAX when booking exceeds maxBookingHours (default 8h)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(
+      createBooking("user-1", { ...validBookingInput, startTime: "08:00", endTime: "18:00" }) // 10h > 8h
+    ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
+  });
+
+  it("уважает настроенный maxBookingHours из Module.config", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 4, maxBookingHours: 5 },
+    } as never);
+
+    await expect(
+      createBooking("user-1", { ...validBookingInput, startTime: "10:00", endTime: "16:00" }) // 6h > 5h
+    ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
   });
 
   it("throws BOOKING_CONFLICT when time slot is already taken", async () => {
@@ -766,6 +794,52 @@ describe("getAvailability", () => {
   });
 });
 
+// ===== #434: настройки модуля читаются сервисом =====
+//
+// До фикса openHour/closeHour/maxBookingHours были захардкожены — форма
+// настроек их валидировала и сохраняла, но ни один сервис не читал.
+describe("getAvailability уважает openHour/closeHour/maxBookingHours из настроек (#434)", () => {
+  it("генерирует слоты по openHour/closeHour из Module.config, а не по хардкоду 8–23", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 10, closeHour: 18 },
+    } as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+    const slots = result.resources[0].slots;
+
+    expect(slots).toHaveLength(8); // 10,11,...,17
+    expect(slots[0].startTime).toBe("10:00");
+    expect(slots[slots.length - 1].endTime).toBe("18:00");
+  });
+
+  it("отдаёт openHour/closeHour/maxBookingHours в ответе", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 9, closeHour: 21, maxBookingHours: 6 },
+    } as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+
+    expect(result.openHour).toBe(9);
+    expect(result.closeHour).toBe(21);
+    expect(result.maxBookingHours).toBe(6);
+  });
+
+  it("падает обратно на 8–23, если openHour/closeHour не настроены", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+
+    const result = await getAvailability(FUTURE_DATE);
+
+    expect(result.openHour).toBe(8);
+    expect(result.closeHour).toBe(23);
+  });
+});
+
 // === ADMIN BOOKING ===
 
 const validAdminInput = {
@@ -823,6 +897,15 @@ describe("createAdminBooking", () => {
     await expect(
       createAdminBooking("admin-1", { ...validAdminInput, startTime: "10:00", endTime: "12:00" }) // 2h < 4h
     ).rejects.toMatchObject({ code: "DURATION_BELOW_MIN" });
+  });
+
+  // #434: maxBookingHours не применялся нигде, включая админ-бронь.
+  it("throws DURATION_ABOVE_MAX when admin booking exceeds maxBookingHours (default 8h)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await expect(
+      createAdminBooking("admin-1", { ...validAdminInput, startTime: "08:00", endTime: "18:00" }) // 10h > 8h
+    ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
   });
 
   it("should call Google Calendar when resource has googleCalendarId", async () => {
@@ -1033,6 +1116,22 @@ describe("getTimeline", () => {
   });
 });
 
+describe("getTimeline уважает openHour/closeHour из настроек (#434)", () => {
+  it("столбцы hours строятся по Module.config, а не по хардкоду 8–23", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 9, closeHour: 20 },
+    } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.hours).toHaveLength(11); // 9,10,...,19
+    expect(result.hours[0]).toBe("09:00");
+    expect(result.hours[result.hours.length - 1]).toBe("19:00");
+  });
+});
+
 // === Analytics Tests ===
 
 describe("getAnalytics", () => {
@@ -1237,6 +1336,36 @@ describe("rescheduleBooking", () => {
     await expect(
       rescheduleBooking("booking-1", { endTime: "16:00" }, "m1")
     ).rejects.toThrow("активные брони");
+  });
+
+  // #434: часы работы и максимальная длительность были захардкожены.
+  it("OUTSIDE_WORKING_HOURS уважает настроенные openHour/closeHour, а не хардкод 8–23", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CONFIRMED" }) as never
+    );
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 10, closeHour: 20, minBookingHours: 4 },
+    } as never);
+
+    // 09:00 — до настроенного openHour=10, хотя это внутри старого хардкода 8–23.
+    await expect(
+      rescheduleBooking("booking-1", { startTime: "09:00", endTime: "13:00" }, "m1")
+    ).rejects.toMatchObject({ code: "OUTSIDE_WORKING_HOURS" });
+  });
+
+  it("DURATION_ABOVE_MAX уважает настроенный maxBookingHours", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CONFIRMED" }) as never
+    );
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 1, maxBookingHours: 5 },
+    } as never);
+
+    await expect(
+      rescheduleBooking("booking-1", { startTime: "10:00", endTime: "16:00" }, "m1") // 6ч > 5ч
+    ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
   });
 });
 

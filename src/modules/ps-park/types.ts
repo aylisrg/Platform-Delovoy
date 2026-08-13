@@ -107,6 +107,8 @@ export type ActiveSession = {
   items: BookingItemSnapshotWithSubtotal[];
   itemsTotal: number;
   totalBill: number;
+  /** Порог (мин), после которого сессия визуально помечается «скоро закончится» (Module.config.sessionAlertMinutes). */
+  alertMinutes: number;
 };
 
 export type BookingItemSnapshotWithSubtotal = {
