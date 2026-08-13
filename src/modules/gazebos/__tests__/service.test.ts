@@ -1334,6 +1334,33 @@ describe("перенос синхронизирует Google Calendar и уве�
     expect(deleteCalendarEvent).not.toHaveBeenCalled();
   });
 
+  it("не трогает календарь при BOOKING_CONFLICT — конфликт-чек идёт раньше синка", async () => {
+    // Регрессия на находку код-ревью: до фикса календарь трогали ДО
+    // конфликт-чека внутри транзакции — отклонённый перенос всё равно патчил
+    // время или удалял валидное событие без замены (осиротевшая запись).
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      googleEventId: "gcal-1",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T11:00:00+03:00`),
+    });
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never) // load
+      .mockResolvedValueOnce(mockBooking({ id: "other" }) as never); // conflict under lock
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(
+      mockResource({ googleCalendarId: "cal-1" }) as never
+    );
+
+    await expect(
+      rescheduleBooking("booking-1", { endTime: "15:00" }, "manager-1")
+    ).rejects.toThrow("Это время уже занято");
+
+    expect(updateCalendarEvent).not.toHaveBeenCalled();
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+    expect(deleteCalendarEvent).not.toHaveBeenCalled();
+    expect(enqueueNotification).not.toHaveBeenCalled();
+  });
+
   it("шлёт booking.rescheduled клиенту при переносе времени/ресурса", async () => {
     // Явный +03:00: mockBooking() без офсета хранит "10:00" как UTC (13:00 Moscow),
     // а formatTime() всегда показывает Moscow — нужен настоящий Moscow-инстант,
