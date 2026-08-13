@@ -60,6 +60,9 @@ export function PSParkBookingHistoryTable() {
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Поиск по имени/телефону гостя (#438) — «гость звонит: я бронировал».
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Какая строка раскрыта лентой событий.
@@ -67,8 +70,13 @@ export function PSParkBookingHistoryTable() {
   const perPage = 20;
 
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
     loadBookings();
-  }, [page, statusFilter, dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, statusFilter, dateFrom, dateTo, debouncedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadBookings() {
     setLoading(true);
@@ -77,6 +85,7 @@ export function PSParkBookingHistoryTable() {
       if (statusFilter) params.set("status", statusFilter);
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
+      if (debouncedSearch) params.set("search", debouncedSearch);
 
       const res = await fetch(`/api/ps-park/bookings?${params}`);
       const json = await res.json();
@@ -134,6 +143,13 @@ export function PSParkBookingHistoryTable() {
   return (
     <div>
       <div className="flex flex-wrap gap-3 mb-4">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          placeholder="Поиск: имя, телефон"
+          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm"
+        />
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}

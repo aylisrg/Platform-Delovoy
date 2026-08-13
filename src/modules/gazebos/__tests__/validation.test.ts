@@ -192,6 +192,20 @@ describe("bookingFilterSchema", () => {
     const result = bookingFilterSchema.safeParse({ page: "0" });
     expect(result.success).toBe(false);
   });
+
+  // #438: поиск по имени/телефону гостя в истории броней.
+  it("accepts a search string", () => {
+    const result = bookingFilterSchema.safeParse({ search: "Иванов" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.search).toBe("Иванов");
+    }
+  });
+
+  it("rejects a search string over 200 characters", () => {
+    const result = bookingFilterSchema.safeParse({ search: "a".repeat(201) });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("adminCreateBookingSchema", () => {

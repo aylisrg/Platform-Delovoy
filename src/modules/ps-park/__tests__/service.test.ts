@@ -1391,6 +1391,37 @@ describe("soft-delete filter (deletedAt: null) in read functions", () => {
     );
   });
 
+  // #438: «гость звонит: я бронировал» — найти бронь по имени/телефону.
+  it("listBookingsPaginated applies search filter across clientName and clientPhone (case-insensitive)", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listBookingsPaginated({ search: "Петров" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { clientName: { contains: "Петров", mode: "insensitive" } },
+            { clientPhone: { contains: "Петров", mode: "insensitive" } },
+          ],
+        }),
+      })
+    );
+  });
+
+  it("listBookingsPaginated does not add OR clause when search is empty", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listBookingsPaginated({});
+
+    const call = vi.mocked(prisma.booking.findMany).mock.calls[0][0];
+    expect(call?.where).not.toHaveProperty("OR");
+  });
+
   it("createBooking conflict-check ignores soft-deleted rows", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
