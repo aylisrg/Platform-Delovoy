@@ -46,3 +46,4 @@
 | 2026-08-13 | 2026-08-13-issue-431-booking-history-pagination-qa-report.md | 6 | rbac, api, typescript, tests |
 | 2026-08-13 | 2026-08-13-issue-478-noshow-checkin-conflict-qa-report.md | 7 | rbac, api, tests, scope_creep |
 | 2026-08-13 | 2026-08-13-issue-433-reschedule-calendar-notify-qa-report.md | 7 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-13 | 2026-08-13-issue-434-module-settings-dead-config-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |

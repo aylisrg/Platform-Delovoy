@@ -44,11 +44,13 @@ import type {
 
 const MODULE_SLUG = "gazebos";
 
-// Operating hours (unified: 08:00–23:00)
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 23;
+// Operating hours — дефолты, если в Module.config ничего не настроено
+// (те же значения, что и в дефолтах GET /api/gazebos/settings).
+const DEFAULT_OPEN_HOUR = 8;
+const DEFAULT_CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
 const DEFAULT_MIN_BOOKING_HOURS = 4;
+const DEFAULT_MAX_BOOKING_HOURS = 8;
 
 function pluralHours(n: number): string {
   const mod10 = n % 10;
@@ -63,6 +65,31 @@ export async function getMinBookingHours(): Promise<number> {
   const config = moduleRecord?.config as Record<string, unknown> | null;
   const val = config?.minBookingHours;
   return typeof val === "number" && val > 0 ? val : DEFAULT_MIN_BOOKING_HOURS;
+}
+
+/**
+ * Максимальная длительность брони (часов). Форма настроек её валидировала и
+ * сохраняла, но ни один сервис её не читал (#434) — бронь любой длины внутри
+ * часов работы проходила.
+ */
+export async function getMaxBookingHours(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.maxBookingHours;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_MAX_BOOKING_HOURS;
+}
+
+/**
+ * Часы работы модуля из настроек (Module.config.openHour/closeHour). Раньше
+ * везде был захардкожен `OPEN_HOUR=8/CLOSE_HOUR=23` — форма настроек значения
+ * сохраняла, но их никто не читал (#434).
+ */
+export async function getOpenCloseHours(): Promise<{ openHour: number; closeHour: number }> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const openHour = typeof config?.openHour === "number" ? config.openHour : DEFAULT_OPEN_HOUR;
+  const closeHour = typeof config?.closeHour === "number" ? config.closeHour : DEFAULT_CLOSE_HOUR;
+  return { openHour, closeHour };
 }
 
 /**
@@ -224,13 +251,20 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
-  // Enforce minimum booking duration
+  // Enforce minimum/maximum booking duration
   const minHours = await getMinBookingHours();
   const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
   if (durationHours < minHours) {
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
+  }
+  const maxHours = await getMaxBookingHours();
+  if (durationHours > maxHours) {
+    throw new BookingError(
+      "DURATION_ABOVE_MAX",
+      `Максимальное бронирование — ${maxHours} ${pluralHours(maxHours)}`
     );
   }
 
@@ -415,13 +449,20 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
-  // Enforce minimum booking duration
+  // Enforce minimum/maximum booking duration
   const minHoursAdmin = await getMinBookingHours();
   const durationHoursAdmin = (end.getTime() - start.getTime()) / 3_600_000;
   if (durationHoursAdmin < minHoursAdmin) {
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHoursAdmin} ${pluralHours(minHoursAdmin)}`
+    );
+  }
+  const maxHoursAdmin = await getMaxBookingHours();
+  if (durationHoursAdmin > maxHoursAdmin) {
+    throw new BookingError(
+      "DURATION_ABOVE_MAX",
+      `Максимальное бронирование — ${maxHoursAdmin} ${pluralHours(maxHoursAdmin)}`
     );
   }
 
@@ -598,9 +639,10 @@ export async function rescheduleBooking(
     throw new BookingError("RESOURCE_NOT_FOUND", "Беседка не найдена");
   }
 
-  // Часы работы 08:00–23:00 + начало раньше конца.
-  const openHHMM = `${String(OPEN_HOUR).padStart(2, "0")}:00`;
-  const closeHHMM = `${String(CLOSE_HOUR).padStart(2, "0")}:00`;
+  // Часы работы из настроек модуля + начало раньше конца.
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const openHHMM = `${String(openHour).padStart(2, "0")}:00`;
+  const closeHHMM = `${String(closeHour).padStart(2, "0")}:00`;
   if (effStart < openHHMM || effEnd > closeHHMM) {
     throw new BookingError(
       "OUTSIDE_WORKING_HOURS",
@@ -623,6 +665,13 @@ export async function rescheduleBooking(
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
+  }
+  const maxHours = await getMaxBookingHours();
+  if (durationHours > maxHours) {
+    throw new BookingError(
+      "DURATION_ABOVE_MAX",
+      `Максимальное бронирование — ${maxHours} ${pluralHours(maxHours)}`
     );
   }
 
@@ -1395,8 +1444,10 @@ export async function getAvailability(
   date: string,
   resourceId?: string
 ): Promise<import("./types").AvailabilityResponse> {
-  const [minBookingHours, resources] = await Promise.all([
+  const [minBookingHours, maxBookingHours, { openHour, closeHour }, resources] = await Promise.all([
     getMinBookingHours(),
+    getMaxBookingHours(),
+    getOpenCloseHours(),
     resourceId
       ? prisma.resource.findMany({
           where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -1425,7 +1476,7 @@ export async function getAvailability(
     );
 
     const slots: TimeSlot[] = [];
-    for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour += SLOT_DURATION_HOURS) {
+    for (let hour = openHour; hour < closeHour; hour += SLOT_DURATION_HOURS) {
       const slotStart = `${hour.toString().padStart(2, "0")}:00`;
       const slotEnd = `${(hour + SLOT_DURATION_HOURS).toString().padStart(2, "0")}:00`;
       const slotStartDt = parseDatetime(date, slotStart);
@@ -1451,7 +1502,7 @@ export async function getAvailability(
     return { date, resource, slots, pricing };
   });
 
-  return { resources: resourcesData, minBookingHours };
+  return { resources: resourcesData, minBookingHours, maxBookingHours, openHour, closeHour };
 }
 
 // === TIMELINE ===
@@ -1485,8 +1536,9 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     orderBy: { startTime: "asc" },
   });
 
-  const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) =>
-    `${(OPEN_HOUR + i).toString().padStart(2, "0")}:00`
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const hours = Array.from({ length: closeHour - openHour }, (_, i) =>
+    `${(openHour + i).toString().padStart(2, "0")}:00`
   );
 
   return {
@@ -1561,7 +1613,8 @@ export async function getAnalytics(period: "week" | "month" | "quarter"): Promis
 
   const averageCheck = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
 
-  const totalSlots = resources.length * (CLOSE_HOUR - OPEN_HOUR) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const totalSlots = resources.length * (closeHour - openHour) * Math.ceil((now.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
   const bookedSlots = bookings.filter((b) => ["CONFIRMED", "COMPLETED", "CHECKED_IN"].includes(b.status)).length;
   const occupancyRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) / 100 : 0;
 

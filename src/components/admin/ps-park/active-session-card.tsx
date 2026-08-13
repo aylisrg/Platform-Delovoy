@@ -72,7 +72,8 @@ export function ActiveSessionCard({ session, onUpdate }: ActiveSessionCardProps)
   }, [session.startTime, session.endTime]);
 
   // Three mutually-exclusive states; isExpired wins over isEnding.
-  const isEnding = !isExpired && remainingMinutes <= 10 && remainingMinutes > 0;
+  // Порог — session.alertMinutes из настроек модуля (Module.config.sessionAlertMinutes, #434).
+  const isEnding = !isExpired && remainingMinutes <= session.alertMinutes && remainingMinutes > 0;
   const state: "expired" | "ending" | "ok" = isExpired
     ? "expired"
     : isEnding

@@ -85,6 +85,9 @@ export type DayAvailability = {
 export type AvailabilityResponse = {
   resources: DayAvailability[];
   minBookingHours: number;
+  maxBookingHours: number;
+  openHour: number;
+  closeHour: number;
 };
 
 // Timeline data for admin grid
