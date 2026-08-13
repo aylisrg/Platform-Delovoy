@@ -951,13 +951,15 @@ describe("checkInBooking", () => {
   });
 
   it("transitions NO_SHOW → CHECKED_IN (late arrival), stores lateCheckedInAt", async () => {
-    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
-      mockBooking({
-        status: "NO_SHOW",
-        startTime: new Date(Date.now() - 60 * 60 * 1000),
-        metadata: { noShowAt: new Date().toISOString(), noShowReason: "auto" },
-      }) as never
-    );
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({
+          status: "NO_SHOW",
+          startTime: new Date(Date.now() - 60 * 60 * 1000),
+          metadata: { noShowAt: new Date().toISOString(), noShowReason: "auto" },
+        }) as never
+      ) // саму бронь нашли
+      .mockResolvedValueOnce(null); // слот свободен под блокировкой (#478)
     vi.mocked(prisma.booking.update).mockResolvedValue(
       mockBooking({ status: "CHECKED_IN" }) as never
     );
@@ -989,6 +991,52 @@ describe("checkInBooking", () => {
     await expect(checkInBooking("booking-1", "manager-1")).rejects.toMatchObject({
       code: "TRANSITION_CONDITION_NOT_MET",
     });
+  });
+});
+
+// ===== #478: NO_SHOW → CHECKED_IN не проверял занятость слота =====
+//
+// Слот честно освобождается, когда бронь уходит в NO_SHOW (#424, #429), и мог
+// быть отдан другому гостю. До фикса реактивация неявки была голым update без
+// конфликт-чека и блокировки — опоздавший гость создавал двойную бронь.
+describe("NO_SHOW → CHECKED_IN конфликт-чек (#478)", () => {
+  it("отдаёт BOOKING_CONFLICT и не меняет статус, если слот уже занят другой бронью", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({ status: "NO_SHOW", startTime: new Date(Date.now() - 60 * 60 * 1000) }) as never
+      ) // саму бронь нашли
+      .mockResolvedValueOnce(mockBooking({ id: "booking-2", status: "CONFIRMED" }) as never); // конфликт под блокировкой
+
+    await expect(checkInBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_CONFLICT",
+    });
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
+
+  it("делает конфликт-чек под advisory-блокировкой слота (та же транзакция, что при создании брони)", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({ status: "NO_SHOW", startTime: new Date(Date.now() - 60 * 60 * 1000) }) as never
+      )
+      .mockResolvedValueOnce(null);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CHECKED_IN" }) as never);
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  it("CONFIRMED → CHECKED_IN не берёт лишней блокировки слота (уже занимал его)", async () => {
+    const pastStart = new Date(Date.now() - 10 * 60 * 1000);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CONFIRMED", startTime: pastStart }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CHECKED_IN" }) as never);
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
 
