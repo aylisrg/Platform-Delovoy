@@ -1414,7 +1414,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       resourceId: b.resourceId,
       startTime: b.startTime.toISOString(),
       endTime: b.endTime.toISOString(),
-      status: b.status as "PENDING" | "CONFIRMED",
+      status: b.status as "PENDING" | "CONFIRMED" | "CHECKED_IN",
       clientName: b.clientName,
       clientPhone: b.clientPhone,
       metadata: b.metadata as Record<string, unknown> | null,

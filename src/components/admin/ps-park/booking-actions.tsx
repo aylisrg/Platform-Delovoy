@@ -62,6 +62,43 @@ export function BookingActions({
     if (message) setError(message);
   }
 
+  /**
+   * Заезд/неявка идут через выделенные роуты (`/checkin`, `/no-show`), а не
+   * общий PATCH { status } — в них живёт конфликт-чек под блокировкой слота
+   * для позднего заезда NO_SHOW → CHECKED_IN (#478); общий PATCH его не
+   * повторяет (#436). NO_SHOW сюда попадает только через историю броней —
+   * такая бронь не входит в ACTIVE_BOOKING_STATUSES и не видна в расписании.
+   */
+  async function updateStatusVia(endpoint: "checkin" | "no-show"): Promise<string | null> {
+    setError(null);
+    try {
+      const res = await fetch(`/api/ps-park/bookings/${bookingId}/${endpoint}`, {
+        method: "POST",
+      });
+      const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
+      if (!res.ok || !body || body.success === false) {
+        return (
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось выполнить действие (HTTP ${res.status})`
+        );
+      }
+      startTransition(() => router.refresh());
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "Сетевая ошибка";
+    }
+  }
+
+  async function handleCheckIn() {
+    const message = await updateStatusVia("checkin");
+    if (message) setError(message);
+  }
+
+  async function handleMarkNoShow() {
+    const message = await updateStatusVia("no-show");
+    if (message) setError(message);
+  }
+
   async function handleDialogConfirm(status: BookingStatus, reason: string | null) {
     const message = await updateStatus(status, reason ? { reason } : undefined);
     if (message) return message;
@@ -74,6 +111,8 @@ export function BookingActions({
   }
 
   const canComplete = currentStatus === "CONFIRMED" || currentStatus === "CHECKED_IN";
+  const canCheckIn = currentStatus === "CONFIRMED" || currentStatus === "NO_SHOW";
+  const canMarkNoShow = currentStatus === "CONFIRMED";
 
   const details = [
     ...(clientName ? [{ label: "Гость", value: clientName }] : []),
@@ -87,6 +126,16 @@ export function BookingActions({
         {currentStatus === "PENDING" && (
           <Button size="sm" disabled={pending} onClick={() => handleInlineStatus("CONFIRMED")}>
             Подтвердить
+          </Button>
+        )}
+        {canCheckIn && (
+          <Button size="sm" disabled={pending} onClick={handleCheckIn}>
+            Заехал
+          </Button>
+        )}
+        {canMarkNoShow && (
+          <Button size="sm" variant="secondary" disabled={pending} onClick={handleMarkNoShow}>
+            Не пришёл
           </Button>
         )}
         {canComplete && (

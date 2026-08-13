@@ -182,4 +182,78 @@ describe("BookingDetailCard (ps-park)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Бронирование не найдено");
   });
+
+  // #436: роуты /checkin и /no-show существовали, но ни одна кнопка их не
+  // вызывала — статус CHECKED_IN был недостижим вручную.
+  describe("Заехал / Не пришёл (#436)", () => {
+    it("«Заехал» шлёт POST на выделенный роут /checkin, не общий PATCH", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse({ success: true, data: { id: "booking-1", status: "CHECKED_IN" } })
+      );
+
+      const { onStatusChanged } = renderCard({ status: "CONFIRMED" });
+      fireEvent.click(screen.getByText("Заехал"));
+
+      await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
+      const [url, options] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/ps-park/bookings/booking-1/checkin");
+      expect((options as RequestInit).method).toBe("POST");
+      expect((options as RequestInit).body).toBeUndefined();
+    });
+
+    it("показывает BOOKING_CONFLICT при позднем заезде на уже занятый стол", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse(
+          { success: false, error: { code: "BOOKING_CONFLICT", message: "Стол уже занят другой бронью" } },
+          false,
+          422
+        )
+      );
+
+      const { onStatusChanged } = renderCard({ status: "CONFIRMED" });
+      fireEvent.click(screen.getByText("Заехал"));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Стол уже занят другой бронью");
+      expect(onStatusChanged).not.toHaveBeenCalled();
+    });
+
+    it("«Не пришёл» шлёт POST на выделенный роут /no-show", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse({ success: true, data: { id: "booking-1", status: "NO_SHOW" } })
+      );
+
+      const { onStatusChanged } = renderCard({ status: "CONFIRMED" });
+      fireEvent.click(screen.getByText("Не пришёл"));
+
+      await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
+      const [url, options] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/ps-park/bookings/booking-1/no-show");
+      expect((options as RequestInit).method).toBe("POST");
+    });
+
+    it("не показывает «Заехал»/«Не пришёл» для брони, ожидающей подтверждения", () => {
+      renderCard({ status: "PENDING" });
+
+      expect(screen.queryByText("Заехал")).toBeNull();
+      expect(screen.queryByText("Не пришёл")).toBeNull();
+    });
+
+    // Регрессия: до #436 «Завершить» показывалось только для CONFIRMED — раз
+    // CHECKED_IN стал достижим руками, заехавшую сессию нечем было бы закрыть.
+    it("заехавшую сессию можно завершить — «Завершить» показывается и для CHECKED_IN", () => {
+      renderCard({ status: "CHECKED_IN" });
+
+      expect(screen.queryByRole("button", { name: "Заехал" })).toBeNull();
+      expect(screen.queryByText("Не пришёл")).toBeNull();
+      expect(screen.getByText("Завершить")).toBeTruthy();
+    });
+
+    it("бейдж статуса показывает «Играет» для CHECKED_IN", () => {
+      renderCard({ status: "CHECKED_IN" });
+
+      expect(screen.getByText("Играет")).toBeTruthy();
+      expect(screen.queryByText("Подтверждена")).toBeNull();
+    });
+  });
 });

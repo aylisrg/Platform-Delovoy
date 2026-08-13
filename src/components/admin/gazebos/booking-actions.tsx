@@ -72,6 +72,46 @@ export function BookingActions({
     if (message) setApiError(message);
   }
 
+  /**
+   * Заезд/неявка идут через выделенные роуты (`/checkin`, `/no-show`), а не
+   * общий PATCH { status } — в них живёт конфликт-чек под блокировкой слота
+   * для позднего заезда NO_SHOW → CHECKED_IN (#478); общий PATCH его не
+   * повторяет (#436).
+   */
+  async function updateStatusVia(endpoint: "checkin" | "no-show"): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/gazebos/bookings/${bookingId}/${endpoint}`, {
+        method: "POST",
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success: true }
+        | { success: false; error?: { message?: string } }
+        | null;
+      if (!res.ok || !body || body.success === false) {
+        return (
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось выполнить действие (HTTP ${res.status})`
+        );
+      }
+      router.refresh();
+      return null;
+    } catch {
+      return "Сетевая ошибка";
+    }
+  }
+
+  async function handleCheckIn() {
+    setApiError(null);
+    const message = await updateStatusVia("checkin");
+    if (message) setApiError(message);
+  }
+
+  async function handleMarkNoShow() {
+    setApiError(null);
+    const message = await updateStatusVia("no-show");
+    if (message) setApiError(message);
+  }
+
   async function handleConfirmCancel(reason: string | null) {
     const message = await updateStatus("CANCELLED", reason ? { reason } : undefined);
     if (message) return message;
@@ -126,6 +166,8 @@ export function BookingActions({
   }
 
   const canComplete = currentStatus === "CONFIRMED" || currentStatus === "CHECKED_IN";
+  const canCheckIn = currentStatus === "CONFIRMED" || currentStatus === "NO_SHOW";
+  const canMarkNoShow = currentStatus === "CONFIRMED";
 
   return (
     <>
@@ -133,6 +175,16 @@ export function BookingActions({
         {currentStatus === "PENDING" && (
           <Button size="sm" onClick={() => handleInlineStatus("CONFIRMED")}>
             Подтвердить
+          </Button>
+        )}
+        {canCheckIn && (
+          <Button size="sm" onClick={handleCheckIn}>
+            Заехал
+          </Button>
+        )}
+        {canMarkNoShow && (
+          <Button size="sm" variant="secondary" onClick={handleMarkNoShow}>
+            Не пришёл
           </Button>
         )}
         {canComplete && (
