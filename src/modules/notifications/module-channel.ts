@@ -79,6 +79,8 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
       `🏁 <b>Бронь завершена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("gazebos", d)}`,
     "booking.deleted": (d) =>
       `🗑 <b>Бронь удалена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}`,
+    "booking.rescheduled": (d) =>
+      `🔄 <b>Бронь перенесена</b>\n\n${escapeHtml(d.resourceName)}\nБыло: ${d.oldDate}, ${d.oldStartTime} — ${d.oldEndTime}\nСтало: ${d.date}, ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${adminLink("gazebos", d)}`,
     "booking.reminder": (d) =>
       `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
     "booking.ending_soon": (d) =>

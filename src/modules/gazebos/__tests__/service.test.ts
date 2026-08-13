@@ -13,6 +13,7 @@ vi.mock("@/modules/notifications/queue", () => ({
 vi.mock("@/lib/google-calendar", () => ({
   createCalendarEvent: vi.fn().mockResolvedValue({ success: false }),
   deleteCalendarEvent: vi.fn().mockResolvedValue({ success: true }),
+  updateCalendarEvent: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock("@/modules/inventory/service", () => ({
@@ -99,7 +100,7 @@ import {
   listBookingsPaginated,
 } from "@/modules/gazebos/service";
 import { prisma } from "@/lib/db";
-import { createCalendarEvent } from "@/lib/google-calendar";
+import { createCalendarEvent, deleteCalendarEvent, updateCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { upsertClientByPhone } from "@/modules/clients/service";
@@ -1236,6 +1237,151 @@ describe("rescheduleBooking", () => {
     await expect(
       rescheduleBooking("booking-1", { endTime: "16:00" }, "m1")
     ).rejects.toThrow("активные брони");
+  });
+});
+
+// ===== #433: Google Calendar + уведомление при переносе =====
+//
+// До фикса rescheduleBooking не вызывал updateCalendarEvent ни разу и не делал
+// ни одного enqueueNotification — после переноса времени событие GCal оставалось
+// на старом слоте, клиент и Telegram-канал не узнавали об изменении.
+describe("перенос синхронизирует Google Calendar и уведомляет (#433)", () => {
+  it("патчит то же событие в календаре при переносе времени на том же ресурсе", async () => {
+    // +03:00 явно: формат "10:00" без офсета парсится как UTC, а не Moscow, и
+    // 2ч между таким "10:00" и Moscow-инстантом "15:00" не проходят DURATION_BELOW_MIN.
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      googleEventId: "gcal-1",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T11:00:00+03:00`),
+    });
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never) // load
+      .mockResolvedValueOnce(null as never); // no conflict
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(
+      mockResource({ googleCalendarId: "cal-1" }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await rescheduleBooking("booking-1", { endTime: "15:00" }, "manager-1");
+
+    expect(updateCalendarEvent).toHaveBeenCalledWith(
+      "cal-1",
+      "gcal-1",
+      expect.objectContaining({
+        startTime: expect.any(Date),
+        endTime: expect.any(Date),
+      })
+    );
+    expect(deleteCalendarEvent).not.toHaveBeenCalled();
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+  });
+
+  it("переносит событие между календарями при смене беседки", async () => {
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      googleEventId: "gcal-1",
+      resourceId: "resource-1",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+      endTime: new Date(`${FUTURE_DATE}T15:00:00`), // 5ч — проходит DURATION_BELOW_MIN
+    });
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never)
+      .mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.resource.findFirst).mockImplementation((async (args: {
+      where?: { id?: string };
+    }) => {
+      const id = args?.where?.id;
+      if (id === "resource-2") return mockResource({ id: "resource-2", name: "Беседка №2", googleCalendarId: "cal-2" });
+      if (id === "resource-1") return mockResource({ id: "resource-1", name: "Беседка №1", googleCalendarId: "cal-1" });
+      return null;
+    }) as never);
+    vi.mocked(createCalendarEvent).mockResolvedValueOnce({ success: true, eventId: "gcal-2" } as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await rescheduleBooking("booking-1", { resourceId: "resource-2" }, "manager-1");
+
+    expect(deleteCalendarEvent).toHaveBeenCalledWith("cal-1", "gcal-1");
+    expect(createCalendarEvent).toHaveBeenCalledWith(
+      "cal-2",
+      expect.objectContaining({ startTime: expect.any(Date), endTime: expect.any(Date) })
+    );
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ googleEventId: "gcal-2" }),
+      })
+    );
+  });
+
+  it("не трогает календарь, если у брони не было googleEventId", async () => {
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T11:00:00+03:00`),
+    }); // no googleEventId
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never)
+      .mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(
+      mockResource({ googleCalendarId: "cal-1" }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await rescheduleBooking("booking-1", { endTime: "15:00" }, "manager-1");
+
+    expect(updateCalendarEvent).not.toHaveBeenCalled();
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+    expect(deleteCalendarEvent).not.toHaveBeenCalled();
+  });
+
+  it("шлёт booking.rescheduled клиенту при переносе времени/ресурса", async () => {
+    // Явный +03:00: mockBooking() без офсета хранит "10:00" как UTC (13:00 Moscow),
+    // а formatTime() всегда показывает Moscow — нужен настоящий Moscow-инстант,
+    // чтобы oldStartTime/oldEndTime совпали с ожидаемой строкой.
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      userId: "user-1",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00+03:00`),
+      endTime: new Date(`${FUTURE_DATE}T11:00:00+03:00`),
+    });
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never)
+      .mockResolvedValueOnce(null as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await rescheduleBooking("booking-1", { endTime: "15:00" }, "manager-1");
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "booking.rescheduled",
+        moduleSlug: "gazebos",
+        entityId: "booking-1",
+        userId: "user-1",
+        data: expect.objectContaining({
+          oldStartTime: "10:00",
+          oldEndTime: "11:00",
+          startTime: "10:00",
+          endTime: "15:00",
+        }),
+      })
+    );
+  });
+
+  it("не шлёт booking.rescheduled, если время и ресурс не менялись", async () => {
+    const booking = mockBooking({
+      status: "CONFIRMED",
+      userId: "user-1",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+      endTime: new Date(`${FUTURE_DATE}T15:00:00`), // 5ч — проходит DURATION_BELOW_MIN
+    });
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(booking as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await rescheduleBooking("booking-1", { clientName: "Новое имя" }, "manager-1");
+
+    expect(enqueueNotification).not.toHaveBeenCalled();
   });
 });
 
