@@ -16,6 +16,7 @@ import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/bookin
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import { lockSlot } from "@/modules/booking/slot-lock";
+import { getPrepaidAmount } from "@/modules/booking/prepayment";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import { DEFAULT_CANCELLATION_POLICY, PREPAID_CANCELLATION_POLICY } from "@/modules/booking/types";
 import { createOnlinePayment, autoRefundOnCancellation } from "@/modules/payments/service";
@@ -1002,24 +1003,28 @@ export async function updateBookingStatus(
     // Онлайн-предоплата (YooKassa) уже проведена в леджер вебхуком —
     // в гейте она засчитывается, в кассовый FT при завершении не попадает.
     const onlinePaid = Number(existingMeta.onlinePaidAmount ?? 0);
+    // Предоплата, принятая менеджером до завершения (#511). Своя кассовая
+    // строка в леджере у неё уже есть, поэтому в гейте засчитывается, а в
+    // кассовый FT завершения не попадает — иначе выручка задвоится.
+    const prepaid = getPrepaidAmount(existingMeta);
 
     // PAYMENT_REQUIRED gate — see ADR 2026-05-04-gazebos-payment-required-on-complete.
     // CRON not used in gazebos today, but the actorRole branch keeps the door
     // closed to a future cron auto-completion regression.
     if (actorRole !== "CRON" && completedTotalBill > 0) {
       const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
-      if (paidByOperator + onlinePaid < completedTotalBill) {
+      if (paidByOperator + onlinePaid + prepaid < completedTotalBill) {
         const shortfall =
-          Math.round((completedTotalBill - onlinePaid - paidByOperator) * 100) / 100;
+          Math.round((completedTotalBill - onlinePaid - prepaid - paidByOperator) * 100) / 100;
         throw new BookingError(
           "PAYMENT_REQUIRED",
           `Необходимо принять оплату: не хватает ${shortfall.toLocaleString("ru-RU")} ₽`,
-          { shortfall, totalBill: completedTotalBill, paid: paidByOperator, onlinePaid }
+          { shortfall, totalBill: completedTotalBill, paid: paidByOperator, onlinePaid, prepaid }
         );
       }
     }
 
-    const resolvedCash = cashAmount ?? Math.max(0, completedTotalBill - onlinePaid);
+    const resolvedCash = cashAmount ?? Math.max(0, completedTotalBill - onlinePaid - prepaid);
     const resolvedCard = cardAmount ?? 0;
 
     const managerUser = managerId
@@ -1082,6 +1087,7 @@ export async function updateBookingStatus(
               endTime: booking.endTime.toISOString(),
               originalTotal,
               ...(onlinePaid > 0 && { onlinePaidAmount: onlinePaid }),
+              ...(prepaid > 0 && { prepaidAmount: prepaid }),
               ...(discountData && {
                 discountPercent: discountData.percent,
                 discountAmount: Number(discountData.amount),

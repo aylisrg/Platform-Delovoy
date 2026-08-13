@@ -191,3 +191,110 @@ describe("GazeboBookingDetailCard", () => {
     expect(screen.getByText("Завершение брони беседки")).toBeTruthy();
   });
 });
+
+// #511, вторая итерация: владелец не находил, «как поменять статус» и где
+// история. Кнопки зависели от состояния, заезда и неявки не было вовсе,
+// а история пряталась в серой полоске-разделителе.
+describe("GazeboBookingDetailCard — статус и история", () => {
+  // Время брони считаем от «сейчас», а не хардкодим датой: иначе тест про
+  // недоступный чек-ин молча протухнет, когда эта дата наступит.
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const future = {
+    startTime: tomorrow.toISOString(),
+    endTime: new Date(tomorrow.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it("показывает выпадающий список со всеми статусами и с ОПЛАЧЕНО", () => {
+    renderCard(future);
+
+    const select = screen.getByLabelText("Статус брони") as HTMLSelectElement;
+    const labels = Array.from(select.options).map((o) => o.textContent ?? "");
+
+    for (const expected of ["Ожидает", "Подтверждена", "Заезд", "Неявка", "Завершена", "Отменена"]) {
+      expect(labels.some((l) => l.startsWith(expected))).toBe(true);
+    }
+    expect(labels.some((l) => l.includes("ОПЛАЧЕНО"))).toBe(true);
+    expect(select.value).toBe("CONFIRMED");
+  });
+
+  it("недоступный переход виден, но заблокирован и подписан причиной", () => {
+    renderCard(future);
+
+    const select = screen.getByLabelText("Статус брони") as HTMLSelectElement;
+    const checkIn = Array.from(select.options).find((o) => o.value === "CHECKED_IN")!;
+
+    expect(checkIn.disabled).toBe(true);
+    expect(checkIn.textContent).toContain("после начала");
+  });
+
+  it("выбор ОПЛАЧЕНО открывает ввод суммы, а не меняет статус", async () => {
+    renderCard(future);
+
+    fireEvent.change(screen.getByLabelText("Статус брони"), { target: { value: "__PAID__" } });
+
+    expect(await screen.findByText("Отметить оплату")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("записанная оплата уходит на отдельный эндпоинт, не трогая статус", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: { id: "booking-1", status: "CONFIRMED" } })
+    );
+
+    const { onStatusChanged } = renderCard(future);
+    fireEvent.change(screen.getByLabelText("Статус брони"), { target: { value: "__PAID__" } });
+    await screen.findByText("Отметить оплату");
+
+    fireEvent.click(screen.getByText("Записать оплату"));
+
+    await waitFor(() => expect(onStatusChanged).toHaveBeenCalled());
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/gazebos/bookings/booking-1/payment");
+    expect((options as RequestInit).method).toBe("POST");
+    expect(JSON.parse((options as RequestInit).body as string)).toMatchObject({
+      cashAmount: 3000,
+      cardAmount: 0,
+    });
+  });
+
+  it("выбор «Отменить» из списка ведёт через то же подтверждение", async () => {
+    renderCard(future);
+
+    fireEvent.change(screen.getByLabelText("Статус брони"), { target: { value: "CANCELLED" } });
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("история открывается кнопкой и подтягивает события", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          events: [
+            { id: "e1", action: "booking.create", label: "Бронь создана", actor: "Гость", at: "2026-08-01T10:00:00.000Z", details: [] },
+          ],
+          status: "CONFIRMED",
+          restore: { available: false, hoursLeft: 0, reasonUnavailable: "Бронь не закрыта" },
+        },
+      })
+    );
+
+    renderCard(future);
+    expect(screen.queryByText("Бронь создана")).toBeNull();
+
+    fireEvent.click(screen.getByText("История"));
+
+    expect(await screen.findByText("Бронь создана")).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/gazebos/bookings/booking-1/history");
+  });
+});

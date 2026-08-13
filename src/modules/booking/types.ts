@@ -51,6 +51,15 @@ export type BookingMetadata = {
   // Online payments (YooKassa): сумма, оплаченная онлайн, и последний платёж.
   onlinePaidAmount?: string; // decimal string
   paymentId?: string;
+
+  // Предоплата, принятая менеджером на месте до завершения брони (#511).
+  // Живёт в metadata, а не в колонках `cashAmount`/`cardAmount`: те —
+  // снапшот чекаута, их перезаписывает завершение брони. Симметрично
+  // `onlinePaidAmount`: в платёжном гейте засчитывается, в кассовый FT
+  // завершения не попадает — своя строка уже проведена при приёме денег.
+  prepaidCashAmount?: string; // decimal string
+  prepaidCardAmount?: string; // decimal string
+  prepaidAt?: string;         // ISO datetime последнего приёма предоплаты
 };
 
 export type CancellationPolicy = {

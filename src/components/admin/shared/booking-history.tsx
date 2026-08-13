@@ -32,6 +32,12 @@ type Props = {
   bookingLabel?: string;
   /** Дёрнуть, когда бронь восстановлена, — родитель перечитывает расписание. */
   onRestored?: () => void;
+  /**
+   * Управление раскрытием снаружи. Передан — компонент прячет собственный
+   * заголовок-переключатель: раскрытием командует кнопка «История» в карточке
+   * брони. Не передан — рисует свой заголовок (режим таблицы броней).
+   */
+  open?: boolean;
 };
 
 function formatMoment(iso: string): string {
@@ -54,8 +60,16 @@ function formatMoment(iso: string): string {
  * вдвое у тех, кому история не нужна прямо сейчас (AC-6: открывается за одно
  * действие, без перехода на другую страницу).
  */
-export function BookingHistory({ bookingId, moduleSlug, bookingLabel, onRestored }: Props) {
-  const [open, setOpen] = useState(false);
+export function BookingHistory({
+  bookingId,
+  moduleSlug,
+  bookingLabel,
+  onRestored,
+  open: controlledOpen,
+}: Props) {
+  const [uncontrolledOpen, setOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState<BookingHistoryEntry[]>([]);
   const [restore, setRestore] = useState<RestoreInfo | null>(null);
@@ -111,17 +125,21 @@ export function BookingHistory({ bookingId, moduleSlug, bookingLabel, onRestored
     }
   }
 
+  if (isControlled && !open) return null;
+
   return (
     <div className="border-t border-zinc-100">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
-      >
-        <span>История брони</span>
-        <span className="text-zinc-400">{open ? "▲" : "▼"}</span>
-      </button>
+      {!isControlled && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+        >
+          <span>История брони</span>
+          <span className="text-zinc-400">{open ? "▲" : "▼"}</span>
+        </button>
+      )}
 
       {open && (
         <div className="px-4 pb-3">

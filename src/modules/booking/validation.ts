@@ -99,3 +99,30 @@ export const restoreBookingSchema = z.object({
 });
 
 export type RestoreBookingRequest = z.infer<typeof restoreBookingSchema>;
+
+/**
+ * Приём оплаты до завершения брони (#511) — предоплата наличными или картой,
+ * которую менеджер берёт при подтверждении по телефону. Хотя бы одна из сумм
+ * должна быть положительной, иначе действие бессмысленно.
+ */
+export const recordPrepaymentSchema = z
+  .object({
+    cashAmount: z
+      .number()
+      .min(0, "Сумма оплаты не может быть отрицательной")
+      .max(10_000_000, "Сумма оплаты слишком велика")
+      .nullish()
+      .transform((v) => v ?? 0),
+    cardAmount: z
+      .number()
+      .min(0, "Сумма оплаты не может быть отрицательной")
+      .max(10_000_000, "Сумма оплаты слишком велика")
+      .nullish()
+      .transform((v) => v ?? 0),
+  })
+  .refine((d) => d.cashAmount > 0 || d.cardAmount > 0, {
+    message: "Укажите сумму оплаты",
+    path: ["cashAmount"],
+  });
+
+export type RecordPrepaymentRequest = z.infer<typeof recordPrepaymentSchema>;
