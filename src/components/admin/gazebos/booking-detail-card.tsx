@@ -3,13 +3,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GazeboBookingEditForm } from "./booking-edit-form";
+import { GazeboBillModal, type PaymentSplit } from "./gazebo-bill-modal";
 import type { TimelineBooking } from "@/modules/gazebos/types";
-import {
-  DISCOUNT_REASONS,
-  DISCOUNT_REASON_LABELS,
-  type DiscountReason,
-} from "@/modules/booking/discount";
-import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
+import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
+
+type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
+type ApiOkBody = { success: true; data: unknown };
 
 type Props = {
   booking: TimelineBooking;
@@ -32,10 +31,9 @@ export function GazeboBookingDetailCard({
 }: Props) {
   const [actionLoading, setActionLoading] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [showDiscount, setShowDiscount] = useState(false);
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [discountReason, setDiscountReason] = useState<DiscountReason | "">("");
-  const [discountNote, setDiscountNote] = useState("");
+  const [billOpen, setBillOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const meta = booking.metadata as Record<string, unknown> | null;
   const guestCount = meta?.guestCount as number | undefined;
@@ -60,49 +58,62 @@ export function GazeboBookingDetailCard({
   const appliedRate = Number(meta?.pricePerHour ?? pricePerHour ?? 0) || null;
   const totalCost = appliedRate ? Math.round(hours * appliedRate) : null;
   const totalFromMeta = Number(meta?.totalPrice ?? totalCost ?? 0);
-  const discountAmount = discountPercent > 0 ? Math.round(totalFromMeta * discountPercent / 100) : 0;
-  const finalAmount = totalFromMeta - discountAmount;
-
-  const discountValid = !showDiscount || discountPercent === 0 || (
-    discountPercent > 0 &&
-    discountPercent <= maxDiscountPercent &&
-    discountReason !== "" &&
-    (discountReason !== "other" || discountNote.length >= 5)
-  );
 
   async function updateStatus(status: string) {
     setActionLoading(true);
+    setApiError(null);
     try {
       const res = await fetch(`/api/gazebos/bookings/${booking.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (res.ok) onStatusChanged();
+      const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
+      if (!res.ok || !body || body.success === false) {
+        const message =
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось обновить статус (HTTP ${res.status})`;
+        setApiError(message);
+        return;
+      }
+      onStatusChanged();
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Сетевая ошибка");
     } finally {
       setActionLoading(false);
     }
   }
 
-  async function handleComplete() {
-    setActionLoading(true);
+  async function handleConfirmBill(split: PaymentSplit) {
+    setCompleting(true);
+    setApiError(null);
     try {
-      const payload: Record<string, unknown> = { status: "COMPLETED" };
-      if (showDiscount && discountPercent > 0 && discountReason) {
-        payload.discountPercent = discountPercent;
-        payload.discountReason = discountReason;
-        if (discountReason === "other" && discountNote) {
-          payload.discountNote = discountNote;
-        }
+      const payload: Record<string, unknown> = {
+        status: "COMPLETED",
+        cashAmount: split.cashAmount,
+        cardAmount: split.cardAmount,
+      };
+      if (split.discountPercent && split.discountPercent > 0 && split.discountReason) {
+        payload.discountPercent = split.discountPercent;
+        payload.discountReason = split.discountReason;
+        if (split.discountNote) payload.discountNote = split.discountNote;
       }
       const res = await fetch(`/api/gazebos/bookings/${booking.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) onStatusChanged();
+      const data = await res.json().catch(() => null);
+      if (data?.success) {
+        setBillOpen(false);
+        onStatusChanged();
+      } else {
+        setApiError(data?.error?.message ?? "Ошибка при завершении");
+      }
+    } catch {
+      setApiError("Не удалось завершить бронь");
     } finally {
-      setActionLoading(false);
+      setCompleting(false);
     }
   }
 
@@ -193,88 +204,19 @@ export function GazeboBookingDetailCard({
         <div className="px-4 pb-3 border-t border-zinc-100 pt-3">
           <div className="flex justify-between text-sm font-semibold">
             <span className="text-zinc-900">Итого ({hours} ч × {appliedRate} ₽)</span>
-            <span className="text-zinc-900">
-              {showDiscount && discountPercent > 0 ? (
-                <>
-                  <span className="line-through text-zinc-400 font-normal mr-2">{totalFromMeta.toLocaleString("ru-RU")} ₽</span>
-                  {finalAmount.toLocaleString("ru-RU")} ₽
-                </>
-              ) : (
-                <>{totalFromMeta.toLocaleString("ru-RU")} ₽</>
-              )}
-            </span>
+            <span className="text-zinc-900">{totalFromMeta.toLocaleString("ru-RU")} ₽</span>
           </div>
         </div>
       )}
 
-      {/* Discount form (inline, shown when completing) */}
-      {showDiscount && canComplete && (
-        <div className="px-4 pb-3">
-          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Скидка</span>
-              <button
-                onClick={() => { setShowDiscount(false); setDiscountPercent(0); setDiscountReason(""); setDiscountNote(""); }}
-                className="text-xs text-zinc-500 hover:text-zinc-700"
-              >
-                Убрать
-              </button>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div>
-                <label className="block text-xs font-medium text-zinc-600 mb-1">% (макс. {maxDiscountPercent})</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={maxDiscountPercent}
-                  value={discountPercent || ""}
-                  onChange={(e) => setDiscountPercent(Math.min(Number(e.target.value) || 0, maxDiscountPercent))}
-                  className="w-20 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm tabular-nums focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  placeholder="0"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-zinc-600 mb-1">Причина</label>
-                <select
-                  value={discountReason}
-                  onChange={(e) => setDiscountReason(e.target.value as DiscountReason)}
-                  className="w-full rounded-lg border border-zinc-300 px-2 py-1.5 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                >
-                  <option value="">Выберите</option>
-                  {DISCOUNT_REASONS.map((r) => (
-                    <option key={r} value={r}>{DISCOUNT_REASON_LABELS[r]}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {discountReason === "other" && (
-              <div>
-                <label className="block text-xs font-medium text-zinc-600 mb-1">Пояснение (мин. 5 символов)</label>
-                <textarea
-                  value={discountNote}
-                  onChange={(e) => setDiscountNote(e.target.value)}
-                  maxLength={500}
-                  rows={2}
-                  className="w-full rounded-lg border border-zinc-300 px-2 py-1.5 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
-                  placeholder="Укажите причину..."
-                />
-              </div>
-            )}
-
-            {discountPercent > 0 && (
-              <div className="flex items-center justify-between text-xs text-amber-800 border-t border-amber-200 pt-2">
-                <span>Скидка {discountPercent}%</span>
-                <span className="font-semibold">−{discountAmount.toLocaleString("ru-RU")} ₽</span>
-              </div>
-            )}
-          </div>
-        </div>
+      {apiError && !billOpen && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">
+          {apiError}
+        </p>
       )}
 
       <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2 flex-wrap">
-        {canEdit && !showDiscount && (
+        {canEdit && (
           <Button
             size="sm"
             variant="secondary"
@@ -293,33 +235,14 @@ export function GazeboBookingDetailCard({
             Подтвердить
           </Button>
         )}
-        {canComplete && !showDiscount && (
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleComplete}
-              disabled={actionLoading}
-            >
-              Завершить
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowDiscount(true)}
-              disabled={actionLoading}
-            >
-              Со скидкой
-            </Button>
-          </>
-        )}
-        {canComplete && showDiscount && (
+        {canComplete && (
           <Button
             size="sm"
-            onClick={handleComplete}
-            disabled={actionLoading || !discountValid}
+            variant="secondary"
+            onClick={() => { setApiError(null); setBillOpen(true); }}
+            disabled={actionLoading}
           >
-            {actionLoading ? "..." : "Завершить со скидкой"}
+            Завершить
           </Button>
         )}
         <Button
@@ -349,6 +272,25 @@ export function GazeboBookingDetailCard({
             setShowEdit(false);
             onStatusChanged();
           }}
+        />
+      )}
+
+      {billOpen && (
+        <GazeboBillModal
+          bill={{
+            resourceName,
+            clientName: booking.clientName ?? "Без имени",
+            date: toISODate(booking.startTime),
+            startTime: formatTime(start),
+            endTime: formatTime(end),
+            totalBill: totalFromMeta,
+          }}
+          isOpen={billOpen}
+          onClose={() => { setBillOpen(false); setApiError(null); }}
+          onConfirm={handleConfirmBill}
+          confirming={completing}
+          maxDiscountPercent={maxDiscountPercent}
+          apiError={apiError}
         />
       )}
     </div>

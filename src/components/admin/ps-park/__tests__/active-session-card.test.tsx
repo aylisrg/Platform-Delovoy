@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { formatOverrun } from "../active-session-card";
 
-// ADR F2 §Тесты — fallback набор: jsdom-инфра отсутствует, поэтому покрываем
-// чистый helper. DOM-уровень тесты состояний (зелёный/жёлтый/красный/boundary)
-// добавим отдельным мини-PR с @testing-library/react + jsdom — см. ADR.
+// ADR F2 §Тесты — fallback набор на момент написания: jsdom-инфры ещё не было,
+// поэтому покрывали только чистый helper. jsdom + @testing-library/react
+// появились в #425 (см. src/components/admin/gazebos/__tests__/booking-detail-card.test.tsx
+// для примера) — DOM-уровень тесты состояний (зелёный/жёлтый/красный/boundary)
+// для этой карточки всё ещё не добавлены, задел на отдельный PR.
 
 describe("formatOverrun", () => {
   it("returns minutes when overrun < 60", () => {
