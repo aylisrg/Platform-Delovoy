@@ -213,3 +213,48 @@ describe("getAllowedTransitions", () => {
     expect(result).toEqual(["CANCELLED"]);
   });
 });
+
+// #511: до этого из COMPLETED и CANCELLED пути назад не было вовсе — один
+// случайный клик менеджера терял бронь навсегда.
+describe("восстановление закрытой брони", () => {
+  it("SUPERADMIN может вернуть завершённую бронь в CONFIRMED", () => {
+    expect(() =>
+      assertValidTransition(
+        makeCtx({ currentStatus: "COMPLETED", targetStatus: "CONFIRMED", actorRole: "SUPERADMIN" })
+      )
+    ).not.toThrow();
+  });
+
+  it("SUPERADMIN может вернуть отменённую бронь в CONFIRMED", () => {
+    expect(() =>
+      assertValidTransition(
+        makeCtx({ currentStatus: "CANCELLED", targetStatus: "CONFIRMED", actorRole: "SUPERADMIN" })
+      )
+    ).not.toThrow();
+  });
+
+  it("MANAGER восстанавливать не может — обычный PATCH статуса ходит от его лица", () => {
+    expect(() =>
+      assertValidTransition(
+        makeCtx({ currentStatus: "COMPLETED", targetStatus: "CONFIRMED", actorRole: "MANAGER" })
+      )
+    ).toThrow(BookingTransitionError);
+  });
+
+  it("CRON не восстанавливает — автозавершение не должно ходить назад", () => {
+    expect(() =>
+      assertValidTransition(
+        makeCtx({ currentStatus: "CANCELLED", targetStatus: "CONFIRMED", actorRole: "CRON" })
+      )
+    ).toThrow(BookingTransitionError);
+  });
+
+  it("восстановление ведёт только в CONFIRMED, не в CHECKED_IN или COMPLETED", () => {
+    expect(getAllowedTransitions("COMPLETED", "SUPERADMIN")).toEqual(["CONFIRMED"]);
+    expect(getAllowedTransitions("CANCELLED", "SUPERADMIN")).toEqual(["CONFIRMED"]);
+  });
+
+  it("для MANAGER закрытая бронь по-прежнему тупик", () => {
+    expect(getAllowedTransitions("CANCELLED", "MANAGER")).toHaveLength(0);
+  });
+});

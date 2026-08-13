@@ -83,3 +83,19 @@ export const updateBookingStatusSchema = z.object({
 });
 
 export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusSchema>;
+
+/**
+ * Восстановление ошибочно закрытой брони (#511). Пароль обязателен —
+ * действие затрагивает деньги и расписание, поэтому строгость та же, что
+ * у удаления данных (AC-7).
+ */
+export const restoreBookingSchema = z.object({
+  password: z.string().min(1, "Введите пароль"),
+  reason: z
+    .string()
+    .max(500, "Максимальная длина причины — 500 символов")
+    .nullish()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+});
+
+export type RestoreBookingRequest = z.infer<typeof restoreBookingSchema>;

@@ -6,6 +6,7 @@ import { QuickBookingPopover } from "./quick-booking-popover";
 import { BookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
 import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
+import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
 type TimelineGridProps = {
   initialData: TimelineData;
@@ -277,6 +278,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
                           <span className="font-medium text-zinc-900 truncate">
                             {booking.clientName ?? "—"}
                           </span>
+                          <PaymentDot booking={booking} />
                         </div>
                         {playerCount && (
                           <span className="text-zinc-500">{playerCount} игр.</span>

@@ -66,6 +66,12 @@ export function BookingActions({
     }
   }
 
+  async function handleInlineStatus(status: BookingStatus) {
+    setApiError(null);
+    const message = await updateStatus(status);
+    if (message) setApiError(message);
+  }
+
   async function handleConfirmCancel(reason: string | null) {
     const message = await updateStatus("CANCELLED", reason ? { reason } : undefined);
     if (message) return message;
@@ -125,7 +131,7 @@ export function BookingActions({
     <>
       <div className="flex gap-2">
         {currentStatus === "PENDING" && (
-          <Button size="sm" onClick={() => updateStatus("CONFIRMED")}>
+          <Button size="sm" onClick={() => handleInlineStatus("CONFIRMED")}>
             Подтвердить
           </Button>
         )}
@@ -134,10 +140,18 @@ export function BookingActions({
             Завершить
           </Button>
         )}
-        <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
+        <Button size="sm" variant="danger" onClick={() => { setApiError(null); setCancelOpen(true); }}>
           Отменить
         </Button>
       </div>
+
+      {/* Ошибка подтверждения показывается внутри диалога; здесь — только
+          ошибки действий без диалога (например, «Подтвердить»). */}
+      {apiError && !billOpen && !cancelOpen && pendingSplit === null && (
+        <p role="alert" className="text-xs text-red-600">
+          {apiError}
+        </p>
+      )}
 
       <ConfirmDialog
         open={cancelOpen}
@@ -156,7 +170,7 @@ export function BookingActions({
             ? [{ label: "Сумма", value: `${totalPrice.toLocaleString("ru-RU")} ₽` }]
             : []),
         ]}
-        warning="Отмена не восстанавливается автоматически — вернуть бронь сможет только суперадмин."
+        warning="Вернуть бронь сможет только суперадмин и только в течение 24 часов — через «Историю брони», если слот к тому моменту свободен."
         confirmLabel="Да, отменить бронь"
         variant="danger"
         reason={{
@@ -202,7 +216,7 @@ export function BookingActions({
             value: `${(pendingSplit?.cardAmount ?? 0).toLocaleString("ru-RU")} ₽`,
           },
         ]}
-        warning="Завершение нельзя отменить самостоятельно — переоткрыть бронь сможет только суперадмин."
+        warning="Переоткрыть бронь сможет только суперадмин и только в течение 24 часов — через «Историю брони»."
         confirmLabel="Да, завершить"
         variant="neutral"
         onCancel={() => setPendingSplit(null)}

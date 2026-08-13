@@ -80,6 +80,9 @@ export async function PATCH(
       return apiError("VALIDATION_ERROR", parsedStatus.error.issues[0].message, 422);
     }
     const { status: newStatus, reason, confirmPenalty, cashAmount, cardAmount } = parsedStatus.data;
+    // Статус до изменения — чтобы в истории брони было «Подтверждена →
+    // Отменена», а не безадресное «новый статус: Отменена» (AC-2, AC-5).
+    const previousStatus = (await getBooking(id))?.status ?? null;
     let updated;
 
     // Users can only cancel their own bookings
@@ -129,9 +132,16 @@ export async function PATCH(
       return apiError("FORBIDDEN", "Недостаточно прав для изменения статуса", 403);
     }
 
-    await logAudit(session.user.id, "booking.status_change", "Booking", id, {
-      newStatus,
-    });
+    // COMPLETED уже пишет `booking.complete` внутри транзакции сервиса —
+    // второй записью история брони двоилась бы.
+    if (newStatus !== "COMPLETED") {
+      await logAudit(session.user.id, "booking.status_change", "Booking", id, {
+        newStatus,
+        ...(previousStatus && { previousStatus }),
+        ...(reason && { reason }),
+        moduleSlug: "gazebos",
+      });
+    }
 
     // Enrich response with top-level discount fields per AC-1.8
     const meta = updated.metadata as Record<string, unknown> | null;
@@ -165,7 +175,12 @@ export async function PATCH(
         "DURATION_BELOW_MIN",
         "CAPACITY_EXCEEDED",
       ]);
-      const status = conflictCodes.has(error.code)
+      // FORBIDDEN приходит из FSM, когда переход существует, но роли не
+      // хватает прав — например, MANAGER пытается вернуть закрытую бронь
+      // мимо `restoreBooking()`. Это 403, а не «непонятный 400».
+      const status = error.code === "FORBIDDEN"
+        ? 403
+        : conflictCodes.has(error.code)
         ? 409
         : unprocessableCodes.has(error.code)
           ? 422

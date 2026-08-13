@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
+import { BookingHistory } from "@/components/admin/shared/booking-history";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
 import {
   DeleteConfirmDialog,
@@ -27,6 +29,8 @@ type HistoryBooking = {
   clientPhone: string | null;
   resourceName: string | null;
   metadata: Record<string, unknown> | null;
+  cashAmount: string | null;
+  cardAmount: string | null;
   paymentStatus: BookingPaymentStatus;
   isGuest: boolean;
 };
@@ -69,6 +73,9 @@ export function GazeboBookingHistoryTable() {
   const [dateTo, setDateTo] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Какая строка раскрыта лентой событий. Раскрывается по кнопке, а не по
+  // клику в строку — клик уже занят переходом в расписание.
+  const [historyId, setHistoryId] = useState<string | null>(null);
   const perPage = 20;
 
   useEffect(() => {
@@ -96,6 +103,8 @@ export function GazeboBookingHistoryTable() {
           clientPhone: b.clientPhone ?? (b.user as Record<string, unknown>)?.phone ?? null,
           resourceName: (b.resource as Record<string, unknown>)?.name ?? null,
           metadata: b.metadata as Record<string, unknown> | null,
+          cashAmount: (b.cashAmount as string | null) ?? null,
+          cardAmount: (b.cardAmount as string | null) ?? null,
           paymentStatus: (b.paymentStatus as BookingPaymentStatus) ?? "NONE",
           isGuest: !b.userId,
         })));
@@ -180,11 +189,11 @@ export function GazeboBookingHistoryTable() {
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
                 <th className="pb-3 font-medium">Оплата</th>
-                {canDelete && <th className="pb-3 font-medium text-right">Действия</th>}
+                <th className="pb-3 font-medium text-right">Действия</th>
               </tr>
             </thead>
             <tbody>
-              {bookings.map((b) => (
+              {bookings.map((b) => [
                 <tr
                   key={b.id}
                   onClick={() => openInSchedule(b)}
@@ -211,10 +220,27 @@ export function GazeboBookingHistoryTable() {
                     </Badge>
                   </td>
                   <td className="py-3">
-                    <BookingPaymentBadge status={b.paymentStatus} />
+                    <div className="flex flex-wrap items-center gap-1">
+                      {/* Деньги целиком: касса + карта + онлайн. */}
+                      <PaymentBadge booking={b} />
+                      {/* Онлайн-бейдж оставлен только там, где он знает то,
+                          чего не знает сумма: возврат и ожидание оплаты. */}
+                      {(b.paymentStatus === "REFUNDED" ||
+                        b.paymentStatus === "PARTIALLY_REFUNDED" ||
+                        b.paymentStatus === "AWAITING") && (
+                        <BookingPaymentBadge status={b.paymentStatus} />
+                      )}
+                    </div>
                   </td>
-                  {canDelete && (
-                    <td className="py-3 text-right">
+                  <td className="py-3 text-right whitespace-nowrap">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setHistoryId(historyId === b.id ? null : b.id); }}
+                      className="mr-2 text-zinc-500 hover:text-zinc-800 transition-colors"
+                      title="История брони"
+                    >
+                      🕓
+                    </button>
+                    {canDelete && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeletingId(b.id); setShowDeleteConfirm(true); }}
                         className="text-red-500 hover:text-red-700 transition-colors"
@@ -222,10 +248,22 @@ export function GazeboBookingHistoryTable() {
                       >
                         🗑️
                       </button>
+                    )}
+                  </td>
+                </tr>,
+                historyId === b.id ? (
+                  <tr key={`${b.id}-history`} className="bg-zinc-50/60">
+                    <td colSpan={8} className="p-0">
+                      <BookingHistory
+                        bookingId={b.id}
+                        moduleSlug="gazebos"
+                        bookingLabel={`${b.resourceName ?? "—"} · ${formatDate(b.date)} · ${b.clientName ?? "без имени"}`}
+                        onRestored={loadBookings}
+                      />
                     </td>
-                  )}
-                </tr>
-              ))}
+                  </tr>
+                ) : null,
+              ]).flat()}
             </tbody>
           </table>
 

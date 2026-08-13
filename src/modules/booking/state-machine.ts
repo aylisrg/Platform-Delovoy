@@ -86,6 +86,24 @@ const TRANSITIONS: Record<string, TransitionRule> = {
   "NO_SHOW:CANCELLED": {
     allowedActors: ["MANAGER", "SUPERADMIN"],
   },
+
+  // === Восстановление ошибочно закрытой брони (#511) ===
+  //
+  // До этого из COMPLETED и CANCELLED пути назад не было вовсе: один
+  // случайный тап менеджера — и бронь необратимо уходила из расписания.
+  // Возврат разрешён только SUPERADMIN и только через `restoreBooking()`:
+  // обычный PATCH статуса ходит с actorRole "MANAGER"/"CRON" и сюда не
+  // попадает, поэтому проверки окна времени, занятости слота и пароля
+  // обойти через общий роут нельзя.
+  //
+  // Возвращаем именно в CONFIRMED, а не в CHECKED_IN: дальше по циклу
+  // бронь ведёт человек руками (AC-4).
+  "COMPLETED:CONFIRMED": {
+    allowedActors: ["SUPERADMIN"],
+  },
+  "CANCELLED:CONFIRMED": {
+    allowedActors: ["SUPERADMIN"],
+  },
 };
 
 /**

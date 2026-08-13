@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { GazeboBookingEditForm } from "./booking-edit-form";
 import { GazeboBillModal, type PaymentSplit } from "./gazebo-bill-modal";
 import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
+import { BookingHistory } from "@/components/admin/shared/booking-history";
 import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import { getBookingPaymentSummary } from "@/modules/booking/payment-status";
 import type { TimelineBooking } from "@/modules/gazebos/types";
@@ -250,6 +251,13 @@ export function GazeboBookingDetailCard({
         </p>
       )}
 
+      <BookingHistory
+        bookingId={booking.id}
+        moduleSlug="gazebos"
+        bookingLabel={`${resourceName} · ${formatDate(start)} · ${booking.clientName ?? "без имени"}`}
+        onRestored={onStatusChanged}
+      />
+
       <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2 flex-wrap">
         {canEdit && (
           <Button
@@ -325,7 +333,7 @@ export function GazeboBookingDetailCard({
             ? [{ label: "Сумма", value: `${totalFromMeta.toLocaleString("ru-RU")} ₽` }]
             : []),
         ]}
-        warning="Отмена не восстанавливается автоматически — вернуть бронь сможет только суперадмин."
+        warning="Вернуть бронь сможет только суперадмин и только в течение 24 часов — через «Историю брони», если слот к тому моменту свободен."
         confirmLabel="Да, отменить бронь"
         variant="danger"
         reason={{
@@ -386,7 +394,7 @@ export function GazeboBookingDetailCard({
               }]
             : []),
         ]}
-        warning="Завершение нельзя отменить самостоятельно — переоткрыть бронь сможет только суперадмин."
+        warning="Переоткрыть бронь сможет только суперадмин и только в течение 24 часов — через «Историю брони»."
         confirmLabel="Да, завершить"
         variant="neutral"
         onCancel={() => setPendingSplit(null)}

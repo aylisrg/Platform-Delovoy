@@ -7,6 +7,7 @@ import { GazeboBookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
+import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
 type TimelineGridProps = {
   initialData: TimelineData;
@@ -286,6 +287,7 @@ export function GazeboTimelineGrid({
                           <span className="font-medium text-zinc-900 truncate">
                             {booking.clientName ?? "—"}
                           </span>
+                          <PaymentDot booking={booking} />
                         </div>
                         {guestCount && (
                           <span className="text-zinc-500">{guestCount} чел.</span>

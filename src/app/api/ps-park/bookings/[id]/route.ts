@@ -69,6 +69,9 @@ export async function PATCH(
       cardAmount,
       subscriptionId,
     } = parsedStatus.data;
+    // Статус до изменения — чтобы в истории брони было «Подтверждена →
+    // Неявка», а не безадресное «новый статус» (AC-2, AC-5).
+    const previousStatus = (await getBooking(id))?.status ?? null;
     let updated;
 
     // Users can only cancel their own bookings
@@ -126,6 +129,9 @@ export async function PATCH(
     if (status !== "COMPLETED" && status !== "CANCELLED") {
       await logAudit(session.user.id, "booking.status_change", "Booking", id, {
         newStatus: status,
+        ...(previousStatus && { previousStatus }),
+        ...(reason && { reason }),
+        moduleSlug: "ps-park",
       });
     }
 
@@ -159,7 +165,12 @@ export async function PATCH(
         "INSUFFICIENT_HOURS",
         "INVALID_HOURS",
       ]);
-      const status = conflictCodes.has(error.code)
+      // FORBIDDEN приходит из FSM, когда переход существует, но роли не
+      // хватает прав — например, MANAGER пытается вернуть закрытую бронь
+      // мимо `restoreBooking()`. Это 403, а не «непонятный 400».
+      const status = error.code === "FORBIDDEN"
+        ? 403
+        : conflictCodes.has(error.code)
         ? 409
         : unprocessableCodes.has(error.code)
           ? 422

@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import type { BookingStatus } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
+import { BookingHistory } from "@/components/admin/shared/booking-history";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
 import {
   DeleteConfirmDialog,
@@ -39,6 +42,9 @@ type Booking = {
   clientName: string | null;
   clientPhone: string | null;
   resourceName: string | null;
+  metadata: Record<string, unknown> | null;
+  cashAmount: string | null;
+  cardAmount: string | null;
   paymentStatus: BookingPaymentStatus;
 };
 
@@ -56,6 +62,8 @@ export function PSParkBookingHistoryTable() {
   const [dateTo, setDateTo] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Какая строка раскрыта лентой событий.
+  const [historyId, setHistoryId] = useState<string | null>(null);
   const perPage = 20;
 
   useEffect(() => {
@@ -82,6 +90,9 @@ export function PSParkBookingHistoryTable() {
           clientName: b.clientName ?? (b.user as Record<string, unknown>)?.name ?? null,
           clientPhone: b.clientPhone ?? (b.user as Record<string, unknown>)?.phone ?? null,
           resourceName: (b.resource as Record<string, unknown>)?.name ?? null,
+          metadata: (b.metadata as Record<string, unknown> | null) ?? null,
+          cashAmount: (b.cashAmount as string | null) ?? null,
+          cardAmount: (b.cardAmount as string | null) ?? null,
           paymentStatus: (b.paymentStatus as BookingPaymentStatus) ?? "NONE",
         })));
         setTotal(json.meta?.total ?? 0);
@@ -155,11 +166,11 @@ export function PSParkBookingHistoryTable() {
                 <th className="pb-3 font-medium">Телефон</th>
                 <th className="pb-3 font-medium">Статус</th>
                 <th className="pb-3 font-medium">Оплата</th>
-                {isSuperAdmin && <th className="pb-3 font-medium text-right">Действия</th>}
+                <th className="pb-3 font-medium text-right">Действия</th>
               </tr>
             </thead>
             <tbody>
-              {bookings.map((b) => (
+              {bookings.map((b) => [
                 <tr key={b.id} className="border-b border-zinc-50">
                   <td className="py-3 text-zinc-900">{formatDate(b.date)}</td>
                   <td className="py-3 text-zinc-600">{formatTime(b.startTime)} — {formatTime(b.endTime)}</td>
@@ -172,10 +183,27 @@ export function PSParkBookingHistoryTable() {
                     </Badge>
                   </td>
                   <td className="py-3">
-                    <BookingPaymentBadge status={b.paymentStatus} />
+                    <div className="flex flex-wrap items-center gap-1">
+                      {/* Деньги целиком: касса + карта + онлайн. */}
+                      <PaymentBadge booking={{ ...b, status: b.status as BookingStatus }} />
+                      {/* Онлайн-бейдж оставлен только там, где он знает то,
+                          чего не знает сумма: возврат и ожидание оплаты. */}
+                      {(b.paymentStatus === "REFUNDED" ||
+                        b.paymentStatus === "PARTIALLY_REFUNDED" ||
+                        b.paymentStatus === "AWAITING") && (
+                        <BookingPaymentBadge status={b.paymentStatus} />
+                      )}
+                    </div>
                   </td>
-                  {isSuperAdmin && (
-                    <td className="py-3 text-right">
+                  <td className="py-3 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => setHistoryId(historyId === b.id ? null : b.id)}
+                      className="mr-2 text-zinc-500 hover:text-zinc-800 transition-colors"
+                      title="История брони"
+                    >
+                      🕓
+                    </button>
+                    {isSuperAdmin && (
                       <button
                         onClick={() => { setDeletingId(b.id); setShowDeleteConfirm(true); }}
                         className="text-red-500 hover:text-red-700 transition-colors"
@@ -183,10 +211,22 @@ export function PSParkBookingHistoryTable() {
                       >
                         🗑️
                       </button>
+                    )}
+                  </td>
+                </tr>,
+                historyId === b.id ? (
+                  <tr key={`${b.id}-history`} className="bg-zinc-50/60">
+                    <td colSpan={8} className="p-0">
+                      <BookingHistory
+                        bookingId={b.id}
+                        moduleSlug="ps-park"
+                        bookingLabel={`${b.resourceName ?? "—"} · ${formatDate(b.date)} · ${b.clientName ?? "без имени"}`}
+                        onRestored={loadBookings}
+                      />
                     </td>
-                  )}
-                </tr>
-              ))}
+                  </tr>
+                ) : null,
+              ]).flat()}
             </tbody>
           </table>
 

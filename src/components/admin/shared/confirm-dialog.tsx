@@ -28,12 +28,18 @@ export type ConfirmDialogProps = {
     /** Минимальная длина, когда причина обязательна. По умолчанию 3. */
     minLength?: number;
   };
+  /**
+   * Повторный ввод пароля. Нужен там, где действие затрагивает деньги и
+   * расписание — восстановление брони. Тот же уровень строгости, что у
+   * удаления данных, но без отдельного компонента-близнеца.
+   */
+  requirePassword?: boolean;
   onCancel: () => void;
   /**
    * Возврат непустой строки — показать её как inline-ошибку и оставить диалог
    * открытым. void/null — успех, закрывает родитель.
    */
-  onConfirm: (reason: string | null) => Promise<string | null | void>;
+  onConfirm: (reason: string | null, password: string) => Promise<string | null | void>;
 };
 
 /**
@@ -59,10 +65,12 @@ export function ConfirmDialog({
   cancelLabel = "Не сейчас",
   variant = "danger",
   reason,
+  requirePassword = false,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
   const [reasonText, setReasonText] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -70,6 +78,7 @@ export function ConfirmDialog({
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс полей при открытии
       setReasonText("");
+      setPassword("");
       setError(null);
       setSubmitting(false);
     }
@@ -96,10 +105,14 @@ export function ConfirmDialog({
       setError(`Укажите причину — минимум ${minLength} символа`);
       return;
     }
+    if (requirePassword && !password) {
+      setError("Введите пароль");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
-      const message = await onConfirm(trimmed.length > 0 ? trimmed : null);
+      const message = await onConfirm(trimmed.length > 0 ? trimmed : null, password);
       if (typeof message === "string" && message.length > 0) {
         setError(message);
         setSubmitting(false);
@@ -163,6 +176,24 @@ export function ConfirmDialog({
               disabled={submitting}
               placeholder={reason.placeholder}
               className="mt-1 w-full resize-none rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
+            />
+          </div>
+        )}
+
+        {requirePassword && (
+          <div className="mt-4">
+            <label htmlFor="confirm-password" className="block text-xs font-medium text-zinc-600">
+              Пароль <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="confirm-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={submitting}
+              placeholder="Ваш пароль"
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-50"
             />
           </div>
         )}
