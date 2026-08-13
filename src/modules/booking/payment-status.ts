@@ -33,6 +33,8 @@ export type BookingPaymentSummary = {
   cash: number;
   card: number;
   online: number;
+  /** Принято на месте до завершения брони. */
+  prepaid: number;
   /** Остаток к оплате, не меньше нуля. */
   outstanding: number;
   /** Удержанный штраф при поздней отмене. */
@@ -78,6 +80,10 @@ export function getBookingPaymentSummary(
   const cash = toNumber(booking.cashAmount);
   const card = toNumber(booking.cardAmount);
   const online = toNumber(meta.onlinePaidAmount);
+  // Предоплата на месте живёт в metadata, а не в колонках: колонки —
+  // снапшот чекаута, завершение брони их перезаписывает.
+  const prepaid =
+    toNumber(meta.prepaidCashAmount) + toNumber(meta.prepaidCardAmount);
   const penalty = toNumber(meta.cancelPenalty?.amount);
 
   // Скидка уже записана в metadata.totalPrice при чекауте, но на брони, где
@@ -87,7 +93,7 @@ export function getBookingPaymentSummary(
     ? toNumber(meta.discount.finalAmount)
     : toNumber(meta.totalPrice);
 
-  const paid = cash + card + online;
+  const paid = cash + card + online + prepaid;
   const outstanding = Math.max(0, Math.round((totalDue - paid) * 100) / 100);
 
   // Отменённая бронь с удержанной предоплатой — не «оплачено»: услуги не было,
@@ -101,6 +107,7 @@ export function getBookingPaymentSummary(
       cash,
       card,
       online,
+      prepaid,
       outstanding: 0,
       penalty,
       label: `Штраф удержан ${formatMoney(penalty)}`,
@@ -116,6 +123,7 @@ export function getBookingPaymentSummary(
       cash,
       card,
       online,
+      prepaid,
       outstanding: 0,
       penalty,
       label: paid > 0 ? "ОПЛАЧЕНО" : "Без оплаты",
@@ -131,6 +139,7 @@ export function getBookingPaymentSummary(
       cash,
       card,
       online,
+      prepaid,
       outstanding: 0,
       penalty,
       label: "ОПЛАЧЕНО",
@@ -146,6 +155,7 @@ export function getBookingPaymentSummary(
       cash,
       card,
       online,
+      prepaid,
       outstanding,
       penalty,
       label: `Оплачено ${formatMoney(paid)} из ${formatMoney(totalDue)}`,
@@ -160,6 +170,7 @@ export function getBookingPaymentSummary(
     cash,
     card,
     online,
+    prepaid,
     outstanding,
     penalty,
     label: `Не оплачено · ${formatMoney(totalDue)}`,

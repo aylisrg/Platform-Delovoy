@@ -19,6 +19,7 @@ import type { BookingItemSnapshot, BookingItemInput } from "@/modules/inventory/
 import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { lockSlot } from "@/modules/booking/slot-lock";
+import { getPrepaidAmount } from "@/modules/booking/prepayment";
 import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
@@ -560,6 +561,10 @@ export async function updateBookingStatus(
     // вебхуком отдельной ONLINE_PAYMENT-строкой — в гейте засчитывается,
     // в кассовый FT при завершении не попадает.
     const onlinePaid = Number((metadata?.onlinePaidAmount as string | undefined) ?? 0);
+    // Предоплата, принятая менеджером до завершения (#511). Своя кассовая
+    // строка в леджере у неё уже есть, поэтому в гейте засчитывается, а в
+    // кассовый FT завершения не попадает — иначе выручка задвоится.
+    const prepaid = getPrepaidAmount(metadata);
 
     // PAYMENT_REQUIRED gate — see ADR 2026-05-04-ps-park-payment-required-on-complete.
     // CRON safety-net excluded; totalBill === 0 (no tariff/items) and 100% discount
@@ -567,7 +572,7 @@ export async function updateBookingStatus(
     // F7: subscriptionCredit is added to paid when subscriptionId is in play.
     if (actorRole !== "CRON" && completedTotalBill > 0) {
       const paidByOperator = (cashAmount ?? 0) + (cardAmount ?? 0);
-      const totalCovered = paidByOperator + subscriptionCredit + onlinePaid;
+      const totalCovered = paidByOperator + subscriptionCredit + onlinePaid + prepaid;
       if (totalCovered < completedTotalBill) {
         const shortfall =
           Math.round((completedTotalBill - totalCovered) * 100) / 100;
@@ -580,13 +585,15 @@ export async function updateBookingStatus(
             paid: paidByOperator,
             subscriptionCredit,
             onlinePaid,
+            prepaid,
           }
         );
       }
     }
 
     const resolvedCash =
-      cashAmount ?? (subscriptionId ? 0 : Math.max(0, completedTotalBill - onlinePaid));
+      cashAmount ??
+      (subscriptionId ? 0 : Math.max(0, completedTotalBill - onlinePaid - prepaid));
     const resolvedCard = cardAmount ?? 0;
     const managerUser = managerId
       ? await prisma.user.findUnique({ where: { id: managerId }, select: { name: true, email: true } })

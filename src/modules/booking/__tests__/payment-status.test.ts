@@ -128,3 +128,42 @@ describe("getBookingPaymentSummary", () => {
     expect(summary.state).toBe("PAID");
   });
 });
+
+// #511: предоплата, принятая менеджером на месте до завершения брони.
+describe("предоплата на месте", () => {
+  it("делает бронь ОПЛАЧЕНО ещё до чекаута", () => {
+    const summary = getBookingPaymentSummary({
+      status: "CONFIRMED",
+      metadata: { totalPrice: "8000", prepaidCashAmount: "8000.00" },
+    });
+
+    expect(summary.state).toBe("PAID");
+    expect(summary.prepaid).toBe(8000);
+  });
+
+  it("складывается с онлайн-предоплатой и кассой", () => {
+    const summary = getBookingPaymentSummary({
+      status: "CONFIRMED",
+      cashAmount: 1000,
+      metadata: {
+        totalPrice: "8000",
+        onlinePaidAmount: "3000",
+        prepaidCashAmount: "2000.00",
+        prepaidCardAmount: "2000.00",
+      },
+    });
+
+    expect(summary.paid).toBe(8000);
+    expect(summary.state).toBe("PAID");
+  });
+
+  it("частичная предоплата оставляет остаток", () => {
+    const summary = getBookingPaymentSummary({
+      status: "CONFIRMED",
+      metadata: { totalPrice: "8000", prepaidCashAmount: "3000.00" },
+    });
+
+    expect(summary.state).toBe("PARTIAL");
+    expect(summary.outstanding).toBe(5000);
+  });
+});

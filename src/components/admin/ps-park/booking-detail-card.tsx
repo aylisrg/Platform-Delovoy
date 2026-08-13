@@ -8,6 +8,8 @@ import { SessionBillModal, type PaymentSplit } from "./session-bill-modal";
 import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
 import { BookingHistory } from "@/components/admin/shared/booking-history";
 import { PaymentBadge } from "@/components/admin/shared/payment-badge";
+import { BookingStatusSelect, PAID_OPTION, type StatusSelectValue } from "@/components/admin/shared/booking-status-select";
+import { BookingPaymentModal } from "@/components/admin/shared/booking-payment-modal";
 import { getBookingPaymentSummary } from "@/modules/booking/payment-status";
 
 type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
@@ -38,6 +40,8 @@ export function BookingDetailCard({
   const [cancelOpen, setCancelOpen] = useState(false);
   // Счёт заполнен, но PATCH ещё не ушёл — ждём явного «Да, завершить» (AC-1).
   const [pendingSplit, setPendingSplit] = useState<PaymentSplit | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [maxDiscount, setMaxDiscount] = useState(30);
 
   const meta = booking.metadata as Record<string, unknown> | null;
@@ -130,6 +134,37 @@ export function BookingDetailCard({
     }
   }
 
+  /** Единая точка входа из выпадающего списка статусов. */
+  function handleStatusSelect(value: StatusSelectValue) {
+    setApiError(null);
+    if (value === PAID_OPTION) return setPayOpen(true);
+    if (value === "COMPLETED") return void handleCompleteClick();
+    if (value === "CANCELLED") return setCancelOpen(true);
+    void handleInlineStatus(value);
+  }
+
+  async function handleRecordPayment(cashAmount: number, cardAmount: number) {
+    try {
+      const res = await fetch(`/api/ps-park/bookings/${booking.id}/payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cashAmount, cardAmount }),
+      });
+      const body = (await res.json().catch(() => null)) as ApiOkBody | ApiErrorBody | null;
+      if (!res.ok || !body || body.success === false) {
+        return (
+          (body && "error" in body && body.error?.message) ||
+          `Не удалось записать оплату (HTTP ${res.status})`
+        );
+      }
+      setPayOpen(false);
+      onStatusChanged();
+      return null;
+    } catch {
+      return "Сетевая ошибка";
+    }
+  }
+
   /** Счёт заполнен — показываем последний вопрос вместо немедленного PATCH. */
   function handleConfirmBill(split: PaymentSplit) {
     setApiError(null);
@@ -211,6 +246,19 @@ export function BookingDetailCard({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+      </div>
+
+      {/* Единый переключатель статуса — раньше «как поменять статус» было
+          неочевидно: кнопки зависели от состояния, заезд и неявка вообще
+          отсутствовали. */}
+      <div className="px-4 py-2.5 border-b border-zinc-100 bg-white">
+        <BookingStatusSelect
+          currentStatus={booking.status}
+          startTime={start}
+          paymentState={payment.state}
+          disabled={actionLoading || loadingBill}
+          onSelect={handleStatusSelect}
+        />
       </div>
 
       {/* Body */}
@@ -320,10 +368,19 @@ export function BookingDetailCard({
         moduleSlug="ps-park"
         bookingLabel={`${resourceName} · ${formatDate(start)} · ${booking.clientName ?? "без имени"}`}
         onRestored={onStatusChanged}
+        open={historyOpen}
       />
 
       {/* Actions */}
-      <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2">
+      <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex items-center gap-2 flex-wrap">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setHistoryOpen((v) => !v)}
+          disabled={actionLoading}
+        >
+          {historyOpen ? "Скрыть историю" : "История"}
+        </Button>
         {isPending && (
           <Button
             size="sm"
@@ -432,6 +489,14 @@ export function BookingDetailCard({
         variant="neutral"
         onCancel={() => setPendingSplit(null)}
         onConfirm={handleConfirmComplete}
+      />
+
+      <BookingPaymentModal
+        open={payOpen}
+        outstanding={payment.outstanding > 0 ? payment.outstanding : (totalPrice ?? totalBill)}
+        bookingLabel={`${resourceName} · ${booking.clientName ?? "без имени"}`}
+        onCancel={() => setPayOpen(false)}
+        onConfirm={handleRecordPayment}
       />
     </div>
   );
