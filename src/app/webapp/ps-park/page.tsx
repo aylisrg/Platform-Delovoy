@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTelegram } from "@/components/webapp/TelegramProvider";
 import { ResourceCard } from "@/components/webapp/ResourceCard";
+import { Button, EmptyState, Skeleton } from "@/components/webapp/ui";
 
 interface PSResource {
   id: string;
@@ -15,9 +16,10 @@ interface PSResource {
 }
 
 export default function PSParkListPage() {
-  const { ready, apiFetch, showBackButton, onBackButtonClick } = useTelegram();
+  const { ready, showBackButton, onBackButtonClick } = useTelegram();
   const [resources, setResources] = useState<PSResource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     showBackButton(true);
@@ -25,16 +27,32 @@ export default function PSParkListPage() {
     return () => showBackButton(false);
   }, [showBackButton, onBackButtonClick]);
 
-  useEffect(() => {
-    if (!ready) return;
+  // Публичный список зон Плей Парка — запрос не менялся.
+  const load = useCallback(() => {
     fetch("/api/ps-park")
       .then((r) => r.json())
       .then((data) => {
-        if (data.success) setResources(data.data);
+        if (data.success) {
+          setResources(data.data);
+          setFailed(false);
+        } else {
+          setFailed(true);
+        }
       })
-      .catch(() => {})
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
-  }, [ready, apiFetch]);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    load();
+  }, [ready, load]);
+
+  const retry = () => {
+    setLoading(true);
+    setFailed(false);
+    load();
+  };
 
   return (
     <div className="tg-page-enter">
@@ -50,15 +68,21 @@ export default function PSParkListPage() {
       <div className="px-4 mt-2 space-y-3 pb-4">
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="tg-skeleton h-48 rounded-2xl" />
+            <Skeleton key={i} className="h-40 rounded-2xl" />
           ))
+        ) : failed ? (
+          <EmptyState
+            icon="alert"
+            title="Не удалось загрузить залы"
+            hint="Проверьте соединение и попробуйте ещё раз"
+            action={<Button onClick={retry}>Обновить</Button>}
+          />
         ) : resources.length === 0 ? (
-          <div className="text-center py-12">
-            <span className="text-4xl">🎮</span>
-            <p className="mt-3 text-[15px]" style={{ color: "var(--tg-hint)" }}>
-              Пока нет доступных столов
-            </p>
-          </div>
+          <EmptyState
+            icon="gamepad"
+            title="Пока нет доступных столов"
+            hint="Загляните позже — расписание парка обновляется"
+          />
         ) : (
           resources.map((r) => (
             <ResourceCard
@@ -70,6 +94,7 @@ export default function PSParkListPage() {
               pricePerHour={r.pricePerHour}
               imageUrl={(r.metadata as Record<string, string> | null)?.imageUrl}
               href={`/webapp/ps-park/${r.id}`}
+              icon="gamepad"
             />
           ))
         )}

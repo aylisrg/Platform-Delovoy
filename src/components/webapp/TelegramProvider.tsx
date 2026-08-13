@@ -10,6 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { waitForWebApp } from "./telegram-bootstrap";
+import {
+  GUEST_CAPABILITIES,
+  type WebAppCapabilities,
+} from "@/lib/webapp/types";
 
 interface WebAppUser {
   id: string;
@@ -23,6 +27,8 @@ interface TelegramContextValue {
   ready: boolean;
   user: WebAppUser | null;
   token: string | null;
+  /** Снимок прав для рендера навигации; staff-роуты перепроверяют из БД */
+  capabilities: WebAppCapabilities;
   needsLinking: boolean;
   setNeedsLinking: (v: boolean) => void;
   setUser: (user: WebAppUser | null) => void;
@@ -39,6 +45,25 @@ interface TelegramContextValue {
   close: () => void;
   expand: () => void;
   apiFetch: <T = unknown>(url: string, options?: RequestInit) => Promise<T>;
+}
+
+/**
+ * Типизированная ошибка apiFetch: сохраняет code/status/data ответа —
+ * экраны различают, например, 402 PENALTY_CONFIRMATION_REQUIRED (AC-4.3),
+ * а не получают безликое "API Error".
+ */
+export class ApiFetchError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly data: unknown;
+
+  constructor(args: { code: string; message: string; status: number; data?: unknown }) {
+    super(args.message);
+    this.name = "ApiFetchError";
+    this.code = args.code;
+    this.status = args.status;
+    this.data = args.data;
+  }
 }
 
 const TelegramContext = createContext<TelegramContextValue | null>(null);
@@ -109,6 +134,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<WebAppUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [capabilities, setCapabilities] =
+    useState<WebAppCapabilities>(GUEST_CAPABILITIES);
   const [needsLinking, setNeedsLinking] = useState(false);
   const colorScheme = useSyncExternalStore(
     subscribeTelegramTheme,
@@ -121,20 +148,61 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     getThemeParamsServerSnapshot,
   );
 
-  // Mirror current themeParams into CSS custom properties on <html>.
+  // Мост темы: полный набор themeParams → CSS-переменные (ADR §8.1).
+  // Вне Telegram themeParams пуст — переменные снимаются, работают
+  // light-дефолты из :root в webapp.css (AC-7.1).
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
-    if (themeParams.bg_color) root.style.setProperty("--tg-bg", themeParams.bg_color);
-    if (themeParams.text_color) root.style.setProperty("--tg-text", themeParams.text_color);
-    if (themeParams.hint_color) root.style.setProperty("--tg-hint", themeParams.hint_color);
-    if (themeParams.link_color) root.style.setProperty("--tg-link", themeParams.link_color);
-    if (themeParams.button_color) root.style.setProperty("--tg-button", themeParams.button_color);
-    if (themeParams.button_text_color)
-      root.style.setProperty("--tg-button-text", themeParams.button_text_color);
-    if (themeParams.secondary_bg_color)
-      root.style.setProperty("--tg-secondary-bg", themeParams.secondary_bg_color);
-  }, [themeParams]);
+    const tp = themeParams;
+    const hasTheme = Object.keys(tp).length > 0;
+    const dark = colorScheme === "dark";
+
+    const setVar = (name: string, value: string | undefined) => {
+      if (value) root.style.setProperty(name, value);
+      else root.style.removeProperty(name);
+    };
+
+    setVar("--tg-bg", tp.bg_color);
+    setVar("--tg-text", tp.text_color);
+    setVar("--tg-hint", tp.hint_color);
+    setVar("--tg-link", tp.link_color);
+    setVar("--tg-button", tp.button_color);
+    setVar("--tg-button-text", tp.button_text_color);
+    setVar("--tg-secondary-bg", tp.secondary_bg_color);
+    setVar("--tg-section-bg", tp.section_bg_color || tp.bg_color);
+    setVar(
+      "--tg-section-header-text",
+      tp.section_header_text_color || tp.hint_color
+    );
+    setVar(
+      "--tg-separator",
+      tp.section_separator_color ||
+        (hasTheme
+          ? dark
+            ? "rgba(255, 255, 255, 0.08)"
+            : "rgba(0, 0, 0, 0.08)"
+          : undefined)
+    );
+    setVar("--tg-subtitle", tp.subtitle_text_color || tp.hint_color);
+    setVar("--tg-accent", tp.accent_text_color || tp.button_color);
+    setVar("--tg-destructive", tp.destructive_text_color);
+    setVar("--tg-header-bg", tp.header_bg_color || tp.bg_color);
+    setVar("--tg-bottom-bar-bg", tp.bottom_bar_bg_color || tp.bg_color);
+    root.dataset.tgScheme = colorScheme;
+
+    // Синхронизация шапки/фона самого Telegram с темой (безопасная полировка).
+    // Фон приложения — secondary_bg (нативные списки), шапка — в тон ему.
+    const webapp = getWebApp();
+    try {
+      webapp?.setHeaderColor?.(tp.secondary_bg_color || "bg_color");
+      if (tp.secondary_bg_color || tp.bg_color) {
+        webapp?.setBackgroundColor?.(tp.secondary_bg_color || tp.bg_color);
+      }
+    } catch {
+      // старые клиенты Telegram могут не поддерживать — молча пропускаем
+    }
+  }, [themeParams, colorScheme]);
 
   // Bootstrap: wait for the Telegram SDK (it can attach after hydration on iOS
   // Safari / Telegram WebView), tell Telegram we're ready, then authenticate
@@ -176,6 +244,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           if (data.success) {
             setToken(data.data.token);
             setUser(data.data.user);
+            if (data.data.capabilities) setCapabilities(data.data.capabilities);
             if (data.data.needsLinking) setNeedsLinking(true);
           }
           setReady(true);
@@ -232,7 +301,12 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
 
       if (!data.success) {
-        throw new Error(data.error?.message || "API Error");
+        throw new ApiFetchError({
+          code: data.error?.code || "UNKNOWN",
+          message: data.error?.message || "API Error",
+          status: res.status,
+          data: data.error?.metadata ?? data.error,
+        });
       }
 
       return data.data as T;
@@ -246,6 +320,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         ready,
         user,
         token,
+        capabilities,
         needsLinking,
         setNeedsLinking,
         setUser,
@@ -260,7 +335,15 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         apiFetch,
       }}
     >
-      {children}
+      {/* Обёртка приложения: класс dark вешаем здесь, а не на <html>,
+          чтобы не зацепить Tailwind dark:-варианты остального сайта */}
+      <div
+        className={
+          colorScheme === "dark" ? "webapp-root dark" : "webapp-root"
+        }
+      >
+        {children}
+      </div>
     </TelegramContext.Provider>
   );
 }

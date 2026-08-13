@@ -1,6 +1,8 @@
 "use client";
 
+import type { WebAppIconName } from "@/lib/webapp/icon-names";
 import { useTelegram } from "./TelegramProvider";
+import { Badge, Button, Card, Icon } from "./ui";
 
 interface BookingCardProps {
   id: string;
@@ -13,18 +15,20 @@ interface BookingCardProps {
   onCancel?: (id: string) => void;
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  PENDING: { label: "Ожидает", color: "#f59e0b", bg: "#fef3c7" },
-  CONFIRMED: { label: "Подтверждена", color: "#16a34a", bg: "#dcfce7" },
-  CHECKED_IN: { label: "Заселён", color: "#2563eb", bg: "#dbeafe" },
-  COMPLETED: { label: "Завершена", color: "#6b7280", bg: "#f3f4f6" },
-  CANCELLED: { label: "Отменена", color: "#dc2626", bg: "#fef2f2" },
-  NO_SHOW: { label: "Неявка", color: "#dc2626", bg: "#fef2f2" },
+type StatusTone = "accent" | "success" | "warning" | "destructive" | "neutral";
+
+const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
+  PENDING: { label: "Ожидает", tone: "warning" },
+  CONFIRMED: { label: "Подтверждена", tone: "success" },
+  CHECKED_IN: { label: "Вы на месте", tone: "accent" },
+  COMPLETED: { label: "Завершена", tone: "neutral" },
+  CANCELLED: { label: "Отменена", tone: "destructive" },
+  NO_SHOW: { label: "Неявка", tone: "destructive" },
 };
 
-const MODULE_ICONS: Record<string, string> = {
-  gazebos: "🏕",
-  "ps-park": "🎮",
+const MODULE_ICONS: Record<string, WebAppIconName> = {
+  gazebos: "tent",
+  "ps-park": "gamepad",
 };
 
 function formatDateShort(dateStr: string): string {
@@ -46,52 +50,63 @@ export function BookingCard({
 }: BookingCardProps) {
   const { haptic } = useTelegram();
   const statusInfo = STATUS_LABELS[status] || STATUS_LABELS.PENDING;
-  const icon = MODULE_ICONS[moduleSlug] || "📅";
+  const icon: WebAppIconName = MODULE_ICONS[moduleSlug] || "calendar";
   const canCancel = status === "PENDING" || status === "CONFIRMED";
 
   return (
-    <div className="tg-card p-4" style={{ background: "var(--tg-secondary-bg)" }}>
+    <Card className="p-4">
       <div className="flex items-start gap-3">
-        {/* Icon */}
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
-          style={{ background: "var(--tg-bg)" }}
+        {/* Иконка модуля — из единого набора, без эмодзи (AC-7.3) */}
+        <span
+          className="flex items-center justify-center w-11 h-11 rounded-xl shrink-0"
+          style={{
+            background: "var(--tg-secondary-bg)",
+            color: "var(--tg-accent)",
+          }}
         >
-          {icon}
-        </div>
+          <Icon name={icon} size={22} />
+        </span>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-start justify-between gap-2">
             <h3 className="text-[16px] font-semibold truncate">{resourceName}</h3>
-            <span
-              className="tg-badge flex-shrink-0"
-              style={{ background: statusInfo.bg, color: statusInfo.color }}
-            >
-              {statusInfo.label}
+            <span className="shrink-0">
+              <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
             </span>
           </div>
 
-          <div className="mt-1 flex items-center gap-3 text-[14px]" style={{ color: "var(--tg-hint)" }}>
-            <span>{formatDateShort(date)}</span>
-            <span>{startTime} — {endTime}</span>
+          <div
+            className="mt-1.5 flex items-center gap-3 text-[14px]"
+            style={{ color: "var(--tg-subtitle)" }}
+          >
+            <span className="inline-flex items-center gap-1">
+              <Icon name="calendar" size={14} />
+              {formatDateShort(date)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Icon name="clock" size={14} />
+              {startTime} — {endTime}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Cancel button */}
       {canCancel && onCancel && (
-        <button
-          onClick={() => {
-            haptic.impact("medium");
-            onCancel(id);
-          }}
-          className="mt-3 w-full py-2 rounded-xl text-[14px] font-medium transition-opacity active:opacity-70"
-          style={{ background: "#fef2f2", color: "#dc2626" }}
-        >
-          Отменить бронь
-        </button>
+        <div className="mt-3">
+          <Button
+            variant="destructive"
+            style={{ fontSize: 15, paddingTop: 10, paddingBottom: 10 }}
+            onClick={() => {
+              haptic.impact("medium");
+              onCancel(id);
+            }}
+          >
+            Отменить бронь
+          </Button>
+        </div>
       )}
-    </div>
+    </Card>
   );
 }

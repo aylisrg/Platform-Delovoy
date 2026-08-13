@@ -8,6 +8,8 @@ import { resolveChannelForUser, getAdapter } from "./channels/index";
 import { telegramAdapter } from "./channels/telegram";
 import { getRecipientUserIds, getExplicitRecipientUserIds } from "./recipients";
 import { dispatch } from "./dispatch/dispatcher";
+import { categoryForEvent } from "./catalog";
+import { getSelfSubscribedUserIds } from "./subscribers";
 
 const USER_SELECT = {
   id: true,
@@ -192,6 +194,11 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
  *    chat configured → send directly to that chat, skip SUPERADMIN DM fanout.
  * 2. Explicit per-user recipients — dispatch to each via the dispatch layer
  *    (queued, async delivery through UserNotificationChannel).
+ * 2b. Self-subscribed staff — users who turned this event type on themselves in
+ *    the Mini App notification center and have access to the event category's
+ *    admin section. Purely additive: paths 1/3 keep their original conditions
+ *    (computed from explicit recipients only), so one person's toggle never
+ *    silences the group chat for everyone (ADR 2026-08-13 §3.3).
  * 3. Legacy direct send — no explicit recipients configured → send directly
  *    to module chatId or global TELEGRAM_ADMIN_CHAT_ID env fallback.
  *
@@ -210,10 +217,39 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     const message = renderAdminMessage(event.moduleSlug, event.type, event.data);
     if (!message) return;
 
-    const [explicitIds, moduleConfig] = await Promise.all([
+    const [explicitIds, moduleConfig, selfSubscribedIds] = await Promise.all([
       getExplicitRecipientUserIds(event.moduleSlug),
       getModuleBotConfig(event.moduleSlug),
+      getSelfSubscribedUserIds(
+        event.type,
+        categoryForEvent(event.type)?.sections ?? []
+      ),
     ]);
+
+    const dispatchPersonal = (userIds: string[]) => {
+      const eventLabel = event.type.replace(".", " ");
+      const payload = { title: `[${event.moduleSlug}] ${eventLabel}`, body: message };
+      return Promise.allSettled(
+        userIds.map((userId) =>
+          dispatch({
+            userId,
+            eventType: event.type,
+            entityType: event.moduleSlug,
+            entityId: event.entityId,
+            payload,
+          })
+        )
+      );
+    };
+
+    // Path 2b — self-subscribed staff (ADR §3.3). Runs before the path
+    // conditions below and never changes them: the group chat keeps behaving
+    // exactly as before. Users already listed as explicit recipients are
+    // filtered out here so we don't rely on the 5-minute dispatch dedup window.
+    const selfOnlyIds = selfSubscribedIds.filter((id) => !explicitIds.includes(id));
+    if (selfOnlyIds.length > 0) {
+      await dispatchPersonal(selfOnlyIds);
+    }
 
     // Admin group chat explicitly disabled for this category — never send to
     // it and never fall back to the global chat. Explicit per-user recipients
@@ -241,19 +277,7 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
 
     // Path 2 — explicit per-user recipients via dispatch layer
     if (explicitIds.length > 0) {
-      const eventLabel = event.type.replace(".", " ");
-      const payload = { title: `[${event.moduleSlug}] ${eventLabel}`, body: message };
-      await Promise.allSettled(
-        explicitIds.map((userId) =>
-          dispatch({
-            userId,
-            eventType: event.type,
-            entityType: event.moduleSlug,
-            entityId: event.entityId,
-            payload,
-          })
-        )
-      );
+      await dispatchPersonal(explicitIds);
       return;
     }
 

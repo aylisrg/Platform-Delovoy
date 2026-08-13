@@ -1742,6 +1742,7 @@ model NotificationGlobalPreference {
   quietHoursFrom String?
   quietHoursTo   String?
   dndUntil       DateTime?
+  feedSeenAt     DateTime? // watermark просмотра новостей парка в ленте Mini App
   updatedAt      DateTime  @updatedAt
 }
 
@@ -1763,6 +1764,7 @@ model OutgoingNotification {
   dedupKey        String
   triedChannelIds String[]                   @default([])
   fallbackOfId    String?
+  readAt          DateTime? // отметка прочтения в ленте Mini App
   createdAt       DateTime                   @default(now())
   updatedAt       DateTime                   @updatedAt
 
@@ -1770,6 +1772,7 @@ model OutgoingNotification {
   @@index([dedupKey, createdAt])
   @@index([userId, createdAt])
   @@index([entityType, entityId])
+  @@index([userId, readAt])
 }
 
 // === BROADCAST CAMPAIGNS ===
@@ -1788,6 +1791,21 @@ model BroadcastCampaign {
 
   @@index([createdAt])
   @@index([status])
+}
+
+/// Реестр анонсированных релизов — серверная идемпотентность анонса (US-6,
+/// ADR 2026-08-13-miniapp-role-rebuild §6) и долговечный архив release-notes
+/// (git-архив в deploy.yml никогда не работал: пуш в защищённый main отваливался).
+model ReleaseAnnouncement {
+  version        String   @id // "2.11.0" — ключ идемпотентности
+  commitSha      String
+  releaseNotes   String   @db.Text
+  announcedAt    DateTime @default(now())
+  recipientCount Int      @default(0)
+  source         String   @default("deploy") // deploy | manual
+  createdAt      DateTime @default(now())
+
+  @@index([announcedAt])
 }
 
 // === AVITO INTEGRATION ===

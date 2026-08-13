@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useTelegram } from "./TelegramProvider";
+import { EmptyState, SectionHeader, Skeleton } from "./ui";
 
 interface TimeSlot {
   time: string; // "10:00"
@@ -17,6 +18,11 @@ interface SlotPickerProps {
   minHours?: number;
 }
 
+const MONTHS_SHORT = [
+  "янв", "фев", "мар", "апр", "мая", "июн",
+  "июл", "авг", "сен", "окт", "ноя", "дек",
+];
+
 function formatDate(d: Date): string {
   return d.toISOString().split("T")[0];
 }
@@ -29,11 +35,7 @@ function getDayLabel(d: Date, today: Date): string {
   if (diff === 1) return "Завтра";
 
   const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-  const months = [
-    "янв", "фев", "мар", "апр", "мая", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек",
-  ];
-  return `${weekdays[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`;
+  return `${weekdays[d.getDay()]}, ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 }
 
 export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerProps) {
@@ -127,13 +129,16 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
           return (
             <button
               key={dateStr}
+              type="button"
               onClick={() => {
                 haptic.selection();
                 setSelectedDate(dateStr);
               }}
-              className="flex flex-col items-center flex-shrink-0 rounded-xl px-3 py-2 transition-all"
+              className="flex flex-col items-center flex-shrink-0 rounded-xl px-3 py-2 transition-colors"
               style={{
-                background: isActive ? "var(--tg-button)" : "var(--tg-secondary-bg)",
+                background: isActive
+                  ? "var(--tg-button)"
+                  : "var(--tg-section-bg)",
                 color: isActive ? "var(--tg-button-text)" : "var(--tg-text)",
                 minWidth: 64,
               }}
@@ -145,7 +150,7 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
                 {d.getDate()}
               </span>
               <span className="text-[11px] opacity-70">
-                {["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"][d.getMonth()]}
+                {MONTHS_SHORT[d.getMonth()]}
               </span>
             </button>
           );
@@ -153,36 +158,45 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
       </div>
 
       {/* Minimum booking hint */}
-      <div className="px-4 pt-2">
-        <p className="text-sm" style={{ color: "var(--tg-hint)" }}>
+      <div className="px-4 pt-1">
+        <p className="text-[13px]" style={{ color: "var(--tg-hint)" }}>
           Минимальное бронирование — {minHours} ч.
         </p>
       </div>
 
       {/* Start time slots */}
       <div className="px-4 mt-2">
-        <p className="tg-section-header">Время начала</p>
+        <SectionHeader>Время начала</SectionHeader>
         {loading ? (
           <div className="grid grid-cols-4 gap-2 mt-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="tg-skeleton h-10 rounded-xl" />
+              <Skeleton key={i} className="h-10 rounded-xl" />
             ))}
           </div>
         ) : slots.length === 0 ? (
-          <p className="text-center py-6 text-[15px]" style={{ color: "var(--tg-hint)" }}>
-            Нет доступных слотов на эту дату
-          </p>
+          <EmptyState
+            icon="clock"
+            title="Нет свободных слотов"
+            hint="Выберите другую дату — свободное время появится в списке"
+          />
         ) : (
           <div className="grid grid-cols-4 gap-2 mt-2">
-            {slots.map((slot) => (
-              <button
-                key={slot.time}
-                onClick={() => slot.available && handleSlotTap(slot.time)}
-                className={`tg-slot ${startSlot === slot.time ? "selected" : ""} ${!slot.available ? "unavailable" : ""}`}
-              >
-                {slot.time}
-              </button>
-            ))}
+            {slots.map((slot) => {
+              const isSelected = startSlot === slot.time;
+              return (
+                <button
+                  key={slot.time}
+                  type="button"
+                  onClick={() => slot.available && handleSlotTap(slot.time)}
+                  className={`tg-slot ${isSelected ? "selected" : ""} ${!slot.available ? "unavailable" : ""}`}
+                  style={
+                    isSelected ? undefined : { background: "var(--tg-section-bg)" }
+                  }
+                >
+                  {slot.time}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -190,17 +204,24 @@ export function SlotPicker({ fetchSlots, onSelect, minHours = 1 }: SlotPickerPro
       {/* End time (if start selected) */}
       {startSlot && endSlots.length > 0 && (
         <div className="px-4 mt-4 tg-page-enter">
-          <p className="tg-section-header">Время окончания</p>
+          <SectionHeader>Время окончания</SectionHeader>
           <div className="grid grid-cols-4 gap-2 mt-2">
-            {endSlots.map((slot) => (
-              <button
-                key={slot.time}
-                onClick={() => handleEndSlotTap(slot.time)}
-                className={`tg-slot ${endSlot === slot.time ? "selected" : ""}`}
-              >
-                {slot.time}
-              </button>
-            ))}
+            {endSlots.map((slot) => {
+              const isSelected = endSlot === slot.time;
+              return (
+                <button
+                  key={slot.time}
+                  type="button"
+                  onClick={() => handleEndSlotTap(slot.time)}
+                  className={`tg-slot ${isSelected ? "selected" : ""}`}
+                  style={
+                    isSelected ? undefined : { background: "var(--tg-section-bg)" }
+                  }
+                >
+                  {slot.time}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
