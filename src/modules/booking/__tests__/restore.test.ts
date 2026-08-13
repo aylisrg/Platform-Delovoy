@@ -272,7 +272,7 @@ describe("restoreBooking возвращает часы абонемента (#43
       (c) => c[0].data.action === "booking.restore"
     )?.[0].data;
     expect(restoreAudit.metadata).toMatchObject({
-      subscriptionRefund: { subscriptionId: "sub-1", hoursRefunded: 2 },
+      subscriptionRefunds: [{ subscriptionId: "sub-1", hoursRefunded: 2 }],
     });
     const refundAudit = tx.auditLog.create.mock.calls.find(
       (c) => c[0].data.action === "subscription.refund_session"
@@ -334,8 +334,54 @@ describe("restoreBooking возвращает часы абонемента (#43
     expect(tx.subscription.update).not.toHaveBeenCalled();
     expect(tx.subscriptionTransaction.create).not.toHaveBeenCalled();
     expect(tx.auditLog.create.mock.calls[0][0].data.metadata).not.toHaveProperty(
-      "subscriptionRefund"
+      "subscriptionRefunds"
     );
+  });
+
+  // code-reviewer: то же bookingId может быть заряжено с РАЗНЫХ абонементов
+  // гостя в разные разы (complete → restore → complete-с-другим-абонементом
+  // → restore) — subscriptionId в COMPLETED берётся текущий активный, не
+  // «тот же, что в прошлый раз». Наивное "все транзакции — один subscriptionId"
+  // задвоило/потеряло бы часы между подписками.
+  it("возвращает часы раздельно по каждому абонементу, если бронь заряжалась с разных", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({ moduleSlug: "ps-park" }));
+    const tx = mockTx({
+      subscriptionTransaction: {
+        findMany: vi.fn(async () => [
+          { subscriptionId: "sub-1", hoursDelta: -2 }, // первый CHARGE
+          { subscriptionId: "sub-1", hoursDelta: 2 }, // первый REFUND (прошлый restore)
+          { subscriptionId: "sub-2", hoursDelta: -3 }, // второй CHARGE, другой абонемент
+        ]),
+        create: vi.fn(),
+      },
+      subscription: {
+        findUniqueOrThrow: vi.fn(async () => ({ status: "ACTIVE" })),
+        update: vi.fn(async (args: { where: { id: string } }) =>
+          args.where.id === "sub-2" ? { remainingHours: 3 } : { remainingHours: 9 }
+        ),
+      },
+    });
+
+    await restoreBooking(psParkInput);
+
+    // sub-1 уже нетто на нуле (-2+2) — трогать не должны.
+    expect(tx.subscription.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "sub-1" } })
+    );
+    // sub-2 нетто должен -3 → возврат ровно 3ч именно на sub-2.
+    expect(tx.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "sub-2" },
+        data: expect.objectContaining({ remainingHours: { increment: 3 } }),
+      })
+    );
+    expect(tx.subscription.update).toHaveBeenCalledTimes(1);
+    const restoreAudit = tx.auditLog.create.mock.calls.find(
+      (c) => c[0].data.action === "booking.restore"
+    )?.[0].data;
+    expect(restoreAudit.metadata.subscriptionRefunds).toEqual([
+      { subscriptionId: "sub-2", hoursRefunded: 3 },
+    ]);
   });
 
   it("не трогает подписки для брони другого модуля (gazebos)", async () => {

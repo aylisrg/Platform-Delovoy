@@ -138,37 +138,47 @@ export async function restoreBooking(input: RestoreBookingInput) {
 
     // #435: если бронь оплачена абонементом ps-park (debitFromSession на
     // COMPLETED), восстановление обязано вернуть списанные часы — иначе гость
-    // теряет их без компенсации. Сумма hoursDelta по всем
-    // SubscriptionTransaction этой брони (CHARGE отрицательны, REFUND
-    // положительны) — сколько ещё не возвращено; ноль — не списывалось или
+    // теряет их без компенсации. Считаем по КАЖДОМУ subscriptionId отдельно,
+    // а не по всей брони разом: та же booking.id могла списываться с разных
+    // абонементов гостя в разные разы (complete → restore → complete с уже
+    // другим активным абонементом — activeSubscription на COMPLETED берётся
+    // текущий на момент вызова, не «тот же, что в прошлый раз»). Сумма
+    // hoursDelta внутри группы (CHARGE отрицательны, REFUND положительны) —
+    // сколько по ЭТОЙ подписке ещё не возвращено; ноль — не списывалось или
     // уже возвращено. Именно так, а не «есть ли CHARGE», чтобы повторная
     // отмена/восстановление той же брони не задваивала возврат.
-    let subscriptionRefund:
-      | { subscriptionId: string; hoursRefunded: number }
-      | undefined;
+    const subscriptionRefunds: { subscriptionId: string; hoursRefunded: number }[] = [];
     if (moduleSlug === "ps-park") {
       const subTx = await tx.subscriptionTransaction.findMany({
         where: { bookingId },
         select: { subscriptionId: true, hoursDelta: true },
       });
-      const netOwed = -subTx.reduce((sum, t) => sum + Number(t.hoursDelta), 0);
-      if (netOwed > 0) {
-        // Все транзакции по одной брони относятся к одному абонементу —
-        // списание бывает ровно один раз, за сессию.
-        const subscriptionId = subTx[0].subscriptionId;
+      const netOwedBySubscription = new Map<string, number>();
+      for (const t of subTx) {
+        netOwedBySubscription.set(
+          t.subscriptionId,
+          (netOwedBySubscription.get(t.subscriptionId) ?? 0) - Number(t.hoursDelta)
+        );
+      }
+
+      const owed = [...netOwedBySubscription.entries()].filter(([, hours]) => hours > 0);
+      if (owed.length > 0) {
         const actor = await tx.user.findUnique({
           where: { id: actorId },
           select: { name: true, email: true },
         });
-        const refund = await refundToSubscription(tx, {
-          subscriptionId,
-          bookingId,
-          hours: netOwed,
-          performedById: actorId,
-          performedByName: actor?.name ?? actor?.email ?? "Администратор",
-          reason: reason ?? "Восстановление отменённой/завершённой брони",
-        });
-        subscriptionRefund = { subscriptionId, hoursRefunded: refund.hoursRefunded };
+        const performedByName = actor?.name ?? actor?.email ?? "Администратор";
+        for (const [subscriptionId, hours] of owed) {
+          const refund = await refundToSubscription(tx, {
+            subscriptionId,
+            bookingId,
+            hours,
+            performedById: actorId,
+            performedByName,
+            reason: reason ?? "Восстановление отменённой/завершённой брони",
+          });
+          subscriptionRefunds.push({ subscriptionId, hoursRefunded: refund.hoursRefunded });
+        }
       }
     }
 
@@ -188,7 +198,7 @@ export async function restoreBooking(input: RestoreBookingInput) {
           revenueKept: booking.status === "COMPLETED",
           cashAmount: booking.cashAmount?.toString() ?? null,
           cardAmount: booking.cardAmount?.toString() ?? null,
-          ...(subscriptionRefund && { subscriptionRefund }),
+          ...(subscriptionRefunds.length > 0 && { subscriptionRefunds }),
         } as unknown as Prisma.InputJsonValue,
       },
     });
