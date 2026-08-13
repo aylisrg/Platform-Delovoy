@@ -1,9 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Inter } from "next/font/google";
 import { TelegramProvider } from "@/components/webapp/TelegramProvider";
 import { TabBar } from "@/components/webapp/TabBar";
-import "../globals.css";
 import "./webapp.css";
 
 const inter = Inter({
@@ -22,27 +20,28 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "Деловой Парк",
-  description: "Бронируйте беседки и столы в Плей Парке",
+  description: "Бизнес-парк «Деловой» — бронирования, кафе и уведомления",
 };
 
+/**
+ * Вложенный layout Mini App — БЕЗ собственных <html>/<body> (ADR §8.3):
+ * вложенные теги внутри корневого layout'а давали невалидную разметку и
+ * гонку гидрации. SDK Telegram грузится обычным <script async> — позднее
+ * появление window.Telegram.WebApp обрабатывает waitForWebApp().
+ * Обёртку .webapp-root (с классом dark) рендерит TelegramProvider.
+ */
 export default function WebAppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" className={inter.variable}>
-      {/* Telegram WebApp SDK — must load before React hydration */}
-      <Script
-        src="https://telegram.org/js/telegram-web-app.js"
-        strategy="beforeInteractive"
-      />
-      <body className="webapp-root">
-        <TelegramProvider>
-          <main className="webapp-content">{children}</main>
-          <TabBar />
-        </TelegramProvider>
-      </body>
-    </html>
+    <div className={inter.variable}>
+      <script async src="https://telegram.org/js/telegram-web-app.js" />
+      <TelegramProvider>
+        <main className="webapp-content">{children}</main>
+        <TabBar />
+      </TelegramProvider>
+    </div>
   );
 }

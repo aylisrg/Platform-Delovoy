@@ -66,9 +66,18 @@ export function validateInitData(initData: string): ParsedInitData | null {
   const computedHash = crypto
     .createHmac("sha256", secretKey)
     .update(checkString)
-    .digest("hex");
+    .digest();
 
-  if (computedHash !== hash) return null;
+  // Timing-safe сравнение: формат проверяем заранее, чтобы Buffer.from не
+  // споткнулся о мусор и длины гарантированно совпадали.
+  if (!/^[0-9a-f]{64}$/i.test(hash)) return null;
+  const providedHash = Buffer.from(hash, "hex");
+  if (
+    computedHash.length !== providedHash.length ||
+    !crypto.timingSafeEqual(computedHash, providedHash)
+  ) {
+    return null;
+  }
 
   // Parse user JSON
   const userStr = params.get("user");

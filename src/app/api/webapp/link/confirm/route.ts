@@ -1,13 +1,12 @@
 import { NextRequest } from "next/server";
-import { SignJWT } from "jose";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
-import { verifyWebAppToken } from "@/lib/webapp-auth";
+import {
+  verifyWebAppToken,
+  signWebAppToken,
+  WebAppAuthConfigError,
+} from "@/lib/webapp-auth";
 import { linkConfirmSchema } from "@/modules/telegram-link/validation";
 import { confirmLink, LinkError } from "@/modules/telegram-link/service";
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || "webapp-secret"
-);
 
 /**
  * POST /api/webapp/link/confirm
@@ -34,15 +33,11 @@ export async function POST(request: NextRequest) {
     const result = await confirmLink(webappUser.telegramId, parsed.data.code);
 
     // Issue new JWT with the linked user's ID
-    const newToken = await new SignJWT({
+    const newToken = await signWebAppToken({
       sub: result.user.id,
-      telegramId: result.user.telegramId,
+      telegramId: result.user.telegramId ?? webappUser.telegramId,
       role: result.user.role,
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("24h")
-      .sign(JWT_SECRET);
+    });
 
     return apiResponse({
       ...result,
@@ -51,6 +46,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof LinkError) {
       return apiError(error.code, error.message, error.status);
+    }
+    if (error instanceof WebAppAuthConfigError) {
+      return apiError(
+        "NOT_CONFIGURED",
+        "Аутентификация Mini App не настроена",
+        503
+      );
     }
     console.error("[WebApp Link Confirm] Error:", error);
     return apiServerError();
