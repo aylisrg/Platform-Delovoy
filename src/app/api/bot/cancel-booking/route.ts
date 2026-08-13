@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { telegramId, bookingId } = body;
+    const { telegramId, bookingId, confirmPenalty } = body;
 
     if (!telegramId || !bookingId) {
       return apiError("VALIDATION_ERROR", "telegramId and bookingId are required", 400);
@@ -45,13 +45,24 @@ export async function POST(request: NextRequest) {
       return apiError("FORBIDDEN", "Вы не можете отменить чужое бронирование", 403);
     }
 
-    let cancelled;
+    let result;
     if (booking.moduleSlug === "gazebos") {
-      cancelled = await cancelBooking(bookingId, user.id, "Отменено через Telegram бот");
+      result = await cancelBooking(bookingId, user.id, "Отменено через Telegram бот", confirmPenalty === true);
     } else if (booking.moduleSlug === "ps-park") {
-      cancelled = await cancelPSBooking(bookingId, user.id, "Отменено через Telegram бот");
+      result = await cancelPSBooking(bookingId, user.id, "Отменено через Telegram бот", confirmPenalty === true);
     } else {
       return apiError("INVALID_MODULE", "Модуль не поддерживает отмену через бот");
+    }
+
+    // #427: раньше penaltyRequired молча уезжал в apiResponse(...) как success:true —
+    // бот показывал "✅ отменено", хотя cancelBooking() ничего не поменял в БД.
+    if (result.penaltyRequired) {
+      return apiError(
+        "PENALTY_CONFIRMATION_REQUIRED",
+        "Отмена позже допустимого срока требует подтверждения штрафа",
+        402,
+        { penaltyAmount: result.penaltyAmount, basePrice: result.basePrice }
+      );
     }
 
     await logAudit(user.id, "booking.cancel", "Booking", bookingId, {
@@ -59,7 +70,7 @@ export async function POST(request: NextRequest) {
       telegramId,
     });
 
-    return apiResponse(cancelled);
+    return apiResponse(result.booking);
   } catch (error) {
     if (error instanceof BookingError || error instanceof PSBookingError) {
       return apiError(error.code, error.message);
