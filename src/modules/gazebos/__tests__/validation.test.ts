@@ -162,6 +162,36 @@ describe("bookingFilterSchema", () => {
     const result = bookingFilterSchema.safeParse({ dateFrom: "15/06/2030" });
     expect(result.success).toBe(false);
   });
+
+  // #431: Zod молча отбрасывала page/perPage (не было в схеме), поэтому UI
+  // всегда получал одну и ту же страницу через хардкод take:100.
+  it("defaults page to 1 and perPage to 20 when absent", () => {
+    const result = bookingFilterSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.page).toBe(1);
+      expect(result.data.perPage).toBe(20);
+    }
+  });
+
+  it("coerces page/perPage from query-string values", () => {
+    const result = bookingFilterSchema.safeParse({ page: "3", perPage: "50" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.page).toBe(3);
+      expect(result.data.perPage).toBe(50);
+    }
+  });
+
+  it("rejects perPage above the cap", () => {
+    const result = bookingFilterSchema.safeParse({ perPage: "500" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-positive page", () => {
+    const result = bookingFilterSchema.safeParse({ page: "0" });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("adminCreateBookingSchema", () => {

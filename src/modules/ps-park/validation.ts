@@ -50,6 +50,8 @@ export const psBookingFilterSchema = z.object({
   dateFrom: z.string().regex(dateRegex).optional(),
   dateTo: z.string().regex(dateRegex).optional(),
   userId: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().positive().max(100).default(20),
 });
 
 export const psAvailabilityQuerySchema = z.object({
