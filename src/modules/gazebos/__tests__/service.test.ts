@@ -1350,6 +1350,57 @@ describe("CHECKED_IN занимает слот (#424)", () => {
   });
 });
 
+// ===== #478: NO_SHOW → CHECKED_IN не проверял занятость слота =====
+//
+// Слот честно освобождается, когда бронь уходит в NO_SHOW (#424, #429), и мог
+// быть отдан другому гостю. До фикса реактивация неявки была голым update без
+// конфликт-чека и блокировки — опоздавший гость создавал двойную бронь.
+describe("NO_SHOW → CHECKED_IN конфликт-чек (#478)", () => {
+  it("проходит на свободный слот (регрессия на фичу позднего заезда)", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({ status: "NO_SHOW", startTime: new Date(`${FUTURE_DATE}T10:00:00`) }) as never
+      ) // саму бронь нашли
+      .mockResolvedValueOnce(null); // слот свободен под блокировкой
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CHECKED_IN" }) as never);
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(txExecuteRaw).toHaveBeenCalled();
+    expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "CHECKED_IN", managerId: "manager-1" }),
+      })
+    );
+  });
+
+  it("отдаёт BOOKING_CONFLICT и не меняет статус, если слот уже занят другой бронью", async () => {
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(
+        mockBooking({ status: "NO_SHOW", startTime: new Date(`${FUTURE_DATE}T10:00:00`) }) as never
+      ) // саму бронь нашли
+      .mockResolvedValueOnce(mockBooking({ id: "booking-2", status: "CONFIRMED" }) as never); // конфликт под блокировкой
+
+    await expect(checkInBooking("booking-1", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_CONFLICT",
+    });
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
+
+  it("CONFIRMED → CHECKED_IN не берёт лишней блокировки слота (уже занимал его)", async () => {
+    const pastStart = new Date(Date.now() - 10 * 60 * 1000); // 10 min ago — условие перехода
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(
+      mockBooking({ status: "CONFIRMED", startTime: pastStart }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CHECKED_IN" }) as never);
+
+    await checkInBooking("booking-1", "manager-1");
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
 // ===== #423: soft-deleted брони исключены из чтения =====
 //
 // До фикса `deletedAt: null` стоял только в rescheduleBooking — удалённая через

@@ -1235,13 +1235,48 @@ export async function checkInBooking(bookingId: string, managerId: string) {
     ? { ...existingMetadata, lateCheckedInAt: checkinData.checkedInAt, checkedInBy: managerId }
     : { ...existingMetadata, ...checkinData }) as import("@prisma/client").Prisma.InputJsonValue;
 
-  return prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      status: "CHECKED_IN",
-      managerId,
-      metadata: newMetadata,
-    },
+  if (!isFromNoShow) {
+    return prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: "CHECKED_IN",
+        managerId,
+        metadata: newMetadata,
+      },
+    });
+  }
+
+  // Опоздавший гость (NO_SHOW → CHECKED_IN): слот честно освободился, когда
+  // бронь ушла в NO_SHOW, и мог быть отдан другому гостю (#424, #429). Тот же
+  // конфликт-чек под блокировкой слота, что и при создании брони (#478).
+  return prisma.$transaction(async (tx) => {
+    await lockSlot(tx, MODULE_SLUG, booking.resourceId, booking.date);
+
+    const conflict = await tx.booking.findFirst({
+      where: {
+        moduleSlug: MODULE_SLUG,
+        deletedAt: null,
+        resourceId: booking.resourceId,
+        id: { not: bookingId },
+        status: { in: ACTIVE_BOOKING_STATUSES },
+        date: booking.date,
+        startTime: { lt: booking.endTime },
+        endTime: { gt: booking.startTime },
+      },
+    });
+
+    if (conflict) {
+      throw new BookingError("BOOKING_CONFLICT", "Слот уже занят другой бронью — реактивировать неявку нельзя");
+    }
+
+    return tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: "CHECKED_IN",
+        managerId,
+        metadata: newMetadata,
+      },
+    });
   });
 }
 
