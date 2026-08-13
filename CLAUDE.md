@@ -101,7 +101,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 |--------|--------|---------|
 | `auth` | ✅ | NextAuth, magic-link, providers |
 | `monitoring` | ✅ | Health checks, SystemEvent logging |
-| `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry` |
+| `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry`; Центр уведомлений в Mini App (`catalog.ts`, `webapp-center.ts` — персональные подписки сотрудников по типам событий); идемпотентный релиз-анонс `system.release` (`ReleaseAnnouncement`, `release-notify.ts`) — ADR `2026-08-13-miniapp-role-rebuild` |
 | `gazebos` | ✅ | Gazebo bookings |
 | `ps-park` | ✅ | PlayStation Park bookings |
 | `cafe` | ✅ | Menu CRUD (+фото), заказы, гостевой QR-чекаут с онлайн-оплатой (ЮKassa, `PaymentSubjectType.ORDER`), статистика продаж — PRD `2026-07-22` |
