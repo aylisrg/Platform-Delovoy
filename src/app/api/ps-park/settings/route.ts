@@ -24,7 +24,11 @@ export async function GET() {
       openHour: 8,
       closeHour: 23,
       minBookingHours: 1,
-      slotRoundingMinutes: 30,
+      // Должен совпадать с DEFAULT_SLOT_ROUNDING_MINUTES в ps-park/service.ts —
+      // это реальное поведение биллинга, когда Module.config пуст. Расхождение
+      // молча переключало бы округление счёта на 30 мин при любом сохранении
+      // формы настроек (#434 code review).
+      slotRoundingMinutes: 15,
       sessionAlertMinutes: 10,
       telegramChannelEnabled: false,
       telegramChannelName: "",

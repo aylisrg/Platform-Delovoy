@@ -173,6 +173,7 @@ export async function PATCH(
         "OUTSIDE_WORKING_HOURS",
         "INVALID_TIME_RANGE",
         "DURATION_BELOW_MIN",
+        "DURATION_ABOVE_MAX",
         "CAPACITY_EXCEEDED",
       ]);
       // FORBIDDEN приходит из FSM, когда переход существует, но роли не
