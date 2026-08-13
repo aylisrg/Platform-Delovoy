@@ -761,7 +761,7 @@ jobs:
             GEMINI_RESPONSE=$(curl -s --max-time 30 \
               "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d "{\"contents\":[{\"parts\":[{\"text\":${PROMPT_JSON}}]}]}")
+              -d "{\"contents\":[{\"parts\":[{\"text\":${PROMPT_JSON}}]}]}" || echo '')
 
             NOTES=$(echo "$GEMINI_RESPONSE" | python3 -c "
           import sys, json
@@ -804,10 +804,13 @@ jobs:
           EOFPAYLOAD
           )
 
-          RESPONSE=$(curl -s -X POST \
+          # || echo '{}' обязателен: под set -e сбой соединения (DNS/timeout)
+          # без guard'а валит весь шаг ДО записи notified=false — пропадает и
+          # анонс, и групповой fallback, а деплой ложно помечается FAILED.
+          RESPONSE=$(curl -s --max-time 15 -X POST \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
-            "${APP_URL}/api/admin/release-notify")
+            "${APP_URL}/api/admin/release-notify" || echo '{}')
           echo "Release notify response: $RESPONSE"
 
           # notified=true — подписчики получили личный анонс этой версии

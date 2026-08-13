@@ -113,6 +113,43 @@ describe("GET /api/webapp/notification-center", () => {
   });
 });
 
+// Review 2026-08-13, MAJOR-2: rate limit обязан срабатывать ДО похода в БД за
+// ролью — иначе 401/403-пути (массовая роль USER) обходят лимит бесплатно.
+describe("порядок rate limit (review MAJOR-2)", () => {
+  it("429 для валидного токена срабатывает до ре-чека роли из БД", async () => {
+    const { apiError } = await import("@/lib/api-response");
+    vi.mocked(rateLimit).mockResolvedValue(
+      apiError("RATE_LIMIT_EXCEEDED", "Слишком много запросов", 429)
+    );
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(429);
+    expect(rateLimit).toHaveBeenCalledWith(expect.anything(), "authenticated", "u1");
+    expect(loadWebAppStaff).not.toHaveBeenCalled();
+    expect(mockGetCenter).not.toHaveBeenCalled();
+  });
+
+  it("USER-роль (403-путь) тратит свой rate-limit-бюджет", async () => {
+    vi.mocked(loadWebAppStaff).mockResolvedValue({ ok: false, status: 403 });
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(403);
+    expect(rateLimit).toHaveBeenCalledWith(expect.anything(), "authenticated", "u1");
+  });
+
+  it("без валидного токена лимитируется публичным тиром по IP", async () => {
+    vi.mocked(verifyWebAppToken).mockResolvedValue(null);
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(401);
+    expect(rateLimit).toHaveBeenCalledWith(expect.anything(), "public");
+    expect(loadWebAppStaff).not.toHaveBeenCalled();
+  });
+});
+
 describe("PUT /api/webapp/notification-center", () => {
   it("422 на eventType вне каталога (закрытый enum)", async () => {
     const res = await PUT(makeRequest({ eventType: "health.down", enabled: true }));

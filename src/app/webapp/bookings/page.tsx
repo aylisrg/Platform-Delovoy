@@ -61,6 +61,9 @@ export default function BookingsPage() {
     useTelegram();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  // "expired" (401 — сессия истекла) отличаем от "generic": пустой список
+  // без объяснения выглядит как «броней нет» и обманывает (QA 2026-08-13, №1)
+  const [loadError, setLoadError] = useState<"expired" | "generic" | null>(null);
   const [dialog, setDialog] = useState<CancelDialog | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,8 +93,12 @@ export default function BookingsPage() {
     try {
       const data = await apiFetch<Booking[]>("/api/webapp/bookings");
       setBookings(data);
-    } catch {
+      setLoadError(null);
+    } catch (e) {
       setBookings([]);
+      setLoadError(
+        e instanceof ApiFetchError && e.status === 401 ? "expired" : "generic"
+      );
     } finally {
       setLoading(false);
     }
@@ -152,8 +159,13 @@ export default function BookingsPage() {
         return;
       }
       haptic.notification("error");
+      // 401 — не показываем английскую серверную строку в русском UI
       setDialogError(
-        e instanceof Error ? e.message : "Не удалось отменить бронь"
+        e instanceof ApiFetchError && e.status === 401
+          ? "Сессия истекла — закройте и снова откройте приложение из Telegram"
+          : e instanceof Error
+            ? e.message
+            : "Не удалось отменить бронь"
       );
     } finally {
       setBusy(false);
@@ -206,6 +218,31 @@ export default function BookingsPage() {
             <Skeleton key={i} className="h-28 rounded-2xl" />
           ))}
         </div>
+      ) : loadError === "expired" ? (
+        <EmptyState
+          icon="alert"
+          title="Сессия истекла"
+          hint="Закройте и снова откройте приложение из Telegram, чтобы увидеть свои брони"
+        />
+      ) : loadError === "generic" ? (
+        <EmptyState
+          icon="alert"
+          title="Не удалось загрузить брони"
+          hint="Проверьте соединение и попробуйте ещё раз"
+          action={
+            <button
+              type="button"
+              className="tg-button"
+              onClick={() => {
+                haptic.impact("light");
+                setLoading(true);
+                loadBookings();
+              }}
+            >
+              Обновить
+            </button>
+          }
+        />
       ) : bookings.length === 0 ? (
         <EmptyState
           icon="calendar"

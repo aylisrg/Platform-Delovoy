@@ -210,6 +210,18 @@ describe("GET /api/webapp/cafe/orders", () => {
     expect(mockListOrders).not.toHaveBeenCalled();
   });
 
+  it("returns 429 from rate limit without calling the service (QA 2026-08-13, №3)", async () => {
+    const { apiError } = await import("@/lib/api-response");
+    mockRateLimit.mockResolvedValue(
+      apiError("RATE_LIMIT_EXCEEDED", "Слишком много запросов", 429)
+    );
+
+    const res = await GET(ordersRequest());
+
+    expect(res.status).toBe(429);
+    expect(mockListOrders).not.toHaveBeenCalled();
+  });
+
   it("scopes the listing to the caller and hides the joined user record", async () => {
     mockListOrders.mockResolvedValue({
       orders: [

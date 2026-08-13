@@ -24,10 +24,29 @@ import { notificationCenterUpdateSchema } from "@/modules/notifications/validati
  */
 
 type StaffGuard =
-  | { ok: true; staff: WebAppStaffContext }
+  | { ok: true; staff: WebAppStaffContext; telegramId: string }
   | { ok: false; response: ReturnType<typeof apiError> };
 
+/**
+ * Порядок обязателен (review 2026-08-13, MAJOR-2): rate limit ДО похода в БД
+ * за ролью/секциями. Иначе 401/403-пути (в т.ч. массовая роль USER) обходят
+ * лимит, а каждый их запрос стоит запросов в БД. Без валидного токена
+ * лимитируем по IP публичным тиром, с токеном — по userId до ре-чека роли.
+ */
 async function requireStaff(request: NextRequest): Promise<StaffGuard> {
+  const tokenUser = await verifyWebAppToken(request);
+  if (!tokenUser) {
+    const limited = await rateLimit(request, "public");
+    if (limited) return { ok: false, response: limited };
+    return {
+      ok: false,
+      response: apiError("UNAUTHORIZED", "Invalid or expired token", 401),
+    };
+  }
+
+  const limited = await rateLimit(request, "authenticated", tokenUser.id);
+  if (limited) return { ok: false, response: limited };
+
   const auth = await loadWebAppStaff(request);
   if (!auth.ok) {
     return {
@@ -38,7 +57,10 @@ async function requireStaff(request: NextRequest): Promise<StaffGuard> {
           : apiError("FORBIDDEN", "Раздел доступен только сотрудникам", 403),
     };
   }
-  return { ok: true, staff: auth.staff };
+  // Адрес канала берётся из подписанного нами токена (туда он попал из
+  // проверенного initData), а не из тела запроса — клиент назначить чужой
+  // Telegram-адрес не может.
+  return { ok: true, staff: auth.staff, telegramId: tokenUser.telegramId };
 }
 
 export async function GET(request: NextRequest) {
@@ -46,18 +68,7 @@ export async function GET(request: NextRequest) {
     const guard = await requireStaff(request);
     if (!guard.ok) return guard.response;
 
-    const limited = await rateLimit(request, "authenticated", guard.staff.id);
-    if (limited) return limited;
-
-    // Адрес канала берётся из подписанного нами токена (туда он попал из
-    // проверенного initData), а не из тела запроса — клиент назначить чужой
-    // Telegram-адрес не может.
-    const tokenUser = await verifyWebAppToken(request);
-
-    const data = await getNotificationCenter(
-      guard.staff,
-      tokenUser?.telegramId ?? null
-    );
+    const data = await getNotificationCenter(guard.staff, guard.telegramId);
     return apiResponse(data);
   } catch (error) {
     console.error("[WebApp API] Notification center error:", error);
@@ -69,9 +80,6 @@ export async function PUT(request: NextRequest) {
   try {
     const guard = await requireStaff(request);
     if (!guard.ok) return guard.response;
-
-    const limited = await rateLimit(request, "authenticated", guard.staff.id);
-    if (limited) return limited;
 
     const body: unknown = await request.json().catch(() => null);
     const parsed = notificationCenterUpdateSchema.safeParse(body);
