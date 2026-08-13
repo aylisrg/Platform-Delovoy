@@ -60,11 +60,39 @@
 - Тесты обязательны в том же коммите (Vitest, mock DB/Redis).
 - Пайплайн: PO → Architect → Developer (основная сессия) → Reviewer → QA (`.claude/commands/feature.md`).
 
+### G. Дозаправка: точные контракты данных (доразведка 2026-08-13)
+
+**Cafe:**
+- `GET /api/cafe` — публичный (без токена), `{items: MenuItem[], categories: string[]}`; `price` — Decimal-как-строка (`Number()` на клиенте); `imageUrl` — same-origin путь `/api/cafe/menu/images/...` (plain `<img>`, next/image не нужен); недоступные позиции отфильтрованы на сервере; `categories` уже в display-порядке.
+- Заказ: `POST /api/cafe/checkout` — публичный (rate-limited), body `{items[{menuItemId,quantity}], deliveryTo?, comment?, customerEmail?}` → 201 `{...order, payment: {confirmationUrl}|null}`; `payment=null` → «оплата на кассе», номер заказа `id.slice(-6).toUpperCase()`; иначе редирект на YooKassa, returnUrl `/payments/{id}`. Атрибуция юзеру — только через NextAuth cookie, webapp-JWT НЕ понимает. `GET /api/cafe/orders` — только NextAuth. → Для Mini App нужны тонкие JWT-обёртки над готовыми `createCheckout(userId, input)` / `listOrders({userId})` или переиспользование гостевого чекаута как есть.
+
+**Лента (новости + личные уведомления):**
+- Модели новостей нет. Источники: `BroadcastCampaign` (payload `{title, body, actions[{label,url}]}`, создаёт только SUPERADMIN из `/admin/notifications/broadcast`; юзерского API списка нет) + персональные `OutgoingNotification` (payload той же формы, `entityType="BroadcastCampaign"` для рассылок, индекс `[userId, createdAt]` есть).
+- `GET /api/notifications/history` читает legacy `NotificationLog` и НЕ возвращает текст — для ленты непригоден.
+- Нет `readAt`/`seenAt` на `OutgoingNotification` — для бейджа «непрочитанное» нужна аддитивная колонка.
+
+**Предпочтения по типам событий:**
+- Серверный CRUD готов: `src/modules/notifications/dispatch/preferences-service.ts` — `getPreferences(userId)` → `{global, events[]}`, `upsertEventPreference(userId, eventType, {enabled?, channelKinds?, quietHours*, dndUntil?})`, `upsertGlobalPreference(...)`. Резолвинг: `dispatch/preferences.ts` — `loadEffectivePreference`, `mergePreferences` (default enabled=true), `pickChannel`.
+- Роуты `/api/notifications/event-preferences` (GET/PUT, `eventPreferenceSchema`) и `/global-preference` существуют, но **только NextAuth и ноль UI-потребителей** — `NotificationEventPreference` в проде фактически пуста. Mini App-центр станет первым потребителем: нужны JWT-варианты роутов + курируемый каталог eventType (кандидаты: `EVENT_LABELS`/`EVENT_MODULE_MAP` в `src/app/api/admin/notifications/routing-map/route.ts:13-50` + `events.ts`).
+- Admin-routing UI (`/admin/notifications`, `NotificationRouting.tsx`, `GET/PUT /api/admin/notifications/routing`) — это маршрутизация ГРУППОВЫХ чатов по категориям (`Module.config.telegramAdminChatId`), НЕ пер-юзерные предпочтения; переиспользуемы только `ROUTING_CATEGORIES` (labels/icons) и паттерн UI.
+- Каналы юзера: `GET/POST /api/notifications/channels` (+verify/confirm) — NextAuth; `UserNotificationChannel {kind,address,label,priority,isActive,verifiedAt}`.
+
 ---
 
 ## PO — Ключевые решения
 
-_(заполняет product-owner)_
+PRD: `docs/requirements/2026-08-13-miniapp-role-rebuild-prd.md`.
+
+- Роль рендерится поверх уже существующего JWT (`role` claim) — фундамент есть, просто наконец используется; никаких новых полей не добавляем.
+- Никакого нового модуля: Центр уведомлений — поверхность модуля `notifications` над `NotificationEventPreference`/`UserNotificationChannel`; лента "новостей" — поверхность над `BroadcastCampaign`/`OutgoingNotification`, без нового инструмента авторства контента.
+- Доступные сотруднику категории Центра уведомлений = пересечение его `AdminPermission`-секций (`hasAdminSectionAccess`) и `ROUTING_CATEGORIES`/`EVENT_ROUTING`; вводим `system.deploy`/`system.release` в `EVENT_ROUTING`. Категория "Системные" видна только при доступе к разделу "Мониторинг" или роли SUPERADMIN.
+- ADMIN — полноценный участник Центра уведомлений наравне с MANAGER/SUPERADMIN (закрывает баг `getTeamUser()` в боте на продуктовом уровне, не патчем аллоулиста).
+- Для "из коробки" работы Центра уведомлений — автопровижининг верифицированного Telegram-канала при первом входе (initData HMAC = уже доказанное владение аккаунтом, эквивалент OTP); явно помечено риском, требующим согласования Architect/Reviewer.
+- Дедуп релизов: серверная идемпотентность по версии (не git-guard), одно сообщение на получателя на релиз (не "Deploy OK" + личное по отдельности), legacy бот-тумблер `notifyReleases` выводится из употребления в пользу Центра уведомлений с переносом текущего состояния подписки 1:1; при сбое проверки идемпотентности — fail-open (лучше редкий дубль, чем тишина о релизе).
+- Security-довесок к аутентификации Mini App (US-1): rate-limit на `/api/webapp/auth` как у прочих публичных ручек, отказ вместо резервного секрета `"webapp-secret"`, timing-safe сравнение подписи initData, ре-чек роли из БД для чувствительных операций — оправдано тем, что за этим же JWT теперь живут права сотрудника.
+- Редизайн — дизайн-система на `themeParams` Telegram (light/dark), без хардкод-градиентов, единая иконография — во всех переработанных и новых экранах; визуальная приёмка владельцем обязательна перед мержем.
+- Вне скоупа (11 пунктов, детали в PRD): починка OTP-привязки аккаунта, unification auth мессенджера (поэтому таб "Чаты" временно скрыт), админ-панель внутри Mini App, тонкая настройка канала/quiet hours на каждый тип события, дедуп watchdog/инцидент-алертов, консолидация ~20 ad-hoc отправок, PWA/offline, кнопка меню бота, программа лояльности, дедуп кода gazebos/ps-park страниц.
+- Границы для Architect: не более `notifications` + `src/app/webapp/` + `src/app/api/webapp/` + точечно `bot/handlers/team-settings.ts` + `.github/workflows/deploy.yml`; `gazebos`/`ps-park`/`cafe` — только их публичные API; только аддитивные миграции.
 
 ## Architect — Ключевые решения
 
