@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.12.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.1...v2.12.2) (2026-08-14)
+
+
+### Bug Fixes
+
+* **booking:** listBookingsPaginated молча игнорирует userId из фильтра ([#563](https://github.com/aylisrg/Platform-Delovoy/issues/563)) ([16821a5](https://github.com/aylisrg/Platform-Delovoy/commit/16821a58cea3e6f16751d314fb6f478904e35d2f))
+* **feedback:** Не скролится на мобиле права ([#556](https://github.com/aylisrg/Platform-Delovoy/issues/556)) ([1518f6b](https://github.com/aylisrg/Platform-Delovoy/commit/1518f6b58e56abd25485fffc6f6a677236fe5bc6))
+* **gazebos+ps-park:** quick-booking-popover minimum duration comes from settings, not a hardcoded constant ([#568](https://github.com/aylisrg/Platform-Delovoy/issues/568)) ([cb7665c](https://github.com/aylisrg/Platform-Delovoy/commit/cb7665c8bb321929ec1fec64c66dafd1915705a0)), closes [#523](https://github.com/aylisrg/Platform-Delovoy/issues/523)
+* **gazebos:** health-check считает soft-deleted брони в todayBookings ([#558](https://github.com/aylisrg/Platform-Delovoy/issues/558)) ([927c384](https://github.com/aylisrg/Platform-Delovoy/commit/927c3842a3bb7733c99508e30fee8e784aec6ca8))
+* **ps-park:** checkInBooking не фильтрует soft-deleted брони (deletedAt) ([#565](https://github.com/aylisrg/Platform-Delovoy/issues/565)) ([ef5adb7](https://github.com/aylisrg/Platform-Delovoy/commit/ef5adb7e6fc5e5357ab656162fc0b9ad930c25ce))
+
 ## [2.12.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.0...v2.12.1) (2026-08-14)
 
 
