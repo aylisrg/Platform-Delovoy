@@ -9,6 +9,7 @@ const FIELDS = [
   { key: "minBookingHours", label: "Минимальная длительность (часы)", type: "number" as const, min: 1, max: 24 },
   { key: "slotRoundingMinutes", label: "Округление слота (минуты)", type: "number" as const, min: 1, max: 60 },
   { key: "sessionAlertMinutes", label: "Алерт за N минут до конца", type: "number" as const, min: 1, max: 60 },
+  { key: "noShowThresholdMinutes", label: "Порог неявки (минут после начала)", type: "number" as const, min: 1, max: 1440 },
 ];
 
 export default function PSParkSettingsPage() {

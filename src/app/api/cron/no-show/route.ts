@@ -1,8 +1,16 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiError } from "@/lib/api-response";
 import { findAutoNoShowCandidates } from "@/modules/booking/checkin";
-import { markNoShow as markNoShowPS, PSBookingError } from "@/modules/ps-park/service";
-import { markNoShow as markNoShowGazebos, BookingError } from "@/modules/gazebos/service";
+import {
+  markNoShow as markNoShowPS,
+  getNoShowThresholdMinutes as getPSParkNoShowThresholdMinutes,
+  PSBookingError,
+} from "@/modules/ps-park/service";
+import {
+  markNoShow as markNoShowGazebos,
+  getNoShowThresholdMinutes as getGazebosNoShowThresholdMinutes,
+  BookingError,
+} from "@/modules/gazebos/service";
 
 const MODULES = ["ps-park", "gazebos"] as const;
 
@@ -25,7 +33,13 @@ export async function GET(request: NextRequest) {
     const processed: string[] = [];
     const errors: string[] = [];
 
-    const candidateIds = await findAutoNoShowCandidates(moduleSlug, 30);
+    // #440: порог был захардкожен `30` для обоих модулей — теперь читается
+    // per-module из Module.config (дефолт DEFAULT_NO_SHOW_THRESHOLD_MINUTES).
+    const thresholdMinutes =
+      moduleSlug === "ps-park"
+        ? await getPSParkNoShowThresholdMinutes()
+        : await getGazebosNoShowThresholdMinutes();
+    const candidateIds = await findAutoNoShowCandidates(moduleSlug, thresholdMinutes);
 
     for (const bookingId of candidateIds) {
       try {

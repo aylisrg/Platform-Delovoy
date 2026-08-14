@@ -329,4 +329,18 @@ describe("moduleSettingsSchema", () => {
   it("rejects sessionAlertMinutes > 60", () => {
     expect(moduleSettingsSchema.safeParse({ sessionAlertMinutes: 61 }).success).toBe(false);
   });
+
+  // #440: порог неявки был захардкожен `30` в сервисе — настройка не была
+  // валидируемым полем формы вообще.
+  it("accepts noShowThresholdMinutes", () => {
+    const result = moduleSettingsSchema.safeParse({ noShowThresholdMinutes: 15 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.noShowThresholdMinutes).toBe(15);
+    }
+  });
+
+  it("rejects non-positive noShowThresholdMinutes", () => {
+    expect(moduleSettingsSchema.safeParse({ noShowThresholdMinutes: 0 }).success).toBe(false);
+  });
 });

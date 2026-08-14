@@ -107,6 +107,8 @@ export const moduleSettingsSchema = z.object({
   slotRoundingMinutes: z.number().int().min(1).max(60).optional(),
   sessionAlertMinutes: z.number().int().min(1).max(60).optional(),
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
+  // Порог неявки (минут после startTime) — раньше захардкожен `30` (#440).
+  noShowThresholdMinutes: z.number().int().min(1).max(1440).optional(),
   // Выделенный Telegram-канал PS Park (хранится в Module.config).
   telegramChannelEnabled: z.boolean().optional(),
   telegramChannelName: z.string().max(200).optional(),

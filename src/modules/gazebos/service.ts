@@ -18,7 +18,11 @@ import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/che
 import { lockSlot } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
-import { DEFAULT_CANCELLATION_POLICY, PREPAID_CANCELLATION_POLICY } from "@/modules/booking/types";
+import {
+  DEFAULT_CANCELLATION_POLICY,
+  PREPAID_CANCELLATION_POLICY,
+  DEFAULT_NO_SHOW_THRESHOLD_MINUTES,
+} from "@/modules/booking/types";
 import { createOnlinePayment, autoRefundOnCancellation } from "@/modules/payments/service";
 import { PaymentError } from "@/modules/payments/types";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
@@ -102,6 +106,20 @@ export async function isPublicBookingEnabled(): Promise<boolean> {
   const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
   const config = moduleRecord?.config as Record<string, unknown> | null;
   return config?.publicBookingEnabled !== false;
+}
+
+/**
+ * Порог, после которого неотмеченная CONFIRMED-бронь считается неявкой
+ * (ручная отметка «Не пришёл» и авто-отметка cron'ом — #440). Раньше был
+ * захардкожен `30` в 7 местах (обоих модулей + cron), хотя общая константа
+ * `DEFAULT_NO_SHOW_THRESHOLD_MINUTES` уже существовала и настройка была
+ * задумана per-module через `Module.config`.
+ */
+export async function getNoShowThresholdMinutes(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.noShowThresholdMinutes;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_NO_SHOW_THRESHOLD_MINUTES;
 }
 
 // === RESOURCES ===
@@ -900,7 +918,7 @@ export async function updateBookingStatus(
       actorRole,
       now: new Date(),
       startTime: booking.startTime,
-      noShowThresholdMinutes: 30,
+      noShowThresholdMinutes: await getNoShowThresholdMinutes(),
     });
   } catch (err: unknown) {
     const e = err as { code?: string; message?: string };
@@ -1363,7 +1381,7 @@ export async function checkInBooking(bookingId: string, managerId: string) {
       actorRole: "MANAGER",
       now,
       startTime: booking.startTime,
-      noShowThresholdMinutes: 30,
+      noShowThresholdMinutes: await getNoShowThresholdMinutes(),
     });
   } catch (err: unknown) {
     const e = err as { code?: string; message?: string };
@@ -1445,7 +1463,7 @@ export async function markNoShow(
       actorRole,
       now,
       startTime: booking.startTime,
-      noShowThresholdMinutes: 30,
+      noShowThresholdMinutes: await getNoShowThresholdMinutes(),
     });
   } catch (err: unknown) {
     const e = err as { code?: string; message?: string };
