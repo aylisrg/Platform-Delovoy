@@ -105,8 +105,8 @@ export function PermissionsModal({
     : grantedSections.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <div>
@@ -133,7 +133,7 @@ export function PermissionsModal({
         </div>
 
         {/* Body */}
-        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {isUser ? (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-700">
               Управление правами доступно только для менеджеров.
