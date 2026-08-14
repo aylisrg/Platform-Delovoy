@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 import type { NotificationEvent } from "./types";
 
 /**
@@ -18,14 +19,6 @@ import type { NotificationEvent } from "./types";
  */
 
 type TemplateFn = (d: Record<string, unknown>) => string;
-
-/** Экранирование для parse_mode=HTML (имена/названия из пользовательского ввода). */
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
 
 /**
  * Абсолютная ссылка на конкретную бронь в админке. Единый источник знания о

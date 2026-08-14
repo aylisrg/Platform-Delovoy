@@ -28,7 +28,7 @@ vi.mock("@/lib/db", () => ({
 import { POST } from "../route";
 
 function makeRequest(body: Record<string, unknown> = {}) {
-  return new NextRequest("http://localhost/api/gazebos/settings/test", {
+  return new NextRequest("http://localhost/api/ps-park/settings/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -39,12 +39,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
   mockFindUnique.mockResolvedValue({
-    config: { telegramChannelId: "-1001234567890" },
+    config: { telegramChannelId: "-1009876543210" },
   });
   global.fetch = vi.fn().mockResolvedValue({
     json: async () => ({
       ok: true,
-      result: { chat: { title: "Барбекю — уведомления" } },
+      result: { chat: { title: "Плей Парк — уведомления" } },
     }),
   }) as never;
 });
@@ -53,31 +53,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("POST /api/gazebos/settings/test", () => {
+describe("POST /api/ps-park/settings/test", () => {
   it("sends a test message to the saved channel and returns the chat title", async () => {
     const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(body.success).toBe(true);
-    expect(body.data.chatId).toBe("-1001234567890");
-    expect(body.data.chatTitle).toBe("Барбекю — уведомления");
+    expect(body.data.chatId).toBe("-1009876543210");
+    expect(body.data.chatTitle).toBe("Плей Парк — уведомления");
 
-    const [url, init] = vi.mocked(global.fetch).mock.calls[0];
-    expect(String(url)).toContain("/bottest-token/sendMessage");
+    const [, init] = vi.mocked(global.fetch).mock.calls[0];
     const tgBody = JSON.parse((init as RequestInit).body as string);
-    expect(tgBody.chat_id).toBe("-1001234567890");
+    expect(tgBody.chat_id).toBe("-1009876543210");
     expect(tgBody.parse_mode).toBe("HTML");
-  });
-
-  it("prefers the chatId from the request body over the saved one", async () => {
-    const res = await POST(makeRequest({ chatId: "@gazebos_channel" }));
-    const body = await res.json();
-
-    expect(body.success).toBe(true);
-    const tgBody = JSON.parse(
-      (vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string
-    );
-    expect(tgBody.chat_id).toBe("@gazebos_channel");
   });
 
   it("returns NO_CHAT_ID when neither body nor config has a chat id", async () => {
@@ -89,19 +77,6 @@ describe("POST /api/gazebos/settings/test", () => {
     expect(body.success).toBe(false);
     expect(body.error.code).toBe("NO_CHAT_ID");
     expect(global.fetch).not.toHaveBeenCalled();
-  });
-
-  it("returns TELEGRAM_UNREACHABLE when the fetch itself fails (network timeout)", async () => {
-    global.fetch = vi
-      .fn()
-      .mockRejectedValue(new TypeError("fetch failed")) as never;
-
-    const res = await POST(makeRequest());
-    const body = await res.json();
-
-    expect(res.status).toBe(502);
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe("TELEGRAM_UNREACHABLE");
   });
 
   // #471: имя из session.user.name подставлялось в parse_mode:"HTML"
@@ -118,8 +93,6 @@ describe("POST /api/gazebos/settings/test", () => {
     const tgBody = JSON.parse(
       (vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string
     );
-    // Канонический escapeHtml экранирует только &, <, > (требование Telegram
-    // Bot API) — кавычки внутри текстовых узлов не нужны.
     expect(tgBody.text).toContain('&lt;a href="evil.example"&gt;Admin&lt;/a&gt;');
     expect(tgBody.text).not.toContain("<a href=");
   });

@@ -7,6 +7,7 @@
 
 import { prisma } from "@/lib/db";
 import { sendTelegramAlert } from "@/lib/telegram-alert";
+import { escapeHtml } from "@/lib/telegram/escape";
 import { avitoFetch, isAvitoCredentialsConfigured } from "./client";
 import { AvitoApiError } from "./types";
 
@@ -253,13 +254,6 @@ async function sendNegativeReviewAlert(args: {
     args.avitoItem.url ? `Ссылка: ${args.avitoItem.url}` : null,
   ].filter((s): s is string => s !== null);
   return sendTelegramAlert(lines.join("\n"), { parseMode: "HTML" });
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 /**

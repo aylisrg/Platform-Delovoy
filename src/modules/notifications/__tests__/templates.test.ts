@@ -76,6 +76,66 @@ describe("renderAdminMessage", () => {
   });
 });
 
+describe("HTML escaping (#471)", () => {
+  // Самый серьёзный найденный вектор: заявка на офис доступна анонимно через
+  // POST /api/rental/inquiries и /api/nedelovoy/inquiries без ограничения
+  // символов в message (до 2000), и уходит в parse_mode:"HTML" админ-чат.
+  it("экранирует поля заявки на аренду в adminTemplates.rental['inquiry.created']", () => {
+    const msg = renderAdminMessage("rental", "inquiry.created", {
+      name: "<b>Хакер</b>",
+      phone: "<i>+7900</i>",
+      email: "a@b.com<script>alert(1)</script>",
+      companyName: "<u>ООО Зло</u>",
+      officeNumber: "A-1",
+      message: "<a href=\"evil\">click</a> & <b>bold</b>",
+    });
+
+    expect(msg).toContain("&lt;b&gt;Хакер&lt;/b&gt;");
+    expect(msg).toContain("&lt;i&gt;+7900&lt;/i&gt;");
+    expect(msg).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(msg).toContain("&lt;u&gt;ООО Зло&lt;/u&gt;");
+    expect(msg).toContain("&lt;a href=\"evil\"&gt;click&lt;/a&gt; &amp; &lt;b&gt;bold&lt;/b&gt;");
+    expect(msg).not.toContain("<script>");
+    expect(msg).not.toContain('<a href="evil">');
+  });
+
+  it("экранирует поля заявки на офис в adminTemplates['rental-inquiry']['inquiry.created']", () => {
+    const msg = renderAdminMessage("rental-inquiry", "inquiry.created", {
+      name: "<b>Хакер</b>",
+      phone: "+7900",
+      email: "a@b.com",
+      companyName: "ООО Ромашка",
+      officeNumber: "A-2",
+      message: "<img src=x onerror=alert(1)>",
+    });
+
+    expect(msg).toContain("&lt;b&gt;Хакер&lt;/b&gt;");
+    expect(msg).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(msg).not.toContain("<img src=");
+  });
+
+  it("экранирует userName в adminTemplates.gazebos['booking.created'] (гостевое бронирование)", () => {
+    const msg = renderAdminMessage("gazebos", "booking.created", {
+      resourceName: "Беседка №1",
+      date: "2026-04-15",
+      startTime: "10:00",
+      endTime: "12:00",
+      userName: "<b>Гость</b>",
+    });
+    expect(msg).toContain("&lt;b&gt;Гость&lt;/b&gt;");
+    expect(msg).not.toContain("<b>Гость</b>");
+  });
+
+  it("экранирует description в paymentAdminTemplates['payment.succeeded']", () => {
+    const msg = renderAdminMessage("gazebos", "payment.succeeded", {
+      amount: "1000",
+      description: "<script>alert(1)</script>",
+    });
+    expect(msg).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(msg).not.toContain("<script>");
+  });
+});
+
 describe("template coverage", () => {
   it("all client templates produce non-empty strings", () => {
     for (const [module, events] of Object.entries(clientTemplates)) {

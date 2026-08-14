@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { sendTelegramAlert } from "@/lib/telegram-alert";
+import { escapeHtml } from "@/lib/telegram/escape";
 import { getOrCreateSettings, logEmail, sendAutoReminder } from "./notifications";
 import type { PaymentWithContract } from "./notifications";
 import { formatDateRu, formatMoney } from "./template-engine";
@@ -308,13 +309,6 @@ function isUniqueViolation(err: unknown): boolean {
     "code" in err &&
     (err as { code?: unknown }).code === "P2002"
   );
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 export type RunReport = {

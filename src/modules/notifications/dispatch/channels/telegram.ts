@@ -1,5 +1,6 @@
 import type { NotificationChannelKind } from "@prisma/client";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 import type {
   DeliveryResult,
   INotificationChannel,
@@ -46,11 +47,4 @@ function formatPayload(p: NotificationPayload): string {
   const escTitle = escapeHtml(p.title);
   const escBody = escapeHtml(p.body);
   return `<b>${escTitle}</b>\n\n${escBody}`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }

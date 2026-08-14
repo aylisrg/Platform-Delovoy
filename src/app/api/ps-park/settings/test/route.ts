@@ -11,6 +11,7 @@ import { channelTestMessageSchema } from "@/modules/ps-park/validation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const MODULE_SLUG = "ps-park";
 
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       "✅ <b>Тестовое сообщение</b>",
       "",
       "Канал уведомлений «Плей Парк» настроен правильно.",
-      `Отправил: ${userName}`,
+      `Отправил: ${escapeHtml(userName)}`,
     ].join("\n");
 
     const tgRes = await telegramApi<{ chat?: { title?: string } }>(

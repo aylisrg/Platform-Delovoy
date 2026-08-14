@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // TELEGRAM_OWNER_CHAT_ID — личный чат владельца (для СРОЧНО обращений)
@@ -97,11 +98,4 @@ export async function sendUrgentFeedbackAlert(params: {
   }
 
   return true;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }

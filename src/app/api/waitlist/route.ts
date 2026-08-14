@@ -3,6 +3,7 @@ import { z } from "zod";
 import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const schema = z.object({
   name: z.string().min(2).max(100),
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
         "sendMessage",
         {
           chat_id: chatId,
-          text: `🔔 <b>Лист ожидания — новая заявка</b>\n\n👤 ${name}\n📞 ${phone}`,
+          text: `🔔 <b>Лист ожидания — новая заявка</b>\n\n👤 ${escapeHtml(name)}\n📞 ${escapeHtml(phone)}`,
           parse_mode: "HTML",
         },
         { botToken }

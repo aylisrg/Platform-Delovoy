@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getModuleAdmins } from "@/lib/permissions";
 import { telegramAdapter } from "@/modules/notifications/channels/telegram";
+import { escapeHtml as e } from "@/lib/telegram/escape";
 
 const MODULE_NAMES: Record<string, string> = {
   cafe: "Кафе",
@@ -105,10 +106,10 @@ export function buildReceiptCreatedMessage(data: {
   return [
     `<b>Новый приход на склад</b>`,
     ``,
-    `Менеджер: <b>${data.managerName}</b>`,
-    `Позиций: <b>${data.itemCount}</b>`,
-    `Сумма: <b>${data.totalAmount} ₽</b>`,
-    `Дата поставки: ${data.receivedAt}`,
+    `Менеджер: <b>${e(data.managerName)}</b>`,
+    `Позиций: <b>${e(data.itemCount)}</b>`,
+    `Сумма: <b>${e(data.totalAmount)} ₽</b>`,
+    `Дата поставки: ${e(data.receivedAt)}`,
     ``,
     `<i>Требует подтверждения.</i>`,
   ].join("\n");
@@ -121,8 +122,8 @@ export function buildReceiptConfirmedMessage(data: {
   return [
     `<b>Приход подтверждён</b>`,
     ``,
-    `Ваш приход от ${data.receivedAt} подтверждён.`,
-    `Подтвердил: <b>${data.adminName}</b>`,
+    `Ваш приход от ${e(data.receivedAt)} подтверждён.`,
+    `Подтвердил: <b>${e(data.adminName)}</b>`,
   ].join("\n");
 }
 
@@ -134,9 +135,9 @@ export function buildReceiptProblemMessage(data: {
   return [
     `<b>Проблема в приходе</b>`,
     ``,
-    `Менеджер: <b>${data.managerName}</b>`,
-    `Приход от: ${data.receivedAt}`,
-    `Проблема: ${data.problemNote}`,
+    `Менеджер: <b>${e(data.managerName)}</b>`,
+    `Приход от: ${e(data.receivedAt)}`,
+    `Проблема: ${e(data.problemNote)}`,
     ``,
     `<i>Требуется корректировка.</i>`,
   ].join("\n");
@@ -149,7 +150,7 @@ export function buildReceiptCorrectedMessage(data: {
   return [
     `<b>Приход скорректирован</b>`,
     ``,
-    `ADMIN <b>${data.adminName}</b> скорректировал ваш приход от ${data.receivedAt}.`,
+    `ADMIN <b>${e(data.adminName)}</b> скорректировал ваш приход от ${e(data.receivedAt)}.`,
   ].join("\n");
 }
 
@@ -158,7 +159,7 @@ export function buildNoAdminWarningMessage(moduleSlug: string): string {
   return [
     `<b>Нет ADMIN в модуле</b>`,
     ``,
-    `В модуле "${name}" создан приход, но ADMIN не назначен.`,
+    `В модуле "${e(name)}" создан приход, но ADMIN не назначен.`,
     `Требуется назначить ADMIN для проверки приходов.`,
   ].join("\n");
 }
