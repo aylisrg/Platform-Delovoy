@@ -50,3 +50,4 @@
 | 2026-08-13 | 2026-08-13-issue-435-subscription-refund-on-cancel-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-13 | 2026-08-13-miniapp-role-rebuild-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
 | unknown | 436-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-527-anon-booking-pii-access-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
