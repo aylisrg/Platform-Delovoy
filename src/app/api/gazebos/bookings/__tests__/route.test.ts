@@ -11,6 +11,18 @@ vi.mock("@/modules/payments/service", () => ({
   getBookingPaymentSummaries: (...args: unknown[]) => mockGetSummaries(...args),
 }));
 
+const mockAuth = vi.fn();
+vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
+
+const mockRequireAdminSection = vi.fn();
+vi.mock("@/lib/api-response", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-response")>("@/lib/api-response");
+  return {
+    ...actual,
+    requireAdminSection: (...args: unknown[]) => mockRequireAdminSection(...args),
+  };
+});
+
 import { GET } from "../route";
 
 function makeRequest(query: string) {
@@ -20,6 +32,8 @@ function makeRequest(query: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSummaries.mockResolvedValue(new Map());
+  mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
+  mockRequireAdminSection.mockResolvedValue(null);
 });
 
 // #431: UI шлёт page/perPage, Zod их отбрасывала (не было в схеме), а сервис
@@ -89,5 +103,36 @@ describe("GET /api/gazebos/bookings", () => {
     const json = await res.json();
 
     expect(json.data[0].paymentStatus).toBe("PAID");
+  });
+
+  // #560: this admin listing (client PII: name/phone) had no role check at
+  // all — any authenticated session, including plain USER, passed.
+  it("rejects an unauthenticated request", async () => {
+    mockAuth.mockResolvedValue(null);
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(401);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
+  });
+
+  it("rejects a USER-role session", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(403);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
+  });
+
+  it("respects requireAdminSection denial (MANAGER without gazebos access)", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
+    );
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(403);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
   });
 });

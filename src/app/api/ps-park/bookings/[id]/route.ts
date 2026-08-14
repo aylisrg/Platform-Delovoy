@@ -4,6 +4,7 @@ import {
   apiError,
   apiNotFound,
   apiUnauthorized,
+  apiForbidden,
   apiServerError,
   requireAdminSection,
 } from "@/lib/api-response";
@@ -23,6 +24,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return apiUnauthorized();
+    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
+    const denied = await requireAdminSection(session, "ps-park");
+    if (denied) return denied;
+
     const { id } = await params;
     const booking = await getBooking(id);
     if (!booking) return apiNotFound("Бронирование не найдено");
