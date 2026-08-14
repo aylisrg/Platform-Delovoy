@@ -52,6 +52,11 @@ docker-compose.override.yml
 uploads/
 .claude/worktrees/
 
+# Claude Code session runtime state — sessionId/pid/timestamp, rewritten by
+# every session that touches the repo; never meant to be version-controlled
+# (issue #479 — was causing spurious "uncommitted changes" + noise PRs, e.g. #542)
+.claude/scheduled_tasks.lock
+
 # debug scripts (temporary local debugging, never commit)
 scripts/debug-*
 
