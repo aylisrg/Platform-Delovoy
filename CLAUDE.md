@@ -284,7 +284,7 @@ write, actions write) — его читают `auto-rebase.yml`, `issue-queue-me
 
 | Level | Channel |
 |-------|---------|
-| CRITICAL | Telegram + SMS to superadmin |
+| CRITICAL | Telegram admin group (`log.critical()` → `sendAlert()`, throttled per source, 300s — `src/lib/logger.ts`) |
 | ERROR | Telegram admin group |
 | WARNING | Dashboard only |
 | INFO | DB log (`SystemEvent`) |

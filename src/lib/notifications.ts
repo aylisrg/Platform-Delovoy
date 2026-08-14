@@ -14,7 +14,7 @@ const LEVEL_EMOJI: Record<AlertLevel, string> = {
  * Send an alert message to the admin Telegram group via HTTP API.
  * Self-contained — no dependency on the bot process.
  */
-async function sendAlert(
+export async function sendAlert(
   level: AlertLevel,
   source: string,
   message: string,
