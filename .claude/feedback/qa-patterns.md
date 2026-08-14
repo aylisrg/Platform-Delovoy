@@ -58,3 +58,4 @@
 | 2026-08-14 | 2026-08-14-issue-471-escapehtml-consolidate-qa-report.md | 9 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-502-webapp-penalty-confirmation-qa-report.md | 6 | rbac, api, typescript, tests |
 | 2026-08-14 | 2026-08-14-issue-534-bot-escapehtml-qa-report.md | 1 | rbac, api, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-464-npm-ci-qa-report.md | 1 | rbac, api, tests |
