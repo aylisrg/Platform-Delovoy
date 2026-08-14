@@ -61,3 +61,4 @@
 | 2026-08-14 | 2026-08-14-issue-464-npm-ci-qa-report.md | 1 | rbac, api, tests |
 | unknown | issue-489-qa-report.md | 5 | rbac, api, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-560-booking-get-rbac-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-509-booking-userid-filter-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
