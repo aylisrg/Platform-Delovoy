@@ -9,10 +9,10 @@
  * и ничего больше — кавычки внутри текстовых узлов он не интерпретирует.
  * Порядок важен: `&` первым, иначе экранируются уже вставленные амперсанды.
  *
- * Канонический дом для этого хелпера — здесь. В проекте есть его локальные копии
- * (`src/modules/notifications/dispatch/channels/telegram.ts`, `feedback/telegram.ts`,
- * `rental/scheduler.ts`, `backups/notify.ts` и др.); их миграция сюда трекается
- * отдельной issue, чтобы не смешивать security-фикс с рефакторингом.
+ * Канонический дом для этого хелпера — здесь. Локальные копии в
+ * `notifications/dispatch/channels/telegram.ts`, `feedback/telegram.ts`,
+ * `rental/scheduler.ts`, `backups/notify.ts` и др. были устранены при
+ * консолидации (issue #471) — все вызывающие места импортируют отсюда.
  */
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
