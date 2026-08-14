@@ -24,6 +24,16 @@ describe('isTokenDead', () => {
   it('редиректы (3xx) не 2xx — тоже мёртвый', () => {
     expect(isTokenDead(301)).toBe(true);
   });
+
+  it('границы диапазона 2xx', () => {
+    expect(isTokenDead(199)).toBe(true); // последний 1xx — мёртв
+    expect(isTokenDead(299)).toBe(false); // последний 2xx — жив
+    expect(isTokenDead(300)).toBe(true); // первый 3xx — мёртв
+  });
+
+  it('NaN/мусор в коде ответа — fail-safe в сторону «мёртв», не «жив»', () => {
+    expect(isTokenDead(Number.NaN)).toBe(true);
+  });
 });
 
 describe('shouldRemindRotation', () => {

@@ -17,9 +17,15 @@
 export const TOKEN_ROTATION_MARKER = '<!-- issue-queue-token-rotation-reminder -->';
 export const NEEDS_OWNER_DIGEST_MARKER = '<!-- issue-queue-needs-owner-digest -->';
 
-/** `GET /user` с AUTOMATION_TOKEN — не-2xx означает протухший или отозванный PAT. */
+/**
+ * `GET /user` с AUTOMATION_TOKEN — не-2xx означает протухший или отозванный
+ * PAT. Написано как отрицание диапазона, а не `< 200 || >= 300`: NaN (или
+ * иной мусор, если код ответа когда-нибудь перестанет быть валидным числом)
+ * должен считаться мёртвым, а не живым — `NaN < 200` и `NaN >= 300` оба
+ * false, что при прямом виде условия молча трактовало бы NaN как «жив».
+ */
 export function isTokenDead(status: number): boolean {
-  return status < 200 || status >= 300;
+  return !(status >= 200 && status < 300);
 }
 
 export interface RotationReminderInput {
