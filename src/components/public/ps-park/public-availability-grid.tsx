@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AuthModal } from "@/components/ui/auth-modal";
-import { DateNavigator } from "@/components/admin/ps-park/date-navigator";
+import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import type { DayAvailability } from "@/modules/ps-park/types";
 
 type PublicAvailabilityGridProps = {
