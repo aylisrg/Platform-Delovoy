@@ -10,6 +10,7 @@
  *   reconcile                 снять протухшие локи, прибраться
  *   report                    обновить issue-дашборд
  *   heartbeat [--dry-run]     алерт «очередь стоит» (JSON; дедуп на дашборде)
+ *   ops-watch [--dry-run]     живость AUTOMATION_TOKEN + дайджест needs-owner (JSON)
  *
  * Триаж и планирование:
  *   untriaged                                issues без auto:* — входящие для триажа (JSON)
@@ -64,6 +65,14 @@ import {
   type QueueConfig,
   type QueueIssue,
 } from './lib/issue-queue';
+import {
+  NEEDS_OWNER_DIGEST_MARKER,
+  TOKEN_ROTATION_MARKER,
+  buildNeedsOwnerDigest,
+  isTokenDead,
+  shouldRemindRotation,
+  type NeedsOwnerPr,
+} from './lib/queue-watch';
 
 const ROOT = resolve(__dirname, '..');
 const CONFIG_PATH = resolve(ROOT, '.github/issue-queue.json');
@@ -126,6 +135,41 @@ function allComments(num: number): { body: string; created_at: string }[] {
     if (batch.length < 100) break;
   }
   return out;
+}
+
+/**
+ * Момент, когда на issue/PR реально появился лейбл `needs-owner` — берём
+ * последнее событие `labeled` с этим именем, а не `updated_at` PR (который
+ * сдвигает любой посторонний коммент/пуш и тем самым прячет по-настоящему
+ * старый needs-owner из дайджеста). Событий не нашлось (редкий краевой
+ * случай — GitHub иногда не отдаёт историю за давностью) → null, вызывающий
+ * код падает на `updated_at` как на приближение.
+ */
+function needsOwnerLabeledAt(num: number): string | null {
+  const events = gh<{ event: string; label?: { name: string }; created_at: string }[]>(
+    `/repos/${REPO}/issues/${num}/events?per_page=100`,
+  );
+  const labeled = events.filter((e) => e.event === 'labeled' && e.label?.name === 'needs-owner');
+  return labeled.length > 0 ? labeled[labeled.length - 1].created_at : null;
+}
+
+/** `GET /user` с явным токеном (не $GH_TOKEN сессии/Actions) — код ответа, не парсим тело. */
+function checkTokenStatus(token: string): number {
+  const out = execFileSync(
+    'curl',
+    ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '-H', `Authorization: Bearer ${token}`, '-H', 'Accept: application/vnd.github+json', 'https://api.github.com/user'],
+    { encoding: 'utf8' },
+  );
+  return Number(out.trim());
+}
+
+/**
+ * Экранирование для Telegram `parse_mode: "HTML"` — PR-заголовки в дайджесте
+ * needs-owner не проверены на спецсимволы (по конвенции очереди их пишет
+ * агент, но заголовок мог прийти и от человека при ручном триаже).
+ */
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Номера issue, которые закрывает данный PR: `Closes #N` в теле или `-N-` в имени ветки. */
@@ -907,6 +951,94 @@ function cmdHeartbeat(dryRun: boolean): void {
   console.log(JSON.stringify({ alert: verdict.alert, reason: verdict.reason, ready, wip }, null, 2));
 }
 
+/**
+ * Watchdog автономии (issue #573): живость AUTOMATION_TOKEN + суточный
+ * дайджест needs-owner. Как и heartbeat — только решения и запись
+ * маркер-комментариев на дашборд; сам вызов Telegram (секреты) — в
+ * issue-queue.yml, отдельным шагом по JSON-выводу этой команды.
+ */
+function cmdOpsWatch(dryRun: boolean): void {
+  const dash = gh<RawIssue[]>(
+    `/repos/${REPO}/issues?state=all&labels=${encodeURIComponent('auto:dashboard')}&sort=created&direction=asc&per_page=10`,
+  ).filter((i) => !i.pull_request);
+  const dashNumber = dash.length > 0 ? dash[0].number : null;
+  const dashComments = dashNumber !== null ? allComments(dashNumber) : [];
+
+  const result: Record<string, unknown> = {};
+
+  // --- 1. Живость AUTOMATION_TOKEN ---
+  // Секрет может быть не заведён вовсе (CLAUDE.md: очередь работает и без
+  // него, просто авто-ребейзы паркуются в action_required) — это не «токен
+  // умер», а «токена никогда не было»; ложную тревогу не поднимаем.
+  const automationToken = process.env.AUTOMATION_TOKEN;
+  if (!automationToken) {
+    result.token = { checked: false, reason: 'AUTOMATION_TOKEN не задан' };
+  } else {
+    const status = checkTokenStatus(automationToken);
+    const dead = isTokenDead(status);
+    result.token = { checked: true, dead, status };
+    result.tokenAlert = dead;
+
+    if (!dead) {
+      const lastReminderAt =
+        dashComments.filter((c) => c.body.includes(TOKEN_ROTATION_MARKER)).at(-1)?.created_at ?? null;
+      const remind = shouldRemindRotation({ now: new Date(), lastReminderAt, intervalDays: 30 });
+      result.rotationReminder = remind;
+      if (remind && !dryRun && dashNumber !== null) {
+        comment(
+          dashNumber,
+          `${TOKEN_ROTATION_MARKER}\n\n🔑 Напоминание: AUTOMATION_TOKEN — fine-grained PAT со ` +
+            `сроком действия ≤90 дней, дата истечения через API недоступна. Проверь в ` +
+            `GitHub → Settings → Developer settings → Fine-grained tokens и при необходимости ` +
+            `сгенерируй новый (issue #573, ADR 2026-08-10 §«Обновление 2026-08-13»).`,
+        );
+      }
+    }
+  }
+
+  // --- 2. Дайджест needs-owner старше 48ч ---
+  const needsOwnerRaw = gh<RawIssue[]>(
+    `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent('needs-owner')}&per_page=100`,
+  ).filter((i) => i.pull_request);
+  const needsOwnerPrs: NeedsOwnerPr[] = needsOwnerRaw.map((pr) => ({
+    number: pr.number,
+    title: pr.title,
+    labeledAt: needsOwnerLabeledAt(pr.number) ?? pr.updated_at,
+  }));
+  const lastDigestAt =
+    dashComments.filter((c) => c.body.includes(NEEDS_OWNER_DIGEST_MARKER)).at(-1)?.created_at ?? null;
+
+  const digest = buildNeedsOwnerDigest({
+    now: new Date(),
+    prs: needsOwnerPrs,
+    minAgeHours: 48,
+    lastDigestAt,
+    intervalHours: 24,
+  });
+  result.digest = digest;
+
+  if (digest.send) {
+    const now = Date.now();
+    const ageLine = (pr: NeedsOwnerPr, title: string) => {
+      const ageHours = Math.round((now - new Date(pr.labeledAt).getTime()) / 3.6e6);
+      return `- #${pr.number} ${title} — ${ageHours} ч`;
+    };
+    // GH-комментарий — обычный markdown-текст (дедуп-маркер для этой команды).
+    const plainLines = digest.stalePrs.map((pr) => ageLine(pr, pr.title));
+    const digestText = `needs-owner дольше 48 ч, ждут решения владельца:\n${plainLines.join('\n')}`;
+    result.digestText = digestText;
+    // Отдельная HTML-экранированная версия — для Telegram (parse_mode:"HTML"
+    // в issue-queue.yml); заголовок PR не гарантированно безопасен для HTML.
+    const htmlLines = digest.stalePrs.map((pr) => ageLine(pr, escapeHtml(pr.title)));
+    result.digestTextHtml = `needs-owner дольше 48 ч, ждут решения владельца:\n${htmlLines.join('\n')}`;
+    if (!dryRun && dashNumber !== null) {
+      comment(dashNumber, `${NEEDS_OWNER_DIGEST_MARKER}\n\n📋 ${digestText}`);
+    }
+  }
+
+  console.log(JSON.stringify(result, null, 2));
+}
+
 // ── Точка входа ─────────────────────────────────────────────────────────────
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -920,6 +1052,7 @@ try {
     case 'reconcile': cmdReconcile(); break;
     case 'report': cmdReport(); break;
     case 'heartbeat': cmdHeartbeat(rest.includes('--dry-run')); break;
+    case 'ops-watch': cmdOpsWatch(rest.includes('--dry-run')); break;
     case 'untriaged': cmdUntriaged(); break;
     case 'triage': cmdTriage(Number(rest[0]), rest[1] ?? '', rest[2] ?? ''); break;
     case 'create': cmdCreate(rest); break;
