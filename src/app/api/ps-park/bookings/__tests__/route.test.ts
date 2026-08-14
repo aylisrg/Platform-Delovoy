@@ -14,6 +14,15 @@ vi.mock("@/modules/payments/service", () => ({
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
+const mockRequireAdminSection = vi.fn();
+vi.mock("@/lib/api-response", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-response")>("@/lib/api-response");
+  return {
+    ...actual,
+    requireAdminSection: (...args: unknown[]) => mockRequireAdminSection(...args),
+  };
+});
+
 import { GET } from "../route";
 
 function makeRequest(query: string) {
@@ -23,8 +32,8 @@ function makeRequest(query: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSummaries.mockResolvedValue(new Map());
-  // SUPERADMIN skips the hasAdminSectionAccess DB lookup in requireAdminSection.
-  mockAuth.mockResolvedValue({ user: { id: "admin-1", role: "SUPERADMIN" } });
+  mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
+  mockRequireAdminSection.mockResolvedValue(null);
 });
 
 // #431: то же самое, что для gazebos — page/perPage отбрасывались Zod,
@@ -108,6 +117,17 @@ describe("GET /api/ps-park/bookings", () => {
 
   it("rejects a USER-role session", async () => {
     mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(403);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
+  });
+
+  it("respects requireAdminSection denial (MANAGER without ps-park access)", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
+    );
 
     const res = await GET(makeRequest(""));
 
