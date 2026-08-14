@@ -54,3 +54,4 @@
 | 2026-08-13 | 2026-08-13-issue-438-booking-history-search-qa-report.md | 11 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-438-booking-history-search-reverify-qa-report.md | 7 | rbac, api, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-439-reschedule-date-resource-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-480-release-notes-sha-race-qa-report.md | 8 | rbac, api, tests, scope_creep |
