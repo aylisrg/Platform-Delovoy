@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.13.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.2...v2.13.0) (2026-08-14)
+
+
+### Features
+
+* **ci:** Playwright E2E job — критические флоу против живого стека ([#592](https://github.com/aylisrg/Platform-Delovoy/issues/592)) ([c5acfbb](https://github.com/aylisrg/Platform-Delovoy/commit/c5acfbb5080aa535dac00010e4fdc02e4d3bbac3))
+* **monitoring:** событийный CRITICAL-алертинг — log.critical() → Telegram ([#588](https://github.com/aylisrg/Platform-Delovoy/issues/588)) ([35e2bf1](https://github.com/aylisrg/Platform-Delovoy/commit/35e2bf12a917ba8e2604eda1b33c1bc40ea5a08e))
+* **queue:** watchdog автономии — liveness AUTOMATION_TOKEN + суточный дайджест needs-owner ([#593](https://github.com/aylisrg/Platform-Delovoy/issues/593)) ([0df7436](https://github.com/aylisrg/Platform-Delovoy/commit/0df7436dc197c8da486a32646addac8420d54277))
+
+
+### Bug Fixes
+
+* **deploy:** smoke-тесты после деплоя не блокируют выкладку — сделать блокирующими с откатом ([#587](https://github.com/aylisrg/Platform-Delovoy/issues/587)) ([d2115fe](https://github.com/aylisrg/Platform-Delovoy/commit/d2115fef559becd29c0adc679a4cf3713b4af099))
+
 ## [2.12.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.1...v2.12.2) (2026-08-14)
 
 
