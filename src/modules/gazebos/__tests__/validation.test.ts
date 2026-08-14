@@ -326,6 +326,21 @@ describe("moduleSettingsSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  // #440: порог неявки был захардкожен `30` в сервисе — настройка не была
+  // валидируемым полем формы вообще.
+  it("accepts noShowThresholdMinutes", () => {
+    const result = moduleSettingsSchema.safeParse({ noShowThresholdMinutes: 15 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.noShowThresholdMinutes).toBe(15);
+    }
+  });
+
+  it("rejects non-positive noShowThresholdMinutes", () => {
+    const result = moduleSettingsSchema.safeParse({ noShowThresholdMinutes: 0 });
+    expect(result.success).toBe(false);
+  });
+
   it("accepts Telegram channel settings", () => {
     const result = moduleSettingsSchema.safeParse({
       telegramChannelEnabled: true,

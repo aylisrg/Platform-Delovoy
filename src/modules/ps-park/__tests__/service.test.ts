@@ -1216,6 +1216,24 @@ describe("markNoShow", () => {
       code: "BOOKING_NOT_FOUND",
     });
   });
+
+  // #440: порог неявки был захардкожен `30` — markNoShow всегда проверял
+  // ровно 30 минут после startTime, настройка Module.config.noShowThresholdMinutes
+  // ни на что не влияла.
+  it("уважает настроенный noShowThresholdMinutes из Module.config", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { noShowThresholdMinutes: 10 },
+    } as never);
+    const startedAgo = new Date(Date.now() - 15 * 60 * 1000); // 15 минут назад
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "CONFIRMED", startTime: startedAgo }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "NO_SHOW" }) as never);
+
+    // 15 минут прошло, порог настроен на 10 — переход должен пройти
+    // (дефолтные 30 минут этот переход бы отклонили — см. тест выше).
+    await expect(markNoShow("booking-1", "manager-1", "manual")).resolves.toBeDefined();
+  });
 });
 
 // ===== getAvailability =====

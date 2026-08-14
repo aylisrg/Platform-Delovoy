@@ -102,6 +102,8 @@ export const moduleSettingsSchema = z.object({
   minBookingHours: z.number().int().min(1).max(24).optional(),
   maxBookingHours: z.number().int().min(1).max(24).optional(),
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
+  // Порог неявки (минут после startTime) — раньше захардкожен `30` (#440).
+  noShowThresholdMinutes: z.number().int().min(1).max(1440).optional(),
   // Публичная бронь беседок с сайта. false — временно закрыта (админ-бронь
   // при этом продолжает работать). Дефолт (отсутствие ключа) = включено.
   publicBookingEnabled: z.boolean().optional(),

@@ -1877,6 +1877,38 @@ describe("soft-delete filter (deletedAt: null) в чтениях (#423)", () => 
     );
   });
 
+  // #440: порог неявки был захардкожен `30` — markNoShow всегда проверял
+  // ровно 30 минут после startTime, настройка Module.config.noShowThresholdMinutes
+  // ни на что не влияла.
+  describe("порог неявки конфигурируем (#440)", () => {
+    it("уважает настроенный noShowThresholdMinutes из Module.config", async () => {
+      vi.mocked(prisma.module.findUnique).mockResolvedValue({
+        config: { noShowThresholdMinutes: 10 },
+      } as never);
+      const startedAgo = new Date(Date.now() - 15 * 60 * 1000); // 15 минут назад
+      vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+        mockBooking({ status: "CONFIRMED", startTime: startedAgo }) as never
+      );
+      vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "NO_SHOW" }) as never);
+
+      // 15 минут прошло, порог настроен на 10 — переход должен пройти.
+      await expect(markNoShow("booking-1", "manager-1")).resolves.toBeDefined();
+    });
+
+    it("без настройки использует дефолт 30 минут (DEFAULT_NO_SHOW_THRESHOLD_MINUTES)", async () => {
+      vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+      const startedAgo = new Date(Date.now() - 15 * 60 * 1000); // 15 минут назад
+      vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+        mockBooking({ status: "CONFIRMED", startTime: startedAgo }) as never
+      );
+
+      // 15 минут прошло, дефолтный порог — 30: переход должен отклоняться.
+      await expect(markNoShow("booking-1", "manager-1")).rejects.toMatchObject({
+        code: "TRANSITION_CONDITION_NOT_MET",
+      });
+    });
+  });
+
   it("getAvailability не блокирует слот soft-deleted бронью", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
