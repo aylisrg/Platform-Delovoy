@@ -65,3 +65,4 @@
 | 2026-08-14 | 2026-08-14-issue-525-deploy-guard-dedup-qa-report.md | 7 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-570-blocking-smoke-tests-qa-report.md | 15 | rbac, api, tests |
 | 2026-08-14 | 2026-08-14-issue-572-playwright-e2e-qa-report.md | 14 | rbac, api, tests |
+| 2026-08-14 | 2026-08-14-issue-573-queue-watchdog-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
