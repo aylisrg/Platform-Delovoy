@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.12.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.11.0...v2.12.0) (2026-08-13)
+
+
+### Features
+
+* **booking:** выпадающий список статусов, отметка оплаты и заметная история ([#518](https://github.com/aylisrg/Platform-Delovoy/issues/518)) ([b06b5e5](https://github.com/aylisrg/Platform-Delovoy/commit/b06b5e5a97c4d0db2a9ec185a06116bde10af288))
+* **booking:** история событий брони, восстановление и бейдж оплаты ([#516](https://github.com/aylisrg/Platform-Delovoy/issues/516)) ([2de9b54](https://github.com/aylisrg/Platform-Delovoy/commit/2de9b540166791d6d97d4aa293ae5bb18a63bc9e))
+* **queue:** вынести мерж и запуск сессий из-под владельца ([#493](https://github.com/aylisrg/Platform-Delovoy/issues/493)) ([68c5e99](https://github.com/aylisrg/Platform-Delovoy/commit/68c5e99a34ee5c34abde9525b6452d287c477fc4))
+* **webapp:** ролевой ребилд Telegram Mini App + дедупликация системных уведомлений ([#517](https://github.com/aylisrg/Platform-Delovoy/issues/517)) ([ef23b24](https://github.com/aylisrg/Platform-Delovoy/commit/ef23b24f72c82a0014dacfa10b0e5913102fa8b0))
+
+
+### Bug Fixes
+
+* **booking:** пагинация истории броней реально листает страницы ([#510](https://github.com/aylisrg/Platform-Delovoy/issues/510)) ([6478212](https://github.com/aylisrg/Platform-Delovoy/commit/647821208328af1262ce5558fc80fee5635e0927))
+* **booking:** подтверждение перед завершением и отменой брони ([#514](https://github.com/aylisrg/Platform-Delovoy/issues/514)) ([a61c30a](https://github.com/aylisrg/Platform-Delovoy/commit/a61c30a0faa2773ff14f9d9f266c5040a90073ca))
+
 ## [2.11.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.10.0...v2.11.0) (2026-08-13)
 
 
