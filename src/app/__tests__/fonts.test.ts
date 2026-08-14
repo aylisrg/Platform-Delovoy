@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
 // #495: next/font/google скачивает шрифты во время `npm run build` — сбой
@@ -46,7 +46,7 @@ describe("fonts — no next/font/google dependency (#495)", () => {
   it("local font files are non-trivial in size (not empty/corrupt placeholders)", () => {
     for (const file of readdirSync(FONTS_DIR)) {
       if (!file.endsWith(".woff2")) continue;
-      const { size } = require("fs").statSync(join(FONTS_DIR, file));
+      const { size } = statSync(join(FONTS_DIR, file));
       expect(size).toBeGreaterThan(10_000);
     }
   });
