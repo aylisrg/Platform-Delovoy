@@ -177,7 +177,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checkout the exact commit build-and-push resolved and built, not
+      # whatever main HEAD happens to be when this job starts — a plain
+      # checkout (no ref) would race with release-please merging a second
+      # release while this job is queued/running (see issue #480).
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build-and-push.outputs.resolved_sha }}
 
       - name: Create Timeweb snapshot before deploy
         if: ${{ !inputs.skip_snapshot }}
@@ -199,7 +205,7 @@ jobs:
             curl -s -X POST \
               -H "Authorization: Bearer $TIMEWEB_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"comment\": \"Pre-deploy snapshot — ${{ github.sha }}\"}" \
+              -d "{\"comment\": \"Pre-deploy snapshot — ${{ needs.build-and-push.outputs.resolved_sha }}\"}" \
               "https://api.timeweb.cloud/api/v1/servers/$SERVER_ID/disks/backups" | jq '.'
             echo "Snapshot requested"
           else
@@ -719,7 +725,11 @@ jobs:
           [ -z "$RELEASE_NOTIFY_SECRET" ] && echo "RELEASE_NOTIFY_SECRET not set, skipping" && exit 0
 
           VERSION="${{ needs.build-and-push.outputs.version }}"
-          COMMIT_SHA="${{ github.sha }}"
+          # github.sha здесь — HEAD main НА МОМЕНТ СТАРТА этого job, не тот
+          # коммит, который реально собран и задеплоен: при гонке двух
+          # релизов подряд (release-please успевает смержить второй, пока
+          # job первого ещё выполняется) они расходятся — issue #480.
+          COMMIT_SHA="${{ needs.build-and-push.outputs.resolved_sha }}"
           DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           # --- Step 1: Check for manual release notes in docs/releases/current.md ---
@@ -733,6 +743,25 @@ jobs:
           fi
 
           # --- Step 2: Auto-generate with Gemini 2.5 Flash if no manual notes ---
+          # call_gemini <prompt text> -> печатает ответ модели в stdout, пусто при сбое.
+          call_gemini() {
+            local prompt_text="$1"
+            local prompt_json response
+            prompt_json=$(printf '%s' "$prompt_text" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+            response=$(curl -s --max-time 30 \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"contents\":[{\"parts\":[{\"text\":${prompt_json}}]}]}" || echo '')
+            echo "$response" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              print(data['candidates'][0]['content']['parts'][0]['text'].strip())
+          except Exception:
+              print('')
+          " 2>/dev/null
+          }
+
           if [ -z "$NOTES" ] && [ -n "$GEMINI_API_KEY" ]; then
             echo "No manual notes — generating with Gemini 2.5 Flash..."
 
@@ -744,11 +773,18 @@ jobs:
             fi
             [ -z "$COMMITS" ] && COMMITS="- (no commits found)"
 
-            PROMPT_TEXT="Ты — AI-ассистент бизнес-парка Деловой (Селятино). Сгенерируй краткие release notes на русском для Telegram.
+            # #480: старый промпт просил модель ролплеить "AI-ассистента парка"
+            # и ничего не давал, кроме списка коммитов, на который можно
+            # опереться — при чисто внутренних/технических коммитах модель
+            # выдумывала правдоподобно звучащие, но несуществующие фичи
+            # (конференц-залы, автобусы). Новый промпт запрещает это явно и
+            # даёт готовую формулировку для случая "нет пользовательских изменений".
+            PROMPT_TEXT="Ты составляешь release notes для Telegram-канала подписчиков внутренней бизнес-платформы парка Деловой (Селятино). Твоя единственная задача — переформулировать список git-коммитов ниже в понятный текст для нетехнического читателя (администратора парка).
           Правила:
-          - Маркированный список, 3-7 пунктов
-          - Группируй: новое, исправления, техническое
-          - Понятно для менеджеров, не для разработчиков
+          - Используй ТОЛЬКО факты из предоставленных коммитов. Никогда не придумывай функциональность, которой нет в списке коммитов, даже если она звучит правдоподобно для бизнес-парка.
+          - Если ВСЕ коммиты — внутренние/технические (рефакторинг, CI, инфраструктура, dev-tooling, багфиксы в коде агентов) и не меняют то, что видит пользователь платформы, выведи ровно одну строку без ничего лишнего: \"Технический релиз — без изменений для пользователей.\"
+          - Иначе: маркированный список, 3-7 пунктов, группируй по темам (новое, исправления, техническое)
+          - Понятно для администратора парка, не для разработчиков
           - Только плоский текст с дефисами, без markdown
           - Без заголовков, версии или даты
           - Макс 500 символов
@@ -756,25 +792,30 @@ jobs:
           Коммиты:
           ${COMMITS}"
 
-            PROMPT_JSON=$(printf '%s' "$PROMPT_TEXT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
-
-            GEMINI_RESPONSE=$(curl -s --max-time 30 \
-              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
-              -H "Content-Type: application/json" \
-              -d "{\"contents\":[{\"parts\":[{\"text\":${PROMPT_JSON}}]}]}" || echo '')
-
-            NOTES=$(echo "$GEMINI_RESPONSE" | python3 -c "
-          import sys, json
-          try:
-              data = json.load(sys.stdin)
-              print(data['candidates'][0]['content']['parts'][0]['text'].strip())
-          except Exception:
-              print('')
-          " 2>/dev/null)
+            NOTES=$(call_gemini "$PROMPT_TEXT")
 
             if [ -n "$NOTES" ]; then
               echo "AI-generated release notes:"
               echo "$NOTES"
+
+              # --- Step 2b: grounding check — убедиться, что модель не придумала
+              # факты, которых нет в коммитах, прежде чем слать реальным подписчикам.
+              GROUNDING_PROMPT="Ниже — список git-коммитов и текст release notes, сгенерированный на их основе. Ответь ровно одним словом: YES, если КАЖДЫЙ пункт в release notes прямо следует из коммитов и не описывает функциональность, которой нет в списке коммитов. Иначе ответь NO. Строка \"Технический релиз — без изменений для пользователей.\" всегда YES, если в коммитах нет явных пользовательских фич.
+
+          Коммиты:
+          ${COMMITS}
+
+          Release notes:
+          ${NOTES}"
+
+              GROUNDING_VERDICT=$(call_gemini "$GROUNDING_PROMPT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')
+
+              if [ "$GROUNDING_VERDICT" != "YES" ]; then
+                echo "Grounding check did not pass (verdict: '${GROUNDING_VERDICT:-empty}') — falling back to raw commit list"
+                NOTES="$COMMITS"
+              else
+                echo "Grounding check passed"
+              fi
             else
               echo "Gemini failed — falling back to commit list"
               NOTES="$COMMITS"
@@ -834,7 +875,7 @@ jobs:
           [ -z "$TG_TOKEN" ] && exit 0
           curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
-            -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ github.sha }})" \
+            -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ needs.build-and-push.outputs.resolved_sha }})" \
             -d "parse_mode=HTML" || true
 
       - name: Notify on failure
@@ -846,5 +887,5 @@ jobs:
           [ -z "$TG_TOKEN" ] && exit 0
           curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
-            -d "text=🚨 Deploy FAILED — commit ${{ github.sha }}" \
+            -d "text=🚨 Deploy FAILED — commit ${{ needs.build-and-push.outputs.resolved_sha }}" \
             -d "parse_mode=HTML" || true
