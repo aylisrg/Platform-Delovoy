@@ -60,6 +60,7 @@ const DEFAULT_CLOSE_HOUR = 23;
 const SLOT_DURATION_HOURS = 1;
 const DEFAULT_SLOT_ROUNDING_MINUTES = 15;
 const DEFAULT_SESSION_ALERT_MINUTES = 10;
+const DEFAULT_MIN_BOOKING_HOURS = 1;
 
 /**
  * Часы работы модуля из настроек (Module.config.openHour/closeHour). Раньше
@@ -72,6 +73,18 @@ async function getOpenCloseHours(): Promise<{ openHour: number; closeHour: numbe
   const openHour = typeof config?.openHour === "number" ? config.openHour : DEFAULT_OPEN_HOUR;
   const closeHour = typeof config?.closeHour === "number" ? config.closeHour : DEFAULT_CLOSE_HOUR;
   return { openHour, closeHour };
+}
+
+/**
+ * Минимальная длительность брони (часов) из настроек (Module.config.minBookingHours).
+ * Форма настроек значение сохраняла, но никто его не читал — quick-booking-popover.tsx
+ * хардкодил MIN_BOOKING_HOURS=4, хотя реальный дефолт настроек — 1 час (#523).
+ */
+export async function getMinBookingHours(): Promise<number> {
+  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
+  const config = moduleRecord?.config as Record<string, unknown> | null;
+  const val = config?.minBookingHours;
+  return typeof val === "number" && val > 0 ? val : DEFAULT_MIN_BOOKING_HOURS;
 }
 
 /**
@@ -1436,7 +1449,10 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     orderBy: { startTime: "asc" },
   });
 
-  const { openHour, closeHour } = await getOpenCloseHours();
+  const [{ openHour, closeHour }, minBookingHours] = await Promise.all([
+    getOpenCloseHours(),
+    getMinBookingHours(),
+  ]);
   const hours = Array.from({ length: closeHour - openHour }, (_, i) =>
     `${(openHour + i).toString().padStart(2, "0")}:00`
   );
@@ -1457,6 +1473,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       cardAmount: b.cardAmount?.toString() ?? null,
     })),
     hours,
+    minBookingHours,
   };
 }
 

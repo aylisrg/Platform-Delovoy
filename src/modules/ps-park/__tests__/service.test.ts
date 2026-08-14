@@ -713,6 +713,29 @@ describe("getTimeline", () => {
     expect(result.bookings).toHaveLength(0);
   });
 
+  // #523: quick-booking-popover.tsx hardcoded MIN_BOOKING_HOURS=4 instead of
+  // reading it from Module.config (which ps-park never even had a reader
+  // for) — getTimeline() now carries the real settings value.
+  it("returns minBookingHours from Module.config", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 2 },
+    } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+    expect(result.minBookingHours).toBe(2);
+  });
+
+  it("falls back to the default (1h) when Module.config has no minBookingHours", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+    expect(result.minBookingHours).toBe(1);
+  });
+
   it("serializes booking times to ISO strings", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([

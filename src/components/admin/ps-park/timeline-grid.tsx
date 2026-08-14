@@ -337,6 +337,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           startTime={popover.startTime}
           maxEndTime={popover.maxEndTime}
           pricePerHour={popover.pricePerHour}
+          minBookingHours={data.minBookingHours}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}
         />

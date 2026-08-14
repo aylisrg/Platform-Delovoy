@@ -1157,6 +1157,32 @@ describe("getTimeline уважает openHour/closeHour из настроек (#
   });
 });
 
+// #523: quick-booking-popover.tsx hardcoded MIN_BOOKING_HOURS=4 instead of
+// reading it from Module.config — getTimeline() now carries the real value.
+describe("getTimeline carries minBookingHours from settings (#523)", () => {
+  it("returns minBookingHours from Module.config", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 2 },
+    } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.minBookingHours).toBe(2);
+  });
+
+  it("falls back to the default when Module.config has no minBookingHours", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.minBookingHours).toBe(4);
+  });
+});
+
 // === Analytics Tests ===
 
 describe("getAnalytics", () => {

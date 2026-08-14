@@ -96,6 +96,7 @@ export type TimelineData = {
   resources: GazeboResource[];
   bookings: TimelineBooking[];
   hours: string[]; // ["08:00", "09:00", ..., "22:00"]
+  minBookingHours: number;
 };
 
 export type TimelineBooking = {

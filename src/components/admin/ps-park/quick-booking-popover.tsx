@@ -10,6 +10,8 @@ type QuickBookingPopoverProps = {
   startTime: string;   // "HH:00" — pre-filled from clicked slot
   maxEndTime: string;  // "HH:MM" — earliest next booking start or close hour
   pricePerHour: number | null;
+  /** Из настроек модуля (Module.config.minBookingHours), не хардкод (#523). */
+  minBookingHours: number;
   onClose: () => void;
   onCreated: () => void;
 };
@@ -25,6 +27,12 @@ function billedHours(startHHMM: string, endHHMM: string): number {
   return Math.ceil(durationMin / 30) * 0.5;
 }
 
+function durationHours(startHHMM: string, endHHMM: string): number {
+  const [sh, sm] = startHHMM.split(":").map(Number);
+  const [eh, em] = endHHMM.split(":").map(Number);
+  return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+}
+
 function durationLabel(startHHMM: string, endHHMM: string): string {
   const [sh, sm] = startHHMM.split(":").map(Number);
   const [eh, em] = endHHMM.split(":").map(Number);
@@ -35,11 +43,13 @@ function durationLabel(startHHMM: string, endHHMM: string): string {
   return h > 0 ? (m > 0 ? `${h}ч ${m}мин` : `${h}ч`) : `${m}мин`;
 }
 
-function addOneHour(hhmm: string): string {
+function addHours(hhmm: string, hours: number): string {
   const [h, m] = hhmm.split(":").map(Number);
-  const next = h + 1;
-  if (next >= 23) return CLOSE_TIME;
-  return `${String(next).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const totalMinutes = h * 60 + m + hours * 60;
+  const nh = Math.floor(totalMinutes / 60);
+  const nm = totalMinutes % 60;
+  if (nh >= 23) return CLOSE_TIME;
+  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
 }
 
 export function QuickBookingPopover({
@@ -49,12 +59,15 @@ export function QuickBookingPopover({
   startTime,
   maxEndTime,
   pricePerHour,
+  minBookingHours,
   onClose,
   onCreated,
 }: QuickBookingPopoverProps) {
   const router = useRouter();
 
-  const defaultEnd = addOneHour(startTime) <= maxEndTime ? addOneHour(startTime) : maxEndTime;
+  const defaultEnd = addHours(startTime, minBookingHours) <= maxEndTime
+    ? addHours(startTime, minBookingHours)
+    : maxEndTime;
 
   const [startInput, setStartInput] = useState(startTime);
   const [endInput, setEndInput] = useState(defaultEnd);
@@ -66,14 +79,18 @@ export function QuickBookingPopover({
   const billed = billedHours(startInput, endInput);
   const totalPrice = pricePerHour && billed > 0 ? billed * pricePerHour : null;
   const duration = durationLabel(startInput, endInput);
-  const isValid = startInput < endInput && endInput <= maxEndTime;
+  const minEnd = addHours(startInput, minBookingHours);
+  const isValid =
+    startInput < endInput &&
+    endInput <= maxEndTime &&
+    durationHours(startInput, endInput) >= minBookingHours;
 
   useEffect(() => {
-    if (endInput <= startInput) {
-      const next = addOneHour(startInput);
-      setEndInput(next <= maxEndTime ? next : maxEndTime);
+    if (endInput <= startInput || durationHours(startInput, endInput) < minBookingHours) {
+      const minEndTime = addHours(startInput, minBookingHours);
+      setEndInput(minEndTime <= maxEndTime ? minEndTime : maxEndTime);
     }
-  }, [startInput, endInput, maxEndTime]);
+  }, [startInput, endInput, maxEndTime, minBookingHours]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -143,7 +160,7 @@ export function QuickBookingPopover({
             <input
               type="time"
               value={endInput}
-              min={startInput}
+              min={minEnd}
               max={maxEndTime}
               onChange={(e) => setEndInput(e.target.value)}
               className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 ${
@@ -173,8 +190,11 @@ export function QuickBookingPopover({
         {!isValid && startInput >= endInput && (
           <p className="text-xs text-red-500 mb-2">Начало должно быть раньше конца</p>
         )}
-        {!isValid && endInput > maxEndTime && (
+        {!isValid && startInput < endInput && endInput > maxEndTime && (
           <p className="text-xs text-red-500 mb-2">Конец не может быть позже {maxEndTime}</p>
+        )}
+        {!isValid && startInput < endInput && endInput <= maxEndTime && durationHours(startInput, endInput) < minBookingHours && (
+          <p className="text-xs text-amber-600 mb-2">Минимум {minBookingHours} ч.</p>
         )}
 
         {error && (

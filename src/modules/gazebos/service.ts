@@ -1580,7 +1580,10 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     orderBy: { startTime: "asc" },
   });
 
-  const { openHour, closeHour } = await getOpenCloseHours();
+  const [{ openHour, closeHour }, minBookingHours] = await Promise.all([
+    getOpenCloseHours(),
+    getMinBookingHours(),
+  ]);
   const hours = Array.from({ length: closeHour - openHour }, (_, i) =>
     `${(openHour + i).toString().padStart(2, "0")}:00`
   );
@@ -1601,6 +1604,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
       cardAmount: b.cardAmount?.toString() ?? null,
     })),
     hours,
+    minBookingHours,
   };
 }
 
