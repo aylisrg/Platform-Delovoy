@@ -71,20 +71,26 @@ describe("webapp bookings page — обработка 402 PENALTY_CONFIRMATION_R
   });
 
   it("отмена без штрафа: DELETE уходит без confirmPenalty, бронь пропадает из списка", async () => {
-    mockLoadThenDelete(async (body) => {
-      expect(body).toEqual({ bookingId: "booking-1" });
-      return { ok: true };
-    });
+    mockLoadThenDelete(async () => ({ ok: true }));
 
     render(<BookingsPage />);
     fireEvent.click(await screen.findByText("Отменить бронь"));
     fireEvent.click(screen.getAllByText("Отменить бронь")[1]);
 
-    await waitFor(() => {
-      expect(telegramMock.apiFetch).toHaveBeenCalledWith(
-        "/api/webapp/bookings",
-        expect.objectContaining({ method: "DELETE" })
+    // Ассерт на тело запроса — ВНЕ мока apiFetch: внутри mockImplementation
+    // (Promise-чейне apiFetch → try/catch компонента) любой брошенный
+    // изнутри AssertionError перехватывается тем же catch, что и реальные
+    // ошибки API, и молча тонет в dialogError — тест такого не ловит
+    // (обнаружено мутационным прогоном при ревью #502).
+    const deleteCall = await waitFor(() => {
+      const call = telegramMock.apiFetch.mock.calls.find(
+        ([, options]) => (options as RequestInit | undefined)?.method === "DELETE"
       );
+      if (!call) throw new Error("DELETE ещё не отправлен");
+      return call;
+    });
+    expect(JSON.parse((deleteCall[1] as RequestInit).body as string)).toEqual({
+      bookingId: "booking-1",
     });
   });
 
@@ -109,10 +115,9 @@ describe("webapp bookings page — обработка 402 PENALTY_CONFIRMATION_R
 
   it("подтверждение штрафа: повторный DELETE уходит с confirmPenalty: true", async () => {
     let call = 0;
-    mockLoadThenDelete(async (body) => {
+    mockLoadThenDelete(async () => {
       call += 1;
       if (call === 1) {
-        expect(body).toEqual({ bookingId: "booking-1" });
         throw new ApiFetchError({
           code: "PENALTY_CONFIRMATION_REQUIRED",
           message: "Penalty confirmation required",
@@ -120,7 +125,6 @@ describe("webapp bookings page — обработка 402 PENALTY_CONFIRMATION_R
           data: { penaltyAmount: 500, basePrice: 1000 },
         });
       }
-      expect(body).toEqual({ bookingId: "booking-1", confirmPenalty: true });
       return { ok: true };
     });
 
@@ -132,6 +136,20 @@ describe("webapp bookings page — обработка 402 PENALTY_CONFIRMATION_R
     fireEvent.click(confirmButton);
 
     await waitFor(() => expect(call).toBe(2));
+
+    // Тела обоих DELETE-вызовов — вне мока (см. комментарий в первом тесте):
+    // первый без confirmPenalty (сервер отвечает 402), второй — с ним.
+    const deleteCalls = telegramMock.apiFetch.mock.calls.filter(
+      ([, options]) => (options as RequestInit | undefined)?.method === "DELETE"
+    );
+    expect(deleteCalls).toHaveLength(2);
+    expect(JSON.parse((deleteCalls[0][1] as RequestInit).body as string)).toEqual({
+      bookingId: "booking-1",
+    });
+    expect(JSON.parse((deleteCalls[1][1] as RequestInit).body as string)).toEqual({
+      bookingId: "booking-1",
+      confirmPenalty: true,
+    });
   });
 
   it("402 без penaltyAmount в metadata: всё равно показывает подтверждение штрафа (не тупик)", async () => {
