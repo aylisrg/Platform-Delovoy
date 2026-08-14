@@ -35,6 +35,49 @@ function getAdminSection(pathname: string): string | null {
   return match ? match[1] : null;
 }
 
+// #527: literal first-segment route names under /api/gazebos/<x> и
+// /api/ps-park/<x> — нужны, чтобы отличить настоящий resource id (публичный
+// GET /api/gazebos/[id]) от литерального имени соседнего route.ts файла
+// (bookings, timeline и т.п. — админские, с PII, публичными быть не должны).
+const GAZEBOS_RESERVED_SEGMENTS = new Set([
+  "book",
+  "admin-book",
+  "bookings",
+  "analytics",
+  "availability",
+  "health",
+  "marketing",
+  "settings",
+  "timeline",
+]);
+const PS_PARK_RESERVED_SEGMENTS = new Set([
+  "book",
+  "bookings",
+  "admin-book",
+  "active-sessions",
+  "analytics",
+  "auto-complete",
+  "availability",
+  "health",
+  "session-ending-alert",
+  "sessions",
+  "settings",
+  "shift",
+  "timeline",
+]);
+
+/** GET /api/gazebos/<id> — публичная карточка ресурса (не литеральный route). */
+function isGazeboResourceRoute(pathname: string): boolean {
+  const match = pathname.match(/^\/api\/gazebos\/([^/]+)$/);
+  return !!match && !GAZEBOS_RESERVED_SEGMENTS.has(match[1]);
+}
+
+/** GET /api/ps-park/<id> — публичная карточка стола (не литеральный route). */
+function isPsParkResourceRoute(pathname: string): boolean {
+  const match = pathname.match(/^\/api\/ps-park\/([^/]+)$/);
+  return !!match && !PS_PARK_RESERVED_SEGMENTS.has(match[1]);
+}
+
 // Edge-compatible auth config — no DB/Prisma imports.
 // Used by middleware only. Full config (with PrismaAdapter) is in auth.ts.
 export const authConfig: NextAuthConfig = {
@@ -73,12 +116,29 @@ export const authConfig: NextAuthConfig = {
       const isApiRoute = pathname.startsWith("/api");
       const isAuthRoute = pathname.startsWith("/api/auth") || pathname.startsWith("/auth");
       const isHealthRoute = pathname.startsWith("/api/health");
+      // #527: раньше здесь были широкие startsWith("/api/gazebos") и т.п. —
+      // это открывало АНОНИМНЫЙ GET-доступ ко всем роутам под этими
+      // префиксами, включая админские с PII (booking history, timeline,
+      // active-sessions, /api/rental/[id] с полной карточкой арендатора).
+      // Задумано было только для нескольких настоящих публичных виджетов
+      // (доступность слотов, список ресурсов, меню, статичная инфо-страница
+      // парковки) — теперь это точный allowlist, а не префикс. Аудит и
+      // разбор по каждому роуту — issue #527.
       const isPublicApiRoute =
-        pathname.startsWith("/api/cafe") ||
-        pathname.startsWith("/api/gazebos") ||
-        pathname.startsWith("/api/ps-park") ||
-        pathname.startsWith("/api/parking") ||
-        pathname.startsWith("/api/rental") ||
+        pathname === "/api/cafe" ||
+        pathname === "/api/cafe/health" ||
+        pathname.startsWith("/api/cafe/menu/images/") ||
+        pathname === "/api/gazebos" ||
+        pathname === "/api/gazebos/availability" ||
+        pathname === "/api/gazebos/health" ||
+        isGazeboResourceRoute(pathname) ||
+        pathname === "/api/ps-park" ||
+        pathname === "/api/ps-park/availability" ||
+        pathname === "/api/ps-park/health" ||
+        isPsParkResourceRoute(pathname) ||
+        pathname === "/api/parking" ||
+        pathname === "/api/parking/health" ||
+        pathname === "/api/rental/health" ||
         pathname === "/api/inventory" ||
         pathname === "/api/inventory/health" ||
         // Phase 5.4 public tasks endpoints (Wave 2 hotfix):
