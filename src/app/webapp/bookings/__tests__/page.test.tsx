@@ -169,6 +169,31 @@ describe("webapp bookings page — обработка 402 PENALTY_CONFIRMATION_R
     expect(await screen.findByText("Отменить со штрафом")).toBeTruthy();
   });
 
+  it.each([
+    ["NaN", NaN],
+    ["Infinity", Infinity],
+  ])(
+    "402 с penaltyAmount: %s — не рендерит его, показывает generic-лейбл штрафа",
+    async (_label, penaltyAmount) => {
+      mockLoadThenDelete(async () => {
+        throw new ApiFetchError({
+          code: "PENALTY_CONFIRMATION_REQUIRED",
+          message: "Penalty confirmation required",
+          status: 402,
+          data: { penaltyAmount, basePrice: 1000 },
+        });
+      });
+
+      render(<BookingsPage />);
+      fireEvent.click(await screen.findByText("Отменить бронь"));
+      fireEvent.click(screen.getAllByText("Отменить бронь")[1]);
+
+      // readPenaltyAmount возвращает null для NaN/Infinity → penaltyAmount:
+      // null, generic-лейбл вместо попытки отрендерить NaN/Infinity ₽
+      expect(await screen.findByText("Отменить со штрафом")).toBeTruthy();
+    }
+  );
+
   it("прочие ошибки (не 402) — обычное сообщение об ошибке, без режима штрафа", async () => {
     mockLoadThenDelete(async () => {
       throw new ApiFetchError({
