@@ -1334,6 +1334,21 @@ describe("soft-delete filter (deletedAt: null) in read functions", () => {
     );
   });
 
+  // #512: checkInBooking looked up the booking without deletedAt: null,
+  // unlike its gazebos counterpart — a soft-deleted booking could still be
+  // checked in even though the admin UI no longer shows it as active.
+  it("checkInBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(checkInBooking("some-id", "manager-1")).rejects.toThrow("Бронирование не найдено");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
   it("getTimeline filters soft-deleted bookings", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
