@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.12.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.0...v2.12.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **webapp:** Mini App не обрабатывает 402 PENALTY_CONFIRMATION_REQUIRED при отмене брони ([#544](https://github.com/aylisrg/Platform-Delovoy/issues/544)) ([9b5aa0b](https://github.com/aylisrg/Platform-Delovoy/commit/9b5aa0bfe74ea500e277b8d0c59e9516cccb4388))
+* **webapp:** главная Mini App — верный адрес парка + Центр уведомлений разделом для сотрудника ([#547](https://github.com/aylisrg/Platform-Delovoy/issues/547)) ([3b091f9](https://github.com/aylisrg/Platform-Delovoy/commit/3b091f90c1dad0fe399b2b3174cb9ebaeb880f3b))
+
 ## [2.12.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.11.0...v2.12.0) (2026-08-13)
 
 
