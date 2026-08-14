@@ -66,3 +66,5 @@
 | 2026-08-14 | 2026-08-14-issue-570-blocking-smoke-tests-qa-report.md | 15 | rbac, api, tests |
 | 2026-08-14 | 2026-08-14-issue-572-playwright-e2e-qa-report.md | 14 | rbac, api, tests |
 | 2026-08-14 | 2026-08-14-issue-573-queue-watchdog-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-576-qa-report.md | 19 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-576-onrequesterror-tracking-reverify-qa-report.md | 10 | rbac, api, tests |

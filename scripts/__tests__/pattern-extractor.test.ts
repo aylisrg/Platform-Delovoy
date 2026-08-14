@@ -256,6 +256,65 @@ describe('PatternExtractor', () => {
       // The fingerprint should be based on truncated message
     });
 
+    it('server-error фингерпринтуется по metadata.digest, не по тексту (issue #576)', () => {
+      const entries: LogEntry[] = [
+        {
+          timestamp: new Date('2026-05-10T10:00:00Z'),
+          level: 'ERROR',
+          source: 'server-error',
+          message: 'TypeError: Cannot read properties of undefined',
+          metadata: { digest: 'abc123', route: '/api/gazebos/book' },
+        },
+        {
+          timestamp: new Date('2026-05-10T10:05:00Z'),
+          level: 'ERROR',
+          source: 'server-error',
+          // Тот же digest, но другой текст/route — всё равно один паттерн:
+          // это ретрай того же исключения на другом входе.
+          message: 'TypeError: Cannot read properties of null',
+          metadata: { digest: 'abc123', route: '/api/gazebos/book/retry' },
+        },
+      ];
+
+      const patterns = extractor.extract(entries);
+
+      expect(patterns).toHaveLength(1);
+      expect(patterns[0].count).toBe(2);
+    });
+
+    it('server-error с разными digest — разные паттерны, даже при похожем тексте', () => {
+      const base = (digest: string): LogEntry => ({
+        timestamp: new Date('2026-05-10T10:00:00Z'),
+        level: 'ERROR',
+        source: 'server-error',
+        message: 'TypeError: Cannot read properties of undefined',
+        metadata: { digest },
+      });
+      const patterns = extractor.extract([base('digest-a'), base('digest-b')]);
+
+      expect(patterns).toHaveLength(2);
+    });
+
+    it('server-error без metadata.digest — откатывается на текстовую нормализацию', () => {
+      const entries: LogEntry[] = [
+        {
+          timestamp: new Date('2026-05-10T10:00:00Z'),
+          level: 'ERROR',
+          source: 'server-error',
+          message: 'Same error, no digest',
+        },
+        {
+          timestamp: new Date('2026-05-10T10:05:00Z'),
+          level: 'ERROR',
+          source: 'server-error',
+          message: 'Same error, no digest',
+        },
+      ];
+      const patterns = extractor.extract(entries);
+      expect(patterns).toHaveLength(1);
+      expect(patterns[0].count).toBe(2);
+    });
+
     it('паттерн несёт максимальную серьёзность своих событий', () => {
       const entry = (level: LogEntry['level']): LogEntry => ({
         timestamp: new Date('2026-05-10T10:00:00Z'),
