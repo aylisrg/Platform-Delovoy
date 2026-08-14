@@ -6,16 +6,18 @@ vi.mock("../../lib/api", () => ({
   API_URL: "http://test",
 }));
 
-import { performCancel } from "../my-bookings";
+import { performCancel, showBookings } from "../my-bookings";
 
 type MockCtx = {
   editMessageText: ReturnType<typeof vi.fn>;
+  reply: ReturnType<typeof vi.fn>;
   from?: { id: number };
 };
 
 function makeCtx(overrides: Partial<MockCtx> = {}): MockCtx {
   return {
     editMessageText: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
     from: { id: 12345 },
     ...overrides,
   };
@@ -115,5 +117,36 @@ describe("performCancel", () => {
 
     expect(mockBotFetch).not.toHaveBeenCalled();
     expect(ctx.editMessageText).toHaveBeenCalledWith("Ошибка авторизации.");
+  });
+});
+
+// #534: resourceName — админский ввод (название беседки/стола), уходит с
+// parse_mode:"HTML".
+describe("showBookings — экранирование resourceName", () => {
+  it("экранирует resourceName перед подстановкой в HTML-сообщение", async () => {
+    mockBotFetch.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: [
+          {
+            id: "bk-1",
+            moduleSlug: "gazebos",
+            resourceName: "<b>Беседка</b> <script>alert(1)</script>",
+            date: "2026-09-01",
+            startTime: "10:00",
+            endTime: "12:00",
+            status: "CONFIRMED",
+          },
+        ],
+      })
+    );
+
+    const ctx = makeCtx();
+    await showBookings(ctx as never, true);
+
+    const [text, opts] = ctx.editMessageText.mock.calls[0];
+    expect(opts).toMatchObject({ parse_mode: "HTML" });
+    expect(text).toContain("&lt;b&gt;Беседка&lt;/b&gt; &lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(text).not.toContain("<script>alert(1)</script>");
   });
 });

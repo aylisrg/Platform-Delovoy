@@ -133,7 +133,7 @@ async function loadBookings(ctx: BotContext) {
   await showBookings(ctx, true);
 }
 
-async function showBookings(ctx: BotContext, edit = false) {
+export async function showBookings(ctx: BotContext, edit = false) {
   const telegramId = ctx.from?.id?.toString();
   if (!telegramId) {
     const text = "Не удалось определить пользователя.";
