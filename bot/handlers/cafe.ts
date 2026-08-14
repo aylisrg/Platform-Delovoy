@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const API_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -53,14 +54,16 @@ export function registerCafeHandlers(bot: Bot<BotContext>) {
         return;
       }
 
+      // #534: name/description — админский ввод меню кафе, category — из тех
+      // же данных; сообщение уходит с parse_mode:"HTML".
       const lines = items.map((item) => {
         const price = `${Number(item.price)} ₽`;
-        const desc = item.description ? `\n   <i>${item.description}</i>` : "";
-        return `• <b>${item.name}</b> — ${price}${desc}`;
+        const desc = item.description ? `\n   <i>${escapeHtml(item.description)}</i>` : "";
+        return `• <b>${escapeHtml(item.name)}</b> — ${price}${desc}`;
       });
 
       const text =
-        `☕ <b>${category}</b>\n\n` +
+        `☕ <b>${escapeHtml(category)}</b>\n\n` +
         lines.join("\n\n") +
         `\n\n💡 Для заказа перейдите на сайт.`;
 

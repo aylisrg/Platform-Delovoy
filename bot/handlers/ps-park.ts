@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 
 import { botFetch, API_URL } from "../lib/api";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 type BotContext = Context;
 
@@ -90,7 +91,8 @@ export function registerPSParkHandlers(bot: Bot<BotContext>) {
       keyboard.text("← Назад к датам", `ps_select:${resourceId}`);
 
       await ctx.editMessageText(
-        `🕐 <b>${availability.resource.name}</b>\n📅 ${formatDate(date)}\n\nВыберите время:`,
+        // #534: resource.name — админский ввод (название стола).
+        `🕐 <b>${escapeHtml(availability.resource.name)}</b>\n📅 ${formatDate(date)}\n\nВыберите время:`,
         { parse_mode: "HTML", reply_markup: keyboard }
       );
     } catch {

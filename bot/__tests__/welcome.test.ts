@@ -40,6 +40,14 @@ describe("buildWelcomeText", () => {
     expect(text).toContain("Привет, Илья!");
     expect(text).not.toContain("С возвращением");
   });
+
+  // #534: firstName — имя профиля Telegram, полностью управляется
+  // пользователем, а сообщение уходит с parse_mode:"HTML".
+  it("экранирует firstName перед подстановкой в HTML-сообщение", () => {
+    const text = buildWelcomeText("<b>Хакер</b>");
+    expect(text).toContain("Привет, &lt;b&gt;Хакер&lt;/b&gt;!");
+    expect(text).not.toContain("<b>Хакер</b>");
+  });
 });
 
 describe("mainMenuKeyboard", () => {
