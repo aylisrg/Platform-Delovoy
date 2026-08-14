@@ -11,6 +11,9 @@ vi.mock("@/modules/payments/service", () => ({
   getBookingPaymentSummaries: (...args: unknown[]) => mockGetSummaries(...args),
 }));
 
+const mockAuth = vi.fn();
+vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
+
 import { GET } from "../route";
 
 function makeRequest(query: string) {
@@ -20,6 +23,8 @@ function makeRequest(query: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSummaries.mockResolvedValue(new Map());
+  // SUPERADMIN skips the hasAdminSectionAccess DB lookup in requireAdminSection.
+  mockAuth.mockResolvedValue({ user: { id: "admin-1", role: "SUPERADMIN" } });
 });
 
 // #431: UI шлёт page/perPage, Zod их отбрасывала (не было в схеме), а сервис
@@ -89,5 +94,25 @@ describe("GET /api/gazebos/bookings", () => {
     const json = await res.json();
 
     expect(json.data[0].paymentStatus).toBe("PAID");
+  });
+
+  // #560: this admin listing (client PII: name/phone) had no role check at
+  // all — any authenticated session, including plain USER, passed.
+  it("rejects an unauthenticated request", async () => {
+    mockAuth.mockResolvedValue(null);
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(401);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
+  });
+
+  it("rejects a USER-role session", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await GET(makeRequest(""));
+
+    expect(res.status).toBe(403);
+    expect(mockListBookingsPaginated).not.toHaveBeenCalled();
   });
 });

@@ -37,7 +37,8 @@ vi.mock("@/lib/deletion", () => ({
 vi.mock("@/modules/notifications/queue", () => ({ enqueueNotification: vi.fn() }));
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 
-import { PATCH } from "../route";
+import { GET, PATCH } from "../route";
+import { getBooking as mockGetBooking } from "@/modules/gazebos/service";
 
 const params = Promise.resolve({ id: "bk-1" });
 
@@ -57,6 +58,53 @@ beforeEach(() => {
   mockCancelBooking.mockResolvedValue({
     penaltyRequired: false,
     booking: { id: "bk-1", status: "CANCELLED", metadata: null },
+  });
+});
+
+// #560: GET had no role check at all — any authenticated session, including
+// plain USER, could pull a single booking's PII.
+describe("GET /api/gazebos/bookings/:id", () => {
+  function makeGetRequest() {
+    return new NextRequest("http://localhost/api/gazebos/bookings/bk-1");
+  }
+
+  it("returns the booking for a MANAGER session with section access", async () => {
+    vi.mocked(mockGetBooking).mockResolvedValue({ id: "bk-1", status: "CONFIRMED" } as never);
+
+    const res = await GET(makeGetRequest(), { params });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data.id).toBe("bk-1");
+  });
+
+  it("rejects an unauthenticated request", async () => {
+    mockAuth.mockResolvedValue(null);
+
+    const res = await GET(makeGetRequest(), { params });
+
+    expect(res.status).toBe(401);
+    expect(mockGetBooking).not.toHaveBeenCalled();
+  });
+
+  it("rejects a USER-role session", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
+
+    const res = await GET(makeGetRequest(), { params });
+
+    expect(res.status).toBe(403);
+    expect(mockGetBooking).not.toHaveBeenCalled();
+  });
+
+  it("respects requireAdminSection denial", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
+    );
+
+    const res = await GET(makeGetRequest(), { params });
+
+    expect(res.status).toBe(403);
+    expect(mockGetBooking).not.toHaveBeenCalled();
   });
 });
 

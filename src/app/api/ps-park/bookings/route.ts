@@ -1,5 +1,14 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
+import {
+  apiResponse,
+  apiValidationError,
+  apiServerError,
+  apiUnauthorized,
+  apiForbidden,
+  requireAdminSection,
+} from "@/lib/api-response";
+import { auth } from "@/lib/auth";
+import { hasRole } from "@/lib/permissions";
 import { listBookingsPaginated } from "@/modules/ps-park/service";
 import { psBookingFilterSchema } from "@/modules/ps-park/validation";
 import { getBookingPaymentSummaries } from "@/modules/payments/service";
@@ -11,6 +20,12 @@ import { getBookingPaymentSummaries } from "@/modules/payments/service";
  */
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return apiUnauthorized();
+    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
+    const denied = await requireAdminSection(session, "ps-park");
+    if (denied) return denied;
+
     const searchParams = Object.fromEntries(request.nextUrl.searchParams);
     const parsed = psBookingFilterSchema.safeParse(searchParams);
     if (!parsed.success) {
