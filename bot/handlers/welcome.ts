@@ -1,4 +1,5 @@
 import { InlineKeyboard } from "grammy";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const WEBAPP_URL = `${APP_URL}/webapp`;
@@ -34,7 +35,10 @@ export function buildWelcomeText(
   firstName?: string | null,
   isReturning: boolean = false
 ): string {
-  const userName = firstName?.trim() || "друг";
+  // #534: firstName — имя профиля Telegram, полностью управляется
+  // пользователем (в т.ч. может содержать HTML-разметку), а сообщение уходит
+  // с parse_mode:"HTML".
+  const userName = escapeHtml(firstName?.trim() || "друг");
   const greeting = isReturning
     ? `С возвращением, ${userName}! 👋\nТвой аккаунт уже подключён ✓`
     : `Привет, ${userName}! 👋`;

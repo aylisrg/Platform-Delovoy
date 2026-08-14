@@ -28,6 +28,7 @@ import { prisma } from "../src/lib/db";
 import { logEvent } from "../src/lib/logger";
 import { getTelegramApiRoot, getTelegramProxyUrl, telegramApi } from "../src/lib/telegram/client";
 import { writeHeartbeat } from "../src/lib/telegram/heartbeat";
+import { escapeHtml } from "../src/lib/telegram/escape";
 
 // On staging we prefer a dedicated bot + chat so that real clients don't receive
 // test events. Fall back to the default env if staging-specific values aren't set
@@ -67,11 +68,14 @@ export async function sendAlert(
   }
 
   const emoji = LEVEL_EMOJI[level];
+  // #534: source/message/details в конечном счёте могут нести данные,
+  // затронутые пользовательским вводом (например, текст ошибки, включающий
+  // чьё-то имя) — экранируем сплошняком, а не выборочно по провенансу.
   const text = [
-    `${emoji} <b>[${level}]</b> ${source}`,
+    `${emoji} <b>[${level}]</b> ${escapeHtml(source)}`,
     ``,
-    message,
-    details ? `\n<pre>${details}</pre>` : "",
+    escapeHtml(message),
+    details ? `\n<pre>${escapeHtml(details)}</pre>` : "",
     `\n<i>${new Date().toISOString()}</i>`,
   ].join("\n");
 

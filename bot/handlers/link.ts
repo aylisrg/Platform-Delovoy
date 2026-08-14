@@ -6,6 +6,7 @@
  */
 
 import { Bot, Context } from "grammy";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -53,7 +54,8 @@ export async function handleLinkDeepLink(
     const data = await response.json();
 
     if (data.success) {
-      const name = data.data.userName || "пользователь";
+      // #534: userName — User.name, не ограничено на входе.
+      const name = escapeHtml(data.data.userName || "пользователь");
       await ctx.reply(
         `Telegram привязан к аккаунту <b>${name}</b> на платформе «Деловой».\n\n` +
           `Теперь вы будете получать уведомления о бронированиях и заказах в этот чат.`,

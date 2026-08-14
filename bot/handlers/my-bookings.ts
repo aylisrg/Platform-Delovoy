@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 
 import { botFetch, API_URL } from "../lib/api";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 type BotContext = Context;
 
@@ -170,6 +171,7 @@ async function showBookings(ctx: BotContext, edit = false) {
       status: string;
     }>;
 
+    // #534: resourceName — админский ввод (название беседки/стола).
     const lines = bookings.map((b) => {
       const moduleLabel = MODULE_LABELS[b.moduleSlug] || b.moduleSlug;
       const status = STATUS_LABELS[b.status] || b.status;
@@ -177,7 +179,7 @@ async function showBookings(ctx: BotContext, edit = false) {
         day: "numeric",
         month: "short",
       });
-      return `${moduleLabel} · ${b.resourceName}\n   📅 ${date} · 🕐 ${b.startTime}–${b.endTime}\n   ${status}`;
+      return `${moduleLabel} · ${escapeHtml(b.resourceName)}\n   📅 ${date} · 🕐 ${b.startTime}–${b.endTime}\n   ${status}`;
     });
 
     const text = `📋 <b>Ваши бронирования</b>\n\n${lines.join("\n\n")}`;
