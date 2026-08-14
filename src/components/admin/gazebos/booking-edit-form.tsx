@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { TimelineBooking } from "@/modules/gazebos/types";
-import { formatTime, formatDate } from "@/lib/format";
+import type { GazeboResource, TimelineBooking } from "@/modules/gazebos/types";
+import { formatTime, formatDate, toISODate } from "@/lib/format";
 
 type Props = {
   booking: TimelineBooking;
@@ -25,9 +25,10 @@ function durationHours(startHHMM: string, endHHMM: string): number {
 }
 
 /**
- * Редактирование существующей брони админом: время и контакт клиента.
- * Отправляет PATCH /api/gazebos/bookings/:id без поля status (режим правки).
- * Дата брони не меняется в этой форме — только время в рамках дня.
+ * Редактирование существующей брони админом: дата, беседка, время, контакт
+ * клиента. Отправляет PATCH /api/gazebos/bookings/:id без поля status
+ * (режим правки) — сервер (rescheduleBooking) сам проверяет конфликт слота
+ * под блокировкой и синхронизирует Google Calendar (#433, #439).
  */
 export function GazeboBookingEditForm({
   booking,
@@ -39,6 +40,9 @@ export function GazeboBookingEditForm({
   const router = useRouter();
   const meta = booking.metadata as Record<string, unknown> | null;
 
+  const [dateInput, setDateInput] = useState(toISODate(booking.startTime));
+  const [resourceId, setResourceId] = useState(booking.resourceId);
+  const [resources, setResources] = useState<GazeboResource[]>([]);
   const [startInput, setStartInput] = useState(formatTime(booking.startTime));
   const [endInput, setEndInput] = useState(formatTime(booking.endTime));
   const [clientName, setClientName] = useState(booking.clientName ?? "");
@@ -48,6 +52,17 @@ export function GazeboBookingEditForm({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/gazebos")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setResources(data.data);
+      })
+      .catch(() => {
+        // Список не загрузился — селект останется с текущей беседкой (fallback ниже).
+      });
+  }, []);
 
   const hours = durationHours(startInput, endInput);
   const validTime =
@@ -67,6 +82,8 @@ export function GazeboBookingEditForm({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          resourceId,
+          date: dateInput,
           startTime: startInput,
           endTime: endInput,
           ...(clientName.trim() && { clientName: clientName.trim() }),
@@ -113,6 +130,43 @@ export function GazeboBookingEditForm({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="edit-booking-resource" className="block text-xs font-medium text-zinc-500 mb-1">
+                Беседка
+              </label>
+              <select
+                id="edit-booking-resource"
+                value={resourceId}
+                onChange={(e) => setResourceId(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {/* Пока список не загрузился (или текущая беседка деактивирована) —
+                    показываем то, что уже выбрано, чтобы select не был пустым. */}
+                {!resources.some((r) => r.id === resourceId) && (
+                  <option value={resourceId}>{resourceName}</option>
+                )}
+                {resources.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="edit-booking-date" className="block text-xs font-medium text-zinc-500 mb-1">
+                Дата
+              </label>
+              <input
+                id="edit-booking-date"
+                type="date"
+                value={dateInput}
+                onChange={(e) => setDateInput(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-zinc-500 mb-1">
