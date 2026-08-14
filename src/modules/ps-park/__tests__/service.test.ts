@@ -1440,6 +1440,33 @@ describe("soft-delete filter (deletedAt: null) in read functions", () => {
     expect(call?.where).not.toHaveProperty("OR");
   });
 
+  // #509: psBookingFilterSchema validates userId, but listBookingsPaginated
+  // silently dropped it instead of filtering — this pins the fix.
+  it("listBookingsPaginated applies userId filter", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listBookingsPaginated({ userId: "user-42" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: "user-42" }),
+      })
+    );
+  });
+
+  it("listBookingsPaginated does not add userId to where when not provided", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0);
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
+
+    await listBookingsPaginated({});
+
+    const call = vi.mocked(prisma.booking.findMany).mock.calls[0][0];
+    expect(call?.where).not.toHaveProperty("userId");
+  });
+
   it("createBooking conflict-check ignores soft-deleted rows", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);

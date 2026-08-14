@@ -2006,6 +2006,7 @@ export async function listBookingsPaginated(params: {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
+  userId?: string;
 }) {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 20;
@@ -2014,6 +2015,7 @@ export async function listBookingsPaginated(params: {
   const where: Record<string, unknown> = { moduleSlug: MODULE_SLUG, deletedAt: null };
   if (params.status) where.status = params.status;
   if (params.resourceId) where.resourceId = params.resourceId;
+  if (params.userId) where.userId = params.userId;
   if (params.dateFrom || params.dateTo) {
     const dateFilter: Record<string, Date> = {};
     if (params.dateFrom) dateFilter.gte = new Date(params.dateFrom);
