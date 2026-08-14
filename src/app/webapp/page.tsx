@@ -9,6 +9,7 @@ import {
   Card,
   EmptyState,
   Icon,
+  ListItem,
   SectionHeader,
   Skeleton,
 } from "@/components/webapp/ui";
@@ -401,6 +402,27 @@ export default function WebAppHome() {
           ))}
         </div>
       </nav>
+
+      {/* Для сотрудника уведомления — главный инструмент: вход в Центр
+          прямо на главной, а не только из Профиля. Гостю раздел не рендерится
+          (AC-2.6); права всё равно перепроверяет сервер (loadWebAppStaff). */}
+      {capabilities.canNotificationCenter && (
+        <section className="mt-5" aria-label="Сотруднику">
+          <SectionHeader>Сотруднику</SectionHeader>
+          <div className="px-4">
+            <Card className="p-0 overflow-hidden">
+              <ListItem
+                icon="bell"
+                title="Центр уведомлений"
+                subtitle="Какие события парка приходят лично вам"
+                href="/webapp/notifications"
+                chevron
+                onClick={() => haptic.impact("light")}
+              />
+            </Card>
+          </div>
+        </section>
+      )}
 
       <section className="mt-5">
         <div className="flex items-center justify-between">
