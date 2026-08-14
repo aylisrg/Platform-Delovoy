@@ -131,24 +131,48 @@ function FeedSkeleton() {
   );
 }
 
+// Адрес и точка — из карточки организации на Яндекс Картах
+// (https://yandex.ru/maps/org/145969813767/), как на публичных страницах
+// сайта (src/app/page.tsx schema.org, ps-park). Не выдумывать руками.
+const PARK_MAP_URL = "https://yandex.ru/maps/org/145969813767/";
+
 function AboutPark() {
   return (
-    <Card className="p-4">
-      <div className="flex gap-3">
-        <span className="shrink-0 mt-0.5" style={{ color: "var(--tg-accent)" }}>
-          <Icon name="map-pin" size={20} />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[15px] font-semibold">Бизнес-парк «Деловой»</p>
-          <p
-            className="mt-1 text-[14px] leading-relaxed"
-            style={{ color: "var(--tg-hint)" }}
+    <Card className="p-0">
+      <button
+        type="button"
+        className="w-full p-4 text-left"
+        onClick={() => openExternal(PARK_MAP_URL)}
+      >
+        <div className="flex gap-3 items-start">
+          <span
+            className="shrink-0 mt-0.5"
+            style={{ color: "var(--tg-accent)" }}
           >
-            Московская область, Селятино, ул. Промышленная, д. 25.
-            <br />5 минут от ж/д станции Селятино.
-          </p>
+            <Icon name="map-pin" size={20} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold">Бизнес-парк «Деловой»</p>
+            <p
+              className="mt-1 text-[14px] leading-relaxed"
+              style={{ color: "var(--tg-hint)" }}
+            >
+              Промышленная ул., 1, пгт Селятино, Московская область.
+              <br />
+              30 км от Москвы по Киевскому шоссе. Бесплатная парковка.
+            </p>
+            <p
+              className="mt-1.5 text-[13px] font-medium"
+              style={{ color: "var(--tg-link)" }}
+            >
+              Открыть на карте
+            </p>
+          </div>
+          <span className="shrink-0 mt-1" style={{ color: "var(--tg-hint)" }}>
+            <Icon name="chevron-right" size={18} />
+          </span>
         </div>
-      </div>
+      </button>
     </Card>
   );
 }
