@@ -126,11 +126,38 @@ describe("instrumentation.onRequestError", () => {
     expect(JSON.stringify(metadata)).not.toContain("Bearer");
   });
 
-  it("ошибка без digest — 'no-digest', не падает", async () => {
+  it("ошибка без digest — синтетический хэш по route+message, не падает", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     await onRequestError(new Error("no digest here"), request, context);
 
-    expect(logErrorMock.mock.calls[0][2].digest).toBe("no-digest");
+    const digest = logErrorMock.mock.calls[0][2].digest;
+    expect(digest).not.toBe("no-digest");
+    expect(digest).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it("ошибка без digest: одинаковый route+message → стабильный одинаковый синтетический digest", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    await onRequestError(new Error("same text"), request, context);
+    await onRequestError(new Error("same text"), request, context);
+
+    const digestA = logErrorMock.mock.calls[0][2].digest;
+    const digestB = logErrorMock.mock.calls[1][2].digest;
+    expect(digestA).toBe(digestB);
+  });
+
+  it("ошибки без digest на разных route/с разным текстом — разные синтетические digest, не схлопываются (issue #576)", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    const contextB = { ...context, routePath: "/api/other/[id]" };
+
+    await onRequestError(new Error("error A"), request, context);
+    await onRequestError(new Error("error B"), request, contextB);
+
+    const digestA = logErrorMock.mock.calls[0][2].digest;
+    const digestB = logErrorMock.mock.calls[1][2].digest;
+    expect(digestA).not.toBe(digestB);
+    // Раньше оба схлопывались в общий "no-digest" и второй вызов терялся из-за
+    // троттлинга по общему ключу — теперь оба должны залогироваться отдельно.
+    expect(logErrorMock).toHaveBeenCalledTimes(2);
   });
 
   it("не-Error значение (например, throw строки) — тоже обрабатывается", async () => {

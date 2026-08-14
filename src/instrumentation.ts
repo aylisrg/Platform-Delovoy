@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * Next.js instrumentation hook — выполняется один раз при старте сервера.
  * https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
@@ -56,7 +58,17 @@ export async function onRequestError(
   try {
     const err = error instanceof Error ? error : new Error(String(error));
     const errDigest = (err as { digest?: unknown }).digest;
-    const digest = typeof errDigest === "string" ? errDigest : "no-digest";
+    // Next.js проставляет err.digest только для ошибок рендера RSC
+    // (createDigestWithErrorCode в app-render/create-error-handler.js) — для
+    // исключений из Route Handler'ов (весь REST API, app/api/**/route.ts)
+    // digest всегда undefined. Общая заглушка схлопывала бы вообще все
+    // API-ошибки в один фингерпринт/троттл-ключ — вместо неё считаем свой
+    // стабильный хэш по route+message, тем же принципом, что и сам Next.js
+    // для render-пути (hash от сообщения).
+    const digest =
+      typeof errDigest === "string" && errDigest.length > 0
+        ? errDigest
+        : createHash("sha256").update(`${context.routePath}:${err.message}`).digest("hex").slice(0, 12);
     const stack = (err.stack ?? err.message ?? String(error)).slice(0, 2000);
 
     // Троттлинг по digest — шторм одного и того же исключения не должен
