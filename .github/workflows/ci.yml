@@ -87,6 +87,90 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+  # Критические флоу против живого стека (issue #572): роутинг, RSC-границы,
+  # реальные Prisma-запросы и битые клиентские бандлы не проверяет ни один
+  # другой job — unit-тесты мокают DB/Redis, build только компилирует.
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: delovoy
+          POSTGRES_PASSWORD: delovoy_secret
+          POSTGRES_DB: delovoy_park
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U delovoy -d delovoy_park"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://delovoy:delovoy_secret@localhost:5432/delovoy_park
+      REDIS_URL: redis://localhost:6379
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: e2e-ci-secret-not-for-prod-use
+      AUTH_SECRET: e2e-ci-secret-not-for-prod-use
+      DEV_OVERLAY: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      # `prisma migrate deploy` — не `db push` — было бы правильнее, но
+      # миграционная история сейчас расходится со схемой на пустой БД
+      # (issue #590, отдельный P1: минимум 4 таблицы не создаются fresh
+      # migrate deploy). Прод это не задевает (там уже накопленное годами
+      # состояние), а для одноразовой сервис-БД CI `db push` даёт ровно то
+      # же дерево таблиц, без риска для прода. Вернуть на migrate deploy
+      # после починки #590.
+      - name: Sync schema (db push — see #590)
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Seed reference data + dev test accounts
+        run: npx tsx scripts/seed.ts
+
+      - name: Build (standalone + static assets)
+        run: npm run build:e2e
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browser (chromium)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS deps (browser cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run E2E tests
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
