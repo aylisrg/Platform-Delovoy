@@ -28,7 +28,7 @@ touch "$CRASH_MARKER"
 # они держали порт 3000 мёртвым 1–3 минуты при КАЖДОМ старте контейнера
 # (деплой, рестарт вотчдога, краш) — «сайт отвечает, но грузится вечно».
 # Prisma-клиент генерируется на build-стадии образа (postinstall при
-# npm install); миграции применяет deploy.yml ДО подмены контейнера
+# npm ci); миграции применяет deploy.yml ДО подмены контейнера
 # (docker compose run --rm app npx prisma migrate deploy); сид — deploy.yml
 # после health-check и workflow run-seed.yml.
 
