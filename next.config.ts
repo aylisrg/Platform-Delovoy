@@ -19,8 +19,10 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://mc.yandex.ru https://yastatic.net https://telegram.org",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
+      "style-src 'self' 'unsafe-inline'",
+      // #495: шрифты теперь self-hosted (next/font/local) — Google Fonts
+      // больше не источник ни на сборке, ни в рантайме.
+      "font-src 'self'",
       "img-src 'self' data: blob: https://mc.yandex.ru https://avatars.yandex.net https://lh3.googleusercontent.com https://t.me https://api.telegram.org https://avatars.githubusercontent.com",
       "media-src 'self'",
       "connect-src 'self' https://mc.yandex.ru https://api.telegram.org https://oauth.telegram.org wss://*.delovoy-park.ru",

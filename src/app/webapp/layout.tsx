@@ -1,11 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { TelegramProvider } from "@/components/webapp/TelegramProvider";
 import { TabBar } from "@/components/webapp/TabBar";
 import "./webapp.css";
 
-const inter = Inter({
-  subsets: ["latin", "cyrillic"],
+// #495: next/font/google скачивает шрифты во время `npm run build` — сбой
+// доступа к Google Fonts валит прод-сборку целиком. Те же файлы, что в
+// корневом layout (../fonts/), веса 400-700 покрывают весь используемый в
+// webapp набор (font-medium/-semibold/-bold + обычный текст).
+const inter = localFont({
+  src: [
+    { path: "../fonts/inter-400.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/inter-500.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/inter-600.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/inter-700.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-inter",
   display: "swap",
 });

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { StagingBanner } from "@/components/StagingBanner";
@@ -9,16 +9,28 @@ import "./globals.css";
 
 const YM_ID = 73068007;
 
-const manrope = Manrope({
-  subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600", "700"],
+// #495: next/font/google скачивает шрифты во время `npm run build` — сбой
+// доступа к Google Fonts валит прод-сборку целиком (падало 2026-08-12).
+// Файлы — те же начертания Manrope/Inter (latin+cyrillic, 400-700), просто
+// из репозитория; next/font/local даёт тот же self-hosting/preload/no-layout-shift.
+const manrope = localFont({
+  src: [
+    { path: "./fonts/manrope-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/manrope-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/manrope-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/manrope-700.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-manrope",
   display: "swap",
 });
 
-const inter = Inter({
-  subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600", "700"],
+const inter = localFont({
+  src: [
+    { path: "./fonts/inter-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/inter-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/inter-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/inter-700.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-inter",
   display: "swap",
 });
