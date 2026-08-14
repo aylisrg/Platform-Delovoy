@@ -397,7 +397,7 @@ jobs:
           # Скрипты нужны на VPS: cron-backup.sh — для ежедневного бэкапа
           # (шаг регистрации крона ниже), watchdog-remediate.sh — свежая копия
           # для site-watchdog.yml на случай, если SSH-доставка из watchdog не сработает.
-          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh,scripts/apply-nginx-vhost.sh,scripts/deploy-bluegreen.sh,infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,infra/nginx/edge/delovoy-edge.conf"
+          source: "docker-compose.prod.yml,scripts/cron-backup.sh,scripts/backup-db.sh,scripts/watchdog-remediate.sh,scripts/local-watchdog.sh,scripts/apply-nginx-static-archive.sh,scripts/apply-nginx-vhost.sh,scripts/deploy-bluegreen.sh,scripts/smoke-tests.sh,infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,infra/nginx/edge/delovoy-edge.conf"
           target: "/opt/delovoy-park/"
           overwrite: true
 
@@ -418,12 +418,13 @@ jobs:
         env:
           SKIP_DB_BACKUP: ${{ inputs.skip_db_backup }}
           FORCE_LEGACY_DEPLOY: ${{ inputs.force_legacy_deploy }}
+          SKIP_SMOKE_TESTS: ${{ inputs.skip_smoke_tests }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 30m
-          envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY
+          envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY,SKIP_SMOKE_TESTS
           script: |
             set -e
             cd /opt/delovoy-park
@@ -470,13 +471,16 @@ jobs:
             echo "Deploy mode: $DEPLOY_MODE"
 
             APP_CONT=delovoy-app
+            FAIL_REASON="Health check"
             if [ "$DEPLOY_MODE" = "bluegreen" ]; then
               echo "=== Blue-green deploy (zero-downtime) ==="
               chmod +x scripts/deploy-bluegreen.sh
               # Скрипт атомарен: провал до переключения upstream не трогает
               # работающий слот (сам гасит неудавшийся новый слот, exit 1 →
-              # set -e прерывает деплой, rollback не нужен). Статик-архив
-              # и даунтайм-метр — внутри скрипта.
+              # set -e прерывает деплой, rollback не нужен). Статик-архив,
+              # блокирующие smoke-тесты (issue #570) и даунтайм-метр — внутри
+              # скрипта; провал smoke откатывает upstream на старый слот, не
+              # трогая его контейнер.
               sh scripts/deploy-bluegreen.sh
               ACTIVE_SLOT=$(cat ACTIVE_SLOT 2>/dev/null || echo a)
               [ "$ACTIVE_SLOT" = "b" ] && APP_CONT=delovoy-app-b
@@ -506,6 +510,23 @@ jobs:
                 echo "Attempt $i/30 — waiting..."
                 sleep 5
               done
+
+              # Smoke-тесты — блокирующие (issue #570): раньше провал только
+              # печатал warning в отдельном non-blocking шаге ПОСЛЕ того, как
+              # этот же образ уже обслуживал прод. Провал здесь роняет HEALTHY,
+              # так что ниже сработает тот же rollback на CURRENT_IMAGE, что и
+              # при провале health-чека.
+              if [ "$HEALTHY" = true ]; then
+                if [ "${SKIP_SMOKE_TESTS:-false}" = "true" ]; then
+                  echo "=== Smoke tests skipped (skip_smoke_tests=true) ==="
+                elif sh scripts/smoke-tests.sh; then
+                  echo "✅ Smoke tests passed"
+                else
+                  echo "❌ Smoke tests failed — triggering rollback"
+                  HEALTHY=false
+                  FAIL_REASON="Smoke tests"
+                fi
+              fi
             fi
 
             if [ "$HEALTHY" = true ]; then
@@ -560,7 +581,7 @@ jobs:
               exit 0
             fi
 
-            echo "FATAL: Health check failed after 30 attempts"
+            echo "FATAL: $FAIL_REASON failed"
             echo "=== Rolling back ==="
             if [ -n "$CURRENT_IMAGE" ]; then
               echo "Rolling back to: $CURRENT_IMAGE"
@@ -653,7 +674,14 @@ jobs:
             fi
             chmod +x /opt/delovoy-park/scripts/local-watchdog.sh /opt/delovoy-park/scripts/watchdog-remediate.sh 2>/dev/null || true
 
-      - name: Verify deployment + smoke tests
+      # Блокирующие smoke-тесты (главная, PS Park, PS Park API health) теперь
+      # гоняются ВНУТРИ "Deploy via SSH" (scripts/smoke-tests.sh, issue #570) —
+      # до остановки старого blue-green слота / с откатом на CURRENT_IMAGE в
+      # legacy-пути, а не как здесь: раньше их провал только печатал warning
+      # уже ПОСЛЕ того, как сломанный билд обслуживал прод. Этот шаг остался
+      # информационным: notifications-health и раньше был warn-only, деплой
+      # не блокировал.
+      - name: Post-deploy status & notifications check
         if: ${{ !inputs.skip_smoke_tests }}
         uses: appleboy/ssh-action@v1
         with:
@@ -665,34 +693,7 @@ jobs:
             curl -sf https://delovoy-park.ru/api/health | head -c 200
             echo ""
 
-            echo "=== Smoke tests ==="
-            FAILED=0
-
-            # Main page loads
-            if curl -sf -o /dev/null -w "%{http_code}" https://delovoy-park.ru/ | grep -q "200"; then
-              echo "✅ Main page: 200 OK"
-            else
-              echo "❌ Main page: FAILED"
-              FAILED=$((FAILED + 1))
-            fi
-
-            # PS Park page loads
-            if curl -sf -o /dev/null -w "%{http_code}" https://delovoy-park.ru/ps-park | grep -q "200"; then
-              echo "✅ PS Park page: 200 OK"
-            else
-              echo "❌ PS Park page: FAILED"
-              FAILED=$((FAILED + 1))
-            fi
-
-            # API responds with JSON
-            if curl -sf https://delovoy-park.ru/api/ps-park/health | grep -q "status"; then
-              echo "✅ PS Park API health: OK"
-            else
-              echo "❌ PS Park API health: FAILED"
-              FAILED=$((FAILED + 1))
-            fi
-
-            # Telegram notifications pipeline health (warn-only — never increments FAILED)
+            # Telegram notifications pipeline health (warn-only, не блокирует деплой)
             NH=$(curl -s --max-time 10 https://delovoy-park.ru/api/notifications/health || echo '{}')
             if echo "$NH" | jq -e '.data.ok==true' >/dev/null 2>&1; then
               echo "✅ Notifications health: OK"
@@ -712,10 +713,6 @@ jobs:
             echo ""
             echo "=== Container status ==="
             docker ps --filter name=delovoy --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-            if [ "$FAILED" -gt 0 ]; then
-              echo "⚠️ $FAILED smoke test(s) failed — deploy succeeded but check manually"
-            fi
 
       # Персональный анонс релиза идёт ПЕРЕД групповым «Deploy OK»: групповое
       # сообщение — это fallback, оно уходит только если персонального анонса

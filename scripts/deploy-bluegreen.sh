@@ -105,6 +105,15 @@ if ! $SUDO nginx -t; then
 fi
 $SUDO systemctl reload nginx
 
+# Откат публичного трафика на старый слот: старый слот к этому моменту ещё
+# не остановлен (стоп — только ниже, после успешной верификации), поэтому
+# откат — это просто возврат upstream назад, без пересоздания контейнеров.
+revert_to_old() {
+    write_upstream "$OLD_PORT"
+    $SUDO nginx -t && $SUDO systemctl reload nginx || true
+    $COMPOSE stop "$NEW_SVC" >/dev/null 2>&1 || true
+}
+
 echo "bluegreen: публичная верификация"
 sleep 3
 PUB_OK=false
@@ -116,10 +125,18 @@ while [ $i -le 5 ]; do
     sleep 4
 done
 if [ "$PUB_OK" != "true" ]; then
-    write_upstream "$OLD_PORT"
-    $SUDO nginx -t && $SUDO systemctl reload nginx || true
-    $COMPOSE stop "$NEW_SVC" >/dev/null 2>&1 || true
+    revert_to_old
     fail "публичный health не 200 через новый слот — upstream откачен на $OLD_PORT"
+fi
+
+# Smoke-тесты — ДО остановки старого слота (issue #570): раньше их гонял
+# отдельный non-blocking шаг deploy.yml уже ПОСЛЕ того, как старый слот был
+# остановлен, так что провал ловился, но откатывать было уже нечего.
+if [ "${SKIP_SMOKE_TESTS:-false}" = "true" ]; then
+    echo "bluegreen: smoke-тесты пропущены (skip_smoke_tests=true)"
+elif ! sh scripts/smoke-tests.sh; then
+    revert_to_old
+    fail "smoke-тесты не прошли — upstream откачен на $OLD_PORT, старый слот не тронут"
 fi
 
 echo "$NEW_SLOT" > "$SLOT_FILE"
