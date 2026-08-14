@@ -129,3 +129,39 @@ describe("GazeboBookingHistoryTable — поздний заезд NO_SHOW (#436)
     expect(await screen.findByRole("option", { name: "Заехал" })).toBeTruthy();
   });
 });
+
+// #438: «гость звонит: я бронировал» — поиск по имени/телефону в истории.
+describe("GazeboBookingHistoryTable — поиск по имени/телефону (#438)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it("вводит search в query-параметры после дебаунса, не на каждое нажатие", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: [], meta: { total: 0 } })
+    );
+
+    render(<GazeboBookingHistoryTable />);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByPlaceholderText("Поиск: имя, телефон"), {
+      target: { value: "Иванов" },
+    });
+
+    // Сразу после ввода — ещё не должно быть нового запроса (дебаунс 300мс).
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(300);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    const lastCall = vi.mocked(fetch).mock.calls[1][0] as string;
+    expect(lastCall).toContain("search=%D0%98%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2");
+  });
+});

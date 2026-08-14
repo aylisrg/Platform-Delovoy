@@ -1990,6 +1990,7 @@ export async function listBookingsPaginated(params: {
   resourceId?: string;
   dateFrom?: string;
   dateTo?: string;
+  search?: string;
 }) {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 20;
@@ -2003,6 +2004,13 @@ export async function listBookingsPaginated(params: {
     if (params.dateFrom) dateFilter.gte = new Date(params.dateFrom);
     if (params.dateTo) dateFilter.lte = new Date(params.dateTo);
     where.date = dateFilter;
+  }
+  // #438: «гость звонит: я бронировал» — найти по имени/телефону, не листая дни.
+  if (params.search) {
+    where.OR = [
+      { clientName: { contains: params.search, mode: "insensitive" } },
+      { clientPhone: { contains: params.search, mode: "insensitive" } },
+    ];
   }
 
   const [rawBookings, total, resources] = await Promise.all([

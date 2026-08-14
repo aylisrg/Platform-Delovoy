@@ -1281,6 +1281,35 @@ describe("listBookingsPaginated", () => {
       })
     );
   });
+
+  // #438: «гость звонит: я бронировал» — найти бронь по имени/телефону.
+  it("should apply search filter across clientName and clientPhone (case-insensitive)", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ search: "Иванов" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { clientName: { contains: "Иванов", mode: "insensitive" } },
+            { clientPhone: { contains: "Иванов", mode: "insensitive" } },
+          ],
+        }),
+      })
+    );
+  });
+
+  it("should not add OR clause when search is empty", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ status: "COMPLETED" });
+
+    const call = vi.mocked(prisma.booking.findMany).mock.calls[0][0];
+    expect(call?.where).not.toHaveProperty("OR");
+  });
 });
 
 // ===== rescheduleBooking =====

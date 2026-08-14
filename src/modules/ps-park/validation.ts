@@ -50,6 +50,8 @@ export const psBookingFilterSchema = z.object({
   dateFrom: z.string().regex(dateRegex).optional(),
   dateTo: z.string().regex(dateRegex).optional(),
   userId: z.string().optional(),
+  // Поиск по имени/телефону гостя (#438) — contains-insensitive в service.ts.
+  search: z.string().max(200).optional(),
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().positive().max(100).default(20),
 });
