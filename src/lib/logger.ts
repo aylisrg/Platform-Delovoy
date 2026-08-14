@@ -1,5 +1,7 @@
 import { prisma } from "./db";
 import type { EventLevel } from "@prisma/client";
+import { redis, redisAvailable } from "./redis";
+import { sendAlert } from "./notifications";
 
 /**
  * Log a system event to the database.
@@ -50,6 +52,41 @@ export async function logAudit(
   }
 }
 
+const CRITICAL_ALERT_THROTTLE_TTL = 300; // seconds, per source
+
+/**
+ * Телеграм-алерт для CRITICAL, не чаще раза в 300с на один source — иначе
+ * шторм повторяющихся CRITICAL (например, БД лежит несколько минут подряд)
+ * завалил бы админ-чат тем же сообщением. `SET NX EX` атомарен — исключает
+ * гонку между двумя параллельными critical-логами одного source. Redis
+ * недоступен → шлём без троттлинга: не терять инцидент молча важнее, чем
+ * изредка продублировать алерт. Ошибка отправки не должна ронять
+ * вызывающий код — fire-and-forget с собственным try/catch.
+ */
+async function alertCritical(source: string, message: string): Promise<void> {
+  let shouldAlert = true;
+  if (redisAvailable) {
+    try {
+      const acquired = await redis.set(
+        `critical-alert:${source}`,
+        "1",
+        "EX",
+        CRITICAL_ALERT_THROTTLE_TTL,
+        "NX"
+      );
+      shouldAlert = acquired !== null; // null — тот же source уже алертили в этом окне
+    } catch {
+      // Ошибка Redis — троттлинг недоступен, шлём как есть (fail-open).
+    }
+  }
+  if (!shouldAlert) return;
+  try {
+    await sendAlert("CRITICAL", source, message);
+  } catch (error) {
+    console.error(`[CRITICAL alert] Не удалось отправить алерт для ${source}`, error);
+  }
+}
+
 // Convenience methods
 export const log = {
   info: (source: string, message: string, metadata?: Record<string, unknown>) =>
@@ -58,6 +95,8 @@ export const log = {
     logEvent("WARNING", source, message, metadata),
   error: (source: string, message: string, metadata?: Record<string, unknown>) =>
     logEvent("ERROR", source, message, metadata),
-  critical: (source: string, message: string, metadata?: Record<string, unknown>) =>
-    logEvent("CRITICAL", source, message, metadata),
+  critical: (source: string, message: string, metadata?: Record<string, unknown>) => {
+    void alertCritical(source, message);
+    return logEvent("CRITICAL", source, message, metadata);
+  },
 };

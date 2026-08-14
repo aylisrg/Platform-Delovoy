@@ -19,7 +19,7 @@ vi.mock("../../src/lib/logger", () => ({ logEvent: vi.fn() }));
 
 // sendAlert — единственный экспорт из bot/index.ts, безопасный для импорта
 // в тестах: startBot() вызывается только под `require.main === module`,
-// что здесь не выполняется (тот же паттерн, что и в bot/handlers/alerts.ts).
+// что здесь не выполняется.
 import { sendAlert } from "../index";
 
 beforeEach(() => {
