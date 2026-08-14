@@ -20,7 +20,7 @@ export class PatternExtractor {
     const patternMap = new Map<string, ErrorPattern>();
 
     for (const entry of entries) {
-      const fingerprint = this.generateFingerprint(entry.source, entry.message);
+      const fingerprint = this.generateFingerprint(entry);
 
       if (!patternMap.has(fingerprint)) {
         patternMap.set(fingerprint, {
@@ -50,9 +50,17 @@ export class PatternExtractor {
     return Array.from(patternMap.values());
   }
 
-  private generateFingerprint(source: string, message: string): string {
-    const normalized = this.normalizeMessage(message);
-    const input = `${source}:${normalized}`;
+  private generateFingerprint(entry: LogEntry): string {
+    // server-error (issue #576) уже несёт стабильный отпечаток от самого
+    // Next.js (onRequestError digest) — он надёжнее текстовой нормализации
+    // сообщения, которая для стеков ошибок съедает почти весь текст под
+    // <PATH>/<N> и может слить разные исключения в один паттерн.
+    if (entry.source === 'server-error' && typeof entry.metadata?.digest === 'string') {
+      const input = `${entry.source}:${entry.metadata.digest}`;
+      return createHash('sha256').update(input).digest('hex').substring(0, 12);
+    }
+    const normalized = this.normalizeMessage(entry.message);
+    const input = `${entry.source}:${normalized}`;
     return createHash('sha256').update(input).digest('hex').substring(0, 12);
   }
 

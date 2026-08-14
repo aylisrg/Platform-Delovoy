@@ -159,7 +159,10 @@ function parseArgs(): AnalyzerOptions {
     baselineDays: 7,
     dryRun: false,
     dbOnly: false,
-    maxIssues: 5,
+    // Issue #576: с появлением server-error (onRequestError, свежий
+    // источник паттернов) хвост суточного всплеска не должен ждать
+    // следующего прогона backlog-intake.yml — потолок поднят с 5 до 10.
+    maxIssues: 10,
     eventsFile: null,
   };
 
@@ -202,7 +205,7 @@ Options:
   --baseline-days <N>   Use N days for baseline comparison (default: 7)
   --dry-run             Don't create issues, just print what would be created
   --db-only             Skip file logs, use SystemEvent DB only
-  --max-issues <N>      Maximum number of pattern issues to create (default: 5)
+  --max-issues <N>      Maximum number of pattern issues to create (default: 10)
   --events-file <path>  Read events from a psql json_agg dump instead of the DB
                         (no DATABASE_URL needed; used by backlog-intake.yml)
   --help                Show this help message
