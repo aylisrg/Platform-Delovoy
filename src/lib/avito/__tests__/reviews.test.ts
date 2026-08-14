@@ -116,6 +116,25 @@ describe("syncReviewsForItem", () => {
     expect(mockedTelegram).not.toHaveBeenCalled();
   });
 
+  it("escapes avitoItem.url in the Telegram HTML alert text", async () => {
+    const itemWithUnsafeUrl = {
+      ...ITEM,
+      url: "https://avito.ru/item?a=1&b=<script>",
+    };
+    mockedFetch.mockResolvedValue({
+      reviews: [{ id: "neg-url", rating: 2, authorName: "A", body: "Плохо", reviewedAt: "2026-04-22" }],
+    });
+    db.avitoReview.findUnique.mockResolvedValueOnce(null);
+    db.avitoReview.create.mockResolvedValue({});
+
+    await syncReviewsForItem(itemWithUnsafeUrl);
+
+    expect(mockedTelegram).toHaveBeenCalledTimes(1);
+    const [alertText] = mockedTelegram.mock.calls[0];
+    expect(alertText).toContain("https://avito.ru/item?a=1&amp;b=&lt;script&gt;");
+    expect(alertText).not.toContain("<script>");
+  });
+
   it("retroactively sends alert for stored review whose alert was missed (alertSent=false)", async () => {
     mockedFetch.mockResolvedValue({
       reviews: [{ id: "neg-2", rating: 2, authorName: "Z", body: "Плохо", reviewedAt: "2026-04-22" }],

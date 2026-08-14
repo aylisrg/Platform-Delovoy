@@ -251,7 +251,7 @@ async function sendNegativeReviewAlert(args: {
     "",
     escapeHtml(clipBody(args.body)),
     "",
-    args.avitoItem.url ? `Ссылка: ${args.avitoItem.url}` : null,
+    args.avitoItem.url ? `Ссылка: ${escapeHtml(args.avitoItem.url)}` : null,
   ].filter((s): s is string => s !== null);
   return sendTelegramAlert(lines.join("\n"), { parseMode: "HTML" });
 }
