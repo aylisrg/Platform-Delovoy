@@ -1118,7 +1118,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
 
 export async function checkInBooking(bookingId: string, managerId: string) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
