@@ -62,10 +62,14 @@ env:
 jobs:
   # Double-trigger guard: workflow_run and push both fire for the same commit.
   # concurrency (group by SHA, cancel-in-progress: false) queues the second run
-  # instead of dropping it, so it used to deploy the same SHA twice. The push
-  # run starts only after the workflow_run one finished, so a successful run for
-  # this exact SHA means "already deployed" → skip in ~10s. Fallback role of the
-  # push trigger is preserved: no successful run ⇒ skip=false ⇒ deploy proceeds.
+  # instead of dropping it, so it used to deploy the same SHA twice. Order
+  # between the two triggers is NOT guaranteed — #525 observed push fire at
+  # merge time and workflow_run only after CI finished several minutes later,
+  # the reverse of what a push-only guard assumed. So the check runs for any
+  # trigger except workflow_dispatch: whichever run finishes second finds the
+  # first's successful run for this exact SHA ⇒ skip in ~10s. workflow_dispatch
+  # is exempt — manual re-deploys must be able to redeploy an already-deployed
+  # SHA on purpose. No successful run found ⇒ skip=false ⇒ deploy proceeds.
   guard:
     name: Skip duplicate trigger
     runs-on: ubuntu-latest
@@ -76,16 +80,20 @@ jobs:
     steps:
       - name: Look for an already successful run of this SHA
         id: check
-        if: github.event_name == 'push'
+        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # workflow_run's github.sha is the deploy workflow's own ref, not the
+          # commit that finished CI — use workflow_run.head_sha when present
+          # (push events don't have it, so this falls back to github.sha).
+          TARGET_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           # Сбой gh api (лимит, 5xx) не должен блокировать деплой: пустой ответ
           # трактуем как «успешных прогонов не найдено» и деплоим (fail-open).
-          DONE=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&status=success&per_page=20" \
+          DONE=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${TARGET_SHA}&status=success&per_page=20" \
                  --jq "[.workflow_runs[] | select(.id != ${{ github.run_id }})] | length" || echo "0")
           if [ "${DONE:-0}" -gt 0 ]; then
-            echo "Deploy for ${{ github.sha }} already succeeded ($DONE run(s)) — skipping duplicate"
+            echo "Deploy for ${TARGET_SHA} already succeeded ($DONE run(s)) — skipping duplicate"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -854,18 +862,26 @@ jobs:
             "${APP_URL}/api/admin/release-notify" || echo '{}')
           echo "Release notify response: $RESPONSE"
 
-          # notified=true — подписчики получили личный анонс этой версии
-          # (announced:false = версия уже анонсирована ранее; ответа нет =
-          # сервер/сеть недоступны). В обоих случаях группа получит fallback.
-          if echo "$RESPONSE" | jq -e '.success == true and .data.announced == true' >/dev/null 2>&1; then
+          # notified=true — подписчики точно не останутся без личного анонса
+          # этой версии: либо он ушёл прямо сейчас (announced:true), либо уже
+          # ушёл раньше в более раннем ране для того же SHA
+          # (announced:false, skippedReason:"already-announced" — дубль-триггер
+          # #525, guard выше его не всегда ловит первым; идемпотентность
+          # серверная). В обоих случаях fallback в группу не нужен. Настоящий
+          # fallback — только когда персонального анонса не было и не могло
+          # быть: нет секрета, сеть/сервер не ответили (ответа нет вовсе, либо
+          # announced:false по другой причине).
+          if echo "$RESPONSE" | jq -e '.success == true and (.data.announced == true or .data.skippedReason == "already-announced")' >/dev/null 2>&1; then
             echo "notified=true" >> "$GITHUB_OUTPUT"
           else
             echo "notified=false" >> "$GITHUB_OUTPUT"
           fi
 
       # Fallback-канал: групповое подтверждение уходит, только если персонального
-      # анонса не было (нет секрета, сервер не ответил, версия уже анонсирована).
-      # Иначе владелец получал два сообщения об одном деплое — US-6.
+      # анонса не было и не могло быть (нет секрета, сеть/сервер не ответили).
+      # already-announced (версия уже анонсирована более ранним раном — #525)
+      # считается персональным анонсом доставленным, fallback не шлём. Иначе
+      # владелец получал два сообщения об одном деплое — US-6.
       - name: Notify on success
         if: success() && steps.release.outputs.notified != 'true'
         env:
