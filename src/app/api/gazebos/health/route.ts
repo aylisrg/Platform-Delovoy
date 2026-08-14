@@ -14,6 +14,7 @@ export async function GET() {
           moduleSlug: "gazebos",
           date: { gte: new Date(new Date().toISOString().split("T")[0]) },
           status: { in: ACTIVE_BOOKING_STATUSES },
+          deletedAt: null,
         },
       }),
     ]);
