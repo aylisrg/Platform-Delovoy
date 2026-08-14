@@ -1310,6 +1310,31 @@ describe("listBookingsPaginated", () => {
     const call = vi.mocked(prisma.booking.findMany).mock.calls[0][0];
     expect(call?.where).not.toHaveProperty("OR");
   });
+
+  // #509: bookingFilterSchema validates userId, but listBookingsPaginated
+  // silently dropped it instead of filtering — this pins the fix.
+  it("should apply userId filter", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ userId: "user-42" });
+
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: "user-42" }),
+      })
+    );
+  });
+
+  it("should not add userId to where when not provided", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.booking.count).mockResolvedValue(0 as never);
+
+    await listBookingsPaginated({ status: "COMPLETED" });
+
+    const call = vi.mocked(prisma.booking.findMany).mock.calls[0][0];
+    expect(call?.where).not.toHaveProperty("userId");
+  });
 });
 
 // ===== rescheduleBooking =====
