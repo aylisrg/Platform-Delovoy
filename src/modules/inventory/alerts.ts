@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { redis, redisAvailable } from "@/lib/redis";
 import { sendTelegramAlert } from "@/lib/telegram-alert";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const ALERT_DEDUP_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const ALERT_KEY_PREFIX = "inventory:alert:low-stock:";
@@ -41,7 +42,7 @@ export async function checkAndSendLowStockAlert(skuId: string): Promise<void> {
     });
 
     const supplierInfo = lastReceipt?.supplier
-      ? `\nПоставщик: ${lastReceipt.supplier.name}${lastReceipt.supplier.phone ? ` (${lastReceipt.supplier.phone})` : ""}`
+      ? `\nПоставщик: ${escapeHtml(lastReceipt.supplier.name)}${lastReceipt.supplier.phone ? ` (${escapeHtml(lastReceipt.supplier.phone)})` : ""}`
       : "";
 
     const message = buildLowStockMessage(
@@ -121,11 +122,13 @@ function buildLowStockMessage(
   threshold: number,
   supplierInfo: string
 ): string {
+  const escName = escapeHtml(name);
+  const escUnit = escapeHtml(unit);
   return [
     `⚠️ <b>Низкий остаток товара</b>`,
     ``,
-    `Товар: <b>${name}</b>`,
-    `Остаток: <b>${stockQuantity} ${unit}</b> (порог: ${threshold} ${unit})`,
+    `Товар: <b>${escName}</b>`,
+    `Остаток: <b>${stockQuantity} ${escUnit}</b> (порог: ${threshold} ${escUnit})`,
     supplierInfo,
     ``,
     `<i>Рекомендуется заказать пополнение.</i>`,

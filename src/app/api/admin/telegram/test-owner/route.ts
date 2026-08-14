@@ -1,6 +1,7 @@
 import { apiResponse, apiError, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 /**
  * POST /api/admin/telegram/test-owner — send a test message to the owner's private chat.
@@ -26,7 +27,7 @@ export async function POST() {
       return apiError("OWNER_NOT_CONFIGURED", "TELEGRAM_OWNER_CHAT_ID не задан в .env");
     }
 
-    const senderName = session!.user!.name || session!.user!.email || "Admin";
+    const senderName = escapeHtml(session!.user!.name || session!.user!.email || "Admin");
     const now = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
 
     const text =

@@ -8,6 +8,7 @@ import {
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -73,8 +74,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const label = CATEGORY_LABELS[key] || key;
-    const userName = session?.user?.name || "Администратор";
+    const label = escapeHtml(CATEGORY_LABELS[key] || key);
+    const userName = escapeHtml(session?.user?.name || "Администратор");
     const text = [
       `✅ <b>Тестовое сообщение</b>`,
       ``,

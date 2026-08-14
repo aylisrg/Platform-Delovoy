@@ -2,6 +2,7 @@ import { apiResponse, apiError, apiServerError, requireAdminSection } from "@/li
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 /**
  * POST /api/admin/telegram/test — send a test message to the admin chat.
@@ -32,7 +33,7 @@ export async function POST() {
     const text =
       `<b>Platform Delovoy</b>\n\n` +
       `Тестовое сообщение от админ-панели.\n` +
-      `Отправил: ${session!.user!.name || session!.user!.email || "Admin"}\n` +
+      `Отправил: ${escapeHtml(session!.user!.name || session!.user!.email || "Admin")}\n` +
       `<i>${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}</i>`;
 
     const res = await telegramApi<{ chat?: { type?: string; title?: string; first_name?: string } }>(

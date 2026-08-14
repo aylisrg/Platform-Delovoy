@@ -1,4 +1,5 @@
 import { sendTelegramAlert } from "@/lib/telegram-alert";
+import { escapeHtml } from "@/lib/telegram/escape";
 import type { BackupStatus, BackupType } from "@prisma/client";
 
 /**
@@ -78,11 +79,4 @@ export async function notifyRestore(args: {
   lines.push(`<i>${new Date().toISOString()}</i>`);
 
   await sendTelegramAlert(lines.join("\n"), { parseMode: "HTML" });
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }

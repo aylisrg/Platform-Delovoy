@@ -1,4 +1,5 @@
 import { telegramApi } from "@/lib/telegram/client";
+import { escapeHtml } from "@/lib/telegram/escape";
 
 type AlertLevel = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
@@ -58,7 +59,7 @@ export type Notification = {
 export async function sendNotification(notification: Notification): Promise<boolean> {
   switch (notification.channel) {
     case "telegram":
-      return sendAlert("INFO", "notification", notification.message);
+      return sendAlert("INFO", "notification", escapeHtml(notification.message));
     case "email":
       console.log(`[Email] To: ${notification.recipient} | ${notification.message}`);
       return true;
@@ -77,10 +78,10 @@ export async function notifyBookingConfirmed(params: {
   const message = [
     `Бронирование подтверждено!`,
     ``,
-    `${params.resourceName}`,
+    `${escapeHtml(params.resourceName)}`,
     `Дата: ${params.date}`,
     `Время: ${params.startTime} — ${params.endTime}`,
-    `Клиент: ${params.userName}`,
+    `Клиент: ${escapeHtml(params.userName)}`,
   ].join("\n");
 
   return sendAlert("INFO", "gazebos", message);
@@ -95,10 +96,10 @@ export async function notifyBookingReminder(params: {
   const message = [
     `Напоминание о бронировании через 1 час`,
     ``,
-    `${params.resourceName}`,
+    `${escapeHtml(params.resourceName)}`,
     `Дата: ${params.date}`,
     `Время: ${params.startTime}`,
-    `Клиент: ${params.userName}`,
+    `Клиент: ${escapeHtml(params.userName)}`,
   ].join("\n");
 
   return sendAlert("INFO", "gazebos", message);
@@ -114,10 +115,10 @@ export async function notifyNewBooking(params: {
   const message = [
     `Новое бронирование!`,
     ``,
-    `${params.resourceName}`,
+    `${escapeHtml(params.resourceName)}`,
     `Дата: ${params.date}`,
     `Время: ${params.startTime} — ${params.endTime}`,
-    `Клиент: ${params.userName}`,
+    `Клиент: ${escapeHtml(params.userName)}`,
     ``,
     `Требуется подтверждение.`,
   ].join("\n");
@@ -135,10 +136,10 @@ export async function notifyBookingCancelled(params: {
   const message = [
     `Бронирование отменено`,
     ``,
-    `${params.resourceName}`,
+    `${escapeHtml(params.resourceName)}`,
     `Дата: ${params.date}`,
     `Время: ${params.startTime} — ${params.endTime}`,
-    `Клиент: ${params.userName}`,
+    `Клиент: ${escapeHtml(params.userName)}`,
   ].join("\n");
 
   return sendAlert("WARNING", "gazebos", message);

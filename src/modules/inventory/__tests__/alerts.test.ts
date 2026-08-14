@@ -95,6 +95,28 @@ describe("checkAndSendLowStockAlert", () => {
     expect(body.text).toContain("2 кг");
   });
 
+  // #471: sku.name/unit подставлялись в parse_mode:"HTML" сообщение без
+  // экранирования — товар с "названием" вроде <b>x</b> мог сломать разметку.
+  it("экранирует name/unit товара в тексте алерта (#471)", async () => {
+    db.inventorySku.findUnique.mockResolvedValue({
+      id: "sku1",
+      name: "<b>Уголь</b>",
+      unit: "<i>кг</i>",
+      stockQuantity: 2,
+      lowStockThreshold: 10,
+      isActive: true,
+    });
+    mockRedis.get.mockResolvedValue(null);
+    db.stockReceipt.findFirst.mockResolvedValue(null);
+
+    await checkAndSendLowStockAlert("sku1");
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.text).toContain("&lt;b&gt;Уголь&lt;/b&gt;");
+    expect(body.text).toContain("&lt;i&gt;кг&lt;/i&gt;");
+    expect(body.text).not.toContain("<b>Уголь</b>");
+  });
+
   it("skips sending when Redis dedup key exists", async () => {
     db.inventorySku.findUnique.mockResolvedValue({
       id: "sku1",

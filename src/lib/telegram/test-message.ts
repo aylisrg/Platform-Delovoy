@@ -4,13 +4,7 @@
  * получал одинаковое, узнаваемое сообщение при ручной проверке маршрутизации.
  */
 
-/** Экранирование для parse_mode=HTML (название канала может быть из настроек). */
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
+import { escapeHtml } from "./escape";
 
 /**
  * Собирает HTML-текст (`parse_mode: "HTML"`) тестового сообщения для канала.
