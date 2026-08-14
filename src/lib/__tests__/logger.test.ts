@@ -54,6 +54,25 @@ describe("log.critical", () => {
     );
   });
 
+  it("эскейпит HTML в source/message перед отправкой (sendAlert шлёт parse_mode:HTML без своего эскейпинга)", async () => {
+    // Реальный путь: src/modules/feedback/service.ts подставляет имя
+    // пользователя (из Telegram first_name, ничем не санитизировано) прямо
+    // в message — непроэкранированный HTML сломал бы разметку сообщения
+    // или дал бы кликабельную ссылку в админ-чате.
+    await log.critical(
+      "feedback",
+      'Срочное обращение от <a href="http://evil.example">СРОЧНО</a> & <script>alert(1)</script>'
+    );
+    await vi.waitFor(() => expect(sendAlertMock).toHaveBeenCalledOnce());
+
+    const [, , sentMessage] = sendAlertMock.mock.calls[0];
+    expect(sentMessage).toBe(
+      'Срочное обращение от &lt;a href="http://evil.example"&gt;СРОЧНО&lt;/a&gt; &amp; &lt;script&gt;alert(1)&lt;/script&gt;'
+    );
+    expect(sentMessage).not.toContain("<a href=");
+    expect(sentMessage).not.toContain("<script>");
+  });
+
   it("не блокирует запись в БД ожиданием отправки алерта (fire-and-forget)", async () => {
     let resolveAlert!: () => void;
     sendAlertMock.mockReturnValue(

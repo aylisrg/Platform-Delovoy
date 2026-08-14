@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import type { EventLevel } from "@prisma/client";
 import { redis, redisAvailable } from "./redis";
 import { sendAlert } from "./notifications";
+import { escapeHtml } from "./telegram/escape";
 
 /**
  * Log a system event to the database.
@@ -81,7 +82,11 @@ async function alertCritical(source: string, message: string): Promise<void> {
   }
   if (!shouldAlert) return;
   try {
-    await sendAlert("CRITICAL", source, message);
+    // sendAlert() шлёт с parse_mode:"HTML" и сам не эскейпит — source/message
+    // здесь может содержать данные пользователя (например, имя из фидбека),
+    // непроэкранированный HTML сломает парсинг сообщения в Telegram или
+    // откроет XSS-подобную инъекцию (кликабельные ссылки) в админ-чате.
+    await sendAlert("CRITICAL", escapeHtml(source), escapeHtml(message));
   } catch (error) {
     console.error(`[CRITICAL alert] Не удалось отправить алерт для ${source}`, error);
   }
