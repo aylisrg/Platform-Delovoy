@@ -37,7 +37,7 @@ src/
 │   ├── permissions.ts     # RBAC helpers (hasModuleAccess)
 │   └── auth.ts            # NextAuth config
 ├── modules/               # Business logic: service.ts, types.ts, validation.ts
-└── middleware.ts           # Auth guard + request logging
+└── proxy.ts                # Auth guard for /admin/* + /api/* (Next.js 16 renamed middleware.ts → proxy.ts; no request logging in this file)
 bot/                        # Telegram bot (Grammy, separate process)
 scripts/
 ├── seed.ts                # Orchestrator — runs all seeders
