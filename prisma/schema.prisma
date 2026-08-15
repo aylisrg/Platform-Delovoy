@@ -212,6 +212,12 @@ model Booking {
   deletedAt DateTime?
   callLogs  CallLog[]
   orders    Order[]   @relation("OrderBooking")
+  // EXCLUDE-констрейнт против двойного бронирования — DB-backstop поверх
+  // advisory-lock (slot-lock.ts, #429). Prisma не умеет EXCLUDE; см. raw SQL:
+  //   ALTER TABLE "Booking" ADD CONSTRAINT booking_no_overlap
+  //     EXCLUDE USING gist ("moduleSlug" WITH =, "resourceId" WITH =,
+  //       tsrange("startTime", "endTime") WITH &&)
+  //     WHERE (status IN ('PENDING','CONFIRMED','CHECKED_IN') AND "deletedAt" IS NULL)
 
   @@index([moduleSlug, date])
   @@index([userId])
