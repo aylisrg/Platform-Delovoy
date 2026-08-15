@@ -184,4 +184,28 @@ describe('errorBudgetMarker / errorBudgetIssue — дедуп по SHA', () => {
     expect(issue.body).toContain('\\`\\](evil)\\[click me\\]');
     expect(issue.body).not.toContain('[click me](https://evil.example.com)');
   });
+
+  it('бэкслеш перед спецсимволом не открывает обход экранирования (QA #578, повторная проверка)', () => {
+    // \] без экранирования самого \ — CommonMark читает как "экранированный
+    // обратный слэш" + отдельный неэкранированный ], закрывающий ссылку раньше.
+    const issue = errorBudgetIssue({
+      action: 'alert',
+      before: 5,
+      after: 20,
+      ratio: 4,
+      deploySha: 'abc',
+      previousSha: 'def',
+      commits: [
+        {
+          sha: 'aaaaaaa1234567',
+          message: 'fix: \\](evil)[hijack](https://evil.example.com',
+          url: 'https://github.com/x/y/commit/aaaaaaa',
+        },
+      ],
+      runUrl: 'https://x',
+    });
+    // \ экранирован первым: \\ остаётся литералом, ] после него — тоже экранирован.
+    expect(issue.body).toContain('\\\\\\](evil)\\[hijack\\]');
+    expect(issue.body).not.toContain('[hijack](https://evil.example.com)');
+  });
 });

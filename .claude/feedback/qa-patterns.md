@@ -71,3 +71,4 @@
 | 2026-08-14 | 2026-08-14-issue-543-penalty-nan-infinity-qa-report.md | 2 | rbac, api, tests |
 | unknown | issue-536-qa-report.md | 2 | rbac, api, tests |
 | 2026-08-15 | 2026-08-15-issue-578-error-budget-watch-qa-report.md | 3 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-15 | 2026-08-15-issue-578-error-budget-watch-reverify-qa-report.md | 2 | rbac, api, typescript, tests |

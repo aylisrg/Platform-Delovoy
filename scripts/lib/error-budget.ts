@@ -80,9 +80,15 @@ export function errorBudgetMarker(deploySha: string): string {
   return `<!-- error-budget:${deploySha} -->`;
 }
 
-/** Экранирует символы, ломающие markdown-ссылку `[текст](url)` — сообщение коммита не наш текст. */
+/**
+ * Экранирует символы, ломающие markdown-ссылку `[текст](url)` — сообщение
+ * коммита не наш текст. Бэкслеш экранируется ПЕРВЫМ: иначе бэкслеш перед
+ * `[`/`]`/backtick в исходном сообщении даёт `\\]` — CommonMark читает это
+ * как «экранированный обратный слэш» + отдельный неэкранированный `]`,
+ * закрывающий ссылку раньше времени (QA issue #578, повторная проверка).
+ */
 function escapeMarkdownLinkText(s: string): string {
-  return s.replace(/[[\]`]/g, '\\$&');
+  return s.replace(/\\/g, '\\\\').replace(/[[\]`]/g, '\\$&');
 }
 
 export function errorBudgetIssue(i: ErrorBudgetIssueInput): { title: string; body: string; labels: string[] } {
