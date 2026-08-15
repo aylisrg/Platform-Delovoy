@@ -56,6 +56,8 @@ npx tsx scripts/issue-queue.ts next
 npx tsx scripts/issue-queue.ts claim $ISSUE
 ```
 
+Отметь время (для `duration_min` телеметрии на шаге 7) — например `date -u`.
+
 ## 2. Понять задачу
 
 Прочитай тело issue целиком и всё, на что оно ссылается: QA-отчёты в
@@ -140,7 +142,10 @@ npx tsx scripts/issue-queue.ts pr-wait $PR 30
 
 - `green` → шаг 7.
 - `red` → чини сам, пушь, снова `pr-wait`. Круг за кругом, пока не позеленеет.
-- `timeout` → CI не уложился в окно. `park` — и дальше, к следующей задаче.
+  Каждый круг «красный → правка → пуш» — это один `ci_fix_rounds` для телеметрии
+  шага 7.
+- `timeout` → CI не уложился в окно. Запиши телеметрию (см. шаг 7,
+  «Телеметрия прогона» — исход `parked`) и `park` — и дальше, к следующей задаче.
   `needs-owner` при таймауте **не вешай**: этот лейбл навсегда выводит PR из-под
   подметальщика, а тут ждать нечего — CI просто медленный. Позеленеет — подметальщик
   домержит сам.
@@ -151,7 +156,7 @@ npx tsx scripts/issue-queue.ts pr-wait $PR 30
 npx tsx scripts/issue-queue.ts gate $PR
 ```
 
-- `tier: "auto"` → мержи:
+- `tier: "auto"` → сначала телеметрия (ниже), потом мержи:
 
   ```bash
   npx tsx scripts/issue-queue.ts pr-merge $PR
@@ -168,14 +173,41 @@ npx tsx scripts/issue-queue.ts gate $PR
 
   1. повесь на PR лейбл `needs-owner`;
   2. комментарием к PR перечисли причины из вывода гейта;
-  3. освободи очередь:
+  3. запиши телеметрию (ниже, исход `parked`) и освободи очередь:
 
   ```bash
   npx tsx scripts/issue-queue.ts park $ISSUE "деструктивная миграция — нужен взгляд владельца"
   ```
 
 - `pr-merge` ответил «GitHub отказал в мерже» → скорее всего branch protection
-  требует ревью. Не обходи: `needs-owner`, объяснение в комментарии, `park`, дальше.
+  требует ревью. Не обходи: `needs-owner`, объяснение в комментарии, телеметрия
+  (исход `parked`), `park`, дальше.
+
+### Телеметрия прогона (issue #582)
+
+Перед **любым** терминальным действием этого шага или таймаутом шага 6
+(`pr-merge`, `park` — включая park из шага 6/после третьего круга ревью на шаге 5)
+допиши строку в общий JSONL-файл наблюдаемости `/next-issue`, пока PR/ветка ещё
+живы для коммита:
+
+```bash
+npx tsx scripts/issue-queue.ts metric $ISSUE $BRANCH <merged|parked|blocked|released> \
+  <ci_fix_rounds> <review_rounds> <duration_min>
+git add docs/pipeline-runs/next-issue.metrics.jsonl
+git commit -m "chore(metrics): телеметрия /next-issue для issue #$ISSUE"
+git push
+```
+
+- `outcome`: `merged` — собираешься звать `pr-merge` прямо сейчас (коммить и пушь
+  метрику ДО вызова — после успешного мержа в PR уже ничего не добавить);
+  `parked` — гейт/CI/branch protection не пропустили, PR ждёт подметальщика или
+  владельца.
+- `ci_fix_rounds` — сколько раз шёл круг «red → правка → pr-wait» на шаге 6.
+- `review_rounds` — сколько раз запускал пару code-reviewer/qa-engineer на шаге 5.
+- `duration_min` — целые минуты от `claim $ISSUE` (шаг 1) до сейчас.
+
+Задачи, вернувшиеся в очередь до создания ветки (scope creep на шаге 2, `release`
+без единого коммита) — не про этот файл: коммитить метрику некуда, ветки ещё нет.
 
 **Не успел домержить — ничего страшного.** Мерж больше не держится на том, доживёт
 ли сессия до него: подметальщик `.github/workflows/issue-queue-merge.yml` каждые

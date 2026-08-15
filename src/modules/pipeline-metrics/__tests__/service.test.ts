@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import {
+  aggregateNextIssueRuns,
   listPipelineRuns,
   getPipelineRun,
   aggregateRuns,
+  readNextIssueMetrics,
 } from "../service";
-import type { PipelineMetricEvent, PipelineRun } from "../types";
+import type {
+  NextIssueMetricEvent,
+  PipelineMetricEvent,
+  PipelineRun,
+} from "../types";
 
 vi.mock("node:fs", async () => {
   const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
@@ -210,6 +216,143 @@ describe("pipeline-metrics/service", () => {
       const agg = aggregateRuns([successRun, failedRun]);
       expect(agg.byStage.qa.runs).toBe(2);
       expect(agg.byStage.qa.failureRate).toBe(0.5);
+    });
+  });
+});
+
+// Телеметрия /next-issue (issue #582) — общий файл (не по файлу на прогон,
+// как у pipeline.sh), поэтому read/aggregate тестируются отдельно.
+const makeNextIssueEvent = (
+  overrides: Partial<NextIssueMetricEvent> = {}
+): NextIssueMetricEvent => ({
+  ts: "2026-08-15T10:00:00.000Z",
+  issue: 100,
+  branch: "claude/issue-100-example",
+  outcome: "merged",
+  ci_fix_rounds: 1,
+  review_rounds: 1,
+  duration_min: 30,
+  ...overrides,
+});
+
+const toNextIssueJsonl = (events: NextIssueMetricEvent[]) =>
+  events.map((e) => JSON.stringify(e)).join("\n");
+
+describe("pipeline-metrics/service — /next-issue", () => {
+  beforeEach(() => {
+    mockReaddir.mockReset();
+    mockReadFile.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("readNextIssueMetrics", () => {
+    it("returns empty list when the file does not exist yet", async () => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      mockReadFile.mockRejectedValueOnce(err);
+
+      expect(await readNextIssueMetrics()).toEqual([]);
+    });
+
+    it("parses a well-formed file line by line", async () => {
+      const events = [
+        makeNextIssueEvent({ issue: 591, outcome: "merged" }),
+        makeNextIssueEvent({ issue: 580, outcome: "parked" }),
+      ];
+      mockReadFile.mockResolvedValueOnce(toNextIssueJsonl(events));
+
+      expect(await readNextIssueMetrics()).toEqual(events);
+    });
+
+    it("parses every line and ignores malformed ones", async () => {
+      mockReadFile.mockResolvedValueOnce(
+        [
+          JSON.stringify(makeNextIssueEvent({ issue: 1 })),
+          "not json",
+          JSON.stringify(makeNextIssueEvent({ issue: 2 })),
+          "",
+        ].join("\n")
+      );
+
+      const events = await readNextIssueMetrics();
+      expect(events).toHaveLength(2);
+      expect(events.map((e) => e.issue)).toEqual([1, 2]);
+    });
+
+    it("propagates non-ENOENT errors", async () => {
+      mockReadFile.mockRejectedValueOnce(new Error("disk on fire"));
+      await expect(readNextIssueMetrics()).rejects.toThrow("disk on fire");
+    });
+  });
+
+  describe("aggregateNextIssueRuns", () => {
+    const NOW = new Date("2026-08-15T12:00:00.000Z");
+
+    it("returns zeros for empty input", () => {
+      const agg = aggregateNextIssueRuns([], 30, NOW);
+      expect(agg.totalRuns).toBe(0);
+      expect(agg.outcomeCounts).toEqual({
+        merged: 0,
+        parked: 0,
+        blocked: 0,
+        released: 0,
+      });
+      expect(agg.medianDurationMin).toBe(0);
+    });
+
+    it("excludes events older than the window", () => {
+      const events = [
+        makeNextIssueEvent({ ts: "2026-07-01T00:00:00.000Z" }), // > 30 days before NOW
+        makeNextIssueEvent({ ts: "2026-08-14T00:00:00.000Z" }), // within window
+      ];
+      const agg = aggregateNextIssueRuns(events, 30, NOW);
+      expect(agg.totalRuns).toBe(1);
+    });
+
+    it("counts outcomes", () => {
+      const events = [
+        makeNextIssueEvent({ outcome: "merged" }),
+        makeNextIssueEvent({ outcome: "merged" }),
+        makeNextIssueEvent({ outcome: "parked" }),
+        makeNextIssueEvent({ outcome: "released" }),
+      ];
+      const agg = aggregateNextIssueRuns(events, 30, NOW);
+      expect(agg.totalRuns).toBe(4);
+      expect(agg.outcomeCounts).toEqual({
+        merged: 2,
+        parked: 1,
+        blocked: 0,
+        released: 1,
+      });
+    });
+
+    it("computes average rounds", () => {
+      const events = [
+        makeNextIssueEvent({ ci_fix_rounds: 0, review_rounds: 1 }),
+        makeNextIssueEvent({ ci_fix_rounds: 2, review_rounds: 3 }),
+      ];
+      const agg = aggregateNextIssueRuns(events, 30, NOW);
+      expect(agg.avgCiFixRounds).toBe((0 + 2) / 2);
+      expect(agg.avgReviewRounds).toBe((1 + 3) / 2);
+    });
+
+    it("computes median duration for odd count", () => {
+      const events = [10, 30, 20].map((duration_min) =>
+        makeNextIssueEvent({ duration_min })
+      );
+      expect(aggregateNextIssueRuns(events, 30, NOW).medianDurationMin).toBe(20);
+    });
+
+    it("computes median duration for even count (average of two middles)", () => {
+      const events = [10, 20, 30, 40].map((duration_min) =>
+        makeNextIssueEvent({ duration_min })
+      );
+      expect(aggregateNextIssueRuns(events, 30, NOW).medianDurationMin).toBe(
+        (20 + 30) / 2
+      );
     });
   });
 });

@@ -1,6 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
+  NextIssueAggregate,
+  NextIssueMetricEvent,
+  NextIssueOutcome,
   PipelineAggregate,
   PipelineMetricEvent,
   PipelineRun,
@@ -9,6 +12,10 @@ import type {
 } from "./types";
 
 const METRICS_DIR = path.join(process.cwd(), "docs", "pipeline-runs");
+const NEXT_ISSUE_METRICS_FILE = path.join(
+  METRICS_DIR,
+  "next-issue.metrics.jsonl"
+);
 
 export class PipelineMetricsError extends Error {
   constructor(
@@ -174,5 +181,79 @@ export function aggregateRuns(runs: PipelineRun[]): PipelineAggregate {
     avgQaIterations,
     avgReviewerIterations,
     byStage,
+  };
+}
+
+// ── Телеметрия /next-issue (issue #582) ─────────────────────────────────────
+//
+// Один общий файл (не по файлу на прогон, как у pipeline.sh) — строку в него
+// дописывает `npx tsx scripts/issue-queue.ts metric ...` на шаге 7
+// `.claude/commands/next-issue.md`, коммитится в PR самой задачи.
+
+export async function readNextIssueMetrics(): Promise<NextIssueMetricEvent[]> {
+  try {
+    const raw = await fs.readFile(NEXT_ISSUE_METRICS_FILE, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const events: NextIssueMetricEvent[] = [];
+    for (const line of lines) {
+      try {
+        events.push(JSON.parse(line) as NextIssueMetricEvent);
+      } catch {
+        // ignore malformed lines rather than failing the whole read
+      }
+    }
+    return events;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+const EMPTY_OUTCOME_COUNTS: Record<NextIssueOutcome, number> = {
+  merged: 0,
+  parked: 0,
+  blocked: 0,
+  released: 0,
+};
+
+export function aggregateNextIssueRuns(
+  events: NextIssueMetricEvent[],
+  windowDays = 30,
+  now: Date = new Date()
+): NextIssueAggregate {
+  const cutoffMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
+  const recent = events.filter((e) => new Date(e.ts).getTime() >= cutoffMs);
+  const totalRuns = recent.length;
+
+  const outcomeCounts: Record<NextIssueOutcome, number> = {
+    ...EMPTY_OUTCOME_COUNTS,
+  };
+  for (const e of recent) outcomeCounts[e.outcome]++;
+
+  if (totalRuns === 0) {
+    return {
+      totalRuns: 0,
+      outcomeCounts,
+      avgCiFixRounds: 0,
+      avgReviewRounds: 0,
+      medianDurationMin: 0,
+    };
+  }
+
+  return {
+    totalRuns,
+    outcomeCounts,
+    avgCiFixRounds: recent.reduce((s, e) => s + e.ci_fix_rounds, 0) / totalRuns,
+    avgReviewRounds: recent.reduce((s, e) => s + e.review_rounds, 0) / totalRuns,
+    medianDurationMin: median(recent.map((e) => e.duration_min)),
   };
 }
