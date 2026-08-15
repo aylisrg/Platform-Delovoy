@@ -68,6 +68,21 @@ test.describe("Скриншот-регрессии ключевых страни
   });
 
   test("/ps-park — desktop", async ({ page }) => {
+    // Hero-фон рисует `cyberpunk-grid.tsx` — decorative <canvas>, кадр
+    // строится через requestAnimationFrame (движущаяся scan-линия,
+    // случайные "flicker"-подсветки клеток на Math.random()). Это JS/canvas
+    // анимация, `animations: "disabled"` её не останавливает (та опция —
+    // только CSS/Web Animations). Компонент уже уважает
+    // prefers-reduced-motion — рисует один статичный кадр вместо rAF-цикла
+    // — emulateMedia включает эту ветку. Но даже единственный статичный
+    // кадр даёт ~4% шанс заспавнить случайный flicker (Math.random() < 0.04
+    // в том же вызове) — обнаружено эмпирически (два локальных прогона дали
+    // разные байты скриншота). Форсируем Math.random() до навигации, чтобы
+    // проверка спавна детерминированно проваливалась.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      Math.random = () => 0.5;
+    });
     await page.goto("/ps-park");
     await expect(page).toHaveScreenshot("ps-park-desktop.png", {
       fullPage: true,
