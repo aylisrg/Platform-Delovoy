@@ -1526,6 +1526,83 @@ describe("soft-delete filter (deletedAt: null) in read functions", () => {
     expect(result[0].slots.every((s) => s.isAvailable)).toBe(true);
   });
 
+  // #564: продолжение #512 — тот же пропуск нашёлся ещё в шести местах.
+  it("updateBookingStatus filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(updateBookingStatus("some-id", "CONFIRMED", "manager-1")).rejects.toThrow(
+      "Бронирование не найдено"
+    );
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("cancelBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(cancelBooking("some-id", "user-1")).rejects.toThrow("Бронирование не найдено");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("markNoShow filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(markNoShow("some-id", "manager-1")).rejects.toThrow("Бронирование не найдено");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("addItemsToBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(addItemsToBooking("some-id", "manager-1", [])).rejects.toThrow(
+      "Бронирование не найдено"
+    );
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("extendBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(extendBooking("some-id", "manager-1")).rejects.toThrow("Бронирование не найдено");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getBookingBill filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(getBookingBill("some-id")).rejects.toThrow("Бронирование не найдено");
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
   it("getActiveSessions filters soft-deleted", async () => {
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
     vi.mocked(prisma.resource.findMany).mockResolvedValue([] as never);
