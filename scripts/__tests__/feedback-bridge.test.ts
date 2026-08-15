@@ -3,6 +3,7 @@ import {
   alreadyBridged,
   feedbackMarker,
   feedbackToIssue,
+  isLikelyTestFeedback,
   parseFeedbackJson,
   type FeedbackRow,
 } from '../lib/feedback-bridge';
@@ -57,6 +58,49 @@ describe('feedbackToIssue', () => {
   it('заголовок короткий, с conventional-префиксом по типу', () => {
     expect(feedbackToIssue(row()).title).toMatch(/^fix\(feedback\): /);
     expect(feedbackToIssue(row({ type: 'SUGGESTION' })).title).toMatch(/^feat\(feedback\): /);
+  });
+});
+
+describe('isLikelyTestFeedback (issue #540)', () => {
+  it('реальные примеры из очереди — issue #484 «Тест фитбек»', () => {
+    expect(isLikelyTestFeedback('Тест фитбек')).toBe(true);
+  });
+
+  it('реальные примеры из очереди — issue #486 «Тестирую обратную связь»', () => {
+    expect(isLikelyTestFeedback('Тестирую обратную связь')).toBe(true);
+  });
+
+  it('одно слово — тест/test/проверка/testing в любой словоформе', () => {
+    expect(isLikelyTestFeedback('тест')).toBe(true);
+    expect(isLikelyTestFeedback('Test')).toBe(true);
+    expect(isLikelyTestFeedback('тестовое')).toBe(true);
+    expect(isLikelyTestFeedback('проверка')).toBe(true);
+    expect(isLikelyTestFeedback('testing')).toBe(true);
+    expect(isLikelyTestFeedback('  просто тест  ')).toBe(true);
+  });
+
+  it('пустой или состоящий только из знаков препинания текст', () => {
+    expect(isLikelyTestFeedback('')).toBe(true);
+    expect(isLikelyTestFeedback('   ')).toBe(true);
+    expect(isLikelyTestFeedback('...')).toBe(true);
+    expect(isLikelyTestFeedback('???')).toBe(true);
+  });
+
+  it('реальный баг — не фильтруется, даже короткий', () => {
+    expect(isLikelyTestFeedback('Кнопка оплаты не работает на странице кафе')).toBe(false);
+    expect(isLikelyTestFeedback('Сайт лежит')).toBe(false);
+    expect(isLikelyTestFeedback('502 ошибка при бронировании')).toBe(false);
+  });
+
+  it('текст, где есть техническая деталь рядом со словом «тест» — не фильтруется (ложноотрицательный безопаснее)', () => {
+    // "Тестовая версия сайта не открывается" — жалоба на реальную проблему,
+    // просто на упоминает слово "тестовая" (окружение, а не намерение автора).
+    expect(isLikelyTestFeedback('Тестовая версия сайта не открывается')).toBe(false);
+  });
+
+  it('только общие слова о самой форме обратной связи — недостаточно уверенности, не фильтруется', () => {
+    expect(isLikelyTestFeedback('обратная связь')).toBe(false);
+    expect(isLikelyTestFeedback('фидбек')).toBe(false);
   });
 });
 
