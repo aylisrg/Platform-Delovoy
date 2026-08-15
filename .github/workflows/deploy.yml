@@ -184,6 +184,7 @@ jobs:
     environment: production
     permissions:
       contents: write
+      actions: write # repo variables DEPLOYED_SHA_CURRENT/PREVIOUS — issue #578
     steps:
       # Checkout the exact commit build-and-push resolved and built, not
       # whatever main HEAD happens to be when this job starts — a plain
@@ -873,6 +874,25 @@ jobs:
           else
             echo "notified=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # error-budget-watch (issue #578, deploy-error-budget.yml) должен знать
+      # SHA, который реально задеплоен — а github.event.workflow_run.head_sha
+      # у *следующего* прогона deploy.yml этого не даёт при workflow_dispatch
+      # с явным sha (hotfix/rollback): head_sha там — это то, чем был ref на
+      # момент диспатча, а не значение inputs.sha. Пишем правду явно, в repo
+      # variables, независимо от типа триггера.
+      - name: Записать SHA деплоя для error-budget watch
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_SHA: ${{ needs.build-and-push.outputs.resolved_sha }}
+        run: |
+          OLD=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
+          if [ -n "$OLD" ] && [ "$OLD" != "$RESOLVED_SHA" ]; then
+            gh variable set DEPLOYED_SHA_PREVIOUS --body "$OLD"
+          fi
+          gh variable set DEPLOYED_SHA_CURRENT --body "$RESOLVED_SHA"
 
       # Fallback-канал: групповое подтверждение уходит, только если персонального
       # анонса не было и не могло быть (нет секрета, сеть/сервер не ответили).

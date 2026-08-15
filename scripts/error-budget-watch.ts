@@ -3,25 +3,26 @@
  * Post-deploy error-budget: решение (none/alert/rollback) + issue + вывод
  * для workflow (issue #578).
  *
- *   DEPLOY_SHA=... BEFORE_COUNT=N AFTER_COUNT=N RUN_URL=... \
+ *   DEPLOY_SHA=... PREVIOUS_SHA=... BEFORE_COUNT=N AFTER_COUNT=N RUN_URL=... \
  *     npx tsx scripts/error-budget-watch.ts
+ *
+ * DEPLOY_SHA/PREVIOUS_SHA передаёт workflow — САМ deploy.yml пишет их в repo
+ * variables DEPLOYED_SHA_CURRENT/PREVIOUS сразу после успешного деплоя, а не
+ * этот скрипт вычисляет их из github.event.workflow_run.head_sha: у
+ * workflow_dispatch head_sha — это то, чем был ref (main) на момент диспатча,
+ * а не значение inputs.sha, поэтому для hotfix/rollback-редеплоя (именно то,
+ * что делает наш собственный авто-откат) head_sha врёт про реально
+ * задеплоенный коммит. PREVIOUS_SHA пуст на самом первом деплое после
+ * появления этого механизма — тогда откатывать не на что (см. workflow).
  *
  * Считает before/after передаёт вызывающий (SSH → psql в workflow — здесь
  * только GitHub API + чистое решение classifyErrorBudget). Пишет
- * action/ratio/previous_sha в $GITHUB_OUTPUT — workflow сам решает,
- * слать ли Telegram и диспатчить ли откат.
+ * action/ratio в $GITHUB_OUTPUT — workflow сам решает, слать ли Telegram и
+ * диспатчить ли откат.
  */
 import { appendFileSync } from 'node:fs';
 import { REPO, ghApi } from './lib/gh-api';
 import { classifyErrorBudget, errorBudgetIssue, errorBudgetMarker } from './lib/error-budget';
-
-interface WorkflowRun {
-  id: number;
-  head_sha: string;
-  status: string;
-  conclusion: string | null;
-  created_at: string;
-}
 
 interface CompareCommit {
   sha: string;
@@ -49,16 +50,6 @@ function writeOutput(key: string, value: string): void {
   appendFileSync(file, `${key}=${value}\n`);
 }
 
-/** Первый success-прогон deploy.yml с head_sha, отличным от текущего деплоя. */
-function findPreviousSuccessfulSha(deploySha: string): string | null {
-  const runs = ghApi<{ workflow_runs: WorkflowRun[] }>(
-    `/repos/${REPO}/actions/workflows/deploy.yml/runs?status=success&per_page=20`,
-  ).workflow_runs;
-  const sorted = [...runs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const prev = sorted.find((r) => r.head_sha !== deploySha);
-  return prev?.head_sha ?? null;
-}
-
 function fetchCommits(previousSha: string | null, deploySha: string): Array<{ sha: string; message: string; url: string }> {
   if (!previousSha) return [];
   try {
@@ -84,6 +75,7 @@ function loadExistingBodies(): string[] {
 
 function main(): void {
   const deploySha = requiredEnv('DEPLOY_SHA');
+  const previousSha = process.env.PREVIOUS_SHA?.trim() || null;
   const before = Number(requiredEnv('BEFORE_COUNT'));
   const after = Number(requiredEnv('AFTER_COUNT'));
   const runUrl = requiredEnv('RUN_URL');
@@ -97,14 +89,12 @@ function main(): void {
 
   writeOutput('action', decision.action);
   writeOutput('ratio', decision.ratio === null ? '' : String(decision.ratio));
+  writeOutput('previous_sha', decision.action === 'none' ? '' : previousSha ?? '');
 
   if (decision.action === 'none') {
-    writeOutput('previous_sha', '');
     return;
   }
 
-  const previousSha = findPreviousSuccessfulSha(deploySha);
-  writeOutput('previous_sha', previousSha ?? '');
   const commits = fetchCommits(previousSha, deploySha);
 
   const issue = errorBudgetIssue({

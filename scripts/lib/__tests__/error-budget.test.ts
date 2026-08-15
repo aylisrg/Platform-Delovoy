@@ -106,6 +106,8 @@ describe('errorBudgetMarker / errorBudgetIssue — дедуп по SHA', () => {
     expect(issue.body.startsWith(errorBudgetMarker('abcdef1234567890'))).toBe(true);
     expect(issue.labels).toContain('prio:P0');
     expect(issue.labels).toContain('deploy-error-budget');
+    // auto:ready — детерминированный детектор, видим очереди сразу, без триажа.
+    expect(issue.labels).toContain('auto:ready');
     expect(issue.body).not.toContain('Авто-откат запущен');
   });
 

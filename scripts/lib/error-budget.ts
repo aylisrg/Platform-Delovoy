@@ -93,7 +93,15 @@ export function errorBudgetIssue(i: ErrorBudgetIssueInput): { title: string; bod
 
   return {
     title: `📉 Error budget: рост ошибок после деплоя ${i.deploySha.slice(0, 7)} (${ratioText})`,
-    labels: ['prio:P0', 'auto-detected', i.action === 'rollback' ? 'deploy-rollback' : 'deploy-error-budget'],
+    // auto:ready — по образцу labelsForPattern/issueForSpike (github-issues.ts):
+    // это детерминированный детектор, а не "непонятно что делать" — issue сразу
+    // видима очереди /next-issue, а не ждёт до ~2ч триажа.
+    labels: [
+      'prio:P0',
+      'auto-detected',
+      'auto:ready',
+      i.action === 'rollback' ? 'deploy-rollback' : 'deploy-error-budget',
+    ],
     body: `${errorBudgetMarker(i.deploySha)}
 
 ## Рост ошибок в первые 15 минут после деплоя

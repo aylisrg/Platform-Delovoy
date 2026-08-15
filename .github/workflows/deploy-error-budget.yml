@@ -40,6 +40,31 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
 
+      # Захватываем СЕЙЧАС, до 15-минутного ожидания: repo variables
+      # DEPLOYED_SHA_CURRENT/PREVIOUS пишет deploy.yml сразу после успешного
+      # деплоя (шаг "Записать SHA деплоя для error-budget watch") — если ждать
+      # с чтением до конца, второй деплой, стартовавший, пока этот job ещё
+      # спит, успеет перезаписать переменные раньше, чем мы их прочитаем.
+      # github.event.workflow_run.head_sha НЕ используем даже как DEPLOY_SHA:
+      # для workflow_dispatch с явным sha (hotfix/наш же авто-откат) head_sha —
+      # это то, чем был ref (main) на момент диспатча, а не inputs.sha
+      # (deploy.yml сам резолвит их так же в шаге "Resolve target SHA").
+      # Фоллбэк на head_sha — только если переменная вообще не задана (самый
+      # первый прогон после появления этого механизма).
+      - name: Захватить SHA деплоя (пока свежий)
+        id: sha
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
+          PREVIOUS=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_PREVIOUS" --jq .value 2>/dev/null || echo "")
+          if [ -z "$CURRENT" ]; then
+            echo "::warning::DEPLOYED_SHA_CURRENT не задан — использую workflow_run.head_sha (менее надёжно для workflow_dispatch)"
+            CURRENT="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
       # Буквально "подождать 15 минут", как просит issue — не polling-воркфлоу
       # с состоянием "уже проверяли", а один прогон на один успешный деплой.
       - name: Подождать 15 минут (окно error-budget)
@@ -58,6 +83,14 @@ jobs:
           # Anchor — момент завершения деплоя (updated_at успешного workflow_run),
           # а не "сейчас": окна должны быть привязаны к самому деплою, не к
           # времени старта этого job (sleep выше не гарантирует ровно 900с).
+          #
+          # ${{ }} интерполируется напрямую в script, а не через envs: (обычная
+          # конвенция appleboy/ssh-action в этом репо) — сознательно: значение
+          # 100% ISO8601 от самого GitHub (\d{4}-\d{2}-\d{2}T...Z), пользователь
+          # повлиять на него не может, а протащить его через envs: означало бы
+          # интерполировать $ANCHOR bash-переменной ВНУТРИ уже $$-quoted SQL —
+          # два несовместимых механизма квотирования в одной строке, реальный
+          # риск багов ради нулевого риска инъекции здесь.
           script: |
             docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc \
               'SELECT json_build_object(
@@ -94,7 +127,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ steps.sha.outputs.current }}
+          PREVIOUS_SHA: ${{ steps.sha.outputs.previous }}
           BEFORE_COUNT: ${{ steps.parsed.outputs.before }}
           AFTER_COUNT: ${{ steps.parsed.outputs.after }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -106,7 +140,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
-          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ steps.sha.outputs.current }}
           BEFORE: ${{ steps.parsed.outputs.before }}
           AFTER: ${{ steps.parsed.outputs.after }}
           RATIO: ${{ steps.decide.outputs.ratio }}
