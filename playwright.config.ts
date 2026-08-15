@@ -17,6 +17,21 @@ export default defineConfig({
   retries: 1,
   timeout: 30_000,
   reporter: process.env.CI ? "github" : "list",
+  // Скриншот-тесты (issue #579): CI и dev-песочница агента рендерят разными
+  // сборками Chromium (playwright-core пинит одну ревизию, локально может
+  // стоять другая) — суб-пиксельные различия хинтинга/сглаживания шрифтов
+  // между ними иначе валят toHaveScreenshot на любой странице с текстом.
+  // threshold (0-1, per-pixel color distance) поднят с дефолтных 0.2 —
+  // поглощает мягкие AA-блендинговые дельты, но не полную смену цвета
+  // (дельта ~1.0 всё равно ловится). maxDiffPixelRatio/maxDiffPixels
+  // намеренно не трогаем — это ratio-допуск на количество пикселей, а не
+  // на их цветовую близость, и он замаскировал бы реальную локальную
+  // поломку (например #579 AC1: смена цвета кнопки) на длинных страницах.
+  expect: {
+    toHaveScreenshot: {
+      threshold: 0.3,
+    },
+  },
   use: {
     baseURL,
     trace: "retain-on-failure",
