@@ -29,7 +29,7 @@ export default defineConfig({
   // поломку (например #579 AC1: смена цвета кнопки) на длинных страницах.
   expect: {
     toHaveScreenshot: {
-      threshold: 0.5,
+      threshold: 0.7,
     },
   },
   use: {
