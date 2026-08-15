@@ -110,7 +110,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,infra/nginx/edge/delovoy-edge.conf,scripts/apply-nginx-vhost.sh,docker-compose.prod.yml"
+          source: "infra/nginx/delovoy-park.conf,infra/nginx/delovoy-upstream.conf,infra/nginx/delovoy-nginx-perf.logrotate,infra/nginx/edge/delovoy-edge.conf,scripts/apply-nginx-vhost.sh,docker-compose.prod.yml"
           target: "/opt/delovoy-park/"
           overwrite: true
 
