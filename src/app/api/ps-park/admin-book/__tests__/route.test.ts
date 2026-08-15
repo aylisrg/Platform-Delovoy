@@ -94,11 +94,13 @@ describe("POST /api/ps-park/admin-book", () => {
     expect(body.error.code).toBe("BOOKING_CONFLICT");
   });
 
-  it("неожиданная ошибка сервиса — 500", async () => {
+  it("неожиданная ошибка сервиса — 500, без утечки деталей", async () => {
     mockCreateAdminBooking.mockRejectedValue(new Error("boom"));
 
     const res = await POST(makeRequest(validBody));
+    const body = await res.json();
 
     expect(res.status).toBe(500);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });

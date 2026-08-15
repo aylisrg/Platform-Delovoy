@@ -82,11 +82,13 @@ describe("POST /api/ps-park/bookings/:id/extend", () => {
     expect(body.error.code).toBe("BOOKING_CONFLICT");
   });
 
-  it("неожиданная ошибка сервиса — 500", async () => {
+  it("неожиданная ошибка сервиса — 500, без утечки деталей", async () => {
     mockExtendBooking.mockRejectedValue(new Error("boom"));
 
     const res = await POST(makeRequest(), { params });
+    const body = await res.json();
 
     expect(res.status).toBe(500);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });

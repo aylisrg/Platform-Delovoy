@@ -84,11 +84,13 @@ describe("GET /api/ps-park/bookings/:id/bill", () => {
     expect(body.error.code).toBe("BOOKING_NOT_FOUND");
   });
 
-  it("неожиданная ошибка сервиса — 500", async () => {
+  it("неожиданная ошибка сервиса — 500, без утечки деталей", async () => {
     mockGetBookingBill.mockRejectedValue(new Error("boom"));
 
     const res = await GET(makeRequest(), { params });
+    const body = await res.json();
 
     expect(res.status).toBe(500);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });
