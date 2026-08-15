@@ -20,6 +20,8 @@ import type {
 } from "./types";
 import type { TaskListQuery } from "./validation";
 import { dispatchTaskEvent } from "./notify";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 const TASK_INCLUDE = {
   board: true,
@@ -387,13 +389,10 @@ export async function moveTaskToColumn(
     });
     if (count >= targetColumn.wipLimit) {
       // soft: continue but emit a system event
-      await prisma.systemEvent.create({
-        data: {
-          level: "WARNING",
-          source: "tasks",
-          message: `WIP-limit exceeded in column ${targetColumn.name}`,
-          metadata: { columnId: targetColumn.id, count, limit: targetColumn.wipLimit },
-        },
+      await log.warn(EVENT_SOURCES.TASKS, `WIP-limit exceeded in column ${targetColumn.name}`, {
+        columnId: targetColumn.id,
+        count,
+        limit: targetColumn.wipLimit,
       });
     }
   }

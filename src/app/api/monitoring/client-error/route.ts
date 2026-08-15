@@ -1,9 +1,5 @@
 import type { NextRequest } from "next/server";
-import {
-  apiResponse,
-  apiServerError,
-  apiValidationError,
-} from "@/lib/api-response";
+import { apiResponse, apiValidationError } from "@/lib/api-response";
 import { rateLimit } from "@/lib/rate-limit";
 import { clientErrorSchema } from "@/modules/monitoring/validation";
 import { logClientError } from "@/modules/monitoring/service";
@@ -18,6 +14,11 @@ import { logClientError } from "@/modules/monitoring/service";
  *
  * Без auth (ошибки случаются и у анонимов). Защита: rate limit 10/мин/IP,
  * жёсткие лимиты длин в Zod-схеме, полезная нагрузка не интерпретируется.
+ *
+ * `logClientError` (issue #581) пишет через `log.warn` из `@/lib/logger`,
+ * который сам перехватывает ошибку записи в БД (console-fallback) и никогда
+ * не бросает — бикон не должен становиться источником шума при проблемах с БД,
+ * поэтому ответ клиенту не зависит от того, удалось ли сохранить SystemEvent.
  */
 export async function POST(request: NextRequest) {
   const limited = await rateLimit(request, "client-error");
@@ -29,11 +30,6 @@ export async function POST(request: NextRequest) {
     return apiValidationError(parsed.error.issues[0]?.message ?? "invalid body");
   }
 
-  try {
-    await logClientError(parsed.data);
-    return apiResponse({ accepted: true });
-  } catch {
-    // Бикон не должен становиться источником шума при проблемах с БД.
-    return apiServerError("Не удалось сохранить событие");
-  }
+  await logClientError(parsed.data);
+  return apiResponse({ accepted: true });
 }

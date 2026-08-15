@@ -5,6 +5,7 @@ import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 /**
  * Доменные эффекты платежей с subjectType=BOOKING.
@@ -33,10 +34,11 @@ function bookingTimeStrings(booking: { date: Date; startTime: Date; endTime: Dat
 export async function onBookingPaymentSucceeded(tx: Tx, payment: Payment): Promise<void> {
   const booking = await tx.booking.findUnique({ where: { id: payment.subjectId } });
   if (!booking) {
+    // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
     await tx.systemEvent.create({
       data: {
         level: "ERROR",
-        source: "payments",
+        source: EVENT_SOURCES.PAYMENTS,
         message: "Оплата получена, но бронь не найдена",
         metadata: { paymentId: payment.id, bookingId: payment.subjectId },
       },

@@ -15,8 +15,9 @@
 
 import { NextRequest } from "next/server";
 import { apiResponse } from "@/lib/api-response";
-import { prisma } from "@/lib/db";
 import { redis, redisAvailable } from "@/lib/redis";
+import { logEvent } from "@/lib/logger";
+import type { EventSource } from "@/lib/event-sources";
 import {
   AvitoCallWebhookSchema,
   processCallWebhook,
@@ -151,20 +152,11 @@ async function isRateLimited(ip: string): Promise<boolean> {
 
 async function safeLogSystemEvent(input: {
   level: "INFO" | "WARNING" | "ERROR" | "CRITICAL";
-  source: string;
+  source: EventSource;
   message: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  try {
-    await prisma.systemEvent.create({
-      data: {
-        level: input.level,
-        source: input.source,
-        message: input.message,
-        metadata: (input.metadata ?? {}) as object,
-      },
-    });
-  } catch {
-    /* logging must never fail the webhook */
-  }
+  // logEvent уже перехватывает свои собственные ошибки (console-fallback) —
+  // отдельный try/catch тут больше не нужен.
+  await logEvent(input.level, input.source, input.message, input.metadata);
 }

@@ -14,6 +14,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { dispatch } from "@/modules/notifications/dispatch/dispatcher";
 import type { NotificationPayload } from "@/modules/notifications/dispatch/types";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 export const OVERDUE_MODULE_SLUGS = ["ps-park", "gazebos"] as const;
 export type OverdueModuleSlug = (typeof OVERDUE_MODULE_SLUGS)[number];
@@ -93,14 +95,11 @@ export async function loadModuleConfig(slug: OverdueModuleSlug): Promise<{
   }
   const parsed = overdueThresholdsSchema.safeParse(raw);
   if (!parsed.success) {
-    await prisma.systemEvent.create({
-      data: {
-        level: "WARNING",
-        source: "scheduler",
-        message: `Invalid overdueThresholds in Module(${slug}).config — fallback to defaults`,
-        metadata: { slug, errors: parsed.error.flatten() },
-      },
-    });
+    await log.warn(
+      EVENT_SOURCES.BOOKING_SCHEDULER,
+      `Invalid overdueThresholds in Module(${slug}).config — fallback to defaults`,
+      { slug, errors: parsed.error.flatten() }
+    );
     return {
       isActive: moduleRow.isActive,
       thresholds: { ...DEFAULT_OVERDUE_THRESHOLDS },
@@ -274,14 +273,11 @@ async function processBooking(
   const payload = buildPayload(booking, slot, resourceName, managerNames);
 
   if (uniqueRecipients.length === 0) {
-    await prisma.systemEvent.create({
-      data: {
-        level: "WARNING",
-        source: "scheduler",
-        message: `Overdue booking ${booking.bookingId} has no recipients (no managers/superadmins for ${booking.moduleSlug})`,
-        metadata: { bookingId: booking.bookingId, moduleSlug: booking.moduleSlug, slot },
-      },
-    });
+    await log.warn(
+      EVENT_SOURCES.BOOKING_SCHEDULER,
+      `Overdue booking ${booking.bookingId} has no recipients (no managers/superadmins for ${booking.moduleSlug})`,
+      { bookingId: booking.bookingId, moduleSlug: booking.moduleSlug, slot }
+    );
     return {
       dispatched: 0,
       escalated: 0,
@@ -326,37 +322,22 @@ async function processBooking(
         deduped++;
       } else if (outcome.reason === "no available channel") {
         skippedNoChannel++;
-        await prisma.systemEvent.create({
-          data: {
-            level: "WARNING",
-            source: "scheduler",
-            message: `Overdue reminder skipped: user ${userId} has no available notification channel`,
-            metadata: {
-              userId,
-              bookingId: booking.bookingId,
-              moduleSlug: booking.moduleSlug,
-              eventType,
-            },
-          },
-        });
+        await log.warn(
+          EVENT_SOURCES.BOOKING_SCHEDULER,
+          `Overdue reminder skipped: user ${userId} has no available notification channel`,
+          { userId, bookingId: booking.bookingId, moduleSlug: booking.moduleSlug, eventType }
+        );
       }
       // Other skip reasons (preference disabled, DND) are not error states.
     }
   }
 
   if (slot === "escalated" && dispatched > 0) {
-    await prisma.systemEvent.create({
-      data: {
-        level: "WARNING",
-        source: "scheduler",
-        message: `Booking ${booking.bookingId} escalated to SUPERADMIN — overdue ${booking.ageMinutes}min`,
-        metadata: {
-          bookingId: booking.bookingId,
-          moduleSlug: booking.moduleSlug,
-          ageMinutes: booking.ageMinutes,
-        },
-      },
-    });
+    await log.warn(
+      EVENT_SOURCES.BOOKING_SCHEDULER,
+      `Booking ${booking.bookingId} escalated to SUPERADMIN — overdue ${booking.ageMinutes}min`,
+      { bookingId: booking.bookingId, moduleSlug: booking.moduleSlug, ageMinutes: booking.ageMinutes }
+    );
   }
 
   return {

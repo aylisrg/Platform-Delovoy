@@ -10,6 +10,8 @@ import { z } from "zod";
 import type { AvitoCallStatus, Prisma, TaskPriority } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 // === Public types =================================================
 
@@ -189,21 +191,10 @@ export async function processCallWebhook(
       });
     }
   } catch (err) {
-    await prisma.systemEvent
-      .create({
-        data: {
-          level: "ERROR",
-          source: "avito.calls",
-          message: "Failed to create Task from missed call",
-          metadata: {
-            callEventId: callEvent.id,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        },
-      })
-      .catch(() => {
-        /* swallow logging failure */
-      });
+    await log.error(EVENT_SOURCES.AVITO_CALLS, "Failed to create Task from missed call", {
+      callEventId: callEvent.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return {
@@ -342,13 +333,8 @@ export async function createTaskFromMissedCall(
   }
   if (!boardId) {
     // Cannot create Task without a board — drop a SystemEvent and bail.
-    await prisma.systemEvent.create({
-      data: {
-        level: "ERROR",
-        source: "avito.calls",
-        message: "Cannot create missed-call Task: no TaskBoard configured",
-        metadata: { callEventId: input.callEventId },
-      },
+    await log.error(EVENT_SOURCES.AVITO_CALLS, "Cannot create missed-call Task: no TaskBoard configured", {
+      callEventId: input.callEventId,
     });
     return { taskCreated: false, taskId: null };
   }
@@ -358,13 +344,9 @@ export async function createTaskFromMissedCall(
     select: { id: true },
   });
   if (!firstColumn) {
-    await prisma.systemEvent.create({
-      data: {
-        level: "ERROR",
-        source: "avito.calls",
-        message: "Cannot create missed-call Task: board has no columns",
-        metadata: { callEventId: input.callEventId, boardId },
-      },
+    await log.error(EVENT_SOURCES.AVITO_CALLS, "Cannot create missed-call Task: board has no columns", {
+      callEventId: input.callEventId,
+      boardId,
     });
     return { taskCreated: false, taskId: null };
   }
@@ -492,21 +474,10 @@ async function dispatchMissedCallNotification(
     });
   } catch (err) {
     // Logged via SystemEvent — never throw from fire-and-forget.
-    await prisma.systemEvent
-      .create({
-        data: {
-          level: "WARNING",
-          source: "avito.calls",
-          message: "Failed to dispatch avito.call.missed notification",
-          metadata: {
-            taskId,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        },
-      })
-      .catch(() => {
-        /* swallow */
-      });
+    await log.warn(EVENT_SOURCES.AVITO_CALLS, "Failed to dispatch avito.call.missed notification", {
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

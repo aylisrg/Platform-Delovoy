@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import { apiError, apiResponse, apiServerError } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { listChatsUnread, listMessages } from "@/lib/avito/messenger";
 import { routeInboundMessage } from "@/lib/avito/lead-routing";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 export const dynamic = "force-dynamic";
 
@@ -81,19 +82,10 @@ async function run(request: NextRequest) {
           if (res.idempotent) skipped += 1;
           else processed += 1;
         } catch (err) {
-          await prisma.systemEvent
-            .create({
-              data: {
-                level: "ERROR",
-                source: "avito.cron.poll",
-                message: "avito.cron.routing_failed",
-                metadata: {
-                  err: err instanceof Error ? err.message : String(err),
-                  avitoMessageId: m.avitoMessageId,
-                } as Prisma.InputJsonValue,
-              },
-            })
-            .catch(() => undefined);
+          await log.error(EVENT_SOURCES.AVITO_CRON_POLL, "avito.cron.routing_failed", {
+            err: err instanceof Error ? err.message : String(err),
+            avitoMessageId: m.avitoMessageId,
+          });
         }
       }
     }

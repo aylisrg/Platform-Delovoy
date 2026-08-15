@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { Prisma, ExpenseCategory, ExpenseFrequency } from "@prisma/client";
+import { logEvent } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import type {
   CreateRecurringExpenseInput,
   UpdateRecurringExpenseInput,
@@ -545,14 +547,12 @@ export async function processRecurring(): Promise<ProcessRecurringResult> {
   result.skipped = dueTemplates.length - result.created - result.errors.length;
 
   // Log to SystemEvent
-  await prisma.systemEvent.create({
-    data: {
-      level: result.errors.length > 0 ? "WARNING" : "INFO",
-      source: "cron/process-recurring",
-      message: `Processed recurring expenses: ${result.created} created, ${result.errors.length} errors`,
-      metadata: result as Prisma.InputJsonValue,
-    },
-  });
+  await logEvent(
+    result.errors.length > 0 ? "WARNING" : "INFO",
+    EVENT_SOURCES.CRON_PROCESS_RECURRING,
+    `Processed recurring expenses: ${result.created} created, ${result.errors.length} errors`,
+    result as unknown as Record<string, unknown>
+  );
 
   return result;
 }

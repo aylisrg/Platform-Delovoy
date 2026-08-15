@@ -9,6 +9,8 @@ import {
 } from "@/lib/avito/lead-routing";
 import { dispatch } from "@/modules/notifications/dispatch/dispatcher";
 import { Prisma } from "@prisma/client";
+import { logEvent } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 export const dynamic = "force-dynamic";
 
@@ -159,18 +161,9 @@ async function logSystemEvent(
   message: string,
   metadata: Record<string, unknown>
 ): Promise<void> {
-  try {
-    await prisma.systemEvent.create({
-      data: {
-        level,
-        source: "avito.webhook",
-        message,
-        metadata: metadata as Prisma.InputJsonValue,
-      },
-    });
-  } catch {
-    // Don't fail the webhook on logging failure.
-  }
+  // logEvent уже перехватывает свои собственные ошибки (console-fallback) —
+  // отдельный try/catch тут больше не нужен.
+  await logEvent(level, EVENT_SOURCES.AVITO_WEBHOOK, message, metadata);
 }
 
 function safeSample(rawBody: unknown): string {
