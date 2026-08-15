@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { log } from "@/lib/logger";
 
 /**
  * Сериализация конкурентных операций над одним слотом расписания.
@@ -64,4 +65,37 @@ export async function lockSlot(
  */
 export function slotLockKey(moduleSlug: string, resourceId: string, date: Date): string {
   return `${moduleSlug}:${resourceId}:${date.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * DB-backstop против двойного бронирования (issue #548): EXCLUDE-констрейнт
+ * `booking_no_overlap` на активных статусах. Под корректным кодом
+ * недостижим — `lockSlot()` всегда идёт первым стейтментом той же
+ * транзакции, что конфликт-чек и запись, так что обычная гонка ловится
+ * `findFirst()` выше по коду, а не этим констрейнтом. Срабатывание значит,
+ * что что-то обошло `lockSlot()` — регрессия в коде или прямая запись в БД
+ * мимо приложения. Каждый вызывающий route.ts ловит ошибки в общий
+ * `catch → apiServerError()` без логирования, поэтому без явного лога
+ * здесь срабатывание останется незамеченным.
+ *
+ * У EXCLUDE-нарушения нет типизированного `Prisma.PrismaClientKnownRequestError`
+ * кода (в отличие от P2002 у обычных unique-констрейнтов) — Postgres код
+ * 23P01 виден только в тексте ошибки, поэтому матчим по имени констрейнта.
+ */
+export async function handleOverlapBackstop(
+  error: unknown,
+  moduleSlug: string,
+  resourceId: string
+): Promise<boolean> {
+  const isBackstop =
+    error instanceof Prisma.PrismaClientUnknownRequestError &&
+    error.message.includes("booking_no_overlap");
+  if (isBackstop) {
+    await log.error(
+      "booking",
+      "EXCLUDE-констрейнт booking_no_overlap сработал — advisory-lock не предотвратил конфликт (обход блокировки?)",
+      { moduleSlug, resourceId }
+    );
+  }
+  return isBackstop;
 }

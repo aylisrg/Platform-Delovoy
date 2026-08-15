@@ -1,6 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
-import { lockSlot, slotLockKey } from "../slot-lock";
+
+const logErrorMock = vi.fn();
+vi.mock("@/lib/logger", () => ({
+  log: { error: (...args: unknown[]) => logErrorMock(...args) },
+}));
+
+import { lockSlot, slotLockKey, handleOverlapBackstop } from "../slot-lock";
 
 /** Мок транзакционного клиента: нас интересует только вызов $executeRaw. */
 function makeTx() {
@@ -71,5 +77,57 @@ describe("lockSlot", () => {
     const keyA = (a.$executeRaw.mock.calls[0][0] as Prisma.Sql).values[0];
     const keyB = (b.$executeRaw.mock.calls[0][0] as Prisma.Sql).values[0];
     expect(keyA).toBe(keyB);
+  });
+});
+
+describe("handleOverlapBackstop (issue #548)", () => {
+  beforeEach(() => {
+    logErrorMock.mockReset();
+  });
+
+  const overlapError = () =>
+    new Prisma.PrismaClientUnknownRequestError(
+      'Invalid `prisma.booking.create()` invocation:\n\n' +
+        'conflicting key value violates exclusion constraint "booking_no_overlap"',
+      { clientVersion: "6.19.3" }
+    );
+
+  it("распознаёт срабатывание EXCLUDE-констрейнта и логирует ERROR с контекстом", async () => {
+    const result = await handleOverlapBackstop(overlapError(), "gazebos", "res-1");
+    expect(result).toBe(true);
+    expect(logErrorMock).toHaveBeenCalledTimes(1);
+    expect(logErrorMock).toHaveBeenCalledWith(
+      "booking",
+      expect.stringContaining("booking_no_overlap"),
+      { moduleSlug: "gazebos", resourceId: "res-1" }
+    );
+  });
+
+  it("не путает с обычным доменным BookingError — не логирует, возвращает false", async () => {
+    class BookingError extends Error {
+      code = "BOOKING_CONFLICT";
+    }
+    const result = await handleOverlapBackstop(new BookingError("Это время уже занято"), "gazebos", "res-1");
+    expect(result).toBe(false);
+    expect(logErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("не путает с обычным unique-констрейнтом (P2002, другой Prisma error класс)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "6.19.3",
+    });
+    const result = await handleOverlapBackstop(p2002, "gazebos", "res-1");
+    expect(result).toBe(false);
+    expect(logErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("не путает с PrismaClientUnknownRequestError от другой причины (не наш констрейнт)", async () => {
+    const unrelated = new Prisma.PrismaClientUnknownRequestError("connection reset by peer", {
+      clientVersion: "6.19.3",
+    });
+    const result = await handleOverlapBackstop(unrelated, "gazebos", "res-1");
+    expect(result).toBe(false);
+    expect(logErrorMock).not.toHaveBeenCalled();
   });
 });

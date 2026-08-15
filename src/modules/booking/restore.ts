@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACTIVE_BOOKING_STATUSES, assertValidTransition } from "./state-machine";
-import { lockSlot } from "./slot-lock";
+import { lockSlot, handleOverlapBackstop } from "./slot-lock";
 import { refundToSubscription } from "@/modules/subscriptions/debit";
 
 /**
@@ -204,5 +204,13 @@ export async function restoreBooking(input: RestoreBookingInput) {
     });
 
     return tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, moduleSlug, booking.resourceId)) {
+      throw new BookingRestoreError(
+        "SLOT_TAKEN",
+        "Слот уже занят другой бронью — восстановление невозможно"
+      );
+    }
+    throw err;
   });
 }
