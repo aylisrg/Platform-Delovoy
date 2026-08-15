@@ -72,3 +72,28 @@
 | unknown | issue-536-qa-report.md | 2 | rbac, api, tests |
 | 2026-08-15 | 2026-08-15-issue-578-error-budget-watch-qa-report.md | 3 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-15 | 2026-08-15-issue-578-error-budget-watch-reverify-qa-report.md | 2 | rbac, api, typescript, tests |
+| 2026-04-12 | 2026-04-12-ps-park-inventory-booking-qa-report.md | 15 | rbac, api, typescript, tests |
+| 2026-04-12 | 2026-04-12-ps-park-ux-redesign-qa-report.md | 3 | rbac, api, typescript, tests |
+| 2026-04-12 | 2026-04-12-telephony-novofon-integration-qa-report.md | 3 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-14 | 2026-04-14-admin-bbq-playpark-management-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-14 | 2026-04-14-release-prep-mobile-perf-qa-report.md | 11 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-15 | 2026-04-15-admin-analytics-dashboard-qa-report.md | 11 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-15 | 2026-04-15-micro-fixes-batch-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-16 | 2026-04-16-auth-ux-profile-contacts-qa-report.md | 8 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-16 | 2026-04-16-mobile-admin-redesign-qa-report.md | 3 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-17 | 2026-04-17-checkout-discount-system-qa-report.md | 20 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-21 | 2026-04-21-rental-email-notifications-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-21 | 2026-04-21-staging-and-backups-qa-report.md | 8 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-25 | 2026-04-25-feedback-office-linkage-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-04-27 | 2026-04-27-ps-park-session-shift-fix-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-04 | 2026-05-04-cafe-order-booking-link-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-04 | 2026-05-04-ps-park-expired-session-red-card-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-10 | 2026-05-10-cron-overdue-reminders-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-10 | 2026-05-10-web-push-api-routes-qa-report.md | 12 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-10 | 2026-05-10-web-push-channel-skeleton-qa-report.md | 7 | rbac, api, typescript, tests, scope_creep |
+| 2026-05-10 | 2026-05-10-web-push-pwa-ui-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-13 | 2026-08-13-issue-437-admin-booking-telegram-notify-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-440-noshow-threshold-config-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-479-scheduled-tasks-lock-gitignore-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-495-local-fonts-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-14 | 2026-08-14-issue-571-critical-alerting-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
