@@ -97,3 +97,4 @@
 | 2026-08-14 | 2026-08-14-issue-479-scheduled-tasks-lock-gitignore-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-495-local-fonts-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-571-critical-alerting-qa-report.md | 0 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-15 | 2026-08-15-issue-540-filter-test-feedback-qa-report.md | 17 | rbac, api, typescript, tests |

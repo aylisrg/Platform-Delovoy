@@ -9,12 +9,21 @@
  *
  * BUG → prio:P1|P2 (по isUrgent) + auto:ready — сразу в очередь.
  * SUGGESTION → enhancement без auto:* — входящая для шага-0 триажа.
+ * BUG, похожий на тестовое/пустое сообщение (isLikelyTestFeedback,
+ * issue #540) — issue не заводится вовсе, только строка в лог: не мусорить
+ * P1-очередь тестовыми "Тест фитбек" (issue #484, #486).
  * Дедуп — маркер `<!-- feedback:<id> -->` по issues с лейблом from-feedback.
  * Обратной синхронизации статуса в FeedbackItem нет намеренно (см. ADR).
  */
 import { readFileSync } from 'node:fs';
 import { REPO, ghApi } from './lib/gh-api';
-import { alreadyBridged, feedbackToIssue, parseFeedbackJson } from './lib/feedback-bridge';
+import {
+  alreadyBridged,
+  feedbackToIssue,
+  filteredFeedbackPreview,
+  isLikelyTestFeedback,
+  parseFeedbackJson,
+} from './lib/feedback-bridge';
 
 function existingFeedbackBodies(): string[] {
   const bodies: string[] = [];
@@ -53,10 +62,16 @@ function main(): void {
   const existing = existingFeedbackBodies();
   let created = 0;
   let skipped = 0;
+  let filteredTest = 0;
 
   for (const row of rows) {
     if (alreadyBridged(row, existing)) {
       skipped++;
+      continue;
+    }
+    if (row.type === 'BUG' && isLikelyTestFeedback(row.description)) {
+      filteredTest++;
+      console.log(`[filtered: likely-test] ${row.id} — «${filteredFeedbackPreview(row.description)}»`);
       continue;
     }
     if (created >= maxIssues) {
@@ -75,7 +90,7 @@ function main(): void {
     created++;
   }
 
-  console.log(`\n✅ создано: ${created}, пропущено (уже есть): ${skipped}`);
+  console.log(`\n✅ создано: ${created}, пропущено (уже есть): ${skipped}, отфильтровано как тестовые: ${filteredTest}`);
 }
 
 try {
