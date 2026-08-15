@@ -62,6 +62,14 @@ const DEFAULT_SLOT_ROUNDING_MINUTES = 15;
 const DEFAULT_SESSION_ALERT_MINUTES = 10;
 const DEFAULT_MIN_BOOKING_HOURS = 1;
 
+function pluralHours(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "час";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "часа";
+  return "часов";
+}
+
 /**
  * Часы работы модуля из настроек (Module.config.openHour/closeHour). Раньше
  * везде был захардкожен `OPEN_HOUR=8/CLOSE_HOUR=23` — форма настроек значения
@@ -233,6 +241,15 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
 
   if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
     throw new PSBookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
+  }
+
+  const minHours = await getMinBookingHours();
+  const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
+  if (durationHours < minHours) {
+    throw new PSBookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
   }
 
   // Validate items and build snapshot (no stock deduction yet — only on CONFIRMED).
@@ -979,6 +996,15 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
 
   if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
     throw new PSBookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
+  }
+
+  const minHoursAdmin = await getMinBookingHours();
+  const durationHoursAdmin = (end.getTime() - start.getTime()) / 3_600_000;
+  if (durationHoursAdmin < minHoursAdmin) {
+    throw new PSBookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHoursAdmin} ${pluralHours(minHoursAdmin)}`
+    );
   }
 
   const conflict = await prisma.booking.findFirst({

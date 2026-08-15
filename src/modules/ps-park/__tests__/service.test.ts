@@ -196,6 +196,19 @@ describe("createBooking", () => {
     });
   });
 
+  // #567: сервер не проверял minBookingHours — только фронт (quick-booking-popover, #523).
+  it("throws DURATION_BELOW_MIN when booking is shorter than configured minBookingHours", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 2 },
+    } as never);
+
+    // validBookingInput — 12:00-13:00, 1h < настроенных 2h.
+    await expect(createBooking("user-1", validBookingInput)).rejects.toMatchObject({
+      code: "DURATION_BELOW_MIN",
+    });
+  });
+
   it("stores playerCount and comment in metadata", async () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
@@ -2076,6 +2089,22 @@ describe("createAdminBooking", () => {
     await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toThrow(
       "Стол не найден"
     );
+  });
+
+  // #567: createAdminBooking (POST /api/ps-park/admin-book) не проверял
+  // minBookingHours на сервере — попап после #523 не даёт создать короткую
+  // бронь, но прямой вызов эндпоинта (curl/Postman) обходил ограничение.
+  it("отказывает, если админ-бронь короче настроенного minBookingHours", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { minBookingHours: 2 },
+    } as never);
+
+    // validAdminInput — 12:00-13:00, 1h < настроенных 2h.
+    await expect(createAdminBooking("admin-1", validAdminInput)).rejects.toMatchObject({
+      code: "DURATION_BELOW_MIN",
+    });
+    expect(prisma.booking.create).not.toHaveBeenCalled();
   });
 
   // #437: booking.confirmed не постится в канал смены (шаблон убран для
