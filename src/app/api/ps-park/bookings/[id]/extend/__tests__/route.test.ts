@@ -4,6 +4,15 @@ import { NextRequest } from "next/server";
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
+const mockRequireAdminSection = vi.fn();
+vi.mock("@/lib/api-response", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-response")>("@/lib/api-response");
+  return {
+    ...actual,
+    requireAdminSection: (...args: unknown[]) => mockRequireAdminSection(...args),
+  };
+});
+
 const mockLogAudit = vi.fn();
 vi.mock("@/lib/logger", () => ({
   logAudit: (...args: unknown[]) => mockLogAudit(...args),
@@ -32,6 +41,7 @@ function makeRequest() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
+  mockRequireAdminSection.mockResolvedValue(null);
   mockExtendBooking.mockResolvedValue({ id: "bk-1", endTime: new Date("2026-06-15T13:00:00Z") });
 });
 
@@ -69,6 +79,17 @@ describe("POST /api/ps-park/bookings/:id/extend", () => {
 
     expect(res.status).toBe(403);
     expect(body.error.code).toBe("FORBIDDEN");
+    expect(mockExtendBooking).not.toHaveBeenCalled();
+  });
+
+  it("#622: менеджер без ModuleAssignment на ps-park — requireAdminSection отклоняет", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
+    );
+
+    const res = await POST(makeRequest(), { params });
+
+    expect(res.status).toBe(403);
     expect(mockExtendBooking).not.toHaveBeenCalled();
   });
 

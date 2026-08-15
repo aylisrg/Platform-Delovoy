@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiUnauthorized, apiValidationError, apiServerError, apiError } from "@/lib/api-response";
+import { apiResponse, apiUnauthorized, apiValidationError, apiServerError, apiError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
 import { logAudit } from "@/lib/logger";
@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
     if (!hasRole(session.user, "MANAGER")) {
       return apiError("FORBIDDEN", "Недостаточно прав", 403);
     }
+    const denied = await requireAdminSection(session, "ps-park");
+    if (denied) return denied;
 
     const body = await request.json();
     const parsed = adminCreatePSBookingSchema.safeParse(body);

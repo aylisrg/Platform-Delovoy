@@ -4,6 +4,15 @@ import { NextRequest } from "next/server";
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
+const mockRequireAdminSection = vi.fn();
+vi.mock("@/lib/api-response", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-response")>("@/lib/api-response");
+  return {
+    ...actual,
+    requireAdminSection: (...args: unknown[]) => mockRequireAdminSection(...args),
+  };
+});
+
 const mockLogAudit = vi.fn();
 vi.mock("@/lib/logger", () => ({
   logAudit: (...args: unknown[]) => mockLogAudit(...args),
@@ -43,6 +52,7 @@ const validBody = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
+  mockRequireAdminSection.mockResolvedValue(null);
   mockCreateAdminBooking.mockResolvedValue({ id: "bk-1" });
 });
 
@@ -82,6 +92,17 @@ describe("POST /api/gazebos/admin-book", () => {
 
     expect(res.status).toBe(403);
     expect(body.error.code).toBe("FORBIDDEN");
+    expect(mockCreateAdminBooking).not.toHaveBeenCalled();
+  });
+
+  it("#622: менеджер без ModuleAssignment на gazebos — requireAdminSection отклоняет", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
+    );
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(403);
     expect(mockCreateAdminBooking).not.toHaveBeenCalled();
   });
 

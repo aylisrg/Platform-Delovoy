@@ -14,76 +14,76 @@ vi.mock("@/lib/api-response", async () => {
 });
 
 const mockLogAudit = vi.fn();
-vi.mock("@/lib/logger", () => ({
-  logAudit: (...args: unknown[]) => mockLogAudit(...args),
-}));
+vi.mock("@/lib/logger", () => ({ logAudit: (...args: unknown[]) => mockLogAudit(...args) }));
 
-const mockCreateAdminBooking = vi.fn();
+const mockAddItemsToBooking = vi.fn();
 vi.mock("@/modules/ps-park/service", async () => {
   const actual = await vi.importActual<typeof import("@/modules/ps-park/service")>(
     "@/modules/ps-park/service"
   );
   return {
-    ...actual,
-    createAdminBooking: (...args: unknown[]) => mockCreateAdminBooking(...args),
+    PSBookingError: actual.PSBookingError,
+    addItemsToBooking: (...args: unknown[]) => mockAddItemsToBooking(...args),
   };
 });
 
 import { POST } from "../route";
 import { PSBookingError } from "@/modules/ps-park/service";
 
+const params = Promise.resolve({ id: "bk-1" });
+
 function makeRequest(body: unknown) {
-  return new NextRequest("http://localhost/api/ps-park/admin-book", {
+  return new NextRequest("http://localhost/api/ps-park/bookings/bk-1/add-items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
-const validBody = {
-  resourceId: "table-1",
-  date: "2026-06-15",
-  startTime: "10:00",
-  endTime: "12:00",
-  clientName: "Иван",
-};
+const validBody = { items: [{ skuId: "sku-1", quantity: 2 }] };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
   mockRequireAdminSection.mockResolvedValue(null);
-  mockCreateAdminBooking.mockResolvedValue({ id: "bk-1" });
+  mockAddItemsToBooking.mockResolvedValue({ id: "bk-1", metadata: {} });
 });
 
-describe("POST /api/ps-park/admin-book", () => {
-  it("менеджер создаёт подтверждённую бронь клиенту", async () => {
-    const res = await POST(makeRequest(validBody));
+describe("POST /api/ps-park/bookings/:id/add-items", () => {
+  it("менеджер добавляет товары в бронь", async () => {
+    const res = await POST(makeRequest(validBody), { params });
     const body = await res.json();
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200);
+    expect(mockAddItemsToBooking).toHaveBeenCalledWith("bk-1", "mgr-1", validBody.items);
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      "mgr-1",
+      "booking.add_items",
+      "Booking",
+      "bk-1",
+      expect.objectContaining({ itemCount: 1 })
+    );
     expect(body.success).toBe(true);
-    expect(mockCreateAdminBooking).toHaveBeenCalledWith("mgr-1", expect.objectContaining({ clientName: "Иван" }));
-    expect(mockLogAudit).toHaveBeenCalledWith("mgr-1", "booking.admin_create", "Booking", "bk-1", expect.any(Object));
   });
 
   it("требует авторизацию — 401", async () => {
     mockAuth.mockResolvedValue(null);
 
-    const res = await POST(makeRequest(validBody));
+    const res = await POST(makeRequest(validBody), { params });
 
     expect(res.status).toBe(401);
-    expect(mockCreateAdminBooking).not.toHaveBeenCalled();
+    expect(mockAddItemsToBooking).not.toHaveBeenCalled();
   });
 
   it("не пускает обычного пользователя — 403 FORBIDDEN", async () => {
     mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
 
-    const res = await POST(makeRequest(validBody));
+    const res = await POST(makeRequest(validBody), { params });
     const body = await res.json();
 
     expect(res.status).toBe(403);
     expect(body.error.code).toBe("FORBIDDEN");
-    expect(mockCreateAdminBooking).not.toHaveBeenCalled();
+    expect(mockAddItemsToBooking).not.toHaveBeenCalled();
   });
 
   it("#622: менеджер без ModuleAssignment на ps-park — requireAdminSection отклоняет", async () => {
@@ -91,34 +91,33 @@ describe("POST /api/ps-park/admin-book", () => {
       Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа" } }, { status: 403 })
     );
 
-    const res = await POST(makeRequest(validBody));
+    const res = await POST(makeRequest(validBody), { params });
 
     expect(res.status).toBe(403);
-    expect(mockCreateAdminBooking).not.toHaveBeenCalled();
+    expect(mockAddItemsToBooking).not.toHaveBeenCalled();
   });
 
-  it("отклоняет тело без имени клиента — 422, сервис не вызван", async () => {
-    const { clientName: _clientName, ...rest } = validBody;
-    const res = await POST(makeRequest(rest));
+  it("пустой список товаров — 422, сервис не вызван", async () => {
+    const res = await POST(makeRequest({ items: [] }), { params });
 
     expect(res.status).toBe(422);
-    expect(mockCreateAdminBooking).not.toHaveBeenCalled();
+    expect(mockAddItemsToBooking).not.toHaveBeenCalled();
   });
 
-  it("BOOKING_CONFLICT от сервиса — код прокидывается как есть", async () => {
-    mockCreateAdminBooking.mockRejectedValue(new PSBookingError("BOOKING_CONFLICT", "Это время уже занято"));
+  it("недостаточно остатка на складе — код ошибки сервиса прокидывается как есть", async () => {
+    mockAddItemsToBooking.mockRejectedValue(new PSBookingError("INSUFFICIENT_STOCK", "Недостаточно товара на складе"));
 
-    const res = await POST(makeRequest(validBody));
+    const res = await POST(makeRequest(validBody), { params });
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error.code).toBe("BOOKING_CONFLICT");
+    expect(body.error.code).toBe("INSUFFICIENT_STOCK");
   });
 
   it("неожиданная ошибка сервиса — 500, без утечки деталей", async () => {
-    mockCreateAdminBooking.mockRejectedValue(new Error("boom"));
+    mockAddItemsToBooking.mockRejectedValue(new Error("boom"));
 
-    const res = await POST(makeRequest(validBody));
+    const res = await POST(makeRequest(validBody), { params });
     const body = await res.json();
 
     expect(res.status).toBe(500);
