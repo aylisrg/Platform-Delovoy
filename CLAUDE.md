@@ -224,9 +224,13 @@ write, actions write) — его читают `auto-rebase.yml`, `issue-queue-me
   ручном мерже два класса: рубильники самой автоматики — конфиг, workflow учёта и
   реализация гейта (`scripts/lib/issue-queue.ts`, `scripts/issue-queue.ts`) — и деструктивные
   миграции (`DROP TABLE/COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`,
-  `ALTER TYPE`, `SET NOT NULL`). Плюс PR-ы на 5+ модулей — правило #5 выше.
+  `ALTER TYPE`, `SET NOT NULL`, а с #580 — и миграция, чей `patch` GitHub не отдал,
+  раньше молча считалась безопасной). Плюс PR-ы на 5+ модулей — правило #5 выше.
   Всё остальное, включая `infra/**`, деплой-workflow'ы и аддитивные миграции,
-  мержится автоматически после зелёного CI и PASS от `code-reviewer` и `qa-engineer`.
+  мержится автоматически после зелёного CI и PASS от `code-reviewer` и `qa-engineer` —
+  с #580 это не конвенция промпта, а машинная проверка: гейт требует на PR маркеры
+  обоих вердиктов (`npx tsx scripts/issue-queue.ts verdict <PR> code-reviewer|qa-engineer`,
+  шаг 6 `/next-issue`), иначе `hold` независимо от CI.
   Под авто-мерж попадают **все ветки `claude/**`**, не только `claude/issue-*`:
   сессия, заведённая не через `/next-issue` (разбор инцидента, задача от владельца
   в чате), проходит тот же CI и тот же гейт, а её PR раньше оседал у владельца

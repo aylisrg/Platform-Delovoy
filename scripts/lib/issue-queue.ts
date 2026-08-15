@@ -233,6 +233,17 @@ export const DRAFT_STUCK_MARKER = '<!-- issue-queue-draft-stuck -->';
 const LEGACY_GIVEUP = 'Задача снята с автоочереди';
 
 /**
+ * Маркеры вердиктов ревью-агентов на PR (#580, F5 аудита). «PASS от
+ * code-reviewer и qa-engineer» раньше была конвенцией промпта `/next-issue`,
+ * которую гейт не проверял механически — сессия, пропустившая шаг 5, давала
+ * PR, неотличимый для подметальщика от проверенного. `/next-issue` публикует
+ * оба маркера комментарием на PR сразу после `pr-open`; `classifyMergeGate`
+ * требует оба для tier `auto`.
+ */
+export const CODE_REVIEWER_PASS_MARKER = '<!-- issue-queue-verdict-code-reviewer-pass -->';
+export const QA_ENGINEER_PASS_MARKER = '<!-- issue-queue-verdict-qa-engineer-pass -->';
+
+/**
  * Сколько попыток «подобрали и бросили» накопилось у задачи.
  * Считаются только stale-комментарии ПОСЛЕ последнего give-up: иначе задача,
  * которую владелец вернул в очередь после `auto:blocked`, мгновенно блокируется
@@ -435,13 +446,20 @@ export function moduleOf(file: string): string | null {
  * Строго: любая одна причина из списка переводит PR в `hold`.
  *
  * Принимает и просто имена файлов, и объекты с `patch` — дифф нужен, чтобы
- * отличить аддитивную миграцию от деструктивной. Без диффа миграция считается
- * безопасной: GitHub не отдаёт `patch` для слишком больших файлов, и ронять на
- * этом всю очередь неправильно — CI и ревью-агенты остаются на месте.
+ * отличить аддитивную миграцию от деструктивной. Миграция без доступного
+ * диффа (GitHub не отдаёт `patch` для слишком больших файлов) раньше молча
+ * считалась безопасной — F6 аудита: деструктивный SQL в большом файле
+ * проскакивал бы. Теперь это тоже `hold` — ручная проверка вместо угадывания.
+ *
+ * `prComments` — тела всех комментариев PR (issue-комментарии, не review-треды).
+ * Auto-tier требует оба маркера вердиктов ревью-агентов (#580, F5 аудита):
+ * без них PR, где сессия пропустила шаг 5 `/next-issue`, неотличим от
+ * проверенного.
  */
 export function classifyMergeGate(
   changedFiles: (string | ChangedFile)[],
   config: QueueConfig,
+  prComments: string[],
 ): MergeGate {
   const files: ChangedFile[] = changedFiles.map((f) => (typeof f === 'string' ? { filename: f } : f));
   const names = files.map((f) => f.filename);
@@ -459,11 +477,21 @@ export function classifyMergeGate(
   }
 
   for (const file of files) {
-    if (!/^prisma\/migrations\//.test(file.filename) || !file.patch) continue;
+    if (!/^prisma\/migrations\//.test(file.filename)) continue;
+    if (!file.patch) {
+      reasons.push(`diff миграции ${file.filename} недоступен (файл слишком большой) — ручная проверка`);
+      continue;
+    }
     const found = destructiveSqlIn(file.patch);
     if (found.length > 0) {
       reasons.push(`деструктивная миграция ${file.filename}: ${found.join(', ')} — потеря данных необратима`);
     }
+  }
+
+  const hasCodeReviewerVerdict = prComments.some((c) => c.includes(CODE_REVIEWER_PASS_MARKER));
+  const hasQaEngineerVerdict = prComments.some((c) => c.includes(QA_ENGINEER_PASS_MARKER));
+  if (!hasCodeReviewerVerdict || !hasQaEngineerVerdict) {
+    reasons.push('нет вердиктов ревью-агентов (маркеры code-reviewer/qa-engineer PASS не найдены в комментариях PR)');
   }
 
   const modules = [...new Set(names.map(moduleOf).filter((m): m is string => m !== null))].sort();

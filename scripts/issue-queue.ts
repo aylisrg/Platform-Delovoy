@@ -25,6 +25,7 @@
  *   pr-wait 463 30                           дождаться CI (минут)
  *   pr-status 463                            текущее состояние чеков
  *   gate 463                                 можно ли авто-мержить
+ *   verdict 463 code-reviewer|qa-engineer    отметить PASS ревью-агента (маркер для гейта)
  *   pr-ready 463                             снять черновик (GraphQL; в сессии воркера недоступен)
  *   pr-merge 463                             мерж (сам перепроверяет гейт и CI)
  *   automerge [--dry-run]                    крон: домержить все готовые PR очереди
@@ -37,11 +38,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { REPO, ghApi as gh } from './lib/gh-api';
 import {
+  CODE_REVIEWER_PASS_MARKER,
   DEFAULT_CONFIG,
   DRAFT_STUCK_MARKER,
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
   HEARTBEAT_MARKER,
+  QA_ENGINEER_PASS_MARKER,
   QUEUE_BRANCH_RE,
   STALE_MARKER,
   STALE_PR_MARKER,
@@ -290,9 +293,28 @@ function cmdGate(prNumber: number): void {
     files.push(...batch);
     if (batch.length < 100) break;
   }
-  const gate = classifyMergeGate(files, config);
+  const gate = classifyMergeGate(
+    files,
+    config,
+    allComments(prNumber).map((c) => c.body),
+  );
   console.log(JSON.stringify({ pr: prNumber, files: files.length, ...gate }, null, 2));
   if (gate.tier === 'hold') process.exitCode = 3; // отличимо от ошибки сети/скрипта
+}
+
+/**
+ * Публикует маркер вердикта ревью-агента на PR (#580) — шаг 5 `/next-issue`
+ * после PASS от `code-reviewer`/`qa-engineer`. Отдельная команда, а не голая
+ * инструкция «напиши такой-то HTML-комментарий» в промпте: маркер живёт в
+ * одном месте (`scripts/lib/issue-queue.ts`), опечатка в промпте молча ломала
+ * бы авто-мерж собственного PR сессии.
+ */
+function cmdVerdict(prNumber: number, agent: string): void {
+  const marker =
+    agent === 'code-reviewer' ? CODE_REVIEWER_PASS_MARKER : agent === 'qa-engineer' ? QA_ENGINEER_PASS_MARKER : null;
+  if (!marker) throw new Error(`agent «${agent}» — ожидаю code-reviewer или qa-engineer`);
+  comment(prNumber, `${marker}\nВердикт: PASS.`);
+  console.log(`verdict posted #${prNumber} → ${agent}: PASS`);
 }
 
 // ── Триаж и планирование ────────────────────────────────────────────────────
@@ -559,7 +581,11 @@ function attemptMerge(
   config: QueueConfig,
   opts: { promoteDraft?: boolean } = {},
 ): MergeAttempt {
-  const gate = classifyMergeGate(changedFiles(prNumber), config);
+  const gate = classifyMergeGate(
+    changedFiles(prNumber),
+    config,
+    allComments(prNumber).map((c) => c.body),
+  );
   if (gate.tier === 'hold') {
     return { merged: false, reason: 'gate=hold', hold: true, reasons: gate.reasons };
   }
@@ -651,7 +677,11 @@ function cmdAutoMerge(dryRun: boolean): void {
     }
 
     if (dryRun) {
-      const gate = classifyMergeGate(changedFiles(pr.number), config);
+      const gate = classifyMergeGate(
+        changedFiles(pr.number),
+        config,
+        allComments(pr.number).map((c) => c.body),
+      );
       const s = summarizeChecks(checksFor(pr.number));
       results.push({
         pr: pr.number,
@@ -1049,6 +1079,7 @@ try {
     case 'release': cmdRelease(Number(rest[0]), rest.slice(1).join(' ')); break;
     case 'park': cmdPark(Number(rest[0]), rest.slice(1).join(' ')); break;
     case 'gate': cmdGate(Number(rest[0])); break;
+    case 'verdict': cmdVerdict(Number(rest[0]), rest[1] ?? ''); break;
     case 'reconcile': cmdReconcile(); break;
     case 'report': cmdReport(); break;
     case 'heartbeat': cmdHeartbeat(rest.includes('--dry-run')); break;
@@ -1065,7 +1096,7 @@ try {
     case 'automerge': cmdAutoMerge(rest.includes('--dry-run')); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|park|gate|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
       );
       process.exitCode = 2;
   }

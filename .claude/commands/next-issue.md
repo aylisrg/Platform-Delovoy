@@ -116,6 +116,9 @@ npm test && npx tsc --noEmit && npm run lint
 буксуй: закоммить что есть, открой PR, опиши в теле, на чём застрял, поставь лейбл
 `needs-owner` и `park $ISSUE` — и переходи к следующей задаче.
 
+Оба вердикта PASS — держи их в уме до шага 6: PR ещё не существует, а гейт (#580)
+требует маркеры вердиктов на самом PR, не только твоё «прогнал и получил PASS».
+
 ## 6. PR
 
 ```bash
@@ -131,6 +134,17 @@ npx tsx scripts/issue-queue.ts pr-open $ISSUE claude/issue-$ISSUE-<slug>
 PR создаётся **не черновиком**: снять draft умеет только мутация GraphQL, и там, где
 её нет, черновик стал бы ловушкой. Предохранитель от этого не страдает — решение
 принимает `pr-merge`.
+
+Сразу после этого отметь оба вердикта из шага 5 — гейт (#580) машинально проверяет их
+наличие на PR, «PASS от ревью-агентов» больше не конвенция промпта:
+
+```bash
+npx tsx scripts/issue-queue.ts verdict $PR code-reviewer
+npx tsx scripts/issue-queue.ts verdict $PR qa-engineer
+```
+
+Без обоих PR останется в `hold` даже с зелёным CI — не забудь, если шаг 5 давно позади
+(например, после долгого `pr-wait`/`red`-цикла).
 
 Дальше дождись CI одним вызовом:
 
@@ -162,9 +176,15 @@ npx tsx scripts/issue-queue.ts gate $PR
   Верит только себе, не тебе. После мержа issue закроется по `Closes #`, а мерж в
   `main` запустит CI → `deploy.yml` → **выкатку в прод**.
 
-- `tier: "hold"` → не мержи. Осталось два таких класса: рубильники самой автоматики
-  (`.github/issue-queue.json`, `issue-queue.yml`) и деструктивные миграции
-  (`DROP TABLE/COLUMN`, `TRUNCATE`, `DELETE FROM`, `SET NOT NULL`). Действия:
+- `tier: "hold"`, причина «нет вердиктов ревью-агентов» → это не решение владельца,
+  а забытый шаг 6. Опубликуй `verdict $PR code-reviewer` / `verdict $PR qa-engineer`
+  и перепроверь `gate $PR` — `needs-owner`/`park` тут не нужны.
+
+- `tier: "hold"` по любой другой причине → не мержи. Осталось два таких класса:
+  рубильники самой автоматики (`.github/issue-queue.json`, `issue-queue.yml`) и
+  деструктивные миграции (`DROP TABLE/COLUMN`, `TRUNCATE`, `DELETE FROM`,
+  `SET NOT NULL`, а с #580 — и миграция без доступного `patch`, требующая ручной
+  проверки). Действия:
 
   1. повесь на PR лейбл `needs-owner`;
   2. комментарием к PR перечисли причины из вывода гейта;
