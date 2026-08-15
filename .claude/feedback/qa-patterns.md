@@ -123,3 +123,4 @@
 | unknown | issue-615-qa-report.md | 6 | rbac, api, typescript, tests |
 | unknown | issue-616-qa-report.md | 10 | rbac, api, typescript, tests |
 | 2026-08-16 | 2026-08-16-issue-564-ps-park-deletedat-followup-qa-report.md | 1 | rbac, typescript, tests |
+| unknown | issue-564-qa-report.md | 6 | rbac, api, tests, scope_creep |
