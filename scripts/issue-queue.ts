@@ -52,6 +52,7 @@ import {
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
+  isTrustedVerdictAuthor,
   laneOf,
   pickNext,
   priorityOf,
@@ -128,16 +129,33 @@ function openPrs(): RawPr[] {
   return out;
 }
 
-function allComments(num: number): { body: string; created_at: string }[] {
-  const out: { body: string; created_at: string }[] = [];
+interface RawComment {
+  body: string;
+  created_at: string;
+  user: { login: string } | null;
+  author_association: string;
+}
+
+function allComments(num: number): RawComment[] {
+  const out: RawComment[] = [];
   for (let page = 1; page <= 10; page++) {
-    const batch = gh<{ body: string; created_at: string }[]>(
-      `/repos/${REPO}/issues/${num}/comments?per_page=100&page=${page}`,
-    );
+    const batch = gh<RawComment[]>(`/repos/${REPO}/issues/${num}/comments?per_page=100&page=${page}`);
     out.push(...batch);
     if (batch.length < 100) break;
   }
   return out;
+}
+
+/**
+ * Тела комментариев PR, чьё авторство `classifyMergeGate` вправе доверять
+ * (#580) — только они могут нести маркеры вердиктов ревью-агентов. Репозиторий
+ * публичный, поэтому фильтр обязателен: без него текст маркера в комментарии
+ * постороннего аккаунта гейт принял бы за настоящее ревью.
+ */
+function trustedCommentBodies(num: number): string[] {
+  return allComments(num)
+    .filter((c) => isTrustedVerdictAuthor(c.user?.login ?? '', c.author_association))
+    .map((c) => c.body);
 }
 
 /**
@@ -296,7 +314,7 @@ function cmdGate(prNumber: number): void {
   const gate = classifyMergeGate(
     files,
     config,
-    allComments(prNumber).map((c) => c.body),
+    trustedCommentBodies(prNumber),
   );
   console.log(JSON.stringify({ pr: prNumber, files: files.length, ...gate }, null, 2));
   if (gate.tier === 'hold') process.exitCode = 3; // отличимо от ошибки сети/скрипта
@@ -584,7 +602,7 @@ function attemptMerge(
   const gate = classifyMergeGate(
     changedFiles(prNumber),
     config,
-    allComments(prNumber).map((c) => c.body),
+    trustedCommentBodies(prNumber),
   );
   if (gate.tier === 'hold') {
     return { merged: false, reason: 'gate=hold', hold: true, reasons: gate.reasons };
@@ -680,7 +698,7 @@ function cmdAutoMerge(dryRun: boolean): void {
       const gate = classifyMergeGate(
         changedFiles(pr.number),
         config,
-        allComments(pr.number).map((c) => c.body),
+        trustedCommentBodies(pr.number),
       );
       const s = summarizeChecks(checksFor(pr.number));
       results.push({

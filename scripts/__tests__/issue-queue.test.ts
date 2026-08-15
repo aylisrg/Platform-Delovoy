@@ -11,6 +11,7 @@ import {
   countBackpressurePrs,
   destructiveSqlIn,
   isEligible,
+  isTrustedVerdictAuthor,
   isUntriaged,
   laneOf,
   moduleOf,
@@ -474,6 +475,43 @@ describe('classifyMergeGate', () => {
       expect(gate.tier).toBe('auto');
       expect(gate.reasons).toEqual([]);
     });
+  });
+});
+
+// Репозиторий публичный — маркер вердикта сам по себе просто строка из
+// экспортируемой константы, известная кому угодно. Без проверки авторства
+// любой сторонний аккаунт мог бы вставить обе строки в комментарий и получить
+// `auto` без единого реального ревью. classifyMergeGate доверяет вызывающему
+// коду (см. `trustedCommentBodies` в scripts/issue-queue.ts) — сама фильтрация
+// авторства проверяется здесь, отдельно от гейта.
+describe('isTrustedVerdictAuthor (#580)', () => {
+  it('владелец репозитория — доверенный автор', () => {
+    expect(isTrustedVerdictAuthor('aylisrg', 'OWNER')).toBe(true);
+  });
+
+  it('известный логин бота-автоматики — доверенный, даже с association CONTRIBUTOR', () => {
+    // claude[bot] (сессии /next-issue через agent-proxy) сами приходят с
+    // author_association: CONTRIBUTOR — тем же уровнем, что и у любого
+    // стороннего аккаунта с одним смерженным PR в истории. Доверие тут — по
+    // логину, не по association.
+    expect(isTrustedVerdictAuthor('claude[bot]', 'CONTRIBUTOR')).toBe(true);
+  });
+
+  it('сторонний аккаунт с CONTRIBUTOR — НЕ доверенный (спуфинг маркера)', () => {
+    expect(isTrustedVerdictAuthor('random-external-account', 'CONTRIBUTOR')).toBe(false);
+  });
+
+  it('сторонний аккаунт без истории вклада (NONE) — НЕ доверенный', () => {
+    expect(isTrustedVerdictAuthor('first-time-visitor', 'NONE')).toBe(false);
+  });
+
+  it('MEMBER/COLLABORATOR без известного логина — НЕ доверенный (репозиторий сегодня без сторонних коллабораторов)', () => {
+    expect(isTrustedVerdictAuthor('some-collaborator', 'COLLABORATOR')).toBe(false);
+    expect(isTrustedVerdictAuthor('some-member', 'MEMBER')).toBe(false);
+  });
+
+  it('пустой логин (комментарий от удалённого/анонимизированного аккаунта) — НЕ доверенный', () => {
+    expect(isTrustedVerdictAuthor('', 'NONE')).toBe(false);
   });
 });
 
