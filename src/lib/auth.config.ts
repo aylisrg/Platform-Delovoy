@@ -184,7 +184,19 @@ export const authConfig: NextAuthConfig = {
       if (isWebappRoute || isBotInternalRoute) return true;
 
       if (isAdminRoute) {
-        if (!auth?.user) return false;
+        // #591: next-auth@5.0.0-beta.31's handleAuth() only enforces this
+        // callback's decision when it returns a Response — a bare boolean
+        // is silently discarded whenever a custom middleware function is
+        // passed to auth() (which src/proxy.ts always does, for staging
+        // guards). `return false` here used to let every unauthenticated
+        // request straight through to the page. Always return a Response
+        // for deny paths under /admin/*.
+        if (!auth?.user) {
+          const signInUrl = request.nextUrl.clone();
+          signInUrl.pathname = "/auth/signin";
+          signInUrl.searchParams.set("callbackUrl", request.nextUrl.href);
+          return Response.redirect(signInUrl);
+        }
         const role = auth.user.role;
 
         // /admin/forbidden is accessible to any authenticated user (error page)
@@ -207,7 +219,10 @@ export const authConfig: NextAuthConfig = {
           return true;
         }
 
-        return false; // USER role — no admin access
+        // #591: same as above — must be a Response, not a bare boolean.
+        return Response.redirect(
+          new URL("/admin/forbidden", request.nextUrl.origin)
+        ); // USER role — no admin access
       }
 
       // Admin API routes — check section permissions

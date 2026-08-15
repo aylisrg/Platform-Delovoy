@@ -74,6 +74,60 @@ describe("authConfig.authorized — PII-роуты требуют сессию (
   }
 });
 
+describe("authConfig.authorized — /admin/* deny-пути возвращают Response, не boolean (#591)", () => {
+  // next-auth@5.0.0-beta.31's handleAuth() ignores a bare `false` from this
+  // callback whenever a custom middleware function is passed to auth() —
+  // which src/proxy.ts always does. Only `authorized instanceof Response` is
+  // enforced in that case. A regression back to `return false` here would
+  // silently let every unauthenticated/unauthorized request through to
+  // /admin/* pages without failing a single test that only checks truthiness.
+  async function authorizedWithAuth(pathname: string, auth: unknown) {
+    return authConfig.callbacks!.authorized!({
+      auth,
+      request: req(pathname),
+    } as never);
+  }
+
+  it("GET /admin/dashboard без сессии — Response, не false", async () => {
+    const result = await authorizedWithAuth("/admin/dashboard", null);
+    expect(result).toBeInstanceOf(Response);
+    expect(result).not.toBe(false);
+  });
+
+  it("GET /admin/dashboard без сессии — редирект на /auth/signin", async () => {
+    const result = (await authorizedWithAuth(
+      "/admin/dashboard",
+      null
+    )) as Response;
+    const location = result.headers.get("Location");
+    expect(location).toContain("/auth/signin");
+    expect(location).toContain("callbackUrl=");
+  });
+
+  it("GET /admin/dashboard с ролью USER — Response, не false", async () => {
+    const result = await authorizedWithAuth("/admin/dashboard", {
+      user: { role: "USER", adminSections: [] },
+    });
+    expect(result).toBeInstanceOf(Response);
+    expect(result).not.toBe(false);
+  });
+
+  it("GET /admin/dashboard с ролью USER — редирект на /admin/forbidden", async () => {
+    const result = (await authorizedWithAuth("/admin/dashboard", {
+      user: { role: "USER", adminSections: [] },
+    })) as Response;
+    const location = result.headers.get("Location");
+    expect(location).toContain("/admin/forbidden");
+  });
+
+  it("GET /admin/dashboard с ролью SUPERADMIN — по-прежнему true", async () => {
+    const result = await authorizedWithAuth("/admin/dashboard", {
+      user: { role: "SUPERADMIN", adminSections: [] },
+    });
+    expect(result).toBe(true);
+  });
+});
+
 describe("authConfig.authorized — сохранённые исключения не задеты (#527)", () => {
   it("POST /api/gazebos/book (гостевое бронирование) остаётся публичным", async () => {
     expect(await authorized("/api/gazebos/book", "POST")).toBe(true);
