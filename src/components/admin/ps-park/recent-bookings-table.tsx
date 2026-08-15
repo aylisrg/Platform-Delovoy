@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * Виджет «недавние брони» на дашборде (`/admin/ps-park`, секция «История»):
+ * данные приходят пропсами от родительской RSC-страницы, без своей загрузки/
+ * пагинации/фильтров. Не путать с `PSParkBookingHistoryTable`
+ * (ps-park-booking-history-table.tsx) — тем полноценным списком с поиском,
+ * фильтрами, удалением и лентой аудита на отдельной странице
+ * `/admin/ps-park/bookings`. Раньше оба назывались похоже
+ * («booking-history-table» vs «ps-park-booking-history-table») — issue #549.
+ */
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "@/components/admin/ps-park/booking-actions";
@@ -35,7 +44,7 @@ function formatDate(dt: string) {
   return formatDateUnified(dt);
 }
 
-export type HistoryBooking = {
+export type RecentBooking = {
   id: string;
   date: string;
   startTime: string;
@@ -52,15 +61,15 @@ export type HistoryBooking = {
 };
 
 type Props = {
-  bookings: HistoryBooking[];
+  bookings: RecentBooking[];
   resourceMap: Record<string, string>;
 };
 
-export function BookingHistoryTable({ bookings, resourceMap }: Props) {
+export function RecentBookingsTable({ bookings, resourceMap }: Props) {
   const [bill, setBill] = useState<BookingBill | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  async function handleRowClick(b: HistoryBooking) {
+  async function handleRowClick(b: RecentBooking) {
     if (b.status !== "COMPLETED") return;
     setLoadingId(b.id);
     try {
@@ -76,7 +85,7 @@ export function BookingHistoryTable({ bookings, resourceMap }: Props) {
     }
   }
 
-  function getClientDisplay(b: HistoryBooking) {
+  function getClientDisplay(b: RecentBooking) {
     const name = b.clientName ?? b.userName ?? b.userEmail ?? "—";
     const phone = b.clientPhone ?? b.userPhone;
     return { name, phone };
