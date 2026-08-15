@@ -1,7 +1,7 @@
 /**
  * Perf-регрессии по роутам — чистая логика (issue #577).
  *
- * Источник данных — nginx access-лог (log_format delovoy_json,
+ * Источник данных — nginx access-лог (log_format delovoy_perf,
  * infra/nginx/delovoy-park.conf): SSH-шаг backlog-intake.yml агрегирует его
  * на VPS (awk/jq) в плоский список сэмплов {route, requestTimeMs, status} —
  * отдельно за текущие сутки и за 7-дневный базлайн (прошлые ротации

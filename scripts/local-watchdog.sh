@@ -32,6 +32,9 @@ PERF_OFFSET_FILE="/tmp/.local-watchdog-perf-offset"
 FIVEXX_ALERT_MARKER="/tmp/.local-watchdog-5xx-alerted"
 FIVEXX_THRESHOLD=10  # 5xx за минуту до алерта
 
+SUDO=""
+[ "$(id -u)" != "0" ] && SUDO="sudo"
+
 ts() { date -u "+%Y-%m-%dT%H:%M:%SZ"; }
 
 # Не допускаем параллельных запусков (ремедиация может идти минуты).
@@ -76,8 +79,12 @@ telegram_alert() {
 # каждую минуту (растущая стоимость), либо гадать по времени. Ротация/рестарт
 # nginx уменьшает размер файла — офсет больше текущего размера сбрасывается.
 check_5xx_spike() {
+    # $SUDO обязателен: logrotate ставит ротированным файлам 0640 www-data:adm
+    # (infra/nginx/delovoy-nginx-perf.logrotate), а cron-пользователь deploy
+    # состоит только в группе docker (scripts/setup-vps.sh) — без sudo чтение
+    # молча вернёт пусто (COUNT=0) и алерт никогда не сработает.
     [ -f "$PERF_LOG" ] || return 0
-    CUR_SIZE=$(stat -c%s "$PERF_LOG" 2>/dev/null || echo 0)
+    CUR_SIZE=$($SUDO stat -c%s "$PERF_LOG" 2>/dev/null || echo 0)
     LAST_OFFSET=$(cat "$PERF_OFFSET_FILE" 2>/dev/null || echo 0)
     case "$LAST_OFFSET" in ''|*[!0-9]*) LAST_OFFSET=0 ;; esac
     if [ "$LAST_OFFSET" -gt "$CUR_SIZE" ]; then
@@ -86,7 +93,7 @@ check_5xx_spike() {
     echo "$CUR_SIZE" > "$PERF_OFFSET_FILE"
     [ "$CUR_SIZE" -eq "$LAST_OFFSET" ] && return 0
 
-    COUNT=$(tail -c "+$((LAST_OFFSET + 1))" "$PERF_LOG" 2>/dev/null | grep -c '"status":5[0-9][0-9]' || true)
+    COUNT=$($SUDO tail -c "+$((LAST_OFFSET + 1))" "$PERF_LOG" 2>/dev/null | grep -c '"status":5[0-9][0-9]' || true)
     [ -z "$COUNT" ] && COUNT=0
     [ "$COUNT" -ge "$FIVEXX_THRESHOLD" ] || return 0
 

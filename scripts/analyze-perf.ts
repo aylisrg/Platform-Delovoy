@@ -6,7 +6,7 @@
  *
  * Вход — JSON {current: RouteSample[], baseline: RouteSample[]}, который
  * собирает SSH-шаг backlog-intake.yml (awk/jq на VPS читает
- * infra/nginx/delovoy-park.conf → log_format delovoy_json). Сам расчёт
+ * infra/nginx/delovoy-park.conf → log_format delovoy_perf). Сам расчёт
  * перцентилей и сравнение с базлайном — чистые функции scripts/lib/perf-analyzer.ts.
  */
 import { readFileSync } from 'node:fs';
