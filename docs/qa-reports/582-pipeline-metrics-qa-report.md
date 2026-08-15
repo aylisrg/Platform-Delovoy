@@ -135,3 +135,81 @@ standalone-сервер остановлен, `SystemEvent` за последн�
 
 **Вердикт: FAIL** — блокирует находка выше, по правилу «баг-репорт конкретен → Developer исправляет,
 QA не чинит сам».
+
+---
+
+## Follow-up: повторная проверка фикса (`2ec332a`, ветка теперь на `dfc90dd`)
+
+**Вердикт (обновлённый): PASS**
+
+Фикс `2ec332a` переименовал общий файл `docs/pipeline-runs/next-issue.metrics.jsonl` →
+`docs/pipeline-runs/next-issue.jsonl` (без суффикса `.metrics.jsonl`), обновил все живые ссылки
+(`service.ts`, `types.ts`, `scripts/issue-queue.ts`, `.claude/commands/next-issue.md`), добавил
+предупреждающие комментарии по обе стороны коллизии и регрессионный тест, смешивающий оба формата
+файлов в одном моке `fs.readdir`. `code-reviewer` независимо перепроверил это (раунд 3,
+`docs/qa-reports/issue-582-review.md`) — но это моя собственная, отдельная живая проверка того же
+класса бага, который я нашла в первом проходе.
+
+**Проверка 1 — статика на diff.** `git diff c3b7aef 2ec332a`: подтверждено, что
+`NEXT_ISSUE_METRICS_FILE`/`METRICS_FILE` теперь указывают на `next-issue.jsonl` и в `service.ts`,
+и в `scripts/issue-queue.ts`; `grep -rn "next-issue.metrics.jsonl"` по `src/`, `scripts/`, `.claude/`,
+`docs/` (кроме `docs/qa-reports/`) — 0 совпадений в живом коде; единственные оставшиеся упоминания —
+исторические (мой собственный оригинальный FAIL-отчёт выше, раунд 1 ревью, комментарий в тесте,
+объясняющий контекст) — корректно, история не переписана.
+
+**Проверка 2 — живая репродукция моего оригинального сценария, теперь на реальной файловой системе
+(не мок).** Восстановила ровно ту коллизию, что нашла в первом проходе, но с текущим кодом:
+1. Дважды реально вызвала `npx tsx scripts/issue-queue.ts metric 582 claude/issue-582-pipeline-metrics merged 1 2 47`
+   и `metric 583 claude/issue-583-test parked 0 1 12` → `docs/pipeline-runs/next-issue.jsonl` создан
+   с двумя валидными строками `NextIssueMetricEvent` (реальный вывод CLI, не мок).
+2. Рядом создала синтетический per-run файл `pipeline.sh`-формата
+   `docs/pipeline-runs/2026-08-15-qa-repro-test.metrics.jsonl` (2 события, стадии `po`+`qa`,
+   `verdict: PASS`) — воспроизводит ровно то смешанное состояние директории, что сломало дашборд
+   в первом проходе.
+3. Прямым импортом (`npx tsx`, реальный процесс Node, реальная файловая система, БЕЗ моков)
+   вызвала `listPipelineRuns()`, `aggregateRuns()`, `readNextIssueMetrics()`,
+   `aggregateNextIssueRuns()` из `src/modules/pipeline-metrics/service.ts`.
+
+Результат:
+- `listPipelineRuns()` вернул **ровно один** прогон — `2026-08-15-qa-repro-test`
+  (`status: "success"`, `finalVerdict: "PASS"`, `totalDurationSec: 210`) — корректные, не
+  испорченные данные. `runs.some(r => r.runId === "next-issue")` → **`false`**.
+- `aggregateRuns()` → `totalRuns: 1, successRate: 1, avgDurationSec: 210` — никакого `0%`/`NaN`,
+  которые были в оригинальном баге.
+- `readNextIssueMetrics()` корректно прочитал обе реально записанные строки из `next-issue.jsonl`.
+- `aggregateNextIssueRuns()` корректно агрегировал их (`totalRuns: 2`, `outcomeCounts`,
+  `medianDurationMin: 29.5` и т.д.).
+
+Коллизия, заблокировавшая вердикт в первом проходе, структурно закрыта: `next-issue.jsonl`
+и `*.metrics.jsonl` больше не пересекаются под одним glob'ом даже при реальном смешанном
+листинге директории.
+
+**Проверка 3 — уборка.** Удалила `docs/pipeline-runs/next-issue.jsonl`,
+`docs/pipeline-runs/2026-08-15-qa-repro-test.metrics.jsonl` и временный скрипт репродукции.
+`git status --short` — пусто, `git diff --stat` — пусто.
+
+**Проверка 4 — регрессия и статика (перезапущено самостоятельно на `dfc90dd`).**
+- `npm test -- --run`: **268 файлов, 3818/3818 тестов зелёные** (было 3817 — +1 регрессионный тест
+  из фикса, `service.test.ts`: "does not pick up docs/pipeline-runs/next-issue.jsonl as a pipeline.sh
+  run"). Прицельный прогон `service.test.ts` для `pipeline-metrics` отдельно — 22/22.
+- `npx tsc --noEmit`: чисто, 0 ошибок.
+- `npm run lint`: 0 errors, те же 16 pre-existing warnings (messenger, notifications, telephony) —
+  не в изменённых этим PR файлах, не регрессия.
+
+**Проверка 5 — AC не регрессировали.**
+- AC1 (`next-issue.md` документирует точный формат JSONL): шаг 7 всё ещё содержит точную команду
+  `metric` и путь `docs/pipeline-runs/next-issue.jsonl` (обновлён с фиксом) — PASS.
+- AC2 (юнит-тесты на парсер/агрегат): не только сохранены, но и усилены новым regression-тестом —
+  PASS.
+- AC3 (дашборд без ошибок на пустых данных): не затронуто фиксом; логика пустого состояния не
+  менялась в диффе `c3b7aef..2ec332a` — PASS (без повторной живой проверки, т.к. фикс не касался
+  этого пути; ранее подтверждено в первом проходе).
+
+## Итог (обновлённый)
+
+Оригинальная критическая находка (коллизия имён файлов, портившая блок `pipeline.sh` на
+`/admin/monitoring/pipelines`) устранена фиксом `2ec332a` и подтверждена моей собственной, отдельной
+живой репродукцией на реальной файловой системе с реальным CLI-выводом и прямым вызовом продакшен-кода
+модуля (не мок, не пересказ ревью). Регрессий нет: полный набор тестов, `tsc`, `lint` чисты.
+
+**Финальный вердикт: PASS**
