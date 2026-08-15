@@ -121,7 +121,7 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
     <>
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
-      <div className="space-y-4">
+      <div className="space-y-4" data-testid="availability-grid">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <DarkDateNavigator currentDate={date} onChange={loadAvailability} />
           {loading && (

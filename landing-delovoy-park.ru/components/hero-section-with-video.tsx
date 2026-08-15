@@ -9,25 +9,30 @@ export function HeroSectionWithVideo() {
 
   return (
     <section className="relative min-h-screen flex flex-col justify-center bg-[#f5f5f7] pt-14 overflow-hidden">
-      {/* Video background + fog (desktop only) */}
-      {!videoError && (
-        <div className="absolute inset-0 hidden md:block">
-          <video
-            className="w-full h-full object-cover"
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="none"
-            poster="/media/hero-poster.jpg"
-            onError={() => setVideoError(true)}
-          >
-            <source src="/media/hero.mp4" type="video/mp4" />
-          </video>
-          {/* White fog — only over the video */}
-          <div className="absolute inset-0 bg-white/60" />
-        </div>
-      )}
+      {/* Video background + fog (desktop only). Wrapper always renders (even
+          if the video errors out, e.g. no H.264 decoder in a headless
+          browser) so e2e visual-regression masking always finds a stable
+          target — see issue #579. */}
+      <div className="absolute inset-0 hidden md:block" data-testid="hero-video">
+        {!videoError && (
+          <>
+            <video
+              className="w-full h-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="none"
+              poster="/media/hero-poster.jpg"
+              onError={() => setVideoError(true)}
+            >
+              <source src="/media/hero.mp4" type="video/mp4" />
+            </video>
+            {/* White fog — only over the video */}
+            <div className="absolute inset-0 bg-white/60" />
+          </>
+        )}
+      </div>
 
       {/* Mobile poster */}
       <div className="absolute inset-0 md:hidden">
