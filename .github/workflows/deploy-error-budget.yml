@@ -1,0 +1,155 @@
+name: Deploy — Error Budget Watch
+
+# Post-deploy наблюдение (issue #578). Честный canary на одном VPS
+# невозможен — эквивалент: 15 минут после успешного деплоя сравниваем
+# ERROR/CRITICAL SystemEvent + client-beacon WARNING с тем же окном
+# непосредственно до деплоя (паттерн — job beacon-divergence в
+# site-watchdog.yml). ×3 — Telegram-алерт + issue prio:P0 с diff'ом
+# коммитов; ×5 — то же плюс авто-откат (dispatch deploy.yml с SHA
+# предыдущего успешного релиза). Решающая функция и её пороги —
+# scripts/lib/error-budget.ts, юнит-тесты покрывают baseline=0/малые
+# числа/точные границы (AC issue #578).
+#
+# AC issue #578 "ложных срабатываний на тихих деплоях нет" проверяется не
+# здесь — это по определению пост-мерж наблюдение за 2-3 реальными деплоями
+# (владелец подтверждает в комментах к issue).
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Production"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  # Группа по SHA — параллельные деплои того же коммита (push + workflow_run
+  # гонка в deploy.yml) не должны породить два конкурентных error-budget окна.
+  group: deploy-error-budget-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: 15-минутное окно после деплоя
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      # Буквально "подождать 15 минут", как просит issue — не polling-воркфлоу
+      # с состоянием "уже проверяли", а один прогон на один успешный деплой.
+      - name: Подождать 15 минут (окно error-budget)
+        run: sleep 900
+
+      - name: Посчитать ERROR/CRITICAL + client-beacon WARNING до/после (SSH → psql)
+        id: count
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 3m
+          capture_stdout: "true"
+          # Anchor — момент завершения деплоя (updated_at успешного workflow_run),
+          # а не "сейчас": окна должны быть привязаны к самому деплою, не к
+          # времени старта этого job (sleep выше не гарантирует ровно 900с).
+          script: |
+            docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc \
+              'SELECT json_build_object(
+                 $$before$$, (SELECT count(*) FROM "SystemEvent"
+                   WHERE "createdAt" >= $$${{ github.event.workflow_run.updated_at }}$$::timestamptz - interval $$15 minutes$$
+                     AND "createdAt" < $$${{ github.event.workflow_run.updated_at }}$$::timestamptz
+                     AND (level::text IN ($$ERROR$$, $$CRITICAL$$) OR (level::text = $$WARNING$$ AND source = $$client-beacon$$))),
+                 $$after$$, (SELECT count(*) FROM "SystemEvent"
+                   WHERE "createdAt" >= $$${{ github.event.workflow_run.updated_at }}$$::timestamptz
+                     AND "createdAt" < $$${{ github.event.workflow_run.updated_at }}$$::timestamptz + interval $$15 minutes$$
+                     AND (level::text IN ($$ERROR$$, $$CRITICAL$$) OR (level::text = $$WARNING$$ AND source = $$client-beacon$$)))
+               );' 2>/dev/null || echo "psql-failed"
+
+      - name: Разбор счётчиков
+        id: parsed
+        env:
+          RAW_COUNT: ${{ steps.count.outputs.stdout }}
+        run: |
+          BEFORE=$(printf '%s' "$RAW_COUNT" | jq -r '.before // empty' 2>/dev/null || true)
+          AFTER=$(printf '%s' "$RAW_COUNT" | jq -r '.after // empty' 2>/dev/null || true)
+          if [ -z "$BEFORE" ] || [ -z "$AFTER" ]; then
+            echo "Счётчики не получены (${RAW_COUNT:-пусто}) — best-effort, выходим"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
+          echo "after=$AFTER" >> "$GITHUB_OUTPUT"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "До: $BEFORE, после: $AFTER"
+
+      - name: Решение (none/alert/rollback) + issue
+        id: decide
+        if: steps.parsed.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          BEFORE_COUNT: ${{ steps.parsed.outputs.before }}
+          AFTER_COUNT: ${{ steps.parsed.outputs.after }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: npx tsx scripts/error-budget-watch.ts
+
+      - name: Telegram — алерт при регрессии
+        if: steps.decide.outputs.action == 'alert' || steps.decide.outputs.action == 'rollback'
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          BEFORE: ${{ steps.parsed.outputs.before }}
+          AFTER: ${{ steps.parsed.outputs.after }}
+          RATIO: ${{ steps.decide.outputs.ratio }}
+          ACTION: ${{ steps.decide.outputs.action }}
+          PREVIOUS_SHA: ${{ steps.decide.outputs.previous_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then exit 0; fi
+          SHORT_SHA=$(printf '%s' "$DEPLOY_SHA" | cut -c1-7)
+          RATIO_TEXT="${RATIO:+×${RATIO}}"
+          [ -z "$RATIO_TEXT" ] && RATIO_TEXT="baseline=0"
+          if [ "$ACTION" = "rollback" ]; then
+            TEXT="🔴 <b>Error budget: авто-откат</b>"
+          else
+            TEXT="⚠️ <b>Error budget: рост ошибок после деплоя</b>"
+          fi
+          TEXT+=$'\n\n'
+          TEXT+="Деплой <code>${SHORT_SHA}</code>: ${BEFORE} → ${AFTER} событий за 15 мин (${RATIO_TEXT})."$'\n'
+          if [ "$ACTION" = "rollback" ]; then
+            if [ -n "$PREVIOUS_SHA" ]; then
+              PREV_SHORT=$(printf '%s' "$PREVIOUS_SHA" | cut -c1-7)
+              TEXT+="Откатываю на предыдущий успешный <code>${PREV_SHORT}</code>."$'\n'
+            else
+              TEXT+="Предыдущего успешного деплоя не найдено — откат пропущен, нужна ручная проверка."$'\n'
+            fi
+          fi
+          TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null || true
+
+      # previous_sha пуст, когда это первый когда-либо успешный деплой — тогда
+      # откатывать не на что (dispatch с пустым sha передеплоил бы текущий main,
+      # а не откатывал), алерт выше уже предупредил, что нужна ручная проверка.
+      - name: Авто-откат — dispatch deploy.yml с предыдущим SHA
+        if: steps.decide.outputs.action == 'rollback' && steps.decide.outputs.previous_sha != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS_SHA: ${{ steps.decide.outputs.previous_sha }}
+        run: |
+          gh workflow run deploy.yml --ref main -f "sha=${PREVIOUS_SHA}"
+          echo "Откат задиспатчен: deploy.yml sha=${PREVIOUS_SHA}"
