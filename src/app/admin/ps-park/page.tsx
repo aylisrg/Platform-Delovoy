@@ -16,7 +16,7 @@ import { getTimeline, getActiveSessions } from "@/modules/ps-park/service";
 import { getBookingPaymentSummaries } from "@/modules/payments/service";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 import { CallButton } from "@/components/admin/telephony/call-button";
-import { BookingHistoryTable, type HistoryBooking } from "@/components/admin/ps-park/booking-history-table";
+import { RecentBookingsTable, type RecentBooking } from "@/components/admin/ps-park/recent-bookings-table";
 
 export const dynamic = "force-dynamic";
 
@@ -241,8 +241,8 @@ export default async function PSParkManagerPage() {
             {recentCompleted.length === 0 ? (
               <p className="text-sm text-zinc-400">Тишина. Все геймеры сегодня дома. Или у конкурентов. Надеемся, что дома.</p>
             ) : (
-              <BookingHistoryTable
-                bookings={recentCompleted.map((b): HistoryBooking => ({
+              <RecentBookingsTable
+                bookings={recentCompleted.map((b): RecentBooking => ({
                   id: b.id,
                   date: b.date.toISOString(),
                   startTime: b.startTime.toISOString(),
