@@ -79,7 +79,7 @@ Workflow `.github/workflows/ci.yml` при пуше в любую ветку з�
 - `npm test`
 - `npm run build`
 
-**Автомерж отключён.** Для попадания в `main` нужно создать PR и получить одобрение.
+**Автомерж включён для очереди агента** (ветки `claude/**`) — после зелёного CI и вердикта PASS от `code-reviewer`/`qa-engineer` PR домержит `.github/workflows/issue-queue-merge.yml` без участия владельца. Ручного мержа требуют только два класса: PR, трогающий рубильники самой автоматики или деструктивные миграции (`scripts/issue-queue.ts gate <PR>` вернёт `hold`), и PR на 5+ модулей. Ветки `feature/**`, `release-please--*` и ручные PR владельца по-прежнему мержатся вручную. Подробности — `CLAUDE.md` (раздел «Git») и ADR `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`.
 
 ---
 

@@ -10,7 +10,7 @@
 |--------|---------------|-----------|
 | **postgres** | Architect (research схемы), Analyst (запросы) | read-only, только на dev-БД |
 | **filesystem** | Все агенты | scoped на корень репо, без `..` |
-| **playwright** | QA (E2E smoke tests) | ограниченный set URL из env |
+| **playwright** | QA (интерактивная проверка в браузере) | ограниченный set URL из env |
 
 ## Переменные окружения
 
@@ -60,7 +60,7 @@ MCP postgres query: SELECT date_trunc('week', created_at) as week, count(*) FROM
 ```
 
 ### QA (Playwright)
-E2E smoke-тесты: открыть страницу бронирования, заполнить форму, проверить что создаётся запись в БД.
+Интерактивная проверка в браузере во время сессии агента: открыть страницу, заполнить форму, свериться визуально. Не путать с автоматическим regression-сьютом — тот живёт в `e2e/*.spec.ts` (`npm run e2e`) и гоняется в CI отдельной job'ой `E2E (Playwright)` (`.github/workflows/ci.yml`, добавлено #592), без участия этого MCP-сервера.
 
 ## Security
 
