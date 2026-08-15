@@ -140,4 +140,48 @@ describe('errorBudgetMarker / errorBudgetIssue — дедуп по SHA', () => {
     });
     expect(issue.body).toContain('недоступен');
   });
+
+  it('rollback БЕЗ previousSha — issue НЕ должен заявлять, что откат запущен (QA #578, БАГ-1)', () => {
+    // Реальный кейс: самый первый деплой после появления этого механизма —
+    // DEPLOYED_SHA_PREVIOUS ещё не задан. workflow (deploy-error-budget.yml)
+    // в этом случае dispatch НЕ делает (гейт previous_sha != '') — issue не
+    // должен утверждать обратное.
+    const issue = errorBudgetIssue({
+      action: 'rollback',
+      before: 5,
+      after: 30,
+      ratio: 6,
+      deploySha: 'cafe000512345678',
+      previousSha: null,
+      commits: [],
+      runUrl: 'https://github.com/x/y/actions/runs/1',
+    });
+    expect(issue.body).not.toContain('Авто-откат запущен');
+    expect(issue.body).not.toContain('`?`');
+    expect(issue.body).toContain('Авто-откат пропущен');
+  });
+
+  it('сообщение коммита с markdown-спецсимволами экранируется в ссылке', () => {
+    const issue = errorBudgetIssue({
+      action: 'alert',
+      before: 5,
+      after: 20,
+      ratio: 4,
+      deploySha: 'abc',
+      previousSha: 'def',
+      commits: [
+        {
+          sha: 'aaaaaaa1234567',
+          message: 'fix: `](evil)[click me](https://evil.example.com',
+          url: 'https://github.com/x/y/commit/aaaaaaa',
+        },
+      ],
+      runUrl: 'https://x',
+    });
+    // Экранированы `, [, ] — этого достаточно, чтобы markdown-ссылка не
+    // закрылась раньше времени (круглые скобки внутри текста ссылки безопасны
+    // сами по себе, экранировать их не требуется).
+    expect(issue.body).toContain('\\`\\](evil)\\[click me\\]');
+    expect(issue.body).not.toContain('[click me](https://evil.example.com)');
+  });
 });

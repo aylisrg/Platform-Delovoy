@@ -80,15 +80,27 @@ export function errorBudgetMarker(deploySha: string): string {
   return `<!-- error-budget:${deploySha} -->`;
 }
 
+/** Экранирует символы, ломающие markdown-ссылку `[текст](url)` — сообщение коммита не наш текст. */
+function escapeMarkdownLinkText(s: string): string {
+  return s.replace(/[[\]`]/g, '\\$&');
+}
+
 export function errorBudgetIssue(i: ErrorBudgetIssueInput): { title: string; body: string; labels: string[] } {
   const ratioText = i.ratio === null ? `${i.after} событий (было 0)` : `×${i.ratio.toFixed(1)}`;
   const commitsList =
     i.commits.length > 0
-      ? i.commits.map((c) => `- \`${c.sha.slice(0, 7)}\` [${c.message.split('\n')[0].slice(0, 100)}](${c.url})`).join('\n')
+      ? i.commits
+          .map((c) => `- \`${c.sha.slice(0, 7)}\` [${escapeMarkdownLinkText(c.message.split('\n')[0].slice(0, 100))}](${c.url})`)
+          .join('\n')
       : '_список коммитов недоступен (нет предыдущего успешного деплоя или сравнение не удалось)_';
+  // Зеркалим Telegram-шаг (deploy-error-budget.yml): реальный dispatch идёт
+  // только когда previous_sha непуст (workflow это же и гейтит) — issue не
+  // должен заявлять "откат запущен", когда откатывать было не на что.
   const rollbackLine =
     i.action === 'rollback'
-      ? `\n\n🔴 **Авто-откат запущен** — деплой \`${i.deploySha.slice(0, 7)}\` откатывается на предыдущий успешный \`${(i.previousSha ?? '?').slice(0, 7)}\`.`
+      ? i.previousSha
+        ? `\n\n🔴 **Авто-откат запущен** — деплой \`${i.deploySha.slice(0, 7)}\` откатывается на предыдущий успешный \`${i.previousSha.slice(0, 7)}\`.`
+        : '\n\n⚠️ **Авто-откат пропущен** — предыдущий успешный SHA не найден, нужна ручная проверка.'
       : '';
 
   return {
