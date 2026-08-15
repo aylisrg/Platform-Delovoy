@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiUnauthorized, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiError, apiUnauthorized, apiServerError, requireAdminSection } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/permissions";
 import { getBookingBill, PSBookingError } from "@/modules/ps-park/service";
@@ -7,7 +7,7 @@ import { getBookingBill, PSBookingError } from "@/modules/ps-park/service";
 /**
  * GET /api/ps-park/bookings/:id/bill
  * Returns bill summary for a booking (hours + items + totals).
- * Requires MANAGER role.
+ * Requires MANAGER role + ps-park module access.
  */
 export async function GET(
   _request: NextRequest,
@@ -19,6 +19,8 @@ export async function GET(
     if (!hasRole(session.user, "MANAGER")) {
       return apiError("FORBIDDEN", "Недостаточно прав", 403);
     }
+    const denied = await requireAdminSection(session, "ps-park");
+    if (denied) return denied;
 
     const { id } = await params;
     const bill = await getBookingBill(id);
