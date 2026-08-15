@@ -29,7 +29,9 @@
  *   pr-merge 463                             мерж (сам перепроверяет гейт и CI)
  *   automerge [--dry-run]                    крон: домержить все готовые PR очереди
  *   metric 463 branch outcome ciRounds reviewRounds durationMin
- *                                            телеметрия прогона в docs/pipeline-runs/next-issue.metrics.jsonl
+ *                                            телеметрия прогона в docs/pipeline-runs/next-issue.jsonl
+ *                                            (имя БЕЗ суффикса .metrics.jsonl — иначе коллизия с
+ *                                            per-run файлами pipeline.sh в listPipelineRuns(), issue #582 QA)
  *
  * HTTP-путь к GitHub — scripts/lib/gh-api.ts (curl: в Actions с $GH_TOKEN,
  * в сессии Claude Code через agent-proxy).
@@ -620,7 +622,8 @@ function attemptMerge(
 }
 
 const NEXT_ISSUE_OUTCOMES = ['merged', 'parked', 'blocked', 'released'] as const;
-const METRICS_FILE = resolve(ROOT, 'docs/pipeline-runs/next-issue.metrics.jsonl');
+// Имя намеренно без суффикса `.metrics.jsonl` — см. коммент у usage-строки выше.
+const METRICS_FILE = resolve(ROOT, 'docs/pipeline-runs/next-issue.jsonl');
 
 /**
  * Телеметрия прогонов /next-issue (issue #582) — одна JSONL-строка в общий

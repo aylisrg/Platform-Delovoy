@@ -51,7 +51,9 @@ export type PipelineAggregate = {
  * Отдельная модель от PipelineMetricEvent/PipelineRun намеренно: pipeline.sh
  * пишет один JSONL-файл НА ПРОГОН (по стейджам с итерациями/моделью/verdict),
  * а `/next-issue` — одну строку в ОБЩИЙ файл на каждую завершённую задачу
- * (см. `docs/pipeline-runs/next-issue.metrics.jsonl`, шаг 7 `.claude/commands/next-issue.md`).
+ * (см. `docs/pipeline-runs/next-issue.jsonl`, шаг 7 `.claude/commands/next-issue.md`).
+ * Имя намеренно без суффикса `.metrics.jsonl` — иначе коллизия с glob'ом
+ * `listPipelineRuns()` для per-run файлов pipeline.sh (issue #582 QA).
  *
  * outcome:
  *   merged   — pr-merge выполнен сессией напрямую

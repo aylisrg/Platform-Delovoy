@@ -199,7 +199,7 @@ npx tsx scripts/issue-queue.ts gate $PR
 ```bash
 npx tsx scripts/issue-queue.ts metric $ISSUE $BRANCH <merged|parked|blocked|released> \
   <ci_fix_rounds> <review_rounds> <duration_min>
-git add docs/pipeline-runs/next-issue.metrics.jsonl
+git add docs/pipeline-runs/next-issue.jsonl
 git commit -m "chore(metrics): телеметрия /next-issue для issue #$ISSUE"
 git push
 ```

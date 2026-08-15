@@ -82,6 +82,29 @@ describe("pipeline-metrics/service", () => {
       expect(runs[0]?.runId).toBe("2026-04-16-a");
     });
 
+    // issue #582 QA: живая репродукция нашла, что общий файл /next-issue,
+    // если бы назывался `next-issue.metrics.jsonl`, попал бы под этот же
+    // glob и портил бы success rate/avg duration существующего блока
+    // pipeline.sh на /admin/monitoring/pipelines (NextIssueMetricEvent не
+    // содержит stage/duration_sec/verdict — toRun() читал бы undefined
+    // отовсюду). Файл переименован в `next-issue.jsonl` — фиксируем здесь,
+    // что он в одном листинге директории с реальными pipeline.sh-файлами
+    // не попадает в выдачу listPipelineRuns().
+    it("does not pick up docs/pipeline-runs/next-issue.jsonl as a pipeline.sh run", async () => {
+      mockReaddir.mockResolvedValueOnce([
+        "2026-04-16-a.metrics.jsonl",
+        "next-issue.jsonl",
+      ]);
+      mockReadFile.mockResolvedValueOnce(
+        toJsonl([makeEvent({ run_id: "2026-04-16-a" })])
+      );
+
+      const runs = await listPipelineRuns();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.runId).toBe("2026-04-16-a");
+      expect(runs.some((r) => r.runId === "next-issue")).toBe(false);
+    });
+
     it("parses multi-stage run and derives PASS verdict from final QA", async () => {
       mockReaddir.mockResolvedValueOnce(["2026-04-16-feat.metrics.jsonl"]);
       mockReadFile.mockResolvedValueOnce(

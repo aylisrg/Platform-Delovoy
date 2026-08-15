@@ -12,10 +12,12 @@ import type {
 } from "./types";
 
 const METRICS_DIR = path.join(process.cwd(), "docs", "pipeline-runs");
-const NEXT_ISSUE_METRICS_FILE = path.join(
-  METRICS_DIR,
-  "next-issue.metrics.jsonl"
-);
+// Имя НЕ должно оканчиваться на `.metrics.jsonl` — listPipelineRuns() ниже
+// трактует любой файл с этим суффиксом как отдельный прогон pipeline.sh
+// (issue #582 QA: коллизия имён обнаружена вживую — общий файл /next-issue
+// схлопывался с per-run файлами pipeline.sh и портил их success rate/avg
+// duration на /admin/monitoring/pipelines).
+const NEXT_ISSUE_METRICS_FILE = path.join(METRICS_DIR, "next-issue.jsonl");
 
 export class PipelineMetricsError extends Error {
   constructor(
@@ -100,6 +102,9 @@ export async function listPipelineRuns(limit = 50): Promise<PipelineRun[]> {
     }
     throw err;
   }
+  // Один файл на прогон pipeline.sh — не путать с общим файлом /next-issue
+  // (NEXT_ISSUE_METRICS_FILE ниже), который сознательно назван БЕЗ этого
+  // суффикса, чтобы сюда не попасть (issue #582 QA).
   const metricsFiles = entries
     .filter((name) => name.endsWith(".metrics.jsonl"))
     .sort((a, b) => b.localeCompare(a))
