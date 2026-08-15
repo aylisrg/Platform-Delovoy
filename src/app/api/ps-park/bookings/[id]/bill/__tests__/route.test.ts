@@ -4,6 +4,15 @@ import { NextRequest } from "next/server";
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
+const mockRequireAdminSection = vi.fn();
+vi.mock("@/lib/api-response", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-response")>("@/lib/api-response");
+  return {
+    ...actual,
+    requireAdminSection: (...args: unknown[]) => mockRequireAdminSection(...args),
+  };
+});
+
 const mockGetBookingBill = vi.fn();
 vi.mock("@/modules/ps-park/service", async () => {
   const actual = await vi.importActual<typeof import("@/modules/ps-park/service")>(
@@ -41,6 +50,7 @@ const bill = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
+  mockRequireAdminSection.mockResolvedValue(null);
   mockGetBookingBill.mockResolvedValue(bill);
 });
 
@@ -72,6 +82,28 @@ describe("GET /api/ps-park/bookings/:id/bill", () => {
     expect(res.status).toBe(403);
     expect(body.error.code).toBe("FORBIDDEN");
     expect(mockGetBookingBill).not.toHaveBeenCalled();
+  });
+
+  it("менеджер без гранта на модуль ps-park — requireAdminSection отклоняет, сервис не вызван (issue #561)", async () => {
+    mockRequireAdminSection.mockResolvedValue(
+      Response.json({ success: false, error: { code: "FORBIDDEN", message: "Нет доступа к модулю" } }, { status: 403 })
+    );
+
+    const res = await GET(makeRequest(), { params });
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error.code).toBe("FORBIDDEN");
+    expect(mockGetBookingBill).not.toHaveBeenCalled();
+  });
+
+  it("вызывает requireAdminSection с секцией ps-park", async () => {
+    await GET(makeRequest(), { params });
+
+    expect(mockRequireAdminSection).toHaveBeenCalledWith(
+      expect.objectContaining({ user: expect.objectContaining({ id: "mgr-1" }) }),
+      "ps-park"
+    );
   });
 
   it("несуществующая бронь — код ошибки сервиса прокидывается как есть", async () => {
