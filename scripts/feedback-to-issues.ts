@@ -17,7 +17,13 @@
  */
 import { readFileSync } from 'node:fs';
 import { REPO, ghApi } from './lib/gh-api';
-import { alreadyBridged, feedbackToIssue, isLikelyTestFeedback, parseFeedbackJson } from './lib/feedback-bridge';
+import {
+  alreadyBridged,
+  feedbackToIssue,
+  filteredFeedbackPreview,
+  isLikelyTestFeedback,
+  parseFeedbackJson,
+} from './lib/feedback-bridge';
 
 function existingFeedbackBodies(): string[] {
   const bodies: string[] = [];
@@ -65,8 +71,7 @@ function main(): void {
     }
     if (row.type === 'BUG' && isLikelyTestFeedback(row.description)) {
       filteredTest++;
-      const preview = row.description.replace(/\s+/g, ' ').trim().slice(0, 80);
-      console.log(`[filtered: likely-test] ${row.id} — «${preview}»`);
+      console.log(`[filtered: likely-test] ${row.id} — «${filteredFeedbackPreview(row.description)}»`);
       continue;
     }
     if (created >= maxIssues) {

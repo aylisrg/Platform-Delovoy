@@ -3,6 +3,7 @@ import {
   alreadyBridged,
   feedbackMarker,
   feedbackToIssue,
+  filteredFeedbackPreview,
   isLikelyTestFeedback,
   parseFeedbackJson,
   type FeedbackRow,
@@ -101,6 +102,23 @@ describe('isLikelyTestFeedback (issue #540)', () => {
   it('только общие слова о самой форме обратной связи — недостаточно уверенности, не фильтруется', () => {
     expect(isLikelyTestFeedback('обратная связь')).toBe(false);
     expect(isLikelyTestFeedback('фидбек')).toBe(false);
+  });
+});
+
+describe('filteredFeedbackPreview (code-review, issue #540)', () => {
+  it('обратные кавычки заменяются — иначе ломают ``` fence в summary backlog-intake.yml', () => {
+    // PoC из code review: "test ``` test" проходит isLikelyTestFeedback
+    // (кавычки — разделители токенов, остаются только "test"/"test"), и без
+    // экранирования сырые кавычки уходят в лог как есть.
+    const description = 'test ``` test';
+    expect(isLikelyTestFeedback(description)).toBe(true);
+    const preview = filteredFeedbackPreview(description);
+    expect(preview).not.toContain('`');
+  });
+
+  it('схлопывает пробелы и обрезает до 80 символов', () => {
+    expect(filteredFeedbackPreview('  тест   фидбек  ')).toBe('тест фидбек');
+    expect(filteredFeedbackPreview('x'.repeat(200)).length).toBe(80);
   });
 });
 
