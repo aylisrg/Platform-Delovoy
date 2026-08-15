@@ -27,20 +27,27 @@ export class PipelineMetricsError extends Error {
   }
 }
 
-async function readMetricsFile(
-  filePath: string
-): Promise<PipelineMetricEvent[]> {
-  const raw = await fs.readFile(filePath, "utf-8");
+/** Построчный JSON.parse с молчаливым пропуском битых строк — общий для
+ *  обоих форматов JSONL в этом модуле (по файлу на прогон у pipeline.sh,
+ *  общий файл у /next-issue). */
+function parseJsonlLines<T>(raw: string): T[] {
   const lines = raw.split("\n").filter(Boolean);
-  const events: PipelineMetricEvent[] = [];
+  const events: T[] = [];
   for (const line of lines) {
     try {
-      events.push(JSON.parse(line) as PipelineMetricEvent);
+      events.push(JSON.parse(line) as T);
     } catch {
       // ignore malformed lines rather than failing the whole read
     }
   }
   return events;
+}
+
+async function readMetricsFile(
+  filePath: string
+): Promise<PipelineMetricEvent[]> {
+  const raw = await fs.readFile(filePath, "utf-8");
+  return parseJsonlLines<PipelineMetricEvent>(raw);
 }
 
 function deriveVerdict(events: PipelineMetricEvent[]): PipelineVerdict {
@@ -193,16 +200,7 @@ export function aggregateRuns(runs: PipelineRun[]): PipelineAggregate {
 export async function readNextIssueMetrics(): Promise<NextIssueMetricEvent[]> {
   try {
     const raw = await fs.readFile(NEXT_ISSUE_METRICS_FILE, "utf-8");
-    const lines = raw.split("\n").filter(Boolean);
-    const events: NextIssueMetricEvent[] = [];
-    for (const line of lines) {
-      try {
-        events.push(JSON.parse(line) as NextIssueMetricEvent);
-      } catch {
-        // ignore malformed lines rather than failing the whole read
-      }
-    }
-    return events;
+    return parseJsonlLines<NextIssueMetricEvent>(raw);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw err;

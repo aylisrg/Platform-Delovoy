@@ -116,7 +116,8 @@ npm test && npx tsc --noEmit && npm run lint
 
 `NEEDS_CHANGES` — чини и запускай заново, до трёх кругов. После третьего круга не
 буксуй: закоммить что есть, открой PR, опиши в теле, на чём застрял, поставь лейбл
-`needs-owner` и `park $ISSUE` — и переходи к следующей задаче.
+`needs-owner` и `park $ISSUE` — и переходи к следующей задаче. Перед `park` — та же
+телеметрия, что и в шаге 7 (исход `parked`, `review_rounds: 3`).
 
 ## 6. PR
 
@@ -156,9 +157,14 @@ npx tsx scripts/issue-queue.ts pr-wait $PR 30
 npx tsx scripts/issue-queue.ts gate $PR
 ```
 
-- `tier: "auto"` → сначала телеметрия (ниже), потом мержи:
+- `tier: "auto"` → сначала телеметрия (ниже), потом мержи. Коммит метрики —
+  новый пуш в PR, а `ci.yml` триггерится на `synchronize` без `paths-ignore`
+  (иначе required-чеки не отчитались бы на docs-only PR) — старый зелёный CI
+  для прежнего HEAD `pr-merge` не примет, `checksFor` смотрит чеки именно
+  текущего SHA. Обязательно дождись CI заново на новом HEAD, только потом мержи:
 
   ```bash
+  npx tsx scripts/issue-queue.ts pr-wait $PR 30
   npx tsx scripts/issue-queue.ts pr-merge $PR
   ```
 

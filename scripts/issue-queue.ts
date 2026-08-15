@@ -636,6 +636,12 @@ function cmdMetric(
   reviewRounds: number,
   durationMin: number,
 ): void {
+  if (!Number.isFinite(issue) || issue <= 0) {
+    throw new Error(`issue «${issue}» — ожидаю положительное число`);
+  }
+  if (!branch) {
+    throw new Error('branch не задан');
+  }
   if (!(NEXT_ISSUE_OUTCOMES as readonly string[]).includes(outcome)) {
     throw new Error(`outcome «${outcome}» — ожидаю ${NEXT_ISSUE_OUTCOMES.join('|')}`);
   }
