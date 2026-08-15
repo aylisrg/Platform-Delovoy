@@ -16,12 +16,26 @@ import { loginAs } from "./helpers/auth";
 test.describe("Скриншот-регрессии ключевых страниц", () => {
   test("главная — desktop", async ({ page }) => {
     await page.goto("/");
+    // Десктопный hero — автоплей-видео (`hero-section-with-video.tsx`),
+    // конкретный кадр в момент снимка недетерминирован между прогонами.
+    // `mask` тут не подходит: у видео-слоя `absolute inset-0` на всю
+    // секцию, а заголовок/CTA/статистика лежат поверх него в том же
+    // прямоугольнике (просто выше по z-index) — маска по bounding box
+    // скрыла бы вместе с видео и весь текстовый контент, который как раз
+    // и должен остаться проверяемым (см. AC1: намеренная поломка цвета
+    // кнопки обязана валить тест). Вместо маски — детерминированно
+    // останавливаем и скрываем сам <video> перед снимком: фон остаётся
+    // сплошным (`bg-[#f5f5f7]`), контент поверх — как есть.
+    await page.evaluate(() => {
+      const video = document.querySelector<HTMLVideoElement>('[data-testid="hero-video"] video');
+      if (video) {
+        video.pause();
+        video.style.display = "none";
+      }
+    });
     await expect(page).toHaveScreenshot("home-desktop.png", {
       fullPage: true,
       animations: "disabled",
-      // Десктопный hero — автоплей-видео (`hero-section-with-video.tsx`);
-      // конкретный кадр в момент снимка недетерминирован между прогонами.
-      mask: [page.getByTestId("hero-video")],
     });
   });
 
