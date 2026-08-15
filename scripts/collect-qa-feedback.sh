@@ -95,8 +95,12 @@ for file in "${FILES[@]}"; do
   filename=$(basename "$file")
   echo -e "  Analyzing: ${filename}"
 
-  # Count FAIL occurrences
-  fail_count=$(grep -ci "FAIL\|BUG\|баг\|ошибка\|проблема" "$file" 2>/dev/null || echo "0")
+  # Count FAIL occurrences. grep -c already prints "0" on no match but exits
+  # 1 — the old `|| echo "0"` fallback then appended a SECOND "0" on a new
+  # line, making fail_count a two-line string that broke the arithmetic
+  # below with "syntax error in expression" (issue #532).
+  fail_count=$(grep -ci "FAIL\|BUG\|баг\|ошибка\|проблема" "$file" 2>/dev/null || true)
+  fail_count=${fail_count:-0}
   TOTAL_BUGS=$((TOTAL_BUGS + fail_count))
 
   # Categorize bugs
