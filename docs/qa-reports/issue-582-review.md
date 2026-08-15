@@ -1,5 +1,135 @@
 # Review: телеметрия прогонов /next-issue в pipeline-metrics (#582)
 
+## Вердикт: PASS (раунд 3, коммит `2ec332a` — фикс QA-находки)
+
+Раунд 3 — целевая перепроверка фикса на FAIL-находку `qa-engineer` (общий файл
+`docs/pipeline-runs/next-issue.metrics.jsonl` схлопывался с glob'ом
+`listPipelineRuns()` и портил уже отгруженный блок `pipeline.sh` на
+`/admin/monitoring/pipelines`), не полный повторный ревью уже проверенного
+раундами 1–2.
+
+**Диапазон:** `git diff c3b7aef 2ec332a` — 8 файлов, из них функционально
+значимые 4: `scripts/issue-queue.ts`, `src/modules/pipeline-metrics/service.ts`,
+`src/modules/pipeline-metrics/types.ts`,
+`src/modules/pipeline-metrics/__tests__/service.test.ts`; плюс
+`.claude/commands/next-issue.md` (1 строка), `.claude/feedback/qa-patterns.md`
+(автоматический QA-фидбек-лог, ожидаемо) и два `docs/qa-reports/*.md`
+(QA-отчёт + этот файл — история, не код).
+
+### 1. Rename проверен полным репо-grep
+`grep -rn "next-issue.metrics.jsonl"` по всему репозиторию — единственные
+оставшиеся упоминания старого имени: explanatory-комментарий в новом тесте
+(«если бы назывался `next-issue.metrics.jsonl`, попал бы под этот же glob» —
+это описание сценария БАГА для контекста читателя, не операционный код) и
+исторические тексты в `docs/qa-reports/582-pipeline-metrics-qa-report.md` /
+старом разделе «Раунд 1» этого же файла (документируют историю бага —
+допустимо и ожидаемо). Ни один операционный путь (код, CLI-usage, инструкция
+агента) больше не указывает на старое имя. Все 4 места, заявленные в
+summary, действительно переименованы: `NEXT_ISSUE_METRICS_FILE`
+(`service.ts:20`), JSDoc (`types.ts:54`), `METRICS_FILE` +
+usage-докблок `metric`-команды (`scripts/issue-queue.ts:32,604`),
+`git add`-инструкция шага 7 (`next-issue.md:202`).
+
+### 2. Коллизия закрыта структурно, других путей коллизии нет
+Проверено вручную: `listPipelineRuns()` фильтрует
+`entries.filter((name) => name.endsWith(".metrics.jsonl"))`
+(`service.ts:108-109`). `"next-issue.jsonl".endsWith(".metrics.jsonl")` —
+`false` по построению строки (нет подстроки `.metrics` перед `.jsonl`) —
+структурно не может совпасть, не только «пока что не совпадает». Взаимные
+предупреждающие комментарии на обеих сторонах коллизии реально стоят
+(`service.ts:15-19` над определением константы, `service.ts:105-107` над
+фильтром) — правки одной стороны без взгляда на другую всё ещё возможны, но
+будущий редактор увидит явное предупреждение в обоих местах.
+
+Проверен и другой путь: `getPipelineRun(runId)` (`service.ts:124-136`) строит
+имя файла как `` `${runId}.metrics.jsonl` `` — если бы кто-то вызвал его с
+`runId: "next-issue"`, искал бы `next-issue.metrics.jsonl`, которого больше
+не существует (переименован в `next-issue.jsonl`) → корректно вернёт `null`
+(ENOENT), коллизии нет. Но этот путь не используется — `getPipelineRun`
+экспортируется, но не вызывается ни из одного route/страницы (только из
+тестов) ни до, ни после этого PR; не блокер, просто отмечаю для полноты.
+Широкий grep по `.github/`, `scripts/pipeline.sh`, `.gitignore`, `Dockerfile`
+на `next-issue`/`pipeline-runs`/`.jsonl`-паттерны не нашёл больше ничего, что
+глобит `docs/pipeline-runs/` или ссылается на старое имя файла.
+
+### 3. Новый регресс-тест — реальный, не тавтологичный
+Прогнан отдельно (`npx vitest run .../service.test.ts`) — 22/22 зелёные, новый
+тест `does not pick up docs/pipeline-runs/next-issue.jsonl as a pipeline.sh
+run` (`service.test.ts:93-106`) в их числе. **Meaningful-regression-проверка
+выполнена вживую**: временно заменил в моке имя файла обратно на
+`next-issue.metrics.jsonl` (симуляция до-фикс состояния) — тест **упал**
+(`TypeError: Cannot read properties of undefined (reading 'split')` в
+`parseJsonlLines`, т.к. `mockReadFile.mockResolvedValueOnce` настроен только
+на один вызов, а с до-фикс именем `listPipelineRuns()` пытается прочитать оба
+файла). Это подтверждает, что тест не проходит независимо от фикса — он
+реально привязан к переименованию и упадёт, если коллизию вернут. Правка
+отменена, `git diff` по тестовому файлу после отмены — пусто.
+
+(Замечание не блокирует: механизм падения в тесте — исключение из-за
+недостающего мока второго `readFile`, а не точное воспроизведение
+прод-симптома «NaN/failed» через реальные данные — но для регресс-guard'а
+этого достаточно: тест ловит саму коллизию имён, что и требуется.)
+
+### 4. Полный прогон подтверждён независимо
+- `npm test -- --run`: **268 файлов, 3818/3818 тестов** (3817 было до фикса +
+  1 новый регресс-тест).
+- `npx tsc --noEmit`: 0 ошибок.
+- `npm run lint`: 0 errors, 16 pre-existing warnings — все в несвязанных файлах
+  (messenger, notifications, telephony), не в изменённых этим коммитом.
+
+### 5. Живая репродукция оригинального QA-сценария — от начала до очистки
+`npx tsx scripts/issue-queue.ts metric 582 ... merged 1 3 55` +
+`metric 583 ... parked 0 1 12` → `docs/pipeline-runs/next-issue.jsonl`
+с двумя валидными строками. Прямой вызов `listPipelineRuns()`/
+`aggregateRuns()`/`readNextIssueMetrics()`/`aggregateNextIssueRuns()` из
+throwaway-скрипта:
+- `listPipelineRuns()` → `[]` (пустой массив, блок `pipeline.sh` **не
+  тронут** — раньше был `runId: "next-issue"`, `successRate: 0`,
+  `avgDurationSec: NaN`, теперь ничего).
+- `readNextIssueMetrics()` → оба события корректно распарсены;
+  `aggregateNextIssueRuns()` → `totalRuns: 2`,
+  `outcomeCounts: {merged: 1, parked: 1, ...}`, `avgCiFixRounds: 0.5`,
+  `avgReviewRounds: 2`, `medianDurationMin: 33.5` — арифметика верна.
+
+Артефакты удалены (`docs/pipeline-runs/next-issue.jsonl`, throwaway-скрипт),
+`git status --short` после уборки — пусто.
+
+### 6. Scope creep
+`git diff main HEAD --stat` — 10 файлов на всю фичу (типы/сервис/тесты/CLI/
+дашборд/докблок инструкции + 2 QA/review-артефакта + автоматический
+qa-patterns-лог). Ничего постороннего. `package.json`/`package-lock.json`/
+`prisma/schema.prisma`/`CLAUDE.md` не тронуты — новых зависимостей и модулей
+нет.
+
+## Security (раунд 3)
+- Diff `c3b7aef..2ec332a` не трогает RBAC/auth-код (только имя файла,
+  комментарии, тест). `grep -iE '(password|token|secret|NEXTAUTH|TELEGRAM_.*TOKEN|api[_-]key)'`
+  по этому диффу — единственное совпадение: предсуществующий докблок-коммент
+  `$GH_TOKEN` (имя env-переменной, не значение) — не утечка.
+- Нет новых зависимостей, нет raw SQL/`executeRawUnsafe`,
+  `dangerouslySetInnerHTML`, нет `rm -rf`/force-push/`DROP`/`TRUNCATE` в диффе.
+- RBAC-гейт `/admin/monitoring/pipelines` и `GET /api/monitoring/pipelines`
+  этим коммитом не менялся (подтверждено пустым `git diff` по `page.tsx`/
+  `route.ts` между `c3b7aef` и `2ec332a`) — вне зоны фикса, уже проверен
+  раундом 1.
+- **Инцидентов не найдено.**
+
+## Итог
+Фикс закрывает FAIL-находку QA корректно: rename полный (repo-wide grep
+подтверждает отсутствие операционных ссылок на старое имя), коллизия закрыта
+структурно (не просто «сейчас не пересекается»), других путей коллизии не
+обнаружено, новый регресс-тест реально привязан к фиксу (падает при
+симуляции до-фикс состояния), полный прогон (тесты/tsc/lint) зелёный, живая
+репродукция оригинального сценария подтверждает: `pipeline.sh`-блок дашборда
+больше не портится, `/next-issue`-блок продолжает корректно агрегировать
+данные. Scope не расширен, security-инцидентов нет.
+
+**PASS. Готово к передаче QA на финальное подтверждение.**
+
+---
+
+## Раунд 2 (устарело как финальный вердикт — см. раунд 3 выше; сам фикс CI-resequencing остаётся в силе и не менялся раундом 3)
+
 ## Вердикт: PASS (раунд 2, коммит c3b7aef)
 
 Раунд 1 (ниже) вернул NEEDS_CHANGES из-за одной блокирующей находки. Раунд 2
@@ -14,6 +144,12 @@
 `parseJsonlLines<T>`. Оба минорных замечания раунда 1 (указатель на
 телеметрию из шага 5, дублирование parse-логики) тоже устранены и
 подтверждены. `npm test` 3817/3817, `tsc`/`lint` чисто. Готово к QA.
+
+(Именно этот раунд впоследствии пропустил находку `qa-engineer` — общий файл
+`next-issue.metrics.jsonl` схлопывался с glob'ом `pipeline.sh`-прогонов в
+`listPipelineRuns()`. Раунд 2 проверял `cmdMetric`/рендер нового блока
+изолированно, не полный листинг директории с обоими форматами файлов
+одновременно — см. находку и фикс в разделе «Раунд 3» выше.)
 
 Два некритичных наблюдения на будущее: у нового `pr-wait` перед `pr-merge`
 нет явно расписанной ветки red/timeout в тексте шага 7 (низкая вероятность —
