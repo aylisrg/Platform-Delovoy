@@ -9,6 +9,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("../slot-lock", () => ({
   lockSlot: vi.fn(async () => undefined),
+  handleOverlapBackstop: vi.fn(async () => false),
 }));
 
 import {

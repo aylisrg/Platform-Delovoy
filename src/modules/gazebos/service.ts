@@ -15,7 +15,7 @@ import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
-import { lockSlot } from "@/modules/booking/slot-lock";
+import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
 import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
 import {
@@ -355,6 +355,11 @@ export async function createBooking(userId: string | null, input: CreateBookingI
         },
       },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, resourceId)) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+    throw err;
   });
 
   enqueueNotification({
@@ -597,6 +602,11 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     }
 
     return b;
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, resourceId)) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+    throw err;
   });
 
   enqueueNotification({
@@ -811,6 +821,11 @@ export async function rescheduleBooking(
         metadata: JSON.parse(JSON.stringify(newMeta)),
       },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, effResourceId)) {
+      throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+    throw err;
   });
 
   // ОБЯЗАТЕЛЬНАЯ запись о правке (особенно при смене времени).
@@ -1438,6 +1453,11 @@ export async function checkInBooking(bookingId: string, managerId: string) {
         metadata: newMetadata,
       },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
+      throw new BookingError("BOOKING_CONFLICT", "Слот уже занят другой бронью — реактивировать неявку нельзя");
+    }
+    throw err;
   });
 }
 

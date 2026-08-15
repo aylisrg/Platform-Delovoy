@@ -18,7 +18,7 @@ import {
 import type { BookingItemSnapshot, BookingItemInput } from "@/modules/inventory/types";
 import { assertValidTransition, ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { computeCancellationPenalty } from "@/modules/booking/cancellation";
-import { lockSlot } from "@/modules/booking/slot-lock";
+import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
 import { computeBookingPricing } from "@/modules/booking/pricing";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
@@ -295,6 +295,11 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
         },
       },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, resourceId)) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+    throw err;
   });
 
   enqueueNotification({
@@ -1093,6 +1098,11 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
     }
 
     return b;
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, resourceId)) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
+    }
+    throw err;
   });
 
   enqueueNotification({
@@ -1202,6 +1212,11 @@ export async function checkInBooking(bookingId: string, managerId: string) {
         metadata: newMetadata,
       },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Слот уже занят другой бронью — реактивировать неявку нельзя");
+    }
+    throw err;
   });
 }
 
@@ -1656,6 +1671,11 @@ export async function extendBooking(bookingId: string, managerId: string) {
       where: { id: bookingId },
       data: { endTime: newEndTime, managerId },
     });
+  }).catch(async (err) => {
+    if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
+      throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
+    }
+    throw err;
   });
 }
 
