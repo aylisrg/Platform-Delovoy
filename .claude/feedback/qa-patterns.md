@@ -100,3 +100,4 @@
 | 2026-08-15 | 2026-08-15-issue-540-filter-test-feedback-qa-report.md | 17 | rbac, api, typescript, tests |
 | 2026-08-15 | 2026-08-15-issue-548-btree-gist-exclusion-qa-report.md | 4 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-14 | 2026-08-14-issue-567-ps-park-min-booking-hours-admin-qa-report.md | 10 | rbac, api, typescript, tests |
+| 2026-08-15 | 2026-08-15-issue-549-ps-park-booking-history-review-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
