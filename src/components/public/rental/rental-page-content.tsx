@@ -48,7 +48,7 @@ export function RentalPageContent({
   return (
     <div className="space-y-8">
       {/* Occupancy banner */}
-      <div className="rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-800 p-6 text-white">
+      <div className="rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-800 p-6 text-white" data-testid="occupancy-banner">
         <div className="flex items-center gap-3 mb-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/20">
             <svg className="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

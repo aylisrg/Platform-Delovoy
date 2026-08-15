@@ -11,7 +11,7 @@ export function HeroSectionWithVideo() {
     <section className="relative min-h-screen flex flex-col justify-center bg-[#f5f5f7] pt-14 overflow-hidden">
       {/* Video background + fog (desktop only) */}
       {!videoError && (
-        <div className="absolute inset-0 hidden md:block">
+        <div className="absolute inset-0 hidden md:block" data-testid="hero-video">
           <video
             className="w-full h-full object-cover"
             autoPlay

@@ -53,6 +53,7 @@ export default async function DashboardPage() {
     <>
       <AdminHeader title="Дашборд" />
       <div className="p-4 lg:p-8">
+        <div data-testid="dashboard-stats">
         <DashboardGrid
           storageKey="admin-dashboard-stats-order"
           className="grid grid-cols-1 gap-4 lg:gap-6 sm:grid-cols-2 lg:grid-cols-4"
@@ -96,6 +97,7 @@ export default async function DashboardPage() {
             },
           ]}
         />
+        </div>
 
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-zinc-900">Быстрый доступ</h2>

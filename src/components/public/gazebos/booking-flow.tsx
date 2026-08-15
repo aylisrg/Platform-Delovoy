@@ -238,7 +238,7 @@ export function BookingFlow() {
         onClose={() => setToast((t) => ({ ...t, visible: false }))}
       />
 
-      <div className="rounded-2xl border border-black/[0.08] overflow-hidden bg-white">
+      <div className="rounded-2xl border border-black/[0.08] overflow-hidden bg-white" data-testid="booking-flow">
         {/* Header */}
         <div className="px-6 py-5 border-b border-black/[0.04] flex items-center justify-between">
           <h2
