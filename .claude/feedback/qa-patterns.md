@@ -104,3 +104,4 @@
 | 2026-08-15 | 2026-08-15-issue-550-route-tests-booking-subscriptions-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-557-qa-report.md | 9 | rbac, api, tests, scope_creep |
 | 2026-08-15 | 2026-08-15-issue-561-ps-park-bill-module-scope-qa-report.md | 1 | rbac, api, typescript, tests |
+| unknown | issue-622-qa-report.md | 8 | rbac, api, typescript, tests |
