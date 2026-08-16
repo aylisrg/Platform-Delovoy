@@ -749,6 +749,7 @@ function cmdReconcile(): void {
   const mergedPrs: MergedPrClosing[] = recentlyMergedPrs().map((pr) => ({
     number: pr.number,
     closesIssues: closedIssueNumbers(pr),
+    mergedAt: pr.merged_at as string, // recentlyMergedPrs() уже отфильтровал по !!merged_at
   }));
   const missedClosed = new Set<number>();
   for (const { issue, prNumber } of missedAutoCloseIssues(allIssues, mergedPrs)) {

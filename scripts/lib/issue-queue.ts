@@ -210,6 +210,7 @@ export function staleWipWithPr(
 export interface MergedPrClosing {
   number: number;
   closesIssues: number[];
+  mergedAt: string;
 }
 
 const ACTIVE_LANES = new Set<Lane>(['wip', 'ready', 'review']);
@@ -220,6 +221,11 @@ const ACTIVE_LANES = new Set<Lane>(['wip', 'ready', 'review']);
  * причина на стороне GitHub не установлена). Ограничено активными полосами
  * очереди (ready/wip/review) — epic/parked/blocked это состояния для
  * владельца, закрывать их по случайному совпадению с номером PR нельзя.
+ *
+ * Issue, тронутая (владельцем или иначе) уже ПОСЛЕ мержа PR — не пропуск
+ * auto-close, а вероятное осознанное переоткрытие (фикс оказался неполным):
+ * `updatedAt` issue обновляется при Reopen, и без этой проверки reconcile
+ * закрыл бы её обратно на следующем же прогоне.
  */
 export function missedAutoCloseIssues(
   issues: QueueIssue[],
@@ -228,7 +234,11 @@ export function missedAutoCloseIssues(
   const out: { issue: QueueIssue; prNumber: number }[] = [];
   for (const issue of issues) {
     if (!ACTIVE_LANES.has(laneOf(issue.labels))) continue;
-    const pr = mergedPrs.find((p) => p.closesIssues.includes(issue.number));
+    const pr = mergedPrs.find(
+      (p) =>
+        p.closesIssues.includes(issue.number) &&
+        new Date(issue.updatedAt).getTime() <= new Date(p.mergedAt).getTime()
+    );
     if (pr) out.push({ issue, prNumber: pr.number });
   }
   return out;
