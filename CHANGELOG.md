@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.14.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.13.0...v2.14.0) (2026-08-16)
+
+
+### Features
+
+* **eval:** AC-трассируемость — каждый AC из PRD покрыт тестом ([#640](https://github.com/aylisrg/Platform-Delovoy/issues/640)) ([b9c8002](https://github.com/aylisrg/Platform-Delovoy/commit/b9c800274046b82e2973ca33f9da40b76fee12df))
+* **monitoring:** перфоманс-телеметрия nginx — p95/5xx в backlog-intake + поминутный 5xx-алерт ([#600](https://github.com/aylisrg/Platform-Delovoy/issues/600)) ([c9198fd](https://github.com/aylisrg/Platform-Delovoy/commit/c9198fd05541d1540c516ecdac15770b89b8ba16))
+
+
+### Bug Fixes
+
+* **auth:** /admin/* страницы отдавали контент без авторизации ([#632](https://github.com/aylisrg/Platform-Delovoy/issues/632)) ([02e9912](https://github.com/aylisrg/Platform-Delovoy/commit/02e9912d02fde13777921789df5706c9d656cf7b))
+* **ps-park:** getTimeline() передаёт сырой Decimal pricePerHour в клиентские компоненты ([#641](https://github.com/aylisrg/Platform-Delovoy/issues/641)) ([8887b32](https://github.com/aylisrg/Platform-Delovoy/commit/8887b32533dcd19b5278c399b8f358d99d85a4df))
+* **ps-park:** health-check считает soft-deleted брони в todayBookings ([#621](https://github.com/aylisrg/Platform-Delovoy/issues/621)) ([9bd55b2](https://github.com/aylisrg/Platform-Delovoy/commit/9bd55b2c7a5980b140d26dbf62de0e2003c775fb))
+* **security:** GET /api/ps-park/bookings/[id]/bill не проверял requireAdminSection ([#623](https://github.com/aylisrg/Platform-Delovoy/issues/623)) ([1b44015](https://github.com/aylisrg/Platform-Delovoy/commit/1b44015e732dbf7206081dbabe647123b5dda5ee))
+* **security:** удалить мёртвые легаси-роуты /api/rental и /api/rental/[id] ([#596](https://github.com/aylisrg/Platform-Delovoy/issues/596)) ([29064db](https://github.com/aylisrg/Platform-Delovoy/commit/29064dbf5cc4c6443668322aa918e62ef0921c7b)), closes [#529](https://github.com/aylisrg/Platform-Delovoy/issues/529)
+
 ## [2.13.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.12.2...v2.13.0) (2026-08-14)
 
 
