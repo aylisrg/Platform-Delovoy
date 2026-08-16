@@ -343,7 +343,7 @@ export async function updateBookingStatus(
   subscriptionId?: string
 ) {
   const booking = await prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) {
@@ -873,7 +873,7 @@ export async function cancelBooking(
   policy: CancellationPolicy = DEFAULT_CANCELLATION_POLICY
 ): Promise<{ penaltyRequired: true; penaltyAmount: number; basePrice: number } | { penaltyRequired: false; booking: ReturnType<typeof prisma.booking.update> extends Promise<infer T> ? T : never }> {
   const booking = await prisma.booking.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
@@ -1254,7 +1254,7 @@ export async function markNoShow(
   reason: "manual" | "auto" = "manual"
 ) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
@@ -1293,7 +1293,7 @@ export async function addItemsToBooking(
   newItems: BookingItemInput[]
 ) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
@@ -1660,7 +1660,7 @@ export async function autoCompleteExpiredSessions(
 
 export async function extendBooking(bookingId: string, managerId: string) {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
@@ -1720,7 +1720,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
 
 export async function getBookingBill(bookingId: string): Promise<BookingBill> {
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, moduleSlug: MODULE_SLUG },
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
 
