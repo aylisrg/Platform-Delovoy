@@ -6,6 +6,16 @@ export type PSTableResource = Pick<
   "id" | "name" | "description" | "capacity" | "pricePerHour" | "isActive" | "metadata"
 >;
 
+/**
+ * Как PSTableResource, но pricePerHour уже приведён к number — для данных,
+ * пересекающих границу Server → Client Component (Prisma Decimal туда
+ * передавать нельзя, issue #614).
+ */
+export type TimelineResource = Omit<PSTableResource, "pricePerHour" | "metadata"> & {
+  pricePerHour: number | null;
+  metadata: Record<string, unknown> | null;
+};
+
 export type CreateTableInput = {
   name: string;
   description?: string;
@@ -70,7 +80,7 @@ export type DayAvailability = {
 // Timeline data for admin grid
 export type TimelineData = {
   date: string;
-  resources: PSTableResource[];
+  resources: TimelineResource[];
   bookings: TimelineBooking[];
   hours: string[]; // ["08:00", "09:00", ..., "22:00"]
   minBookingHours: number;
