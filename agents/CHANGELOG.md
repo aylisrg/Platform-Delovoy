@@ -7,6 +7,20 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+- `agents/developer.md` — правило 8: тест, покрывающий AC из PRD, обязан содержать
+  маркер `// AC-N` (комментарий) или `AC-N` в названии `it(...)`/`test(...)` —
+  проверяется структурно (`eval/checks/traceability.ts`, issue #585).
+- `agents/qa.md` — правило 1 дополнено той же конвенцией маркера AC-N.
+
+### Agent versions bumped
+- `developer` → 1.2.0 (AC-трассируемость)
+- `qa` → 1.2.0 (AC-трассируемость)
+
+---
+
 ## [1.1.0] — 2026-04-16
 
 ### Added
@@ -72,7 +86,7 @@
 |------------|---------|
 | po         | 1.1.0   |
 | architect  | 1.1.0   |
-| developer  | 1.1.0   |
+| developer  | 1.2.0   |
 | reviewer   | 1.1.0   |
-| qa         | 1.1.0   |
+| qa         | 1.2.0   |
 | analytics  | 1.1.0   |
