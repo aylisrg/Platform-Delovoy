@@ -7,11 +7,14 @@ import { prisma } from "@/lib/db";
 export async function GET() {
   try {
     const [menuCount, todayOrders] = await Promise.all([
-      prisma.menuItem.count({ where: { moduleSlug: "cafe", isAvailable: true } }),
+      prisma.menuItem.count({
+        where: { moduleSlug: "cafe", isAvailable: true, deletedAt: null },
+      }),
       prisma.order.count({
         where: {
           moduleSlug: "cafe",
           createdAt: { gte: new Date(new Date().toISOString().split("T")[0]) },
+          deletedAt: null,
         },
       }),
     ]);
