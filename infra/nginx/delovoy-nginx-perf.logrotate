@@ -1,0 +1,20 @@
+# logrotate для perf-лога nginx (issue #577). Не входит в стандартный
+# /etc/logrotate.d/nginx — тот ротирует только /var/log/nginx/*.log, наш файл
+# живёт отдельно в /var/log/delovoy-park/ (delovoy-park.conf → access_log).
+# Ставится apply-nginx-vhost.sh в /etc/logrotate.d/delovoy-nginx-perf.
+#
+# rotate 7 — ровно окно 7-дневного baseline в scripts/analyze-perf.ts;
+# больше не нужно, диск (48 GB NVMe) с большим запасом даже без rotate.
+/var/log/delovoy-park/nginx-perf.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 www-data adm
+    sharedscripts
+    postrotate
+        [ -f /var/run/nginx.pid ] && kill -USR1 "$(cat /var/run/nginx.pid)" 2>/dev/null || true
+    endscript
+}

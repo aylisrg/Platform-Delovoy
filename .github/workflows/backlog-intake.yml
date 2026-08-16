@@ -18,6 +18,12 @@ name: Backlog Intake — ошибки, фидбек, инциденты
 #
 # Этот файл входит в HOLD_PATTERNS: он чеканит auto:ready из внешних данных,
 # и менять его правила автоматика сама не может.
+#
+#   4. analyze-perf         — p95/5xx по роутам (nginx log_format delovoy_perf,
+#                            infra/nginx/delovoy-park.conf, issue #577) против
+#                            7-дневного базлайна. До первого ops-nginx apply
+#                            лог ещё не льётся — шаг деградирует до пустого
+#                            агрегата, не роняя интейк целиком.
 
 on:
   schedule:
@@ -114,6 +120,64 @@ jobs:
           jq -e 'type == "array"' feedback.json > /dev/null
           echo "events: $(jq length events.json) записей, feedback: $(jq length feedback.json) записей"
 
+      - name: 'Агрегат perf-лога nginx (SSH → awk/jq, issue #577)'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::VPS_HOST/VPS_USER/VPS_SSH_KEY не заданы — perf-агрегация невозможна"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/perf_key
+          chmod 600 ~/.ssh/perf_key
+
+          # Сегодняшний файл (текущее окно) + прошлые ротации logrotate
+          # (базлайн — infra/nginx/delovoy-nginx-perf.logrotate держит rotate 7,
+          # то есть до 7 суток). До первого apply ops-nginx лог ещё не существует —
+          # это не ошибка, просто пустой агрегат (см. фолбэк ниже).
+          #
+          # jq -R + fromjson? вместо прямой подачи файла в jq: одна повреждённая
+          # строка (обрыв записи при рестарте/ротации) иначе останавливает разбор
+          # ВСЕГО файла на первой невалидной строке, теряя весь последующий
+          # валидный хвост — проверено эмпирически при подготовке этого шага.
+          REMOTE_SCRIPT=$(cat <<'REMOTE'
+          set -u
+          LOG_DIR="/var/log/delovoy-park"
+          LIVE="$LOG_DIR/nginx-perf.log"
+          JQF='fromjson? | select(.status != null and .request_time != null) | {route: .uri, requestTimeMs: ((.request_time * 1000) | round), status: .status}'
+
+          read_json() {
+            case "$1" in
+              *.gz) sudo zcat "$1" 2>/dev/null ;;
+              *) sudo cat "$1" 2>/dev/null ;;
+            esac | jq -R -c "$JQF" 2>/dev/null
+          }
+
+          { [ -f "$LIVE" ] && read_json "$LIVE"; } | jq -s '.' > /tmp/delovoy-perf-current.json
+
+          : > /tmp/delovoy-perf-baseline.ndjson
+          for f in "$LOG_DIR"/nginx-perf.log.*.gz; do
+            [ -f "$f" ] || continue
+            read_json "$f" >> /tmp/delovoy-perf-baseline.ndjson
+          done
+          jq -s '.' /tmp/delovoy-perf-baseline.ndjson > /tmp/delovoy-perf-baseline.json
+
+          jq -n --slurpfile cur /tmp/delovoy-perf-current.json --slurpfile base /tmp/delovoy-perf-baseline.json \
+            '{current: $cur[0], baseline: $base[0]}'
+          REMOTE
+          )
+
+          ssh -i ~/.ssh/perf_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$VPS_USER@$VPS_HOST" "$REMOTE_SCRIPT" > perf-aggregate.json \
+            || echo '{"current":[],"baseline":[]}' > perf-aggregate.json
+          rm -f ~/.ssh/perf_key
+
+          jq -e 'type == "object" and (.current | type == "array") and (.baseline | type == "array")' perf-aggregate.json > /dev/null
+          echo "perf current: $(jq '.current | length' perf-aggregate.json) сэмплов, baseline: $(jq '.baseline | length' perf-aggregate.json) сэмплов"
+
       - name: Флаг dry-run
         id: dry
         env:
@@ -145,6 +209,13 @@ jobs:
         run: |
           npx tsx scripts/escalate-incidents.ts ${{ steps.dry.outputs.flag }} | tee incidents.log
 
+      - name: Perf-регрессии → issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/analyze-perf.ts --events-file perf-aggregate.json ${{ steps.dry.outputs.flag }} \
+            | tee perf.log
+
       - name: Итог в summary
         if: always()
         run: |
@@ -162,6 +233,10 @@ jobs:
             echo '### Инциденты'
             echo '```'
             tail -10 incidents.log 2>/dev/null || echo 'шаг не дошёл'
+            echo '```'
+            echo '### Perf-регрессии (nginx p95/5xx)'
+            echo '```'
+            tail -10 perf.log 2>/dev/null || echo 'шаг не дошёл'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

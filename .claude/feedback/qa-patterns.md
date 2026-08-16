@@ -118,3 +118,4 @@
 | unknown | issue-575-qa-report.md | 8 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-585-qa-report.md | 18 | rbac, api, tests, scope_creep |
 | unknown | issue-614-qa-report.md | 9 | rbac, api, typescript, tests, scope_creep |
+| 2026-08-15 | 2026-08-15-issue-577-nginx-perf-telemetry-qa-report.md | 5 | rbac, api, tests |
