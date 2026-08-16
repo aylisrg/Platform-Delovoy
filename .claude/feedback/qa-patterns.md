@@ -18,6 +18,7 @@
 ### API / Валидация
 - Мутирующий эндпоинт парсит тело вручную по отдельным полям вместо единой Zod-схемы на весь body → забытое поле проходит мимо валидации → всегда `schema.safeParse(rawBody)` целиком первым шагом, не point-валидация отдельных ключей (issue #432).
 - Allow-лист публичных путей в `auth.config.ts` (`isPublicApiRoute`) матчит по префиксу модуля (`startsWith("/api/gazebos")`) → случайно открывает не только safe-каталожные GET, но и роуты с PII без авторизации и rate-limit → публичный список — точные пути/явные исключения, никогда префикс всего модуля (issue #438).
+- Health-check/дашборд-роут считает soft-deletable модель через `prisma.<model>.count()` напрямую в обход сервисного слоя (где `deletedAt: null` уже стоит) → чинится реактивно по одной находке за раз, а не сразу для всех похожих мест (issues #489, #557, #620 — три раунда одного паттерна в разных модулях; QA #620 нашёл ещё живой непочиненный пример в `messenger/health.messageCount` и двух admin-дашбордах) → при фиксе одного такого роута грепом (`prisma\.<model>\.count`) проверить остальные `/api/*/health` и админ-дашборды на тот же прямой `.count()`/`.findMany()` без `deletedAt: null`, завести отдельный issue на каждый найденный, а не закрывать только заявленный (issue #620).
 
 ### Тесты
 - Новый тест на баг-фикс, ассертящий только форму вызова (`expect.objectContaining`), может пройти и без самого фикса при неверно настроенном моке → обязателен mutation-check: временно откатить фикс, убедиться что падают именно новые тесты и только они, вернуть фикс (issue #564 — откат 6 фиксов уронил ровно 6 тестов; issue #622 — ровно 5).
@@ -126,3 +127,4 @@
 | 2026-08-16 | 2026-08-16-issue-564-ps-park-deletedat-followup-qa-report.md | 1 | rbac, typescript, tests |
 | unknown | 581-event-source-registry-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-617-qa-report.md | 9 | rbac, api, tests |
+| unknown | issue-620-qa-report.md | 17 | rbac, api, typescript, tests, scope_creep |
