@@ -28,12 +28,12 @@ const mockedListChats = vi.mocked(listChatsUnread);
 const mockedListMessages = vi.mocked(listMessages);
 const mockedRoute = vi.mocked(routeInboundMessage);
 
-function makeReq(token: string | null): NextRequest {
+function makeReq(token: string | null, method: "GET" | "POST" = "GET"): NextRequest {
   const url =
     token === null
       ? "http://localhost/api/cron/avito-messenger-poll"
       : `http://localhost/api/cron/avito-messenger-poll?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  return new NextRequest(url, { method });
 }
 
 beforeEach(() => {
@@ -158,7 +158,7 @@ describe("GET /api/cron/avito-messenger-poll", () => {
 
 describe("POST /api/cron/avito-messenger-poll", () => {
   it("rejects invalid token with 401 (same as GET)", async () => {
-    const res = await POST(makeReq("nope"));
+    const res = await POST(makeReq("nope", "POST"));
     expect(res.status).toBe(401);
   });
 });

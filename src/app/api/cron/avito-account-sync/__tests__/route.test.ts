@@ -12,12 +12,12 @@ import { GET, POST } from "../route";
 const mockedSyncItems = vi.mocked(syncItemsRegistry);
 const mockedSyncAccount = vi.mocked(syncAccount);
 
-function makeReq(token: string | null): NextRequest {
+function makeReq(token: string | null, method: "GET" | "POST" = "GET"): NextRequest {
   const url =
     token === null
       ? "http://localhost/api/cron/avito-account-sync"
       : `http://localhost/api/cron/avito-account-sync?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  return new NextRequest(url, { method });
 }
 
 beforeEach(() => {
@@ -73,13 +73,13 @@ describe("GET /api/cron/avito-account-sync", () => {
 
 describe("POST /api/cron/avito-account-sync", () => {
   it("behaves the same as GET (auth + sync)", async () => {
-    const res = await POST(makeReq("test-cron-secret"));
+    const res = await POST(makeReq("test-cron-secret", "POST"));
     expect(res.status).toBe(200);
     expect(mockedSyncItems).toHaveBeenCalledTimes(1);
   });
 
   it("rejects invalid token with 401", async () => {
-    const res = await POST(makeReq("nope"));
+    const res = await POST(makeReq("nope", "POST"));
     expect(res.status).toBe(401);
   });
 });
