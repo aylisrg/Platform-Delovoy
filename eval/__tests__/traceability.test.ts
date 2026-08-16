@@ -26,6 +26,16 @@ describe("eval/checks/traceability — extractAcIds", () => {
     expect(ids).toEqual([]);
     expect(duplicates).toEqual([]);
   });
+
+  it("tracks dotted sub-criteria (AC-1.1, AC-1.2, ...) as distinct ids, not collapsed into AC-1 (issue #639, BUG-1)", () => {
+    const dottedPrd = [
+      "- [ ] AC-1.1: first sub-criterion",
+      "- [ ] AC-1.2: second sub-criterion",
+      "- [ ] AC-1.3: third sub-criterion",
+    ].join("\n");
+    const { ids } = extractAcIds(dottedPrd);
+    expect(ids).toEqual(["AC-1.1", "AC-1.2", "AC-1.3"]);
+  });
 });
 
 describe("eval/checks/traceability — checkTraceability", () => {
@@ -75,6 +85,13 @@ describe("eval/checks/traceability — checkTraceability", () => {
     expect(ac3?.covered).toBe(false);
   });
 
+  it("does not count regex.test(...) member access as a test-title marker (issue #639, BUG-2)", () => {
+    const noise = `const acPattern = /AC-3/;\nexport function hasAcReference(x) {\n  return acPattern.test("example containing AC-3 text");\n}`;
+    const result = checkTraceability(prd, { "sample-booking-tests.ts": noise });
+    const ac3 = result.coverage.find((c) => c.ac === "AC-3");
+    expect(ac3?.covered).toBe(false);
+  });
+
   it("does not count // appearing mid-line (e.g. inside a URL string) as a comment marker", () => {
     const noise = `const link = "https://park.example.com/AC-3";`;
     const result = checkTraceability(prd, { "sample-booking-tests.ts": noise });
@@ -87,6 +104,33 @@ describe("eval/checks/traceability — checkTraceability", () => {
     expect(result.pass).toBe(false);
     expect(result.issues).toEqual(["PRD has no AC-N checklist items to trace (expected - [ ] AC-1: ...)"]);
     expect(result.coverage).toEqual([]);
+  });
+
+  it("tracks each dotted sub-criterion's coverage independently — a marker for AC-1.1 does not cover AC-1.2/AC-1.3 (issue #639, BUG-1)", () => {
+    const dottedPrd = [
+      "- [ ] AC-1.1: first sub-criterion",
+      "- [ ] AC-1.2: second sub-criterion",
+      "- [ ] AC-1.3: third sub-criterion",
+    ].join("\n");
+    const testFile = `it("covers the first sub-criterion (AC-1.1)", () => {});`;
+    const result = checkTraceability(dottedPrd, { "f.ts": testFile });
+
+    expect(result.coverage.map((c) => c.ac)).toEqual(["AC-1.1", "AC-1.2", "AC-1.3"]);
+    expect(result.coverage.find((c) => c.ac === "AC-1.1")?.covered).toBe(true);
+    expect(result.coverage.find((c) => c.ac === "AC-1.2")?.covered).toBe(false);
+    expect(result.coverage.find((c) => c.ac === "AC-1.3")?.covered).toBe(false);
+    expect(result.pass).toBe(false);
+  });
+
+  it("does not let a marker for a dotted sub-criterion (AC-1.2) falsely satisfy its bare parent id (AC-1)", () => {
+    const mixedPrd = ["- [ ] AC-1: parent criterion", "- [ ] AC-1.2: unrelated sibling numbering"].join(
+      "\n"
+    );
+    const testFile = `it("covers the sibling (AC-1.2)", () => {});`;
+    const result = checkTraceability(mixedPrd, { "f.ts": testFile });
+
+    expect(result.coverage.find((c) => c.ac === "AC-1")?.covered).toBe(false);
+    expect(result.coverage.find((c) => c.ac === "AC-1.2")?.covered).toBe(true);
   });
 });
 
