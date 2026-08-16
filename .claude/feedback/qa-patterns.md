@@ -116,3 +116,4 @@
 | unknown | 591-admin-rbac-bypass-qa-report.md | 8 | rbac, api, tests |
 | unknown | issue-579-qa-report.md | 5 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-575-qa-report.md | 8 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-585-qa-report.md | 18 | rbac, api, tests, scope_creep |
