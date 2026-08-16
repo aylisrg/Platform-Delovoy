@@ -97,3 +97,72 @@ describe("GazeboQuickBookingPopover — комментарий и email (issue #
     expect(body).not.toHaveProperty("comment");
   });
 });
+
+describe("GazeboQuickBookingPopover — автокомплит гостя по телефону (issue #666)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("показывает подсказки после ввода 3+ символов телефона (AC-1)", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: [{ name: "Иван Петров", phone: "+79991234567" }] })
+    );
+    renderPopover(2);
+
+    fireEvent.focus(screen.getByPlaceholderText("Телефон *"));
+    fireEvent.change(screen.getByPlaceholderText("Телефон *"), { target: { value: "999" } });
+
+    await screen.findByText("Иван Петров", {}, { timeout: 1000 });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/gazebos/guests/search?phone=999"),
+      expect.anything()
+    );
+  });
+
+  it("не запрашивает подсказки при вводе короче 3 символов", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: [] }));
+    renderPopover(2);
+
+    fireEvent.change(screen.getByPlaceholderText("Телефон *"), { target: { value: "99" } });
+    await new Promise((r) => setTimeout(r, 350));
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("выбор гостя подставляет имя и телефон, имя остаётся редактируемым (AC-2)", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: [{ name: "Иван Петров", phone: "+79991234567" }] })
+    );
+    renderPopover(2);
+
+    fireEvent.focus(screen.getByPlaceholderText("Телефон *"));
+    fireEvent.change(screen.getByPlaceholderText("Телефон *"), { target: { value: "999" } });
+    const suggestion = await screen.findByText("Иван Петров", {}, { timeout: 1000 });
+    fireEvent.mouseDown(suggestion);
+
+    const nameInput = screen.getByPlaceholderText("Имя клиента *") as HTMLInputElement;
+    const phoneInput = screen.getByPlaceholderText("Телефон *") as HTMLInputElement;
+    expect(nameInput.value).toBe("Иван Петров");
+    expect(phoneInput.value).toBe("+79991234567");
+
+    fireEvent.change(nameInput, { target: { value: "Иван Петров (компания)" } });
+    expect(nameInput.value).toBe("Иван Петров (компания)");
+  });
+
+  it("нет совпадений — форма ведёт себя как ручной ввод (AC-3)", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: [] }));
+    renderPopover(2);
+
+    fireEvent.focus(screen.getByPlaceholderText("Телефон *"));
+    fireEvent.change(screen.getByPlaceholderText("Телефон *"), { target: { value: "999" } });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled(), { timeout: 1000 });
+
+    expect(screen.queryByRole("list")).toBeNull();
+    const phoneInput = screen.getByPlaceholderText("Телефон *") as HTMLInputElement;
+    expect(phoneInput.value).toBe("999");
+  });
+});

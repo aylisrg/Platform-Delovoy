@@ -126,3 +126,14 @@ export const recordPrepaymentSchema = z
   });
 
 export type RecordPrepaymentRequest = z.infer<typeof recordPrepaymentSchema>;
+
+/**
+ * Запрос автокомплита гостя по телефону в quick-форме (#666). `phone` —
+ * произвольный фрагмент номера (не обязательно нормализованный), минимум
+ * 3 символа — короче даёт слишком широкую выдачу по всей истории модуля.
+ */
+export const guestSearchQuerySchema = z.object({
+  phone: z.string().trim().min(3, "Минимум 3 символа для поиска").max(30),
+});
+
+export type GuestSearchQuery = z.infer<typeof guestSearchQuerySchema>;
