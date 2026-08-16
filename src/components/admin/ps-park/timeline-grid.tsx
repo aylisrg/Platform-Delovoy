@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
+import { PrintDaySheet } from "@/components/admin/shared/print-day-sheet";
 import { QuickBookingPopover } from "./quick-booking-popover";
 import { BookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
@@ -49,6 +50,7 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(null);
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
+  const [showPrint, setShowPrint] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const hours = data.hours;
@@ -187,11 +189,20 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <DateNavigator currentDate={date} onChange={loadTimeline} />
-        {loading && (
-          <span className="text-xs text-zinc-400 animate-pulse">
-            Загрузка...
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {loading && (
+            <span className="text-xs text-zinc-400 animate-pulse">
+              Загрузка...
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowPrint(true)}
+            className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
+          >
+            Печать
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-zinc-200 overflow-hidden" ref={gridRef}>
@@ -340,6 +351,16 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           minBookingHours={data.minBookingHours}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}
+        />
+      )}
+
+      {showPrint && (
+        <PrintDaySheet
+          moduleSlug="ps-park"
+          title="Плей Парк"
+          resourceLabel="Стол"
+          date={date}
+          onClose={() => setShowPrint(false)}
         />
       )}
     </div>
