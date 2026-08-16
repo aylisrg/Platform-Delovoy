@@ -138,9 +138,21 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 
 1. **No new module** (`src/modules/{slug}/`) without a PRD from `product-owner` and an entry in the module list above.
 2. **No scope expansion without PO.** If you discover a need for an extra feature mid-implementation: stop, open an issue, wait for PO.
-3. **One PR = one feature.** Fix PRs close exactly one bug with one test.
+3. **Не делаем микро-PR — компонуем и катим.** Единица поставки — один
+   содержательный PR: связанные изменения (фича целиком с тестами и синком доков,
+   пакет мелких фиксов одной области) компонуются в один PR и едут вместе, а не
+   нарезаются на десяток PR по строчке. Причина: каждый мерж в `main` — это прогон
+   CI и выкатка в прод; десять микро-PR = десять деплоев, а связность изменений
+   теряется. Маленьким держим риск, а не дифф. Батч — не индульгенция на лишнее:
+   каждое изменение в PR — заказанная работа (см. #1–#2), каждый фикс — со своим
+   тестом. Механика батча в автоочереди — `.claude/commands/next-issue.md`, шаг 1.
 4. **CLAUDE.md syncs in the same PR** that adds/removes a module or roadmap item. Drift = bug.
-5. **Code Reviewer must flag scope creep.** PR touching 5+ modules or adding an unlisted module → NEEDS_CHANGES.
+5. **Code Reviewer must flag scope creep.** Scope creep — это незаявленный модуль
+   или код без своей задачи/PRD, а **не размер PR**: батч связанных задач в одном
+   PR — норма (см. #3), оценивается каждое изменение против его issue/PRD.
+   Добавление модуля вне таблицы → NEEDS_CHANGES. PR на 5+ модулей авто-мерж гейт
+   по-прежнему держит на ручном мерже владельца (deploy-safety,
+   `scripts/lib/issue-queue.ts`) — это маршрутизация на владельца, не вердикт ревьюеру.
 
 ---
 
@@ -219,6 +231,8 @@ write, actions write) — его читают `auto-rebase.yml`, `issue-queue-me
 - Ветки автоочереди: `claude/issue-{номер}-{slug}` — по префиксу PR связывается с issue
 - Commits: conventional commits (`feat:`, `fix:`, `chore:`, `docs:`)
 - **Never push directly to `main`** — always PR
+- **Микро-PR не делаем** — связанные изменения компонуются в один PR и катятся
+  вместе (Scope guard #3)
 - **Auto-merge — только для PR агента и только уровня `auto`.** Мерж в `main`
   запускает CI → `deploy.yml` → прод. Гейт (`scripts/lib/issue-queue.ts`) держит на
   ручном мерже два класса: рубильники самой автоматики — конфиг, workflow учёта и
