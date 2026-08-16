@@ -122,3 +122,4 @@
 | 2026-08-15 | 2026-08-15-issue-577-nginx-perf-telemetry-qa-report.md | 5 | rbac, api, tests |
 | unknown | issue-615-qa-report.md | 6 | rbac, api, typescript, tests |
 | unknown | 580-gate-verdict-markers-qa-report.md | 2 | rbac, api, tests |
+| unknown | issue-616-qa-report.md | 10 | rbac, api, typescript, tests |
