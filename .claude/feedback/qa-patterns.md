@@ -129,3 +129,4 @@
 | unknown | 581-event-source-registry-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-617-qa-report.md | 9 | rbac, api, tests |
 | unknown | issue-620-qa-report.md | 17 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-628-qa-report.md | 2 | rbac, api, tests, scope_creep |
