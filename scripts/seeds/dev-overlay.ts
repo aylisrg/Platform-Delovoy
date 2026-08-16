@@ -6,7 +6,8 @@
  *
  * Accounts created:
  *   admin@local    / password: admin    — SUPERADMIN
- *   manager@local  / password: manager  — MANAGER (assigned to gazebos + ps-park)
+ *   manager@local  / password: manager  — MANAGER (ModuleAssignment + AdminPermission
+ *                                          on dashboard/gazebos/ps-park — issue #615)
  *   user@local     / password: user     — USER
  *
  * Only runs when DEV_OVERLAY=1 env var is set (protection against accidental prod run).
@@ -87,6 +88,21 @@ export async function seedDevOverlay(prisma: PrismaClient): Promise<void> {
       console.log(`[dev-overlay]     → assigned to module: ${mod.slug}`);
     }
   }
+
+  // ModuleAssignment alone isn't enough to reach the admin UI — hasAdminSectionAccess()
+  // (src/lib/permissions.ts) requires an explicit AdminPermission per section, and the
+  // auth.config.ts authorized() callback redirects to /admin/forbidden without one.
+  // "dashboard" is included because /admin (the post-login landing page) redirects to
+  // /admin/dashboard for every role (issue #615).
+  const targetAdminSections = ["dashboard", ...targetModuleSlugs];
+  for (const section of targetAdminSections) {
+    await prisma.adminPermission.upsert({
+      where: { userId_section: { userId: manager.id, section } },
+      create: { userId: manager.id, section },
+      update: {},
+    });
+  }
+  console.log(`[dev-overlay]     → admin sections: ${targetAdminSections.join(", ")}`);
 
   // USER
   const user = await prisma.user.upsert({

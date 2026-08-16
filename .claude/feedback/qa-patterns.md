@@ -26,6 +26,7 @@
 - Route проверяет `hasRole(session.user, "MANAGER")`, но не вызывает `requireAdminSection(session, <module>)` → менеджер одного модуля мутирует/читает данные в чужом → сразу после role-check: `const denied = await requireAdminSection(session, "<slug>"); if (denied) return denied;` (issues #560, #561, #622 — 5 write-роутов в последнем).
 - `prisma.<model>.findFirst/findUnique` по id в мутирующей сервис-функции ищет запись без `deletedAt: null` → можно менять/продлевать/отменять мягко удалённую запись → добавлять `deletedAt: null` в where везде, КРОМЕ функций, которым нужно видеть удалённые записи намеренно (soft/hard-delete сами) (issues #423, #489, #512, #557, #564 — 5+ повторов одного и того же пропуска).
 - Пользовательский текст (комментарий, `problemNote` и т.п.) интерполируется в Telegram-сообщение с `parse_mode: "HTML"` без экранирования → HTML-инъекция в чужой чат → любое интерполируемое поле — через общий `escapeHtml` из `@/lib/telegram/escape.ts`, без исключений на «проверенный» источник (issues #471, #534).
+- Код, дающий пользователю доступ к модулю/разделу (сидер, admin-эндпоинт назначения менеджера), создаёт `ModuleAssignment`, но забывает парный `AdminPermission` (или наоборот) → `hasModuleAccess`/`hasAdminSectionAccess` в `permissions.ts` проверяются независимо друг от друга — без обоих грантов либо UI сразу редиректит на `/admin/forbidden`, либо есть доступ к разделу UI без доступа к данным модуля → любой код, выдающий доступ пользователю, обязан создавать обе записи атомарно/в одной идемпотентной операции (issue #615).
 
 ### Scope Creep
 - Заметил второй баг того же класса при фиксе первого (соседний файл/роут вне заявленного скоупа issue) → не чинить в этом же PR — заводить отдельную issue через `issue-queue.ts create --ready`, очередь доберётся сама (issues #625, #627, #628 — все найдены `code-reviewer` при ревью #564/#574).
@@ -119,3 +120,4 @@
 | unknown | issue-585-qa-report.md | 18 | rbac, api, tests, scope_creep |
 | unknown | issue-614-qa-report.md | 9 | rbac, api, typescript, tests, scope_creep |
 | 2026-08-15 | 2026-08-15-issue-577-nginx-perf-telemetry-qa-report.md | 5 | rbac, api, tests |
+| unknown | issue-615-qa-report.md | 6 | rbac, api, typescript, tests |
