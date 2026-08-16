@@ -165,4 +165,26 @@ describe("GazeboQuickBookingPopover — автокомплит гостя по �
     const phoneInput = screen.getByPlaceholderText("Телефон *") as HTMLInputElement;
     expect(phoneInput.value).toBe("999");
   });
+
+  it("быстрый ввод отменяет промежуточные запросы — летит только один fetch, с последним значением", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: [] }));
+    renderPopover(2);
+
+    const phoneInput = screen.getByPlaceholderText("Телефон *");
+    fireEvent.focus(phoneInput);
+    // Три быстрых нажатия подряд, все до истечения 300мс debounce — каждое
+    // само по себе достаточной длины (3+ символа), чтобы запланировать fetch,
+    // если бы debounce/AbortController не отменяли предыдущий таймер/запрос.
+    fireEvent.change(phoneInput, { target: { value: "999" } });
+    fireEvent.change(phoneInput, { target: { value: "9991" } });
+    fireEvent.change(phoneInput, { target: { value: "99912" } });
+
+    await new Promise((r) => setTimeout(r, 350));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/gazebos/guests/search?phone=99912"),
+      expect.anything()
+    );
+  });
 });
