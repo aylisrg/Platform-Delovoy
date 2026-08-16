@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-async function getDashboardStats() {
+export async function getDashboardStats() {
   try {
     const now = new Date();
     const todayStart = new Date(now);
@@ -16,13 +16,23 @@ async function getDashboardStats() {
       prisma.module.count({ where: { isActive: true } }),
       prisma.module.count(),
       prisma.booking.count({
-        where: { moduleSlug: "gazebos", date: { gte: todayStart }, status: { not: "CANCELLED" } },
+        where: {
+          moduleSlug: "gazebos",
+          date: { gte: todayStart },
+          status: { not: "CANCELLED" },
+          deletedAt: null,
+        },
       }),
       prisma.booking.count({
-        where: { moduleSlug: "ps-park", date: { gte: todayStart }, status: { not: "CANCELLED" } },
+        where: {
+          moduleSlug: "ps-park",
+          date: { gte: todayStart },
+          status: { not: "CANCELLED" },
+          deletedAt: null,
+        },
       }),
       prisma.order.count({
-        where: { createdAt: { gte: todayStart }, status: { not: "CANCELLED" } },
+        where: { createdAt: { gte: todayStart }, status: { not: "CANCELLED" }, deletedAt: null },
       }),
     ]);
 

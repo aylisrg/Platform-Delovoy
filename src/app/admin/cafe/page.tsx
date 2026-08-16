@@ -48,6 +48,55 @@ function ordersHref(status: string | null, paid: boolean): string {
   return qs ? `/admin/cafe?${qs}#orders` : "/admin/cafe#orders";
 }
 
+/** Вынесено из компонента, чтобы deletedAt-фильтрацию можно было протестировать без рендера. */
+export function buildCafeOrdersWhere(
+  today: Date,
+  statusFilter: OrderStatus | null,
+  paidOnly: boolean
+): Prisma.OrderWhereInput {
+  return {
+    moduleSlug: "cafe",
+    createdAt: { gte: today },
+    deletedAt: null,
+    ...(statusFilter && { status: statusFilter }),
+    ...(paidOnly && { paidAt: { not: null } }),
+  };
+}
+
+/** Вынесено из компонента, чтобы deletedAt-фильтрацию можно было протестировать без рендера. */
+export async function getCafeOrdersData(ordersWhere: Prisma.OrderWhereInput, today: Date) {
+  const [orders, todayCount, activeCount, todayRevenue] = await Promise.all([
+    prisma.order.findMany({
+      where: ordersWhere,
+      include: {
+        items: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.order.count({
+      where: { moduleSlug: "cafe", createdAt: { gte: today }, deletedAt: null },
+    }),
+    prisma.order.count({
+      where: { moduleSlug: "cafe", status: { in: ["NEW", "PREPARING", "READY"] }, deletedAt: null },
+    }),
+    prisma.order.aggregate({
+      where: {
+        moduleSlug: "cafe",
+        deletedAt: null,
+        status: { not: "CANCELLED" },
+        OR: [
+          { paidAt: { gte: today } },
+          { paidAt: null, status: "DELIVERED", createdAt: { gte: today } },
+        ],
+      },
+      _sum: { totalAmount: true },
+    }),
+  ]);
+  return { orders, todayCount, activeCount, todayRevenue };
+}
+
 export default async function CafeManagerPage({
   searchParams,
 }: {
@@ -66,44 +115,13 @@ export default async function CafeManagerPage({
 
   const today = new Date(new Date().toISOString().split("T")[0]);
 
-  const ordersWhere: Prisma.OrderWhereInput = {
-    moduleSlug: "cafe",
-    createdAt: { gte: today },
-    ...(statusFilter && { status: statusFilter }),
-    ...(paidOnly && { paidAt: { not: null } }),
-  };
+  const ordersWhere = buildCafeOrdersWhere(today, statusFilter, paidOnly);
 
-  const [menuItems, orders, todayCount, activeCount, todayRevenue] = await Promise.all([
+  const [menuItems, { orders, todayCount, activeCount, todayRevenue }] = await Promise.all([
     // Через сервис — чтобы каталог в админке шёл в том же порядке категорий,
     // что и публичная витрина (кофе первым), а не по алфавиту.
     getMenuAdmin(),
-    prisma.order.findMany({
-      where: ordersWhere,
-      include: {
-        items: true,
-        user: { select: { name: true, email: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    prisma.order.count({
-      where: { moduleSlug: "cafe", createdAt: { gte: today } },
-    }),
-    prisma.order.count({
-      where: { moduleSlug: "cafe", status: { in: ["NEW", "PREPARING", "READY"] } },
-    }),
-    prisma.order.aggregate({
-      where: {
-        moduleSlug: "cafe",
-        deletedAt: null,
-        status: { not: "CANCELLED" },
-        OR: [
-          { paidAt: { gte: today } },
-          { paidAt: null, status: "DELIVERED", createdAt: { gte: today } },
-        ],
-      },
-      _sum: { totalAmount: true },
-    }),
+    getCafeOrdersData(ordersWhere, today),
   ]);
 
   // Имена позиций: приоритет — снапшот в OrderItem, для legacy-строк — меню.

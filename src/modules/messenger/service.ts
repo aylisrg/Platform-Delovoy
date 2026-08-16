@@ -92,7 +92,7 @@ const messageWithSenderSelect = {
 export async function getHealthMetrics() {
   const [chatCount, messageCount] = await Promise.all([
     prisma.chat.count(),
-    prisma.chatMessage.count(),
+    prisma.chatMessage.count({ where: { deletedAt: null } }),
   ]);
   return { chatCount, messageCount };
 }

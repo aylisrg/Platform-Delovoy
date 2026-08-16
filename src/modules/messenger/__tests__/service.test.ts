@@ -59,6 +59,14 @@ describe("getHealthMetrics", () => {
     expect(metrics.chatCount).toBe(3);
     expect(metrics.messageCount).toBe(42);
   });
+
+  it("excludes soft-deleted messages from messageCount (issue #650, тот же баг что #489/#557/#620)", async () => {
+    await getHealthMetrics();
+
+    expect(prisma.chatMessage.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ deletedAt: null }) })
+    );
+  });
 });
 
 // ── sendMessage idempotency ───────────────────────────────────────────────
