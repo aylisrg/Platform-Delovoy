@@ -33,10 +33,24 @@ export function extractAcIds(prdContent: string): { ids: string[]; duplicates: s
   return { ids, duplicates };
 }
 
+function hasCommentMarker(testContent: string, ac: string): boolean {
+  const idRe = new RegExp(`\\b${ac}\\b`);
+  // Line must actually start with `//` (after trimming) — a bare `//` later on
+  // the line (e.g. inside a URL string like "https://park.example.com/AC-1")
+  // is not a comment marker.
+  return testContent.split("\n").some((line) => line.trimStart().startsWith("//") && idRe.test(line));
+}
+
+function hasTitleMarker(testContent: string, ac: string): boolean {
+  // `\b` before the (it|test) group is required — without it this would also
+  // match inside unrelated identifiers ending in "it"/"test", e.g. `submit(`,
+  // `commit(`, `contest(`.
+  const titleMarker = new RegExp(`\\b(?:it|test)\\s*(?:\\.\\w+)?\\s*\\(\\s*[\`'"][^\`'"]*\\b${ac}\\b`);
+  return titleMarker.test(testContent);
+}
+
 function referencesAc(testContent: string, ac: string): boolean {
-  const commentMarker = new RegExp(`//[^\\n]*\\b${ac}\\b`);
-  const titleMarker = new RegExp(`(?:it|test)\\s*(?:\\.\\w+)?\\s*\\(\\s*[\`'"][^\`'"]*\\b${ac}\\b`);
-  return commentMarker.test(testContent) || titleMarker.test(testContent);
+  return hasCommentMarker(testContent, ac) || hasTitleMarker(testContent, ac);
 }
 
 /**

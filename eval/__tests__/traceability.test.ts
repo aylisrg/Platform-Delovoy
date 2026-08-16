@@ -66,6 +66,22 @@ describe("eval/checks/traceability — checkTraceability", () => {
     expect(ac3?.covered).toBe(false);
   });
 
+  it("does not match AC-N inside identifiers merely ending in it/test (submit, contest)", () => {
+    // Regression: an earlier version of the title-marker regex had no word
+    // boundary before (it|test), so it matched inside "submit(" / "contest(".
+    const noise = `function submit("... AC-3 ...") {}\nfunction contest("... AC-3 ...") {}`;
+    const result = checkTraceability(prd, { "sample-booking-tests.ts": noise });
+    const ac3 = result.coverage.find((c) => c.ac === "AC-3");
+    expect(ac3?.covered).toBe(false);
+  });
+
+  it("does not count // appearing mid-line (e.g. inside a URL string) as a comment marker", () => {
+    const noise = `const link = "https://park.example.com/AC-3";`;
+    const result = checkTraceability(prd, { "sample-booking-tests.ts": noise });
+    const ac3 = result.coverage.find((c) => c.ac === "AC-3");
+    expect(ac3?.covered).toBe(false);
+  });
+
   it("fails with a single explanatory issue when the PRD has no AC-N items", () => {
     const result = checkTraceability("# PRD\n## Проблема\nfoo", {});
     expect(result.pass).toBe(false);

@@ -34,6 +34,14 @@ Eval-фреймворк — это **структурные** проверки �
 повторе одного и того же `AC-N` в нескольких US отчёт добавляет информационную заметку,
 не влияющую на pass/fail.
 
+Известное ограничение: `eval/traceability-report.ts` берёт список изменённых тестовых
+файлов через двухточечный `git diff --name-only origin/<base>` (сравнение деревьев, не
+merge-base — тот же приём, что и в CHANGELOG-проверке `agents-eval.yml`, чтобы не тащить
+полную историю при `fetch-depth: 1`). Если `main` уехал вперёд после форка ветки, в diff
+могут попасть файлы, которых сам PR не касался. Пока проверка в режиме отчёта — это
+не блокирует мерж; но при переводе в блокирующий режим сначала стоит пересмотреть на
+merge-base (`git merge-base` + трёхточечный diff, либо `fetch-depth: 0`).
+
 ## Структура
 
 ```
@@ -45,15 +53,21 @@ eval/
 │   │   ├── adr.md
 │   │   ├── review.md
 │   │   └── qa-report.md
+│   ├── sample-ac-traceability/   # фикстура для eval/checks/traceability.ts (issue #585)
+│   │   ├── sample-prd.md
+│   │   └── sample-booking-tests.ts
 │   └── ...
 ├── checks/                # функции-чекеры
 │   ├── prd.ts
 │   ├── adr.ts
 │   ├── review.ts
-│   └── qa-report.ts
-├── runner.ts              # главный раннер
-└── __tests__/             # vitest тесты на сами чекеры
-    └── checks.test.ts
+│   ├── qa-report.ts
+│   └── traceability.ts    # AC из PRD → тест (issue #585)
+├── runner.ts               # главный раннер (агенты po/architect/reviewer/qa)
+├── traceability-report.ts  # CI-обвязка AC-трассируемости, отдельно от runner.ts
+└── __tests__/              # vitest тесты на сами чекеры
+    ├── checks.test.ts
+    └── traceability.test.ts
 ```
 
 ## Запуск

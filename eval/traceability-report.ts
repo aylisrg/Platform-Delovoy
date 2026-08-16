@@ -22,7 +22,11 @@ function listChangedTestFiles(baseRef: string): string[] {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
-    .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test.tsx") || f.includes("__tests__/"));
+    .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test.tsx") || f.includes("__tests__/"))
+    // The checker's own tests/fixtures reference AC-N ids as literal example
+    // text (to test the checker itself) — treating them as real feature test
+    // evidence would self-report false coverage whenever this PR touches them.
+    .filter((f) => !f.startsWith("eval/__tests__/") && !f.startsWith("eval/fixtures/"));
 }
 
 async function readIfExists(filePath: string): Promise<string | null> {
