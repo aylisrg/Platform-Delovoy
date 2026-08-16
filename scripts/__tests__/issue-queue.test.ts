@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CODE_REVIEWER_PASS_MARKER,
   DEFAULT_CONFIG,
   GIVEUP_MARKER,
+  QA_ENGINEER_PASS_MARKER,
   STALE_MARKER,
   autoMergeSkipReason,
   classifyMergeGate,
@@ -9,6 +11,7 @@ import {
   countBackpressurePrs,
   destructiveSqlIn,
   isEligible,
+  isTrustedVerdictAuthor,
   isUntriaged,
   laneOf,
   missedAutoCloseIssues,
@@ -42,6 +45,9 @@ function issue(number: number, labels: string[], over: Partial<QueueIssue> = {})
 }
 
 const config = (over: Partial<QueueConfig> = {}): QueueConfig => ({ ...DEFAULT_CONFIG, ...over });
+
+/** PR-комментарии с обоими маркерами вердиктов — «ревью прошло» для гейта (#580). */
+const PASSING_VERDICTS = [`${CODE_REVIEWER_PASS_MARKER}\nВердикт: PASS.`, `${QA_ENGINEER_PASS_MARKER}\nВердикт: PASS.`];
 
 describe('laneOf', () => {
   it('распознаёт каждую полосу', () => {
@@ -291,6 +297,7 @@ describe('classifyMergeGate', () => {
     const gate = classifyMergeGate(
       ['src/modules/booking/service.ts', 'src/modules/booking/__tests__/service.test.ts'],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('auto');
     expect(gate.reasons).toEqual([]);
@@ -308,7 +315,7 @@ describe('classifyMergeGate', () => {
     ['.github/workflows/ops-nginx.yml', 'ops'],
     ['scripts/deploy-bluegreen.sh', 'скрипт деплоя'],
   ])('%s больше не держит PR (%s)', (file) => {
-    const gate = classifyMergeGate(['src/modules/booking/service.ts', file], config());
+    const gate = classifyMergeGate(['src/modules/booking/service.ts', file], config(), PASSING_VERDICTS);
     expect(gate.tier).toBe('auto');
   });
 
@@ -322,15 +329,15 @@ describe('classifyMergeGate', () => {
     // Интейк чеканит auto:ready из внешних данных — его правила меняет человек.
     '.github/workflows/backlog-intake.yml',
   ])('автоматизация не мержит собственный рубильник %s', (file) => {
-    expect(classifyMergeGate([file], config()).tier).toBe('hold');
+    expect(classifyMergeGate([file], config(), PASSING_VERDICTS).tier).toBe('hold');
   });
 
   it('тесты очереди рубильником не считаются — их правит кто угодно', () => {
-    expect(classifyMergeGate(['scripts/__tests__/issue-queue.test.ts'], config()).tier).toBe('auto');
+    expect(classifyMergeGate(['scripts/__tests__/issue-queue.test.ts'], config(), PASSING_VERDICTS).tier).toBe('auto');
   });
 
   it('чужие workflow с похожим именем под правило не попадают', () => {
-    expect(classifyMergeGate(['.github/workflows/issue-templates.yml'], config()).tier).toBe('auto');
+    expect(classifyMergeGate(['.github/workflows/issue-templates.yml'], config(), PASSING_VERDICTS).tier).toBe('auto');
   });
 
   it('5+ модулей — scope creep по правилу CLAUDE.md #5', () => {
@@ -343,6 +350,7 @@ describe('classifyMergeGate', () => {
         'src/modules/clients/service.ts',
       ],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('hold');
     expect(gate.reasons.join(' ')).toContain('scope creep');
@@ -358,6 +366,7 @@ describe('classifyMergeGate', () => {
         'src/modules/rental/service.ts',
       ],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('auto');
   });
@@ -366,6 +375,7 @@ describe('classifyMergeGate', () => {
     const gate = classifyMergeGate(
       [{ filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+ALTER TABLE "Booking" ADD COLUMN "note" TEXT;' }],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('auto');
   });
@@ -377,26 +387,36 @@ describe('classifyMergeGate', () => {
         { filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+ALTER TABLE "Booking" DROP COLUMN "note";' },
       ],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('hold');
     expect(gate.reasons.join(' ')).toContain('DROP COLUMN');
   });
 
-  it('миграция без диффа считается безопасной — GitHub не отдаёт patch для больших файлов', () => {
-    const gate = classifyMergeGate([{ filename: 'prisma/migrations/20260811_x/migration.sql' }], config());
-    expect(gate.tier).toBe('auto');
+  // F6 аудита: раньше «нет patch» молча значило «безопасно» — деструктивный SQL в
+  // файле, слишком большом для GitHub-диффа, проскакивал бы незамеченным.
+  it('миграция без доступного диффа держит PR — ручная проверка вместо угадывания', () => {
+    const gate = classifyMergeGate(
+      [{ filename: 'prisma/migrations/20260811_x/migration.sql' }],
+      config(),
+      PASSING_VERDICTS,
+    );
+    expect(gate.tier).toBe('hold');
+    expect(gate.reasons.join(' ')).toContain('diff миграции');
+    expect(gate.reasons.join(' ')).toContain('недоступен');
   });
 
   it('деструктивный SQL вне prisma/migrations гейт не трогает', () => {
     const gate = classifyMergeGate(
       [{ filename: 'scripts/seeds/cleanup.ts', patch: '+await prisma.$executeRaw`DROP TABLE tmp`;' }],
       config(),
+      PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('auto');
   });
 
   it('глобальный autoMerge=false держит всё', () => {
-    const gate = classifyMergeGate(['src/modules/booking/service.ts'], config({ autoMerge: false }));
+    const gate = classifyMergeGate(['src/modules/booking/service.ts'], config({ autoMerge: false }), PASSING_VERDICTS);
     expect(gate.tier).toBe('hold');
     expect(gate.reasons.join(' ')).toContain('выключен');
   });
@@ -408,12 +428,91 @@ describe('classifyMergeGate', () => {
         { filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+DROP TABLE "Booking";' },
       ],
       config({ autoMerge: false }),
+      PASSING_VERDICTS,
     );
     expect(gate.reasons.length).toBeGreaterThanOrEqual(3);
     const joined = gate.reasons.join(' ');
     expect(joined).toContain('выключен');
     expect(joined).toContain('рубильники');
     expect(joined).toContain('DROP TABLE');
+  });
+
+  // #580, F5 аудита: «PASS от ревью-агентов» раньше была конвенцией промпта, не
+  // машинной проверкой — сессия, пропустившая шаг 5, давала PR, неотличимый для
+  // подметальщика от проверенного.
+  describe('маркеры вердиктов ревью-агентов (#580)', () => {
+    it('без маркеров вообще — hold', () => {
+      const gate = classifyMergeGate(['src/modules/booking/service.ts'], config(), []);
+      expect(gate.tier).toBe('hold');
+      expect(gate.reasons.join(' ')).toContain('вердиктов ревью-агентов');
+    });
+
+    it('только code-reviewer — всё ещё hold', () => {
+      const gate = classifyMergeGate(
+        ['src/modules/booking/service.ts'],
+        config(),
+        [`${CODE_REVIEWER_PASS_MARKER}\nВердикт: PASS.`],
+      );
+      expect(gate.tier).toBe('hold');
+      expect(gate.reasons.join(' ')).toContain('вердиктов ревью-агентов');
+    });
+
+    it('только qa-engineer — всё ещё hold', () => {
+      const gate = classifyMergeGate(
+        ['src/modules/booking/service.ts'],
+        config(),
+        [`${QA_ENGINEER_PASS_MARKER}\nВердикт: PASS.`],
+      );
+      expect(gate.tier).toBe('hold');
+      expect(gate.reasons.join(' ')).toContain('вердиктов ревью-агентов');
+    });
+
+    it('оба маркера, в любых сторонних комментариях PR — auto', () => {
+      const gate = classifyMergeGate(
+        ['src/modules/booking/service.ts'],
+        config(),
+        ['Просто комментарий владельца.', ...PASSING_VERDICTS, 'И ещё один после.'],
+      );
+      expect(gate.tier).toBe('auto');
+      expect(gate.reasons).toEqual([]);
+    });
+  });
+});
+
+// Репозиторий публичный — маркер вердикта сам по себе просто строка из
+// экспортируемой константы, известная кому угодно. Без проверки авторства
+// любой сторонний аккаунт мог бы вставить обе строки в комментарий и получить
+// `auto` без единого реального ревью. classifyMergeGate доверяет вызывающему
+// коду (см. `trustedCommentBodies` в scripts/issue-queue.ts) — сама фильтрация
+// авторства проверяется здесь, отдельно от гейта.
+describe('isTrustedVerdictAuthor (#580)', () => {
+  it('владелец репозитория — доверенный автор', () => {
+    expect(isTrustedVerdictAuthor('aylisrg', 'OWNER')).toBe(true);
+  });
+
+  it('известный логин бота-автоматики — доверенный, даже с association CONTRIBUTOR', () => {
+    // claude[bot] (сессии /next-issue через agent-proxy) сами приходят с
+    // author_association: CONTRIBUTOR — тем же уровнем, что и у любого
+    // стороннего аккаунта с одним смерженным PR в истории. Доверие тут — по
+    // логину, не по association.
+    expect(isTrustedVerdictAuthor('claude[bot]', 'CONTRIBUTOR')).toBe(true);
+  });
+
+  it('сторонний аккаунт с CONTRIBUTOR — НЕ доверенный (спуфинг маркера)', () => {
+    expect(isTrustedVerdictAuthor('random-external-account', 'CONTRIBUTOR')).toBe(false);
+  });
+
+  it('сторонний аккаунт без истории вклада (NONE) — НЕ доверенный', () => {
+    expect(isTrustedVerdictAuthor('first-time-visitor', 'NONE')).toBe(false);
+  });
+
+  it('MEMBER/COLLABORATOR без известного логина — НЕ доверенный (репозиторий сегодня без сторонних коллабораторов)', () => {
+    expect(isTrustedVerdictAuthor('some-collaborator', 'COLLABORATOR')).toBe(false);
+    expect(isTrustedVerdictAuthor('some-member', 'MEMBER')).toBe(false);
+  });
+
+  it('пустой логин (комментарий от удалённого/анонимизированного аккаунта) — НЕ доверенный', () => {
+    expect(isTrustedVerdictAuthor('', 'NONE')).toBe(false);
   });
 });
 
