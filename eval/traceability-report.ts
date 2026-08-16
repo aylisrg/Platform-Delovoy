@@ -82,7 +82,9 @@ async function main() {
     "",
     result.pass
       ? "✅ Все AC из PRD упомянуты хотя бы в одном тестовом файле diff'а."
-      : `⚠️ ${result.issues.length} AC без покрытия тестами (см. таблицу выше). Проверка пока в режиме отчёта и не блокирует мерж.`,
+      : result.coverage.length === 0
+        ? "⚠️ В PRD не найдено ни одного AC-N чек-листа для трассировки (см. issues выше)."
+        : `⚠️ ${result.issues.length} AC без покрытия тестами (см. таблицу выше). Проверка пока в режиме отчёта и не блокирует мерж.`,
   ];
   if (result.notes.length > 0) {
     lines.push("", ...result.notes.map((n) => `> ℹ️ ${n}`));
