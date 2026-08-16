@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { Payment, Prisma } from "@prisma/client";
 import { log, logAudit } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import {
   createPayment as yooCreatePayment,
   getPayment as yooGetPayment,
@@ -40,7 +41,7 @@ import {
  *   выполняются в ОДНОЙ транзакции с переходом статуса.
  */
 
-const MODULE_SLUG = "payments";
+const MODULE_SLUG = EVENT_SOURCES.PAYMENTS;
 
 /** Окно оплаты pending-платежа ЮKassa ~1 час; наш TTL совпадает. */
 const PENDING_TTL_MINUTES = 60;
@@ -234,6 +235,7 @@ async function applySubjectEffectsOnSuccess(
       return;
     }
     default:
+      // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
       await tx.systemEvent.create({
         data: {
           level: "ERROR",

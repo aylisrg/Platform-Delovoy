@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiResponse, apiValidationError, apiServerError } from "@/lib/api-response";
-import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
 import { escapeHtml } from "@/lib/telegram/escape";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 const schema = z.object({
   name: z.string().min(2).max(100),
@@ -26,13 +27,10 @@ export async function POST(req: NextRequest) {
   const { name, phone } = parsed.data;
 
   try {
-    await prisma.systemEvent.create({
-      data: {
-        level: "INFO",
-        source: "waitlist",
-        message: `Новая заявка в лист ожидания: ${name}, ${phone}`,
-        metadata: { name, phone, module: "rental" },
-      },
+    await log.info(EVENT_SOURCES.WAITLIST, `Новая заявка в лист ожидания: ${name}, ${phone}`, {
+      name,
+      phone,
+      module: "rental",
     });
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;

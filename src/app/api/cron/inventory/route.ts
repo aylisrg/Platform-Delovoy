@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
-import { prisma } from "@/lib/db";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 /**
  * GET /api/cron/inventory — run inventory background jobs.
@@ -38,21 +39,18 @@ export async function GET(request: NextRequest) {
     results.expiredBatches = trueExpired.length;
 
     if (trueExpired.length > 0) {
-      await prisma.systemEvent.create({
-        data: {
-          level: "WARNING",
-          source: "cron/inventory",
-          message: `${trueExpired.length} партий с истёкшим сроком годности ожидают списания`,
-          metadata: {
-            batches: trueExpired.map((b) => ({
-              batchId: b.batchId,
-              sku: b.skuName,
-              qty: b.remainingQty,
-              expiresAt: b.expiresAt,
-            })),
-          },
-        },
-      });
+      await log.warn(
+        EVENT_SOURCES.CRON_INVENTORY,
+        `${trueExpired.length} партий с истёкшим сроком годности ожидают списания`,
+        {
+          batches: trueExpired.map((b) => ({
+            batchId: b.batchId,
+            sku: b.skuName,
+            qty: b.remainingQty,
+            expiresAt: b.expiresAt,
+          })),
+        }
+      );
     }
 
     // 2. Low stock alert sweep

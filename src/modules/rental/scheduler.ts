@@ -4,6 +4,8 @@ import { escapeHtml } from "@/lib/telegram/escape";
 import { getOrCreateSettings, logEmail, sendAutoReminder } from "./notifications";
 import type { PaymentWithContract } from "./notifications";
 import { formatDateRu, formatMoney } from "./template-engine";
+import { logEvent } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 export type ReminderStats = {
   scanned: number;
@@ -35,19 +37,14 @@ function addDays(d: Date, days: number): Date {
   return r;
 }
 
-async function logSystemEvent(level: "INFO" | "WARNING" | "ERROR", message: string, metadata?: unknown) {
-  try {
-    await prisma.systemEvent.create({
-      data: {
-        level,
-        source: "rental.scheduler",
-        message,
-        metadata: metadata ? (metadata as object) : undefined,
-      },
-    });
-  } catch (err) {
-    console.warn("[rental/scheduler] failed to log system event:", err);
-  }
+async function logSystemEvent(
+  level: "INFO" | "WARNING" | "ERROR",
+  message: string,
+  metadata?: Record<string, unknown>
+) {
+  // logEvent уже перехватывает свои собственные ошибки (console-fallback) —
+  // отдельный try/catch тут больше не нужен.
+  await logEvent(level, EVENT_SOURCES.RENTAL_SCHEDULER, message, metadata);
 }
 
 /**

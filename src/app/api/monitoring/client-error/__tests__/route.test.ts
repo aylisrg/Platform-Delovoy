@@ -68,14 +68,15 @@ describe("POST /api/monitoring/client-error", () => {
     expect(mockedCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 500 without leaking details when the DB write fails", async () => {
+  it("still accepts the beacon when the DB write fails (logger.ts console-fallback, issue #581)", async () => {
     mockedCreate.mockRejectedValue(new Error("db down"));
     const res = await POST(
       makeRequest({ message: "boom", source: "window-error" }),
     );
     const json = await res.json();
-    expect(res.status).toBe(500);
-    expect(json.success).toBe(false);
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data.accepted).toBe(true);
     expect(JSON.stringify(json)).not.toContain("db down");
   });
 });

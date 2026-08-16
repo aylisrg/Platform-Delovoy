@@ -6,6 +6,8 @@ import { computeDedupKey, isDuplicate } from "./dedup";
 import { isInQuietHours, nextQuietHoursEnd } from "./quiet-hours";
 import { loadEffectivePreference, pickChannel } from "./preferences";
 import type { DispatchEvent, DispatchOutcome } from "./types";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 bootstrapChannels();
 
@@ -184,16 +186,11 @@ async function attemptFallback(
 
   if (!nextChannel || !ChannelRegistry.get(nextChannel.kind)?.isAvailable()) {
     // All channels exhausted — log warning via SystemEvent
-    await prisma.systemEvent.create({
-      data: {
-        level: "WARNING",
-        source: "notifications",
-        message: `All channels exhausted for userId=${item.userId} eventType=${item.eventType}`,
-        // SystemEvent имеет поле metadata (schema.prisma), не meta: с meta
-        // Prisma кидал PrismaClientValidationError ровно в этой ветке.
-        metadata: { outgoingId: item.id, triedIds },
-      },
-    });
+    await log.warn(
+      EVENT_SOURCES.NOTIFICATIONS,
+      `All channels exhausted for userId=${item.userId} eventType=${item.eventType}`,
+      { outgoingId: item.id, triedIds }
+    );
     return "failed";
   }
 
