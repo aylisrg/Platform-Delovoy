@@ -1413,6 +1413,92 @@ describe("soft-delete filter (deletedAt: null) in read functions", () => {
     );
   });
 
+  // #564: продолжение #512 — те же пропуски deletedAt: null ещё в 6 местах,
+  // найденных при полном проходе по prisma.booking.findFirst в этом файле.
+  it("updateBookingStatus filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(updateBookingStatus("some-id", "CONFIRMED")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("cancelBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(cancelBooking("some-id", "user-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("markNoShow filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(markNoShow("some-id", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("addItemsToBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(addItemsToBooking("some-id", "manager-1", [])).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("extendBooking filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(extendBooking("some-id", "manager-1")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
+  it("getBookingBill filters by deletedAt: null", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+
+    await expect(getBookingBill("some-id")).rejects.toMatchObject({
+      code: "BOOKING_NOT_FOUND",
+    });
+
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      })
+    );
+  });
+
   it("getTimeline filters soft-deleted bookings", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockTable()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
