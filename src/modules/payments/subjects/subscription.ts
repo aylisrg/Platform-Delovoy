@@ -1,4 +1,5 @@
 import type { Payment, Prisma } from "@prisma/client";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 /**
  * Доменные эффекты платежей с subjectType=SUBSCRIPTION (абонементы PS Park).
@@ -13,10 +14,11 @@ type Tx = Prisma.TransactionClient;
 export async function onSubscriptionPaymentSucceeded(tx: Tx, payment: Payment): Promise<void> {
   const sub = await tx.subscription.findUnique({ where: { id: payment.subjectId } });
   if (!sub) {
+    // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
     await tx.systemEvent.create({
       data: {
         level: "ERROR",
-        source: "payments",
+        source: EVENT_SOURCES.PAYMENTS,
         message: "Оплата получена, но абонемент не найден",
         metadata: { paymentId: payment.id, subscriptionId: payment.subjectId },
       },
@@ -33,10 +35,11 @@ export async function onSubscriptionPaymentSucceeded(tx: Tx, payment: Payment): 
     select: { id: true },
   });
   if (existingActive) {
+    // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
     await tx.systemEvent.create({
       data: {
         level: "CRITICAL",
-        source: "payments",
+        source: EVENT_SOURCES.PAYMENTS,
         message:
           "Оплата абонемента получена, но активация невозможна: у гостя уже есть активный абонемент. Требуется ручное решение (возврат).",
         metadata: {

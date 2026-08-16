@@ -14,6 +14,8 @@ import { prisma } from "@/lib/db";
 import { hasModuleAccess } from "@/lib/permissions";
 import { sendMessage } from "@/lib/avito/messenger";
 import { AvitoReplySchema } from "@/lib/avito/validation";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 export const dynamic = "force-dynamic";
 
@@ -90,19 +92,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     if (!result.ok) {
-      await prisma.systemEvent
-        .create({
-          data: {
-            level: "ERROR",
-            source: "avito.reply",
-            message: "avito.reply.send_failed",
-            metadata: {
-              taskPublicId: publicId,
-              reason: result.reason,
-            } as Prisma.InputJsonValue,
-          },
-        })
-        .catch(() => undefined);
+      await log.error(EVENT_SOURCES.AVITO_REPLY, "avito.reply.send_failed", {
+        taskPublicId: publicId,
+        reason: result.reason,
+      });
       return apiError(
         result.retryable ? "AVITO_API_ERROR" : "AVITO_SEND_REJECTED",
         result.reason,

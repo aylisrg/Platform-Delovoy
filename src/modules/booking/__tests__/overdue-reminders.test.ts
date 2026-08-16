@@ -188,7 +188,7 @@ describe("scanAndDispatchOverdue", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           level: "WARNING",
-          source: "scheduler",
+          source: "booking.scheduler",
           message: expect.stringContaining("escalated to SUPERADMIN"),
         }),
       })

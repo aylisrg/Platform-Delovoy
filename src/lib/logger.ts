@@ -3,13 +3,14 @@ import type { EventLevel } from "@prisma/client";
 import { redis, redisAvailable } from "./redis";
 import { sendAlert } from "./notifications";
 import { escapeHtml } from "./telegram/escape";
+import type { EventSource } from "./event-sources";
 
 /**
  * Log a system event to the database.
  */
 export async function logEvent(
   level: EventLevel,
-  source: string,
+  source: EventSource,
   message: string,
   metadata?: Record<string, unknown>
 ) {
@@ -64,7 +65,7 @@ const CRITICAL_ALERT_THROTTLE_TTL = 300; // seconds, per source
  * изредка продублировать алерт. Ошибка отправки не должна ронять
  * вызывающий код — fire-and-forget с собственным try/catch.
  */
-async function alertCritical(source: string, message: string): Promise<void> {
+async function alertCritical(source: EventSource, message: string): Promise<void> {
   let shouldAlert = true;
   if (redisAvailable) {
     try {
@@ -94,13 +95,13 @@ async function alertCritical(source: string, message: string): Promise<void> {
 
 // Convenience methods
 export const log = {
-  info: (source: string, message: string, metadata?: Record<string, unknown>) =>
+  info: (source: EventSource, message: string, metadata?: Record<string, unknown>) =>
     logEvent("INFO", source, message, metadata),
-  warn: (source: string, message: string, metadata?: Record<string, unknown>) =>
+  warn: (source: EventSource, message: string, metadata?: Record<string, unknown>) =>
     logEvent("WARNING", source, message, metadata),
-  error: (source: string, message: string, metadata?: Record<string, unknown>) =>
+  error: (source: EventSource, message: string, metadata?: Record<string, unknown>) =>
     logEvent("ERROR", source, message, metadata),
-  critical: (source: string, message: string, metadata?: Record<string, unknown>) => {
+  critical: (source: EventSource, message: string, metadata?: Record<string, unknown>) => {
     void alertCritical(source, message);
     return logEvent("CRITICAL", source, message, metadata);
   },

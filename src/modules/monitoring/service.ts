@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import type { EventLevel } from "@prisma/client";
 import type { ClientErrorInput } from "./validation";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 /**
  * Пишет ошибку клиентского бикона в SystemEvent (level WARNING, source
@@ -9,18 +11,11 @@ import type { ClientErrorInput } from "./validation";
  * были невидимы серверным пробам).
  */
 export async function logClientError(input: ClientErrorInput) {
-  await prisma.systemEvent.create({
-    data: {
-      level: "WARNING",
-      source: "client-beacon",
-      message: input.message,
-      metadata: {
-        beaconSource: input.source,
-        ...(input.url ? { url: input.url } : {}),
-        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
-        ...(input.connection ? { connection: input.connection } : {}),
-      },
-    },
+  await log.warn(EVENT_SOURCES.CLIENT_BEACON, input.message, {
+    beaconSource: input.source,
+    ...(input.url ? { url: input.url } : {}),
+    ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+    ...(input.connection ? { connection: input.connection } : {}),
   });
 }
 

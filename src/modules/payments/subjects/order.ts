@@ -1,6 +1,7 @@
 import type { Payment, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 
 /**
  * Доменные эффекты платежей с subjectType=ORDER (заказы кафе).
@@ -31,10 +32,11 @@ export function orderNumber(orderId: string): string {
 export async function onOrderPaymentSucceeded(tx: Tx, payment: Payment): Promise<void> {
   const order = await tx.order.findUnique({ where: { id: payment.subjectId } });
   if (!order) {
+    // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
     await tx.systemEvent.create({
       data: {
         level: "ERROR",
-        source: "payments",
+        source: EVENT_SOURCES.PAYMENTS,
         message: "Оплата получена, но заказ не найден",
         metadata: { paymentId: payment.id, orderId: payment.subjectId },
       },

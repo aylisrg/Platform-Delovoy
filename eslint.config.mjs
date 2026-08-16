@@ -64,6 +64,32 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": "off",
     },
   },
+  // Issue #581, F4/F5 аудита: прямые prisma.systemEvent.create/tx.systemEvent.create
+  // в обход src/lib/logger.ts теряют console-fallback при недоступной БД, а source
+  // не проверяется против реестра src/lib/event-sources.ts. Пять мест внутри
+  // prisma.$transaction (атомарная запись, logger.ts туда не встроить) отмечены
+  // точечным disable-комментарием прямо над строкой.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name='create'][callee.object.property.name='systemEvent']",
+          message:
+            "Пишите через log.*/logEvent из '@/lib/logger' (issue #581) — прямой systemEvent.create теряет console-fallback и не проверяет source против '@/lib/event-sources'.",
+        },
+      ],
+    },
+  },
+  // logger.ts — единственное разрешённое место прямой записи (сама реализация).
+  {
+    files: ["src/lib/logger.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
