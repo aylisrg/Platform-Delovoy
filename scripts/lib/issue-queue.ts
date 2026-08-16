@@ -207,6 +207,43 @@ export function staleWipWithPr(
   });
 }
 
+export interface MergedPrClosing {
+  number: number;
+  closesIssues: number[];
+  mergedAt: string;
+}
+
+const ACTIVE_LANES = new Set<Lane>(['wip', 'ready', 'review']);
+
+/**
+ * Issues, чей закрывающий PR уже смержен, но нативное GitHub `Closes #N` не
+ * сработало (issue #616 — наблюдалось трижды за одну сессию `/next-issue`,
+ * причина на стороне GitHub не установлена). Ограничено активными полосами
+ * очереди (ready/wip/review) — epic/parked/blocked это состояния для
+ * владельца, закрывать их по случайному совпадению с номером PR нельзя.
+ *
+ * Issue, тронутая (владельцем или иначе) уже ПОСЛЕ мержа PR — не пропуск
+ * auto-close, а вероятное осознанное переоткрытие (фикс оказался неполным):
+ * `updatedAt` issue обновляется при Reopen, и без этой проверки reconcile
+ * закрыл бы её обратно на следующем же прогоне.
+ */
+export function missedAutoCloseIssues(
+  issues: QueueIssue[],
+  mergedPrs: MergedPrClosing[],
+): { issue: QueueIssue; prNumber: number }[] {
+  const out: { issue: QueueIssue; prNumber: number }[] = [];
+  for (const issue of issues) {
+    if (!ACTIVE_LANES.has(laneOf(issue.labels))) continue;
+    const pr = mergedPrs.find(
+      (p) =>
+        p.closesIssues.includes(issue.number) &&
+        new Date(issue.updatedAt).getTime() <= new Date(p.mergedAt).getTime()
+    );
+    if (pr) out.push({ issue, prNumber: pr.number });
+  }
+  return out;
+}
+
 // ── Маркеры служебных комментариев ──────────────────────────────────────────
 //
 // Всё состояние очереди, которому нужна история (попытки, алерты, парковки),
@@ -229,6 +266,8 @@ export const EPIC_PLANNED_MARKER = '<!-- epic-planned -->';
  * Маркер дедупит: один видимый комментарий на PR вместо тишины или спама.
  */
 export const DRAFT_STUCK_MARKER = '<!-- issue-queue-draft-stuck -->';
+/** Комментарий «закрыто вручную reconcile'ом — GitHub не авто-закрыл» (issue #616). */
+export const MISSED_AUTOCLOSE_MARKER = '<!-- issue-queue-missed-autoclose -->';
 /** Фраза старых терминальных комментариев (до появления GIVEUP_MARKER). */
 const LEGACY_GIVEUP = 'Задача снята с автоочереди';
 

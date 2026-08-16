@@ -11,6 +11,7 @@ import {
   isEligible,
   isUntriaged,
   laneOf,
+  missedAutoCloseIssues,
   moduleOf,
   orderQueue,
   pickNext,
@@ -548,6 +549,89 @@ describe('staleWipWithPr', () => {
       now,
     );
     expect(stale).toEqual([]);
+  });
+});
+
+// Issue #616: GitHub иногда не закрывает issue автоматически по `Closes #N`
+// смерженного PR. issue() по умолчанию даёт updatedAt = '2026-08-10T00:00:00Z' —
+// mergedAt ниже намеренно на/после этой отметки, кроме теста на переоткрытие.
+describe('missedAutoCloseIssues', () => {
+  it('находит issue в auto:wip, чей смерженный PR должен был её закрыть', () => {
+    const result = missedAutoCloseIssues(
+      [issue(548, ['auto:wip'])],
+      [{ number: 609, closesIssues: [548], mergedAt: '2026-08-10T01:00:00Z' }],
+    );
+    expect(result).toEqual([{ issue: issue(548, ['auto:wip']), prNumber: 609 }]);
+  });
+
+  it('находит issue и в auto:ready, и в auto:review', () => {
+    const result = missedAutoCloseIssues(
+      [issue(1, ['auto:ready']), issue(2, ['auto:review'])],
+      [
+        { number: 100, closesIssues: [1], mergedAt: '2026-08-10T01:00:00Z' },
+        { number: 101, closesIssues: [2], mergedAt: '2026-08-10T01:00:00Z' },
+      ],
+    );
+    expect(result.map((r) => r.issue.number).sort()).toEqual([1, 2]);
+  });
+
+  it('не трогает epic/parked/blocked — это состояния для владельца', () => {
+    const result = missedAutoCloseIssues(
+      [
+        issue(1, ['auto:epic']),
+        issue(2, ['auto:parked']),
+        issue(3, ['auto:blocked']),
+      ],
+      [
+        { number: 100, closesIssues: [1], mergedAt: '2026-08-10T01:00:00Z' },
+        { number: 101, closesIssues: [2], mergedAt: '2026-08-10T01:00:00Z' },
+        { number: 102, closesIssues: [3], mergedAt: '2026-08-10T01:00:00Z' },
+      ],
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('issue без смерженного PR, который её закрывает, — не трогает', () => {
+    const result = missedAutoCloseIssues(
+      [issue(1, ['auto:wip'])],
+      [{ number: 100, closesIssues: [2], mergedAt: '2026-08-10T01:00:00Z' }],
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('пустой список смерженных PR — не трогает ничего', () => {
+    expect(missedAutoCloseIssues([issue(1, ['auto:wip'])], [])).toEqual([]);
+  });
+
+  // Регрессия на замечание code review: issue, переоткрытая владельцем ПОСЛЕ
+  // мержа PR (осознанно — фикс оказался неполным), не должна закрываться
+  // обратно. Reopen обновляет issue.updatedAt — этого достаточно, чтобы
+  // отличить «пропуск auto-close» (issue.updatedAt <= pr.mergedAt) от
+  // «issue тронута кем-то уже после мержа».
+  it('не закрывает issue, тронутую (переоткрытую) уже после мержа PR-а', () => {
+    const reopened = issue(548, ['auto:wip'], { updatedAt: '2026-08-11T00:00:00Z' });
+    const result = missedAutoCloseIssues(
+      [reopened],
+      [{ number: 609, closesIssues: [548], mergedAt: '2026-08-10T01:00:00Z' }],
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('issue.updatedAt ровно на moment мержа PR-а — всё ещё считается пропуском', () => {
+    const result = missedAutoCloseIssues(
+      [issue(1, ['auto:wip'], { updatedAt: '2026-08-10T01:00:00Z' })],
+      [{ number: 100, closesIssues: [1], mergedAt: '2026-08-10T01:00:00Z' }],
+    );
+    expect(result.map((r) => r.issue.number)).toEqual([1]);
+  });
+
+  it('один PR закрывает две разные issues — обе попадают в результат', () => {
+    const result = missedAutoCloseIssues(
+      [issue(1, ['auto:wip']), issue(2, ['auto:ready'])],
+      [{ number: 100, closesIssues: [1, 2], mergedAt: '2026-08-10T01:00:00Z' }],
+    );
+    expect(result.map((r) => r.issue.number).sort()).toEqual([1, 2]);
+    expect(result.every((r) => r.prNumber === 100)).toBe(true);
   });
 });
 
