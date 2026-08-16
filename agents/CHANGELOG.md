@@ -117,6 +117,6 @@
 | po         | 1.1.0   |
 | architect  | 1.1.0   |
 | developer  | 1.2.0   |
-| reviewer   | 1.1.0   |
+| reviewer   | 1.4.0   |
 | qa         | 1.3.0   |
 | analytics  | 1.1.0   |
