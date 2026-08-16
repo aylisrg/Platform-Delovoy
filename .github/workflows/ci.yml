@@ -55,6 +55,26 @@ jobs:
       - name: npm ci (падает при рассинхроне package.json ↔ package-lock.json)
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+  # Отчёт AC → тест для PR, ссылающихся на PRD (issue #585). Режим отчёта:
+  # скрипт сам никогда не завершается с ошибкой (см. eval/traceability-report.ts),
+  # continue-on-error — дополнительная страховка на время стабилизации.
+  # Решение сделать проверку блокирующей — отдельным изменением после 2-3 фич.
+  ac-traceability:
+    name: AC-трассируемость (отчёт)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - run: git fetch origin "${{ github.base_ref }}" --depth=1
+      - name: Report AC coverage in step summary
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
+        run: npx tsx eval/traceability-report.ts
+
   test:
     name: Test
     runs-on: ubuntu-latest
