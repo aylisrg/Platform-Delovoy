@@ -53,7 +53,9 @@ import {
   QUEUE_BRANCH_RE,
   STALE_MARKER,
   STALE_PR_MARKER,
+  assertClaimable,
   autoMergeSkipReason,
+  claimJitterSeconds,
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
@@ -303,10 +305,15 @@ function cmdNext(): void {
 }
 
 function cmdClaim(num: number): void {
+  // Issue #647: джиттер перед read-check-write разносит во времени claim(),
+  // вызванные почти одновременно двумя сессиями (например, разбуженными одним
+  // Routine-триггером) — сужает окно гонки, не устраняя её (GitHub Issues API
+  // не поддерживает compare-and-swap/ETag на PATCH labels).
+  execFileSync('sleep', [claimJitterSeconds().toFixed(3)]);
+
   const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
   const labels = issue.labels.map((l) => l.name);
-  if (laneOf(labels) === 'wip') throw new Error(`#${num} уже auto:wip — лок занят`);
-  if (laneOf(labels) !== 'ready') throw new Error(`#${num} не в auto:ready (сейчас: ${laneOf(labels)})`);
+  assertClaimable(labels, num);
   setLabels(num, swapLane(labels, 'auto:wip'));
   console.log(`claimed #${num}`);
 }
