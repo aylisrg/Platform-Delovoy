@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 vi.mock("@/modules/notifications/queue", () => ({
   enqueueNotification: vi.fn(),
@@ -790,13 +791,8 @@ describe("getTimeline", () => {
   // через границу Server → Client, React ругался в консоли на каждой
   // загрузке. pricePerHour теперь всегда plain number/null.
   it("converts resource pricePerHour to a plain number, not a Decimal-like object", async () => {
-    const decimalLike = {
-      toString: () => "300.5",
-      toNumber: () => 300.5,
-      valueOf: () => 300.5,
-    };
     vi.mocked(prisma.resource.findMany).mockResolvedValue([
-      mockTable({ pricePerHour: decimalLike }),
+      mockTable({ pricePerHour: new Prisma.Decimal(300.5) }),
     ] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
