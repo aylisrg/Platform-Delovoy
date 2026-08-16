@@ -272,6 +272,34 @@ export const MISSED_AUTOCLOSE_MARKER = '<!-- issue-queue-missed-autoclose -->';
 const LEGACY_GIVEUP = 'Задача снята с автоочереди';
 
 /**
+ * Маркеры вердиктов ревью-агентов на PR (#580, F5 аудита). «PASS от
+ * code-reviewer и qa-engineer» раньше была конвенцией промпта `/next-issue`,
+ * которую гейт не проверял механически — сессия, пропустившая шаг 5, давала
+ * PR, неотличимый для подметальщика от проверенного. `/next-issue` публикует
+ * оба маркера комментарием на PR сразу после `pr-open`; `classifyMergeGate`
+ * требует оба для tier `auto`.
+ */
+export const CODE_REVIEWER_PASS_MARKER = '<!-- issue-queue-verdict-code-reviewer-pass -->';
+export const QA_ENGINEER_PASS_MARKER = '<!-- issue-queue-verdict-qa-engineer-pass -->';
+
+/**
+ * Кому позволено выставлять вердикт (ревью code-review PR #580). Репозиторий
+ * публичный — маркер сам по себе всего лишь строка в экспортируемой константе,
+ * её текст известен кому угодно. Без проверки авторства любой аккаунт мог бы
+ * вставить обе строки в комментарий и получить `auto` без единого реального
+ * ревью. `author_association` тут не подходит: комментарии `claude[bot]`
+ * (сессии `/next-issue` через agent-proxy) сами приходят с `CONTRIBUTOR` —
+ * тем же уровнем, что и у любого стороннего аккаунта с одним смерженным PR в
+ * истории. Доверяем только: владельцу репозитория (`OWNER`) — на случай
+ * ручного вмешательства — и известному логину бота-автоматики.
+ */
+const TRUSTED_VERDICT_LOGINS = ['claude[bot]'];
+
+export function isTrustedVerdictAuthor(login: string, authorAssociation: string): boolean {
+  return authorAssociation === 'OWNER' || TRUSTED_VERDICT_LOGINS.includes(login);
+}
+
+/**
  * Сколько попыток «подобрали и бросили» накопилось у задачи.
  * Считаются только stale-комментарии ПОСЛЕ последнего give-up: иначе задача,
  * которую владелец вернул в очередь после `auto:blocked`, мгновенно блокируется
@@ -474,13 +502,23 @@ export function moduleOf(file: string): string | null {
  * Строго: любая одна причина из списка переводит PR в `hold`.
  *
  * Принимает и просто имена файлов, и объекты с `patch` — дифф нужен, чтобы
- * отличить аддитивную миграцию от деструктивной. Без диффа миграция считается
- * безопасной: GitHub не отдаёт `patch` для слишком больших файлов, и ронять на
- * этом всю очередь неправильно — CI и ревью-агенты остаются на месте.
+ * отличить аддитивную миграцию от деструктивной. Миграция без доступного
+ * диффа (GitHub не отдаёт `patch` для слишком больших файлов) раньше молча
+ * считалась безопасной — F6 аудита: деструктивный SQL в большом файле
+ * проскакивал бы. Теперь это тоже `hold` — ручная проверка вместо угадывания.
+ *
+ * `prComments` — тела УЖЕ отфильтрованных по авторству комментариев PR
+ * (`isTrustedVerdictAuthor`; issue-комментарии, не review-треды) — вызывающий
+ * код обязан отфильтровать до вызова, здесь фильтра нет намеренно: репозиторий
+ * публичный, и без проверки авторства текст маркера в чужом комментарии
+ * значил бы то же самое, что и настоящий вердикт. Auto-tier требует оба
+ * маркера (#580, F5 аудита): без них PR, где сессия пропустила шаг 5
+ * `/next-issue` (или где маркер подделан), неотличим от проверенного.
  */
 export function classifyMergeGate(
   changedFiles: (string | ChangedFile)[],
   config: QueueConfig,
+  prComments: string[],
 ): MergeGate {
   const files: ChangedFile[] = changedFiles.map((f) => (typeof f === 'string' ? { filename: f } : f));
   const names = files.map((f) => f.filename);
@@ -498,11 +536,21 @@ export function classifyMergeGate(
   }
 
   for (const file of files) {
-    if (!/^prisma\/migrations\//.test(file.filename) || !file.patch) continue;
+    if (!/^prisma\/migrations\//.test(file.filename)) continue;
+    if (!file.patch) {
+      reasons.push(`diff миграции ${file.filename} недоступен (файл слишком большой) — ручная проверка`);
+      continue;
+    }
     const found = destructiveSqlIn(file.patch);
     if (found.length > 0) {
       reasons.push(`деструктивная миграция ${file.filename}: ${found.join(', ')} — потеря данных необратима`);
     }
+  }
+
+  const hasCodeReviewerVerdict = prComments.some((c) => c.includes(CODE_REVIEWER_PASS_MARKER));
+  const hasQaEngineerVerdict = prComments.some((c) => c.includes(QA_ENGINEER_PASS_MARKER));
+  if (!hasCodeReviewerVerdict || !hasQaEngineerVerdict) {
+    reasons.push('нет вердиктов ревью-агентов (маркеры code-reviewer/qa-engineer PASS не найдены в комментариях PR)');
   }
 
   const modules = [...new Set(names.map(moduleOf).filter((m): m is string => m !== null))].sort();
