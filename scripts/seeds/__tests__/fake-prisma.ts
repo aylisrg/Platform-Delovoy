@@ -32,10 +32,15 @@ function matches(row: Row, where: WhereCondition): boolean {
       if (row.deletedAt !== null && row.deletedAt !== undefined) return false;
       continue;
     }
-    // Composite-key shortcut: { building_floor_number: { ... } }
     if (typeof v === "object" && v !== null && !Array.isArray(v)) {
-      const composite = v as Record<string, unknown>;
-      const allMatch = Object.entries(composite).every(
+      const obj = v as Record<string, unknown>;
+      // Prisma's `{ field: { in: [...] } }` filter.
+      if ("in" in obj && Array.isArray(obj.in) && Object.keys(obj).length === 1) {
+        if (!(obj.in as unknown[]).includes(row[k])) return false;
+        continue;
+      }
+      // Composite-key shortcut: { building_floor_number: { ... } }
+      const allMatch = Object.entries(obj).every(
         ([ck, cv]) => row[ck] === cv,
       );
       if (allMatch) continue;
@@ -171,6 +176,8 @@ export interface FakePrisma {
   taskBoard: ModelDelegate;
   taskColumn: ModelDelegate;
   taskCategory: ModelDelegate;
+  moduleAssignment: ModelDelegate;
+  adminPermission: ModelDelegate;
 }
 
 export function createFakePrisma(): FakePrisma {
@@ -184,6 +191,8 @@ export function createFakePrisma(): FakePrisma {
     taskBoard: makeDelegate([["slug"]]),
     taskColumn: makeDelegate([["boardId", "sortOrder"]]),
     taskCategory: makeDelegate([["slug"]]),
+    moduleAssignment: makeDelegate([["userId", "moduleId"]]),
+    adminPermission: makeDelegate([["userId", "section"]]),
   };
 }
 
