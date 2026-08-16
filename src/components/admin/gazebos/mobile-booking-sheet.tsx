@@ -16,6 +16,8 @@ import { calcBookingPrice, type ResourcePricing } from "@/modules/gazebos/pricin
 // Gazebo minimum is 4 hours — chips start at 240 min
 const GAZEBO_DURATION_CHIPS_MIN = [240, 300, 360, 420, 480];
 
+type GuestMatch = { name: string; phone: string };
+
 export type GazeboMobileBookingSheetProps = {
   open: boolean;
   onClose: () => void;
@@ -60,6 +62,8 @@ export function GazeboMobileBookingSheet({
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guestMatches, setGuestMatches] = useState<GuestMatch[]>([]);
+  const [showMatches, setShowMatches] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -68,9 +72,41 @@ export function GazeboMobileBookingSheet({
     setClientPhone("");
     setComment("");
     setEmail("");
+    setGuestMatches([]);
+    setShowMatches(false);
     setError(null);
     setSubmitting(false);
   }, [open, defaultChip]);
+
+  // #666: автокомплит гостя по телефону — не блокирует ручной ввод, если
+  // совпадений нет (AC-3).
+  useEffect(() => {
+    const query = clientPhone.trim();
+    if (query.length < 3) {
+      setGuestMatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/gazebos/guests/search?phone=${encodeURIComponent(query)}`, { signal: controller.signal })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) setGuestMatches(data.data);
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [clientPhone]);
+
+  function selectGuest(guest: GuestMatch) {
+    setClientPhone(guest.phone);
+    setClientName(guest.name);
+    setGuestMatches([]);
+    setShowMatches(false);
+  }
 
   const endTime = endTimeFromDuration(startTime, durationMin, maxEndTime);
   const actualChip = selectedChip(startTime, endTime);
@@ -207,7 +243,7 @@ export function GazeboMobileBookingSheet({
           />
         </div>
 
-        <div>
+        <div className="relative">
           <label className="mb-1.5 block text-sm font-medium text-zinc-700">
             Телефон <span className="text-zinc-400 font-normal">(необязательно)</span>
           </label>
@@ -215,11 +251,32 @@ export function GazeboMobileBookingSheet({
             type="tel"
             value={clientPhone}
             onChange={(e) => setClientPhone(e.target.value)}
+            onFocus={() => setShowMatches(true)}
+            onBlur={() => setTimeout(() => setShowMatches(false), 150)}
             inputMode="tel"
             autoComplete="tel"
             placeholder="+7 ___ ___ __ __"
             className="h-12 w-full rounded-lg border border-zinc-300 px-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          {showMatches && guestMatches.length > 0 && (
+            <ul className="absolute z-20 mt-1 w-full rounded-lg border border-zinc-200 bg-white shadow-lg max-h-40 overflow-y-auto">
+              {guestMatches.map((guest) => (
+                <li key={guest.phone}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectGuest(guest);
+                    }}
+                    className="w-full px-3 py-2.5 text-left text-sm hover:bg-zinc-50"
+                  >
+                    <span className="font-medium text-zinc-900">{guest.name}</span>
+                    <span className="ml-2 text-zinc-400">{guest.phone}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div>

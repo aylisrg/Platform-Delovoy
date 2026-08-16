@@ -72,3 +72,48 @@ describe("GazeboMobileBookingSheet — комментарий и email (issue #6
     expect(body).not.toHaveProperty("comment");
   });
 });
+
+describe("GazeboMobileBookingSheet — автокомплит гостя по телефону (issue #666)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it("показывает подсказки после ввода 3+ символов телефона (AC-1, паритет с desktop)", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: [{ name: "Иван Петров", phone: "+79991234567" }] })
+    );
+    renderSheet();
+
+    const phoneInput = screen.getByPlaceholderText("+7 ___ ___ __ __");
+    fireEvent.focus(phoneInput);
+    fireEvent.change(phoneInput, { target: { value: "999" } });
+
+    await screen.findByText("Иван Петров", {}, { timeout: 1000 });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/gazebos/guests/search?phone=999"),
+      expect.anything()
+    );
+  });
+
+  it("выбор гостя подставляет имя и телефон", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: [{ name: "Иван Петров", phone: "+79991234567" }] })
+    );
+    renderSheet();
+
+    const phoneInput = screen.getByPlaceholderText("+7 ___ ___ __ __") as HTMLInputElement;
+    fireEvent.focus(phoneInput);
+    fireEvent.change(phoneInput, { target: { value: "999" } });
+    const suggestion = await screen.findByText("Иван Петров", {}, { timeout: 1000 });
+    fireEvent.mouseDown(suggestion);
+
+    const nameInput = screen.getByPlaceholderText("Например, Иван") as HTMLInputElement;
+    expect(nameInput.value).toBe("Иван Петров");
+    expect(phoneInput.value).toBe("+79991234567");
+  });
+});
