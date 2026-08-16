@@ -66,6 +66,7 @@ vi.mock("@/lib/db", () => ({
 import {
   createBooking,
   createAdminBooking,
+  createTable,
   updateBookingStatus,
   cancelBooking,
   getAvailability,
@@ -137,6 +138,53 @@ beforeEach(() => {
   // Module.config (#434: openHour/closeHour/slotRoundingMinutes/
   // sessionAlertMinutes), протекал бы в следующие тесты файла.
   vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
+});
+
+// ===== createTable (issue #667) =====
+
+describe("createTable", () => {
+  it("создаёт стол с moduleSlug='ps-park' и переданными полями", async () => {
+    vi.mocked(prisma.resource.create).mockResolvedValue(
+      mockTable({ name: "Стол №5", capacity: 6, pricePerHour: 400 }) as never
+    );
+
+    await createTable({ name: "Стол №5", capacity: 6, pricePerHour: 400 });
+
+    expect(prisma.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        moduleSlug: "ps-park",
+        name: "Стол №5",
+        capacity: 6,
+        pricePerHour: 400,
+      }),
+    });
+  });
+
+  it("необязательные поля не передаются, если их нет во входе", async () => {
+    vi.mocked(prisma.resource.create).mockResolvedValue(mockTable() as never);
+
+    await createTable({ name: "Стол №6" });
+
+    expect(prisma.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        moduleSlug: "ps-park",
+        name: "Стол №6",
+        description: undefined,
+        capacity: undefined,
+        pricePerHour: undefined,
+        metadata: undefined,
+      }),
+    });
+  });
+
+  it("возвращает то, что вернул prisma.resource.create", async () => {
+    const created = mockTable({ id: "table-new", name: "Стол №7" });
+    vi.mocked(prisma.resource.create).mockResolvedValue(created as never);
+
+    const result = await createTable({ name: "Стол №7" });
+
+    expect(result).toEqual(created);
+  });
 });
 
 // ===== createBooking =====

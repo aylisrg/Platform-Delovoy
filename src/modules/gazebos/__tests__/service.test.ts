@@ -87,6 +87,7 @@ vi.mock("@/lib/db", () => ({
 import {
   createBooking,
   createAdminBooking,
+  createResource,
   updateBookingStatus,
   cancelBooking,
   rescheduleBooking,
@@ -148,6 +149,65 @@ beforeEach(() => {
   vi.mocked(prisma.module.findUnique).mockResolvedValue({
     config: { maxDiscountPercent: 30, minBookingHours: 4 },
   } as never);
+});
+
+// ===== createResource (issue #667) =====
+
+describe("createResource", () => {
+  it("создаёт ресурс с moduleSlug='gazebos' и переданными полями", async () => {
+    vi.mocked(prisma.resource.create).mockResolvedValue(
+      mockResource({ name: "Беседка №5", capacity: 12, pricePerHour: 700 }) as never
+    );
+
+    await createResource({ name: "Беседка №5", capacity: 12, pricePerHour: 700 });
+
+    expect(prisma.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        moduleSlug: "gazebos",
+        name: "Беседка №5",
+        capacity: 12,
+        pricePerHour: 700,
+      }),
+    });
+  });
+
+  it("сериализует metadata через JSON round-trip перед записью", async () => {
+    vi.mocked(prisma.resource.create).mockResolvedValue(mockResource() as never);
+
+    await createResource({ name: "Беседка №6", metadata: { priceList: { weekdayHour: 500 } } });
+
+    expect(prisma.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadata: { priceList: { weekdayHour: 500 } },
+      }),
+    });
+  });
+
+  it("необязательные поля не передаются, если их нет во входе", async () => {
+    vi.mocked(prisma.resource.create).mockResolvedValue(mockResource() as never);
+
+    await createResource({ name: "Беседка №7" });
+
+    expect(prisma.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        moduleSlug: "gazebos",
+        name: "Беседка №7",
+        description: undefined,
+        capacity: undefined,
+        pricePerHour: undefined,
+        metadata: undefined,
+      }),
+    });
+  });
+
+  it("возвращает то, что вернул prisma.resource.create", async () => {
+    const created = mockResource({ id: "resource-new", name: "Беседка №8" });
+    vi.mocked(prisma.resource.create).mockResolvedValue(created as never);
+
+    const result = await createResource({ name: "Беседка №8" });
+
+    expect(result).toEqual(created);
+  });
 });
 
 // ===== createBooking =====
