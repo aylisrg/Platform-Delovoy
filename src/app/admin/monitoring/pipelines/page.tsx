@@ -6,10 +6,15 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { auth } from "@/lib/auth";
 import {
+  aggregateNextIssueRuns,
   aggregateRuns,
   listPipelineRuns,
+  readNextIssueMetrics,
 } from "@/modules/pipeline-metrics/service";
-import type { PipelineVerdict } from "@/modules/pipeline-metrics/types";
+import type {
+  NextIssueOutcome,
+  PipelineVerdict,
+} from "@/modules/pipeline-metrics/types";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +39,23 @@ function formatPct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+const outcomeLabel: Record<NextIssueOutcome, string> = {
+  merged: "Смержено",
+  parked: "Припарковано",
+  blocked: "Заблокировано",
+  released: "Возвращено в очередь",
+};
+
+const outcomeVariant: Record<
+  NextIssueOutcome,
+  "success" | "warning" | "danger" | "info"
+> = {
+  merged: "success",
+  parked: "info",
+  blocked: "danger",
+  released: "warning",
+};
+
 export default async function PipelinesMonitoringPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/auth/signin");
@@ -41,6 +63,12 @@ export default async function PipelinesMonitoringPage() {
 
   const runs = await listPipelineRuns(50);
   const aggregate = aggregateRuns(runs);
+
+  const nextIssueEvents = await readNextIssueMetrics();
+  const nextIssueAggregate = aggregateNextIssueRuns(nextIssueEvents);
+  const recentNextIssueRuns = [...nextIssueEvents]
+    .sort((a, b) => b.ts.localeCompare(a.ts))
+    .slice(0, 20);
 
   return (
     <>
@@ -185,6 +213,90 @@ export default async function PipelinesMonitoringPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-8">
+          <CardHeader>
+            <h2 className="font-semibold text-zinc-900">
+              /next-issue — телеметрия за 30 дней
+            </h2>
+          </CardHeader>
+          <CardContent>
+            {nextIssueAggregate.totalRuns === 0 ? (
+              <p className="text-sm text-zinc-400">
+                Ни одной завершённой задачи /next-issue за последние 30 дней —
+                либо очередь простаивает, либо это первый запуск после issue
+                #582 (телеметрия пишется с шага 7 <code className="rounded bg-zinc-100 px-1">next-issue.md</code>).
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-4">
+                  <StatusWidget
+                    title="Задач завершено"
+                    value={nextIssueAggregate.totalRuns}
+                    status="info"
+                  />
+                  <StatusWidget
+                    title="Смержено"
+                    value={nextIssueAggregate.outcomeCounts.merged}
+                    status={
+                      nextIssueAggregate.outcomeCounts.merged >=
+                      nextIssueAggregate.totalRuns / 2
+                        ? "success"
+                        : "warning"
+                    }
+                  />
+                  <StatusWidget
+                    title="Раундов CI-фикса (avg)"
+                    value={nextIssueAggregate.avgCiFixRounds.toFixed(1)}
+                    status={
+                      nextIssueAggregate.avgCiFixRounds <= 1
+                        ? "success"
+                        : nextIssueAggregate.avgCiFixRounds <= 2
+                          ? "warning"
+                          : "danger"
+                    }
+                  />
+                  <StatusWidget
+                    title="Медианная длительность"
+                    value={`${Math.round(nextIssueAggregate.medianDurationMin)} мин`}
+                    status="info"
+                  />
+                </div>
+
+                <div className="mt-6 space-y-2">
+                  {recentNextIssueRuns.map((event, i) => (
+                    <div
+                      key={`${event.issue}-${event.ts}-${i}`}
+                      className="flex items-start justify-between gap-4 rounded border border-zinc-200 p-3 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={outcomeVariant[event.outcome]}>
+                            {outcomeLabel[event.outcome]}
+                          </Badge>
+                          <span className="truncate font-medium text-zinc-900">
+                            issue #{event.issue}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          <span className="font-mono">{event.branch}</span>
+                          {" · "}
+                          CI-раундов: {event.ci_fix_rounds}
+                          {" · "}
+                          Ревью-раундов: {event.review_rounds}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-zinc-500">
+                        <div>{event.duration_min} мин</div>
+                        <div>{new Date(event.ts).toLocaleString("ru-RU")}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

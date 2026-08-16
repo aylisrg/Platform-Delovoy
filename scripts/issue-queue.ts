@@ -29,12 +29,16 @@
  *   pr-ready 463                             снять черновик (GraphQL; в сессии воркера недоступен)
  *   pr-merge 463                             мерж (сам перепроверяет гейт и CI)
  *   automerge [--dry-run]                    крон: домержить все готовые PR очереди
+ *   metric 463 branch outcome ciRounds reviewRounds durationMin
+ *                                            телеметрия прогона в docs/pipeline-runs/next-issue.jsonl
+ *                                            (имя БЕЗ суффикса .metrics.jsonl — иначе коллизия с
+ *                                            per-run файлами pipeline.sh в listPipelineRuns(), issue #582 QA)
  *
  * HTTP-путь к GitHub — scripts/lib/gh-api.ts (curl: в Actions с $GH_TOKEN,
  * в сессии Claude Code через agent-proxy).
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { REPO, ghApi as gh } from './lib/gh-api';
 import {
@@ -661,6 +665,50 @@ function attemptMerge(
   }
 }
 
+const NEXT_ISSUE_OUTCOMES = ['merged', 'parked', 'blocked', 'released'] as const;
+// Имя намеренно без суффикса `.metrics.jsonl` — см. коммент у usage-строки выше.
+const METRICS_FILE = resolve(ROOT, 'docs/pipeline-runs/next-issue.jsonl');
+
+/**
+ * Телеметрия прогонов /next-issue (issue #582) — одна JSONL-строка в общий
+ * файл на завершённую задачу, коммитится в PR самой задачи (шаг 7
+ * `.claude/commands/next-issue.md`). Читает/агрегирует
+ * `src/modules/pipeline-metrics/service.ts` (дашборд /admin/monitoring/pipelines).
+ */
+function cmdMetric(
+  issue: number,
+  branch: string,
+  outcome: string,
+  ciFixRounds: number,
+  reviewRounds: number,
+  durationMin: number,
+): void {
+  if (!Number.isFinite(issue) || issue <= 0) {
+    throw new Error(`issue «${issue}» — ожидаю положительное число`);
+  }
+  if (!branch) {
+    throw new Error('branch не задан');
+  }
+  if (!(NEXT_ISSUE_OUTCOMES as readonly string[]).includes(outcome)) {
+    throw new Error(`outcome «${outcome}» — ожидаю ${NEXT_ISSUE_OUTCOMES.join('|')}`);
+  }
+  if (!Number.isFinite(ciFixRounds) || !Number.isFinite(reviewRounds) || !Number.isFinite(durationMin)) {
+    throw new Error('ci_fix_rounds/review_rounds/duration_min должны быть числами');
+  }
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    issue,
+    branch,
+    outcome,
+    ci_fix_rounds: ciFixRounds,
+    review_rounds: reviewRounds,
+    duration_min: durationMin,
+  });
+  mkdirSync(resolve(ROOT, 'docs/pipeline-runs'), { recursive: true });
+  appendFileSync(METRICS_FILE, `${line}\n`);
+  console.log(`metric appended for #${issue}: ${outcome} (${METRICS_FILE})`);
+}
+
 function cmdPrMerge(prNumber: number): void {
   const result = attemptMerge(prNumber, loadConfig());
   console.log(JSON.stringify({ pr: prNumber, ...result }, null, 2));
@@ -1156,10 +1204,20 @@ try {
     case 'pr-status': cmdPrStatus(Number(rest[0])); break;
     case 'pr-wait': cmdPrWait(Number(rest[0]), Number(rest[1] ?? 30)); break;
     case 'pr-merge': cmdPrMerge(Number(rest[0])); break;
+    case 'metric':
+      cmdMetric(
+        Number(rest[0]),
+        rest[1] ?? '',
+        rest[2] ?? '',
+        Number(rest[3]),
+        Number(rest[4]),
+        Number(rest[5]),
+      );
+      break;
     case 'automerge': cmdAutoMerge(rest.includes('--dry-run')); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric> [args]',
       );
       process.exitCode = 2;
   }

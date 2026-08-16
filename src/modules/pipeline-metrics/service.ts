@@ -1,6 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
+  NextIssueAggregate,
+  NextIssueMetricEvent,
+  NextIssueOutcome,
   PipelineAggregate,
   PipelineMetricEvent,
   PipelineRun,
@@ -9,6 +12,12 @@ import type {
 } from "./types";
 
 const METRICS_DIR = path.join(process.cwd(), "docs", "pipeline-runs");
+// Имя НЕ должно оканчиваться на `.metrics.jsonl` — listPipelineRuns() ниже
+// трактует любой файл с этим суффиксом как отдельный прогон pipeline.sh
+// (issue #582 QA: коллизия имён обнаружена вживую — общий файл /next-issue
+// схлопывался с per-run файлами pipeline.sh и портил их success rate/avg
+// duration на /admin/monitoring/pipelines).
+const NEXT_ISSUE_METRICS_FILE = path.join(METRICS_DIR, "next-issue.jsonl");
 
 export class PipelineMetricsError extends Error {
   constructor(
@@ -20,20 +29,27 @@ export class PipelineMetricsError extends Error {
   }
 }
 
-async function readMetricsFile(
-  filePath: string
-): Promise<PipelineMetricEvent[]> {
-  const raw = await fs.readFile(filePath, "utf-8");
+/** Построчный JSON.parse с молчаливым пропуском битых строк — общий для
+ *  обоих форматов JSONL в этом модуле (по файлу на прогон у pipeline.sh,
+ *  общий файл у /next-issue). */
+function parseJsonlLines<T>(raw: string): T[] {
   const lines = raw.split("\n").filter(Boolean);
-  const events: PipelineMetricEvent[] = [];
+  const events: T[] = [];
   for (const line of lines) {
     try {
-      events.push(JSON.parse(line) as PipelineMetricEvent);
+      events.push(JSON.parse(line) as T);
     } catch {
       // ignore malformed lines rather than failing the whole read
     }
   }
   return events;
+}
+
+async function readMetricsFile(
+  filePath: string
+): Promise<PipelineMetricEvent[]> {
+  const raw = await fs.readFile(filePath, "utf-8");
+  return parseJsonlLines<PipelineMetricEvent>(raw);
 }
 
 function deriveVerdict(events: PipelineMetricEvent[]): PipelineVerdict {
@@ -86,6 +102,9 @@ export async function listPipelineRuns(limit = 50): Promise<PipelineRun[]> {
     }
     throw err;
   }
+  // Один файл на прогон pipeline.sh — не путать с общим файлом /next-issue
+  // (NEXT_ISSUE_METRICS_FILE ниже), который сознательно назван БЕЗ этого
+  // суффикса, чтобы сюда не попасть (issue #582 QA).
   const metricsFiles = entries
     .filter((name) => name.endsWith(".metrics.jsonl"))
     .sort((a, b) => b.localeCompare(a))
@@ -174,5 +193,70 @@ export function aggregateRuns(runs: PipelineRun[]): PipelineAggregate {
     avgQaIterations,
     avgReviewerIterations,
     byStage,
+  };
+}
+
+// ── Телеметрия /next-issue (issue #582) ─────────────────────────────────────
+//
+// Один общий файл (не по файлу на прогон, как у pipeline.sh) — строку в него
+// дописывает `npx tsx scripts/issue-queue.ts metric ...` на шаге 7
+// `.claude/commands/next-issue.md`, коммитится в PR самой задачи.
+
+export async function readNextIssueMetrics(): Promise<NextIssueMetricEvent[]> {
+  try {
+    const raw = await fs.readFile(NEXT_ISSUE_METRICS_FILE, "utf-8");
+    return parseJsonlLines<NextIssueMetricEvent>(raw);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+const EMPTY_OUTCOME_COUNTS: Record<NextIssueOutcome, number> = {
+  merged: 0,
+  parked: 0,
+  blocked: 0,
+  released: 0,
+};
+
+export function aggregateNextIssueRuns(
+  events: NextIssueMetricEvent[],
+  windowDays = 30,
+  now: Date = new Date()
+): NextIssueAggregate {
+  const cutoffMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
+  const recent = events.filter((e) => new Date(e.ts).getTime() >= cutoffMs);
+  const totalRuns = recent.length;
+
+  const outcomeCounts: Record<NextIssueOutcome, number> = {
+    ...EMPTY_OUTCOME_COUNTS,
+  };
+  for (const e of recent) outcomeCounts[e.outcome]++;
+
+  if (totalRuns === 0) {
+    return {
+      totalRuns: 0,
+      outcomeCounts,
+      avgCiFixRounds: 0,
+      avgReviewRounds: 0,
+      medianDurationMin: 0,
+    };
+  }
+
+  return {
+    totalRuns,
+    outcomeCounts,
+    avgCiFixRounds: recent.reduce((s, e) => s + e.ci_fix_rounds, 0) / totalRuns,
+    avgReviewRounds: recent.reduce((s, e) => s + e.review_rounds, 0) / totalRuns,
+    medianDurationMin: median(recent.map((e) => e.duration_min)),
   };
 }

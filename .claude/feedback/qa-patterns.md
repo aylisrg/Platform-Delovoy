@@ -125,6 +125,7 @@
 | unknown | 580-gate-verdict-markers-qa-report.md | 2 | rbac, api, tests |
 | unknown | issue-616-qa-report.md | 10 | rbac, api, typescript, tests |
 | 2026-08-16 | 2026-08-16-issue-564-ps-park-deletedat-followup-qa-report.md | 1 | rbac, typescript, tests |
+| unknown | 582-pipeline-metrics-qa-report.md | 7 | rbac, api, tests |
 | unknown | 581-event-source-registry-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-617-qa-report.md | 9 | rbac, api, tests |
 | unknown | issue-620-qa-report.md | 17 | rbac, api, typescript, tests, scope_creep |
