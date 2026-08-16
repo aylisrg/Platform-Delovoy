@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.15.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.14.0...v2.15.0) (2026-08-16)
+
+
+### Features
+
+* **monitoring:** реестр SystemEvent.source и миграция колл-сайтов на logger.ts ([#634](https://github.com/aylisrg/Platform-Delovoy/issues/634)) ([18b3f17](https://github.com/aylisrg/Platform-Delovoy/commit/18b3f17551857a9bb9e3c8bd44a79be8aee267f5))
+* **queue:** гейт машинально проверяет вердикты ревью + hold при недоступном diff миграции ([#633](https://github.com/aylisrg/Platform-Delovoy/issues/633)) ([88843da](https://github.com/aylisrg/Platform-Delovoy/commit/88843da96fa6d803f1d71227ae59b4390218265a))
+* **queue:** телеметрия прогонов /next-issue в pipeline-metrics ([#635](https://github.com/aylisrg/Platform-Delovoy/issues/635)) ([2f1023d](https://github.com/aylisrg/Platform-Delovoy/commit/2f1023dbfa23a31fad9f937566be129d1d5843e5))
+
+
+### Bug Fixes
+
+* **cafe:** health-check считает soft-deleted MenuItem/Order (тот же баг что [#489](https://github.com/aylisrg/Platform-Delovoy/issues/489)/[#557](https://github.com/aylisrg/Platform-Delovoy/issues/557)) ([#651](https://github.com/aylisrg/Platform-Delovoy/issues/651)) ([890f1cf](https://github.com/aylisrg/Platform-Delovoy/commit/890f1cf805fa4e8d75238bdd40b0b8c042ded883))
+
 ## [2.14.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.13.0...v2.14.0) (2026-08-16)
 
 
