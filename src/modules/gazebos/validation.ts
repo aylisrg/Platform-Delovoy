@@ -168,6 +168,8 @@ export const adminCreateBookingSchema = z.object({
   comment: z.string().max(500).optional(),
   clientName: z.string().min(1, "Имя клиента обязательно").max(200),
   clientPhone: z.string().min(1, "Телефон клиента обязателен").max(30),
+  // Контакт для чека — не создаёт учётную запись и не способ входа (#665).
+  email: z.string().email("Некорректный email").max(200).optional(),
   items: z.array(bookingItemSchema).max(20).optional(),
 }).refine(
   (data) => data.startTime < data.endTime,

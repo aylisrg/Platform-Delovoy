@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
       date: parsed.data.date,
       clientName: parsed.data.clientName,
       clientPhone: parsed.data.clientPhone,
+      comment: parsed.data.comment,
+      email: parsed.data.email,
     });
 
     return apiResponse(booking, undefined, 201);

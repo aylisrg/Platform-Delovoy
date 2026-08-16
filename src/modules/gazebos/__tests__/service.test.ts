@@ -876,6 +876,33 @@ describe("createAdminBooking", () => {
     );
   });
 
+  it("сохраняет email в metadata, когда указан (issue #665)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", { ...validAdminInput, email: "guest@example.com" });
+
+    expect(prisma.booking.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({ email: "guest@example.com" }),
+        }),
+      })
+    );
+  });
+
+  it("не пишет email в metadata, когда не указан (issue #665)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null as never);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await createAdminBooking("admin-1", validAdminInput);
+
+    const call = vi.mocked(prisma.booking.create).mock.calls[0][0];
+    expect((call.data as { metadata: Record<string, unknown> }).metadata).not.toHaveProperty("email");
+  });
+
   // #430: телефонные брони беседок не создавали карточку гостя в CRM — бронь
   // писалась на userId=adminId без upsertClientByPhone. Эталон — ps-park.
   it("дедуплицирует гостя по телефону через upsertClientByPhone", async () => {

@@ -54,6 +54,8 @@ export type AdminCreatePSBookingInput = {
   comment?: string;
   clientName: string;
   clientPhone?: string;
+  /** Контакт для чека/уведомлений — не создаёт учётную запись (#665). */
+  email?: string;
   items?: BookingItemInput[];
 };
 

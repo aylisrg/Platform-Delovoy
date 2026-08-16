@@ -170,6 +170,21 @@ describe("adminCreatePSBookingSchema", () => {
     const result = adminCreatePSBookingSchema.safeParse({ ...validBase, clientPhone: "" });
     expect(result.success).toBe(false);
   });
+
+  it("accepts a valid optional email (issue #665)", () => {
+    const result = adminCreatePSBookingSchema.safeParse({ ...validBase, email: "guest@example.com" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a malformed email (issue #665)", () => {
+    const result = adminCreatePSBookingSchema.safeParse({ ...validBase, email: "not-an-email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts input without email — optional (issue #665)", () => {
+    const result = adminCreatePSBookingSchema.safeParse(validBase);
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("addBookingItemsSchema", () => {

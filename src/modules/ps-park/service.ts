@@ -974,7 +974,7 @@ export async function cancelBooking(
 }
 
 export async function createAdminBooking(adminId: string, input: AdminCreatePSBookingInput) {
-  const { resourceId, date, startTime, endTime, playerCount, comment, clientName, clientPhone, items } = input;
+  const { resourceId, date, startTime, endTime, playerCount, comment, clientName, clientPhone, email, items } = input;
 
   const resource = await prisma.resource.findFirst({
     where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -1108,6 +1108,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreatePSBo
           bookedByAdmin: true,
           ...(playerCount && { playerCount }),
           ...(comment && { comment }),
+          ...(email && { email }),
           ...(itemSnapshots.length > 0 && {
             items: itemSnapshots,
             itemsTotal: itemsTotal.toFixed(2),
