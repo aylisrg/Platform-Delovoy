@@ -106,6 +106,28 @@ export function isEligible(issue: QueueIssue): boolean {
 }
 
 /**
+ * Issue #647: два воркера, вызвавшие `claim` почти одновременно, могут оба
+ * прочитать `auto:ready` до того, как первый закоммитит `auto:wip` — GitHub
+ * Issues API не даёт compare-and-swap/ETag на PATCH labels, так что настоящей
+ * атомарности здесь нет. Случайный джиттер перед read-check-write разносит
+ * близкие по времени вызовы во времени, заметно сужая окно гонки для типичного
+ * случая (несколько сессий, разбуженных одним и тем же триггером), но не
+ * устраняя её полностью.
+ */
+export function claimJitterSeconds(rand: () => number = Math.random): number {
+  const MIN = 0.2;
+  const MAX = 1.5;
+  return MIN + rand() * (MAX - MIN);
+}
+
+/** Проверка перед claim — вынесена из cmdClaim, чтобы её можно было тестировать без сети. */
+export function assertClaimable(labels: string[], num: number): void {
+  const lane = laneOf(labels);
+  if (lane === 'wip') throw new Error(`#${num} уже auto:wip — лок занят`);
+  if (lane !== 'ready') throw new Error(`#${num} не в auto:ready (сейчас: ${lane})`);
+}
+
+/**
  * Полный порядок очереди: сначала закреплённые (в порядке `pinned`), затем всё
  * остальное по приоритету, затем по номеру — старое вперёд. Без приоритета — в хвост.
  */
