@@ -5,7 +5,9 @@ import {
   GIVEUP_MARKER,
   QA_ENGINEER_PASS_MARKER,
   STALE_MARKER,
+  assertClaimable,
   autoMergeSkipReason,
+  claimJitterSeconds,
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
@@ -99,6 +101,33 @@ describe('isEligible', () => {
     for (const lane of ['auto:epic', 'auto:parked', 'auto:blocked', 'auto:prod-apply']) {
       expect(isEligible(issue(1, [lane]))).toBe(false);
     }
+  });
+});
+
+describe('assertClaimable (issue #647)', () => {
+  it('не бросает для auto:ready', () => {
+    expect(() => assertClaimable(['auto:ready', 'prio:P2'], 445)).not.toThrow();
+  });
+
+  it('бросает с сообщением про занятый лок для auto:wip', () => {
+    expect(() => assertClaimable(['auto:wip'], 445)).toThrow('#445 уже auto:wip — лок занят');
+  });
+
+  it('бросает с текущим lane для любого другого состояния', () => {
+    expect(() => assertClaimable(['auto:review'], 445)).toThrow('#445 не в auto:ready (сейчас: review)');
+    expect(() => assertClaimable([], 445)).toThrow('#445 не в auto:ready (сейчас: untriaged)');
+  });
+});
+
+describe('claimJitterSeconds (issue #647)', () => {
+  it('возвращает значение в диапазоне [0.2, 1.5) секунд', () => {
+    expect(claimJitterSeconds(() => 0)).toBe(0.2);
+    expect(claimJitterSeconds(() => 0.5)).toBeCloseTo(0.85, 5);
+    expect(claimJitterSeconds(() => 0.999999)).toBeLessThan(1.5);
+  });
+
+  it('разные значения rand() дают разные задержки — джиттер реально разносит вызовы во времени', () => {
+    expect(claimJitterSeconds(() => 0.1)).not.toBe(claimJitterSeconds(() => 0.9));
   });
 });
 
