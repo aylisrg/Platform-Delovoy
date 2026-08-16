@@ -56,6 +56,8 @@ export function GazeboMobileBookingSheet({
   const [durationMin, setDurationMin] = useState<number>(defaultChip);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [comment, setComment] = useState("");
+  const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +66,8 @@ export function GazeboMobileBookingSheet({
     setDurationMin(defaultChip);
     setClientName("");
     setClientPhone("");
+    setComment("");
+    setEmail("");
     setError(null);
     setSubmitting(false);
   }, [open, defaultChip]);
@@ -103,6 +107,8 @@ export function GazeboMobileBookingSheet({
           endTime,
           clientName: clientName.trim(),
           clientPhone: clientPhone.trim() || undefined,
+          ...(comment.trim() && { comment: comment.trim() }),
+          ...(email.trim() && { email: email.trim() }),
         }),
       });
       const data = await res.json();
@@ -213,6 +219,35 @@ export function GazeboMobileBookingSheet({
             autoComplete="tel"
             placeholder="+7 ___ ___ __ __"
             className="h-12 w-full rounded-lg border border-zinc-300 px-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+            Email <span className="text-zinc-400 font-normal">(необязательно)</span>
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+            autoComplete="email"
+            placeholder="guest@example.com"
+            className="h-12 w-full rounded-lg border border-zinc-300 px-3 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+            Комментарий <span className="text-zinc-400 font-normal">(необязательно)</span>
+          </label>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={500}
+            rows={2}
+            placeholder="Пожелания гостя, особые условия…"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 

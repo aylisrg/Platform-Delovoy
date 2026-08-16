@@ -73,6 +73,8 @@ export function GazeboQuickBookingPopover({
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [guestCount, setGuestCount] = useState("");
+  const [comment, setComment] = useState("");
+  const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +118,8 @@ export function GazeboQuickBookingPopover({
           clientName,
           clientPhone,
           ...(guestCount && { guestCount: parseInt(guestCount, 10) }),
+          ...(comment.trim() && { comment: comment.trim() }),
+          ...(email.trim() && { email: email.trim() }),
         }),
       });
 
@@ -224,6 +228,21 @@ export function GazeboQuickBookingPopover({
             onChange={(e) => setGuestCount(e.target.value)}
             placeholder="Кол-во гостей"
             min="1"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email (необязательно)"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Комментарий (необязательно)"
+            maxLength={500}
+            rows={2}
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <button

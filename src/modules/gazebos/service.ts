@@ -449,7 +449,7 @@ async function resolvePaymentContact(
  * Client info stored in metadata (no user account required).
  */
 export async function createAdminBooking(adminId: string, input: AdminCreateBookingInput) {
-  const { resourceId, date, startTime, endTime, guestCount, comment, clientName, clientPhone, items } = input;
+  const { resourceId, date, startTime, endTime, guestCount, comment, clientName, clientPhone, email, items } = input;
 
   const resource = await prisma.resource.findFirst({
     where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -586,6 +586,7 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
           bookedByAdmin: true,
           ...(guestCount && { guestCount }),
           ...(comment && { comment }),
+          ...(email && { email }),
           ...(itemSnapshots.length > 0 && {
             items: itemSnapshots,
             itemsTotal: itemsTotal.toFixed(2),

@@ -49,6 +49,7 @@ export function GazeboBookingDetailCard({
   const meta = booking.metadata as Record<string, unknown> | null;
   const guestCount = meta?.guestCount as number | undefined;
   const comment = meta?.comment as string | undefined;
+  const email = meta?.email as string | undefined;
 
   const start = new Date(booking.startTime);
   const end = new Date(booking.endTime);
@@ -319,6 +320,15 @@ export function GazeboBookingDetailCard({
             <div className="text-xs text-zinc-400 mb-0.5">Телефон</div>
             <a href={`tel:${booking.clientPhone}`} className="font-medium text-blue-600 hover:underline">
               {booking.clientPhone}
+            </a>
+          </div>
+        )}
+
+        {email && (
+          <div>
+            <div className="text-xs text-zinc-400 mb-0.5">Email</div>
+            <a href={`mailto:${email}`} className="font-medium text-blue-600 hover:underline">
+              {email}
             </a>
           </div>
         )}

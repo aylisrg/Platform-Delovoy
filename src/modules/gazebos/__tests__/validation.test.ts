@@ -246,6 +246,21 @@ describe("adminCreateBookingSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts a valid optional email (issue #665)", () => {
+    const result = adminCreateBookingSchema.safeParse({ ...validInput, email: "guest@example.com" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a malformed email (issue #665)", () => {
+    const result = adminCreateBookingSchema.safeParse({ ...validInput, email: "not-an-email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts input without email — optional (issue #665)", () => {
+    const result = adminCreateBookingSchema.safeParse(validInput);
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("timelineQuerySchema", () => {

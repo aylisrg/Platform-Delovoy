@@ -73,6 +73,8 @@ export function QuickBookingPopover({
   const [endInput, setEndInput] = useState(defaultEnd);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [comment, setComment] = useState("");
+  const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +111,8 @@ export function QuickBookingPopover({
           endTime: endInput,
           clientName,
           ...(clientPhone && { clientPhone }),
+          ...(comment.trim() && { comment: comment.trim() }),
+          ...(email.trim() && { email: email.trim() }),
         }),
       });
 
@@ -218,6 +222,21 @@ export function QuickBookingPopover({
             value={clientPhone}
             onChange={(e) => setClientPhone(e.target.value)}
             placeholder="Телефон (необязательно)"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email (необязательно)"
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Комментарий (необязательно)"
+            maxLength={500}
+            rows={2}
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <button

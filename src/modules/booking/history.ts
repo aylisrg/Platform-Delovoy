@@ -141,6 +141,11 @@ function buildDetails(action: string, meta: Record<string, unknown>): string[] {
       if (meta.minutes) details.push(`+${String(meta.minutes)} мин`);
       break;
     }
+    case "booking.admin_create": {
+      if (meta.comment) details.push(`Комментарий: ${String(meta.comment)}`);
+      if (meta.email) details.push(`Email: ${String(meta.email)}`);
+      break;
+    }
     default: {
       if (meta.reason) details.push(`Причина: ${String(meta.reason)}`);
     }

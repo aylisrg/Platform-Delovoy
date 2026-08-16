@@ -53,6 +53,19 @@ describe("GazeboBookingDetailCard", () => {
     cleanup();
   });
 
+  // issue #665: email — новое поле quick-формы, должно быть видно в карточке.
+  it("показывает email гостя, когда он есть в metadata", () => {
+    renderCard({ metadata: { ...baseBooking.metadata, email: "guest@example.com" } });
+
+    expect(screen.getByText("guest@example.com")).toBeTruthy();
+  });
+
+  it("не показывает блок email, когда его нет в metadata", () => {
+    renderCard();
+
+    expect(screen.queryByText("Email")).toBeNull();
+  });
+
   // #511: «Отменить» срабатывала с одного клика — бронь мгновенно уходила из
   // сетки, вернуть её было нечем. Теперь между кликом и PATCH стоит диалог.
   it("«Отменить» открывает подтверждение, а не шлёт PATCH сразу", async () => {

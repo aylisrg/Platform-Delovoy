@@ -136,6 +136,28 @@ describe("getBookingHistory", () => {
     expect(entries.filter((e) => e.label === "Бронь создана")).toHaveLength(1);
   });
 
+  it("показывает комментарий и email в записи о создании админом (issue #665)", async () => {
+    mp.auditLog.findMany.mockResolvedValue([
+      log({
+        action: "booking.admin_create",
+        metadata: { comment: "VIP-гость", email: "guest@example.com" },
+      }),
+    ]);
+
+    const [entry] = await getBookingHistory("bk-1", "gazebos");
+
+    expect(entry.details).toContain("Комментарий: VIP-гость");
+    expect(entry.details).toContain("Email: guest@example.com");
+  });
+
+  it("не показывает пустые Комментарий/Email, когда их нет в metadata (issue #665)", async () => {
+    mp.auditLog.findMany.mockResolvedValue([log({ action: "booking.admin_create", metadata: {} })]);
+
+    const [entry] = await getBookingHistory("bk-1", "gazebos");
+
+    expect(entry.details).toEqual([]);
+  });
+
   it("восстановление читается как отдельное событие (AC-8)", async () => {
     mp.auditLog.findMany.mockResolvedValue([
       log({
