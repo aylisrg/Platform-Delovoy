@@ -133,3 +133,4 @@
 | unknown | issue-628-qa-report.md | 2 | rbac, api, tests, scope_creep |
 | unknown | issue-647-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-639-qa-report.md | 17 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-650-qa-report.md | 16 | rbac, api, typescript, tests, scope_creep |
