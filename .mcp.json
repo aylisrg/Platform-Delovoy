@@ -26,7 +26,7 @@
         "-y",
         "@modelcontextprotocol/server-playwright"
       ],
-      "description": "Browser automation for QA agent — E2E smoke tests, visual regressions."
+      "description": "Interactive browser checks during an agent session (open a page, fill a form, visually verify) — not the automated E2E regression suite, which lives in e2e/*.spec.ts (npm run e2e) and runs in CI as the separate \"E2E (Playwright)\" job (.github/workflows/ci.yml, added in #592) without this MCP server."
     },
     "github-actions": {
       "command": "npx",
