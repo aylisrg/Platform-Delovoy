@@ -12,7 +12,15 @@ export type TraceabilityResult = CheckResult & {
   notes: string[];
 };
 
-const AC_CHECKLIST_RE = /^-\s*\[\s?\]\s*(AC-\d+)/gm;
+// `AC-\d+(?:\.\d+)*` — PRDs commonly nest sub-criteria as AC-1.1, AC-1.2, ...
+// (14/34 docs/requirements/*-prd.md at the time of issue #639). Each dotted
+// id is tracked as its own identifier, distinct from its parent AC-N.
+const AC_CHECKLIST_RE = /^-\s*\[\s?\]\s*(AC-\d+(?:\.\d+)*)/gm;
+
+/** Escapes regex metacharacters in an AC id (the `.` in "AC-1.1" is literal, not "any char"). */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * PRD переиспользует AC-1, AC-2, ... в каждой User Story (это видно по реальным
@@ -33,8 +41,15 @@ export function extractAcIds(prdContent: string): { ids: string[]; duplicates: s
   return { ids, duplicates };
 }
 
+// `\b` alone treats `.` as a valid terminator, so `\bAC-1\b` would also match
+// the "AC-1" prefix inside "AC-1.2" — a marker for the sub-criterion would
+// wrongly satisfy its (distinct) parent id too. `(?!\.\d)` rejects that.
+function idBoundaryPattern(ac: string): string {
+  return `\\b${escapeRegExp(ac)}\\b(?!\\.\\d)`;
+}
+
 function hasCommentMarker(testContent: string, ac: string): boolean {
-  const idRe = new RegExp(`\\b${ac}\\b`);
+  const idRe = new RegExp(idBoundaryPattern(ac));
   // Line must actually start with `//` (after trimming) — a bare `//` later on
   // the line (e.g. inside a URL string like "https://park.example.com/AC-1")
   // is not a comment marker.
@@ -44,8 +59,11 @@ function hasCommentMarker(testContent: string, ac: string): boolean {
 function hasTitleMarker(testContent: string, ac: string): boolean {
   // `\b` before the (it|test) group is required — without it this would also
   // match inside unrelated identifiers ending in "it"/"test", e.g. `submit(`,
-  // `commit(`, `contest(`.
-  const titleMarker = new RegExp(`\\b(?:it|test)\\s*(?:\\.\\w+)?\\s*\\(\\s*[\`'"][^\`'"]*\\b${ac}\\b`);
+  // `commit(`, `contest(`. `(?<!\.)` additionally rejects member access like
+  // `regex.test(...)` — a real call to RegExp.prototype.test, not a test title.
+  const titleMarker = new RegExp(
+    `(?<!\\.)\\b(?:it|test)\\s*(?:\\.\\w+)?\\s*\\(\\s*[\`'"][^\`'"]*${idBoundaryPattern(ac)}`
+  );
   return titleMarker.test(testContent);
 }
 
