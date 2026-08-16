@@ -5,7 +5,6 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     avitoIntegration: { findUnique: vi.fn() },
     avitoMessage: { findFirst: vi.fn() },
-    systemEvent: { create: vi.fn() },
   },
 }));
 vi.mock("@/lib/avito/messenger", () => ({
@@ -15,15 +14,20 @@ vi.mock("@/lib/avito/messenger", () => ({
 vi.mock("@/lib/avito/lead-routing", () => ({
   routeInboundMessage: vi.fn(),
 }));
+vi.mock("@/lib/logger", () => ({
+  log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
 
 import { prisma } from "@/lib/db";
 import { listChatsUnread, listMessages } from "@/lib/avito/messenger";
 import { routeInboundMessage } from "@/lib/avito/lead-routing";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import { GET, POST } from "../route";
 
 const mockedFindIntegration = vi.mocked(prisma.avitoIntegration.findUnique);
 const mockedFindLastMessage = vi.mocked(prisma.avitoMessage.findFirst);
-const mockedCreateEvent = vi.mocked(prisma.systemEvent.create);
+const mockedLogError = vi.mocked(log.error);
 const mockedListChats = vi.mocked(listChatsUnread);
 const mockedListMessages = vi.mocked(listMessages);
 const mockedRoute = vi.mocked(routeInboundMessage);
@@ -48,7 +52,7 @@ beforeEach(() => {
   mockedFindLastMessage.mockResolvedValue(null);
   mockedListChats.mockResolvedValue([]);
   mockedListMessages.mockResolvedValue([]);
-  mockedCreateEvent.mockResolvedValue(undefined as never);
+  mockedLogError.mockResolvedValue(undefined as never);
 });
 
 describe("GET /api/cron/avito-messenger-poll", () => {
@@ -146,7 +150,12 @@ describe("GET /api/cron/avito-messenger-poll", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual({ chats: 1, processed: 0, skipped: 0 });
-    expect(mockedCreateEvent).toHaveBeenCalledTimes(1);
+    expect(mockedLogError).toHaveBeenCalledTimes(1);
+    expect(mockedLogError).toHaveBeenCalledWith(
+      EVENT_SOURCES.AVITO_CRON_POLL,
+      "avito.cron.routing_failed",
+      expect.objectContaining({ avitoMessageId: "m1" })
+    );
   });
 
   it("returns 500 when listChatsUnread itself throws", async () => {

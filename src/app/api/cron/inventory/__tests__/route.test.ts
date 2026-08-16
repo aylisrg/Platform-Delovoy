@@ -7,20 +7,19 @@ vi.mock("@/modules/inventory/service-v2", () => ({
 vi.mock("@/modules/inventory/alerts", () => ({
   runLowStockAlertSweep: vi.fn(),
 }));
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    systemEvent: { create: vi.fn() },
-  },
+vi.mock("@/lib/logger", () => ({
+  log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
-import { prisma } from "@/lib/db";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import { GET } from "../route";
 
 const mockedGetExpiring = vi.mocked(getExpiringBatches);
 const mockedSweep = vi.mocked(runLowStockAlertSweep);
-const mockedCreateEvent = vi.mocked(prisma.systemEvent.create);
+const mockedWarn = vi.mocked(log.warn);
 
 function makeReq(token: string | null): NextRequest {
   const url =
@@ -68,7 +67,7 @@ describe("GET /api/cron/inventory", () => {
     const body = await res.json();
     expect(body.data.expiredBatches).toBe(0);
     expect(body.data.lowStockAlerts).toEqual({ checked: 0, alerted: 0 });
-    expect(mockedCreateEvent).not.toHaveBeenCalled();
+    expect(mockedWarn).not.toHaveBeenCalled();
   });
 
   it("logs a SystemEvent when there are truly expired batches (daysUntilExpiry <= 0)", async () => {
@@ -80,10 +79,12 @@ describe("GET /api/cron/inventory", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.expiredBatches).toBe(1);
-    expect(mockedCreateEvent).toHaveBeenCalledTimes(1);
-    const call = mockedCreateEvent.mock.calls[0][0] as { data: { level: string; source: string } };
-    expect(call.data.level).toBe("WARNING");
-    expect(call.data.source).toBe("cron/inventory");
+    expect(mockedWarn).toHaveBeenCalledTimes(1);
+    expect(mockedWarn).toHaveBeenCalledWith(
+      EVENT_SOURCES.CRON_INVENTORY,
+      expect.stringContaining("1"),
+      expect.objectContaining({ batches: expect.any(Array) })
+    );
   });
 
   it("returns lowStockAlerts counters from the sweep", async () => {
