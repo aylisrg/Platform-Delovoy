@@ -42,6 +42,7 @@ import {
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
   HEARTBEAT_MARKER,
+  MISSED_AUTOCLOSE_MARKER,
   QUEUE_BRANCH_RE,
   STALE_MARKER,
   STALE_PR_MARKER,
@@ -50,6 +51,7 @@ import {
   countAttempts,
   countBackpressurePrs,
   laneOf,
+  missedAutoCloseIssues,
   pickNext,
   priorityOf,
   shouldHeartbeat,
@@ -61,6 +63,7 @@ import {
   type ChangedFile,
   type CheckRun,
   type Lane,
+  type MergedPrClosing,
   type PrLink,
   type QueueConfig,
   type QueueIssue,
@@ -103,6 +106,7 @@ interface RawPr {
   body?: string | null;
   html_url: string;
   updated_at: string;
+  merged_at?: string | null;
 }
 
 function openIssues(): RawIssue[] {
@@ -123,6 +127,24 @@ function openPrs(): RawPr[] {
     if (batch.length < 100) break;
   }
   return out;
+}
+
+/**
+ * Недавно смерженные PR-ы (для missedAutoCloseIssues, issue #616). Окно —
+ * 2 страницы по `updated` desc (≤200 PR), не время: reconcile идёт по
+ * расписанию (issue-queue.yml, ежечасно) — этого с запасом хватает на
+ * пропущенный час, даже в активный день.
+ */
+function recentlyMergedPrs(): RawPr[] {
+  const out: RawPr[] = [];
+  for (let page = 1; page <= 2; page++) {
+    const batch = gh<RawPr[]>(
+      `/repos/${REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`,
+    );
+    out.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return out.filter((pr) => !!pr.merged_at);
 }
 
 function allComments(num: number): { body: string; created_at: string }[] {
@@ -716,9 +738,31 @@ function cmdAutoMerge(dryRun: boolean): void {
 
 function cmdReconcile(): void {
   const config = loadConfig();
-  const { issues, linked } = collect();
+  const { issues: allIssues, linked } = collect();
   const now = new Date();
   let touched = 0;
+
+  // GitHub иногда не закрывает issue автоматически по `Closes #N` смерженного PR
+  // (issue #616) — reconcile добирает пропуски сам, не дожидаясь, пока это заметят
+  // руками. Закрытые здесь issues исключаются из остальной обработки этого прогона:
+  // остальные проверки ниже иначе работали бы с уже устаревшей копией.
+  const mergedPrs: MergedPrClosing[] = recentlyMergedPrs().map((pr) => ({
+    number: pr.number,
+    closesIssues: closedIssueNumbers(pr),
+  }));
+  const missedClosed = new Set<number>();
+  for (const { issue, prNumber } of missedAutoCloseIssues(allIssues, mergedPrs)) {
+    gh(`/repos/${REPO}/issues/${issue.number}`, 'PATCH', { state: 'closed' });
+    comment(
+      issue.number,
+      `${MISSED_AUTOCLOSE_MARKER}\n\nPR #${prNumber} смержен и закрывает эту issue (\`Closes #${issue.number}\`), ` +
+        `но GitHub не закрыл её автоматически (issue #616) — закрыто вручную reconcile'ом.`,
+    );
+    console.log(`closed missed-auto-close #${issue.number} (PR #${prNumber})`);
+    missedClosed.add(issue.number);
+    touched++;
+  }
+  const issues = allIssues.filter((i) => !missedClosed.has(i.number));
 
   for (const issue of staleWipIssues(issues, config, now)) {
     const hours = Math.round((now.getTime() - new Date(issue.updatedAt).getTime()) / 3.6e6);
