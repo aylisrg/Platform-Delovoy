@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/db";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
+import { TableCreator } from "@/components/admin/ps-park/table-creator";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function PSParkResourcesPage() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-zinc-900">Столы ({resources.length})</h2>
+          <TableCreator />
         </div>
         <p className="text-xs text-zinc-400 mt-1">
           Управление игровыми столами: название, вместимость, цена, статус
