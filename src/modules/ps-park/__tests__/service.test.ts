@@ -784,6 +784,38 @@ describe("getTimeline", () => {
     expect(result.hours[0]).toBe("09:00");
     expect(result.hours[result.hours.length - 1]).toBe("19:00");
   });
+
+  // #614: resources переносились в TimelineGrid/MobileTimeline (Client
+  // Components) с сырым Prisma Decimal в pricePerHour — не сериализуется
+  // через границу Server → Client, React ругался в консоли на каждой
+  // загрузке. pricePerHour теперь всегда plain number/null.
+  it("converts resource pricePerHour to a plain number, not a Decimal-like object", async () => {
+    const decimalLike = {
+      toString: () => "300.5",
+      toNumber: () => 300.5,
+      valueOf: () => 300.5,
+    };
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([
+      mockTable({ pricePerHour: decimalLike }),
+    ] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.resources[0].pricePerHour).toBe(300.5);
+    expect(typeof result.resources[0].pricePerHour).toBe("number");
+  });
+
+  it("keeps resource pricePerHour null when the resource has none", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([
+      mockTable({ pricePerHour: null }),
+    ] as never);
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+
+    const result = await getTimeline(FUTURE_DATE);
+
+    expect(result.resources[0].pricePerHour).toBeNull();
+  });
 });
 
 // ===== getActiveSessions =====

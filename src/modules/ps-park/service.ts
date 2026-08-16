@@ -1500,7 +1500,18 @@ export async function getTimeline(date: string): Promise<TimelineData> {
 
   return {
     date,
-    resources,
+    // pricePerHour — Prisma Decimal, не пересекает границу Server → Client
+    // Component как есть (issue #614); приводим к number, как и везде в
+    // модуле (см. src/app/admin/ps-park/page.tsx, resources/page.tsx).
+    resources: resources.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      capacity: r.capacity,
+      pricePerHour: r.pricePerHour != null ? Number(r.pricePerHour) : null,
+      isActive: r.isActive,
+      metadata: r.metadata as Record<string, unknown> | null,
+    })),
     bookings: bookings.map((b) => ({
       id: b.id,
       resourceId: b.resourceId,
