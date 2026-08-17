@@ -13,17 +13,16 @@ vi.mock("@/lib/api-response", async () => {
   };
 });
 
-const mockFindFirstBooking = vi.fn();
 const mockFindUniqueResource = vi.fn();
 const mockFindUniqueUser = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
-    booking: { findFirst: (...args: unknown[]) => mockFindFirstBooking(...args) },
     resource: { findUnique: (...args: unknown[]) => mockFindUniqueResource(...args) },
     user: { findUnique: (...args: unknown[]) => mockFindUniqueUser(...args) },
   },
 }));
 
+const mockGetBooking = vi.fn();
 const mockGetBookingBill = vi.fn();
 vi.mock("@/modules/ps-park/service", async () => {
   const actual = await vi.importActual<typeof import("@/modules/ps-park/service")>(
@@ -31,6 +30,7 @@ vi.mock("@/modules/ps-park/service", async () => {
   );
   return {
     PSBookingError: actual.PSBookingError,
+    getBooking: (...args: unknown[]) => mockGetBooking(...args),
     getBookingBill: (...args: unknown[]) => mockGetBookingBill(...args),
   };
 });
@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
   mockRequireAdminSection.mockResolvedValue(null);
-  mockFindFirstBooking.mockResolvedValue(booking);
+  mockGetBooking.mockResolvedValue(booking);
   mockGetBookingBill.mockResolvedValue({ totalBill: 1000 });
   mockFindUniqueResource.mockResolvedValue({ name: "Стол 1" });
   mockFindUniqueUser.mockResolvedValue({ email: "user@example.com", phone: "+79001234567" });
@@ -116,12 +116,12 @@ describe("POST /api/ps-park/bookings/:id/pay-online", () => {
     const res = await POST(makeRequest(), { params });
 
     expect(res.status).toBe(403);
-    expect(mockFindFirstBooking).not.toHaveBeenCalled();
+    expect(mockGetBooking).not.toHaveBeenCalled();
     expect(mockCreateOnlinePayment).not.toHaveBeenCalled();
   });
 
   it("бронь не найдена — 404", async () => {
-    mockFindFirstBooking.mockResolvedValue(null);
+    mockGetBooking.mockResolvedValue(null);
 
     const res = await POST(makeRequest(), { params });
     const body = await res.json();
@@ -130,9 +130,15 @@ describe("POST /api/ps-park/bookings/:id/pay-online", () => {
     expect(body.error.code).toBe("BOOKING_NOT_FOUND");
   });
 
+  it("issue #625: ищет бронь через сервисный getBooking (фильтрует deletedAt: null), а не напрямую через Prisma", async () => {
+    await POST(makeRequest(), { params });
+
+    expect(mockGetBooking).toHaveBeenCalledWith("bk-1");
+  });
+
   it("счёт уже оплачен онлайн — 409 NOTHING_TO_PAY", async () => {
     mockGetBookingBill.mockResolvedValue({ totalBill: 1000 });
-    mockFindFirstBooking.mockResolvedValue({
+    mockGetBooking.mockResolvedValue({
       ...booking,
       metadata: { onlinePaidAmount: "1000" },
     });
