@@ -18,6 +18,11 @@ vi.mock("@/lib/api-response", async () => {
   };
 });
 
+const mockRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: (...args: unknown[]) => mockRateLimit(...args),
+}));
+
 import { GET } from "../route";
 
 function makeRequest(query: string) {
@@ -28,6 +33,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
   mockRequireAdminSection.mockResolvedValue(null);
+  mockRateLimit.mockResolvedValue(null);
   mockSearchGuestsByPhone.mockResolvedValue([]);
 });
 
@@ -96,5 +102,22 @@ describe("GET /api/gazebos/guests/search (issue #666)", () => {
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual([]);
+  });
+
+  it("рейт-лимитится по authenticated-тиру, per-user (issue #674)", async () => {
+    await GET(makeRequest("?phone=999"));
+
+    expect(mockRateLimit).toHaveBeenCalledWith(expect.anything(), "authenticated", "mgr-1");
+  });
+
+  it("превышен лимит — 429, поиск не выполняется (issue #674)", async () => {
+    mockRateLimit.mockResolvedValue(
+      Response.json({ success: false, error: { code: "RATE_LIMITED", message: "Слишком много запросов" } }, { status: 429 })
+    );
+
+    const res = await GET(makeRequest("?phone=999"));
+
+    expect(res.status).toBe(429);
+    expect(mockSearchGuestsByPhone).not.toHaveBeenCalled();
   });
 });

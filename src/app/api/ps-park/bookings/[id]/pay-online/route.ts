@@ -65,7 +65,7 @@ export async function POST(
       description: `Плей Парк: ${resource?.name ?? "сессия"} · счёт`,
       userId: booking.userId,
       createdById: session.user.id,
-      customerEmail: user?.email ?? null,
+      customerEmail: user?.email ?? (metadata.email as string | undefined) ?? null,
       customerPhone: user?.phone ?? booking.clientPhone,
       receiptItems: [
         {

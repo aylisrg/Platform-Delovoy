@@ -158,6 +158,18 @@ describe("getBookingHistory", () => {
     expect(entry.details).toEqual([]);
   });
 
+  it("не дублирует создание синтетической записью для брони, созданной админом (issue #670)", async () => {
+    mp.auditLog.findMany.mockResolvedValue([log({ action: "booking.admin_create", metadata: {} })]);
+
+    const entries = await getBookingHistory("bk-1", "gazebos");
+
+    const creationEntries = entries.filter(
+      (e) => e.action === "booking.admin_create" || e.action === "booking.create",
+    );
+    expect(creationEntries).toHaveLength(1);
+    expect(entries[0].label).toBe("Бронь создана администратором");
+  });
+
   it("восстановление читается как отдельное событие (AC-8)", async () => {
     mp.auditLog.findMany.mockResolvedValue([
       log({
