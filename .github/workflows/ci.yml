@@ -231,7 +231,30 @@ jobs:
       # On main push: build once and push sha-tagged image.
       # Staging and production jobs retag this image — no rebuilds needed.
       - name: Build and push sha image (main)
+        id: build_push_main
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+
+      # GHCR intermittently returns a transient secondary rate limit or a
+      # broken push/pull stream (see issue #689: 4 ci-failure incidents in 7
+      # days, all self-healing on the next merge). One retry after a short
+      # backoff clears it without needing a manual re-run.
+      - name: Wait before push retry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.build_push_main.outcome == 'failure'
+        run: sleep 30
+
+      - name: Build and push sha image (main) — retry on transient GHCR error
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.build_push_main.outcome == 'failure'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -256,7 +279,26 @@ jobs:
           tags: platform-delovoy:ci-${{ github.sha }}
 
       - name: Scan image with Trivy (main — from GHCR)
+        id: trivy_main
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          timeout: 5m
+
+      # Same GHCR flakiness as the push step above (issue #689) — Trivy pulls
+      # the just-pushed image back down to scan it, and that pull can hit the
+      # same transient stream/rate-limit error (observed: HTTP/2 PROTOCOL_ERROR).
+      - name: Wait before Trivy retry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
+        run: sleep 20
+
+      - name: Scan image with Trivy (main — from GHCR) — retry on transient error
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
