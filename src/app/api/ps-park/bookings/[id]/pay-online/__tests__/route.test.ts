@@ -136,6 +136,34 @@ describe("POST /api/ps-park/bookings/:id/pay-online", () => {
     expect(mockGetBooking).toHaveBeenCalledWith("bk-1");
   });
 
+  it("issue #671: берёт email из booking.metadata, если у User email не задан", async () => {
+    mockFindUniqueUser.mockResolvedValue({ email: null, phone: "+79001234567" });
+    mockGetBooking.mockResolvedValue({
+      ...booking,
+      metadata: { email: "guest@example.com" },
+    });
+
+    await POST(makeRequest(), { params });
+
+    expect(mockCreateOnlinePayment).toHaveBeenCalledWith(
+      expect.objectContaining({ customerEmail: "guest@example.com" })
+    );
+  });
+
+  it("issue #671: User.email в приоритете над booking.metadata.email", async () => {
+    mockFindUniqueUser.mockResolvedValue({ email: "user@example.com", phone: "+79001234567" });
+    mockGetBooking.mockResolvedValue({
+      ...booking,
+      metadata: { email: "guest@example.com" },
+    });
+
+    await POST(makeRequest(), { params });
+
+    expect(mockCreateOnlinePayment).toHaveBeenCalledWith(
+      expect.objectContaining({ customerEmail: "user@example.com" })
+    );
+  });
+
   it("счёт уже оплачен онлайн — 409 NOTHING_TO_PAY", async () => {
     mockGetBookingBill.mockResolvedValue({ totalBill: 1000 });
     mockGetBooking.mockResolvedValue({

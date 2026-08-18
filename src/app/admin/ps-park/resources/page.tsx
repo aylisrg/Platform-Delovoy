@@ -1,16 +1,15 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { prisma } from "@/lib/db";
+import { listTables } from "@/modules/ps-park/service";
 import { TableEditor } from "@/components/admin/ps-park/table-editor";
 import { TableCreator } from "@/components/admin/ps-park/table-creator";
 
 export const dynamic = "force-dynamic";
 
 export default async function PSParkResourcesPage() {
-  const resources = await prisma.resource.findMany({
-    where: { moduleSlug: "ps-park" },
-    orderBy: { name: "asc" },
-  });
+  // activeOnly=false — админ видит и отключённые столы (бейдж «Отключен»),
+  // но не мягко удалённые: listTables() всегда фильтрует deletedAt (#675).
+  const resources = await listTables(false);
 
   return (
     <Card>

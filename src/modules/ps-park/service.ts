@@ -140,6 +140,7 @@ export async function listTables(activeOnly = true): Promise<PSTableResource[]> 
   return prisma.resource.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       ...(activeOnly && { isActive: true }),
     },
     orderBy: { name: "asc" },
@@ -148,7 +149,7 @@ export async function listTables(activeOnly = true): Promise<PSTableResource[]> 
 
 export async function getTable(id: string) {
   return prisma.resource.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 }
 
