@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.16.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.15.0...v2.16.0) (2026-08-18)
+
+
+### Features
+
+* **gazebos,ps-park:** UI + API создания ресурса (US-3, эпик [#442](https://github.com/aylisrg/Platform-Delovoy/issues/442)) ([#676](https://github.com/aylisrg/Platform-Delovoy/issues/676)) ([30a2dad](https://github.com/aylisrg/Platform-Delovoy/commit/30a2dad59673b654685388d309c224bfd16f88b6))
+* **gazebos,ps-park:** автокомплит гостя по телефону в quick-форме (US-2, эпик [#442](https://github.com/aylisrg/Platform-Delovoy/issues/442)) ([#673](https://github.com/aylisrg/Platform-Delovoy/issues/673)) ([e46c37c](https://github.com/aylisrg/Platform-Delovoy/commit/e46c37c5d0aa87daccad5e8fb3e84d5062412ed2))
+* **gazebos,ps-park:** комментарий и email в quick-форме бронирования (US-1, эпик [#442](https://github.com/aylisrg/Platform-Delovoy/issues/442)) ([#672](https://github.com/aylisrg/Platform-Delovoy/issues/672)) ([2953525](https://github.com/aylisrg/Platform-Delovoy/commit/2953525c0622b1691d28df299c536e37b64696f9))
+* **gazebos,ps-park:** печатный лист дня (US-4, эпик [#442](https://github.com/aylisrg/Platform-Delovoy/issues/442)) ([#677](https://github.com/aylisrg/Platform-Delovoy/issues/677)) ([981a59d](https://github.com/aylisrg/Platform-Delovoy/commit/981a59de485360d0dd8dd4e194d7222469fea3cd))
+
+
+### Bug Fixes
+
+* **booking,gazebos,ps-park:** batch of 4 P2 QA/code-review findings ([#691](https://github.com/aylisrg/Platform-Delovoy/issues/691)) ([6aa4684](https://github.com/aylisrg/Platform-Delovoy/commit/6aa4684c94f9a332f75e6b84838fff4e89f75de8))
+* **ci:** retry Docker push/Trivy scan on transient GHCR errors ([#690](https://github.com/aylisrg/Platform-Delovoy/issues/690)) ([389af64](https://github.com/aylisrg/Platform-Delovoy/commit/389af646dab87fcceb20b3ce6b81a2b1917bf408))
+* **eval:** AC-трассируемость сворачивает AC-N.M в AC-N + ложный матч regex.test() как маркер ([#658](https://github.com/aylisrg/Platform-Delovoy/issues/658)) ([d18f798](https://github.com/aylisrg/Platform-Delovoy/commit/d18f798cd4d24c2af4d9b096b8588a40ff2b4477))
+* **monitoring:** messenger getHealthMetrics + admin-дашборды считают soft-deleted Order/ChatMessage ([#663](https://github.com/aylisrg/Platform-Delovoy/issues/663)) ([29b9dfa](https://github.com/aylisrg/Platform-Delovoy/commit/29b9dfa933a4f5440d282951765e6ebad988326f))
+* **ps-park:** pay-online route не фильтрует deletedAt: null (тот же паттерн [#512](https://github.com/aylisrg/Platform-Delovoy/issues/512)/[#564](https://github.com/aylisrg/Platform-Delovoy/issues/564)) ([#652](https://github.com/aylisrg/Platform-Delovoy/issues/652)) ([7676ac2](https://github.com/aylisrg/Platform-Delovoy/commit/7676ac2b2400e919c7923653165a5a08e944179a))
+
 ## [2.15.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.14.0...v2.15.0) (2026-08-16)
 
 
