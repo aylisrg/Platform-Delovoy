@@ -1718,7 +1718,8 @@ function cmdDecisionsSync(dryRun: boolean): void {
   // трогает прод) раньше висели только в GitHub-дашборде — «инбокс», который
   // ADR 2026-08-20 упраздняет. Теперь тот же reconcile-upsert: один живой
   // вопрос на (kind, issue), «да» возвращает задачу в auto:ready (и при
-  // payload.dispatchWorkflow диспатчит ops-workflow), «нет» оставляет blocked.
+  // payload.dispatchWorkflow диспатчит ops-workflow), «нет» уводит её в
+  // auto:parked — задача выпадает из этой выборки, вопрос не переспрашивается.
   for (const lane of ['auto:blocked', 'auto:prod-apply']) {
     let blockedIssues: RawIssue[] = [];
     try {
