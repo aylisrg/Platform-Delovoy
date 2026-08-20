@@ -79,3 +79,35 @@ describe("publish — redis mode (redisAvailable=true)", () => {
     );
   });
 });
+
+// getSubscriber() достаёт ioredis динамическим require — TypeScript такой вызов
+// не проверяет, а unit-тесты выше идут по fallback-ветке (redisAvailable=false)
+// и до него не доходят. Значит major-обновление ioredis может сломать
+// подписчика молча: сборка и тесты зелёные, realtime в проде мёртв.
+// Этот блок фиксирует ровно тот контракт, на который опирается redis-bus.
+describe("ioredis CJS-интероп — контракт getSubscriber()", () => {
+  it('require("ioredis") возвращает конструктор', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Redis = require("ioredis");
+    expect(typeof Redis).toBe("function");
+  });
+
+  it("принимает опции подписчика и с lazyConnect не открывает соединение", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Redis = require("ioredis");
+    const client = new Redis("redis://localhost:6379", {
+      maxRetriesPerRequest: 3,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      retryStrategy: (times: number) => Math.min(times * 500, 15_000),
+    });
+
+    // lazyConnect ⇒ сокет не открыт, статус "wait" до явного connect().
+    expect(client.status).toBe("wait");
+    expect(typeof client.subscribe).toBe("function");
+    expect(typeof client.unsubscribe).toBe("function");
+    expect(typeof client.on).toBe("function");
+
+    client.disconnect();
+  });
+});
