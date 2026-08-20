@@ -28,6 +28,7 @@
 - Новый тест на баг-фикс, ассертящий только форму вызова (`expect.objectContaining`), может пройти и без самого фикса при неверно настроенном моке → обязателен mutation-check: временно откатить фикс, убедиться что падают именно новые тесты и только они, вернуть фикс (issue #564 — откат 6 фиксов уронил ровно 6 тестов; issue #622 — ровно 5).
 - Дедупликация по префиксу action-имени (`entries.some(e => e.action.startsWith("booking.create"))`) не матчит новые члены таксономии, добавленные позже с другим префиксом (`booking.admin_create` не начинается с `booking.create`) → ложноотрицательный пропуск проверки, тихо теряющийся при расширении семейства экшенов, зеркальный к #438 (там `startsWith` наоборот над-матчил) → при добавлении нового `action`-имени в существующее семейство явно проверять все `startsWith`/`includes`-условия дедупликации/классификации на предмет покрытия нового члена (issue #665).
 - Дедуп/выбор «самой свежей записи», зависящий от `orderBy` в Prisma-запросе, тестируется с мокнутым `findMany` — если тест ассертит только `where`, а мок-данные подаются уже вручную отсортированными, смена реального `orderBy` (`desc`→`asc`) молча проходит тесты: мок не сортирует по переданному аргументу, порядок в тестовых данных решает всё → отдельно ассертить `orderBy` в `toHaveBeenCalledWith(expect.objectContaining({ orderBy: ... }))`, не полагаться на порядок мок-массива (issue #666).
+- Live/E2E-проверка App Router страниц с `forbidden()`/`notFound()`/`unauthorized()` через сырой HTTP-статус ответа обманчива: стриминг коммитит статус 200 ещё до броска ошибки, реальный сигнал — `digest: "NEXT_HTTP_ERROR_FALLBACK;403/404"` внутри RSC-payload тела → ассертить по телу ответа (наличие digest/error-boundary разметки), не по `response.status` (issue #636).
 
 ### RBAC / Безопасность
 - Route проверяет `hasRole(session.user, "MANAGER")`, но не вызывает `requireAdminSection(session, <module>)` → менеджер одного модуля мутирует/читает данные в чужом → сразу после role-check: `const denied = await requireAdminSection(session, "<slug>"); if (denied) return denied;` (issues #560, #561, #622 — 5 write-роутов в последнем).
@@ -142,3 +143,7 @@
 | unknown | issue-665-qa-report.md | 8 | rbac, api, typescript, tests, scope_creep |
 | unknown | issue-666-qa-report.md | 20 | rbac, api, typescript, tests |
 | unknown | issue-667-qa-report.md | 2 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-625-qa-report.md | 17 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-627-qa-report.md | 2 | rbac, api, tests, scope_creep |
+| unknown | issue-636-qa-report.md | 9 | rbac, api, typescript, tests |
+| unknown | issue-670-671-674-675-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |

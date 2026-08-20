@@ -1,16 +1,15 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { prisma } from "@/lib/db";
+import { listResources } from "@/modules/gazebos/service";
 import { ResourceEditor } from "@/components/admin/gazebos/resource-editor";
 import { ResourceCreator } from "@/components/admin/gazebos/resource-creator";
 
 export const dynamic = "force-dynamic";
 
 export default async function GazebosResourcesPage() {
-  const resources = await prisma.resource.findMany({
-    where: { moduleSlug: "gazebos" },
-    orderBy: { name: "asc" },
-  });
+  // activeOnly=false — админ видит и отключённые ресурсы (бейдж «Отключена»),
+  // но не мягко удалённые: listResources() всегда фильтрует deletedAt (#675).
+  const resources = await listResources(false);
 
   return (
     <Card>

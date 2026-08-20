@@ -39,6 +39,12 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  experimental: {
+    // forbidden() (next/navigation) throws "is experimental and only
+    // allowed to be enabled when experimental.authInterrupts is enabled"
+    // without this — used across admin/{cafe,rental,nedelovoy}/**.
+    authInterrupts: true,
+  },
   images: {
     // External avatar/photo sources we render via next/image. Mirrors the
     // img-src directive in CSP above — keep them in sync.

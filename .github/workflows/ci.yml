@@ -48,7 +48,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -167,7 +167,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -196,7 +196,7 @@ jobs:
       # PNG для упавшего toHaveScreenshot недостижимы после завершения job'ы.
       - name: Upload E2E failure diagnostics (actual/diff screenshots, traces)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-test-results
           path: test-results/
@@ -231,7 +231,30 @@ jobs:
       # On main push: build once and push sha-tagged image.
       # Staging and production jobs retag this image — no rebuilds needed.
       - name: Build and push sha image (main)
+        id: build_push_main
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+
+      # GHCR intermittently returns a transient secondary rate limit or a
+      # broken push/pull stream (see issue #689: 4 ci-failure incidents in 7
+      # days, all self-healing on the next merge). One retry after a short
+      # backoff clears it without needing a manual re-run.
+      - name: Wait before push retry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.build_push_main.outcome == 'failure'
+        run: sleep 30
+
+      - name: Build and push sha image (main) — retry on transient GHCR error
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.build_push_main.outcome == 'failure'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -256,7 +279,26 @@ jobs:
           tags: platform-delovoy:ci-${{ github.sha }}
 
       - name: Scan image with Trivy (main — from GHCR)
+        id: trivy_main
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          timeout: 5m
+
+      # Same GHCR flakiness as the push step above (issue #689) — Trivy pulls
+      # the just-pushed image back down to scan it, and that pull can hit the
+      # same transient stream/rate-limit error (observed: HTTP/2 PROTOCOL_ERROR).
+      - name: Wait before Trivy retry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
+        run: sleep 20
+
+      - name: Scan image with Trivy (main — from GHCR) — retry on transient error
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
