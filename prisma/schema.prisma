@@ -1814,6 +1814,45 @@ model ReleaseAnnouncement {
   @@index([announcedAt])
 }
 
+/// Решение владельца, принимаемое кнопками в Telegram (контур owner-decisions,
+/// ADR 2026-08-20-owner-out-of-github). Запросы заводит свипер очереди через
+/// POST /api/admin/owner-decisions (reconcile каждые 15 мин), решение пишет бот
+/// (личный чат владельца), исполняет снова свипер. Сайт и бот GitHub не трогают —
+/// GitHub-креды остаются только у Actions.
+/// NB: unique(kind, subjectNumber, headSha) не дедупит строки с NULL-полями
+/// (Postgres считает NULL различными) — для kind без subject (pat-rotation)
+/// идемпотентность обеспечивает сервис (поиск PENDING того же kind).
+model OwnerDecision {
+  id                String              @id @default(cuid())
+  kind              String // merge-hold | blocked-question | owner-idea | pat-rotation
+  subjectType       String // pr | issue | none
+  subjectNumber     Int?
+  headSha           String? // merge-hold: аппрув пинится к SHA и не переживает новые коммиты
+  title             String
+  payload           Json? // причины гейта, url, dispatchWorkflow, текст идеи
+  status            OwnerDecisionStatus @default(PENDING)
+  decision          String? // approve | reject | defer
+  note              String?             @db.Text // текст владельца (реплай на сообщение решения)
+  executorNote      String?             @db.Text // отчёт исполнения от свипера
+  telegramMessageId String? // сообщение с кнопками — для «ответ реплаем» и редактирования
+  decidedAt         DateTime?
+  executedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([kind, subjectNumber, headSha])
+  @@index([status, createdAt])
+}
+
+enum OwnerDecisionStatus {
+  PENDING // ждёт владельца
+  APPROVED // владелец одобрил; merge-hold исполняется после grace-окна «Отменить»
+  REJECTED // владелец отклонил
+  DEFERRED // «позже» — напомнит вечерний дайджест
+  EXECUTED // свипер исполнил (терминальный)
+  EXPIRED // аппрув устарел (head SHA изменился) — свипер заведёт новый запрос
+}
+
 // === AVITO INTEGRATION ===
 // Платформа подключена как интеграция, не отдельный модуль.
 // См. docs/architecture/2026-04-28-delovoy-avito-adr.md

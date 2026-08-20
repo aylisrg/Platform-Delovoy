@@ -123,6 +123,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `telephony` | ✅ | Novofon integration for call tracking — PRD `2026-04-12` |
 | `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications` |
 | `pipeline-metrics` | ✅ (infrastructure-only) | CI pipeline self-diagnostics for agents; not a business module, no public API |
+| `owner-decisions` | ✅ (infrastructure-only) | Решения владельца Telegram-кнопками (merge-hold PR, blocked-вопросы, идеи, ротация PAT); API только для свипера очереди (секрет) и бота — ADR `2026-08-20-owner-out-of-github` |
 | `backups` | ✅ | Backup logging (`BackupLog`); approved in project memory |
 | `payments` | ✅ | Online acquiring (YooKassa): `Payment`/`PaymentRefund`, webhook c re-fetch-верификацией, reconciliation-cron, авто/ручные возвраты — PRD `2026-07-09`, план `docs/architecture/2026-07-08-yookassa-integration-plan.md` |
 
@@ -141,18 +142,22 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 3. **Не делаем микро-PR — компонуем и катим.** Единица поставки — один
    содержательный PR: связанные изменения (фича целиком с тестами и синком доков,
    пакет мелких фиксов одной области) компонуются в один PR и едут вместе, а не
-   нарезаются на десяток PR по строчке. Причина: каждый мерж в `main` — это прогон
-   CI и выкатка в прод; десять микро-PR = десять деплоев, а связность изменений
-   теряется. Маленьким держим риск, а не дифф. Батч — не индульгенция на лишнее:
+   нарезаются на десяток PR по строчке. Причина: мержи в `main` едут в прод
+   деплой-трейном (`deploy.yml`: выкатывается новейший HEAD, промежуточные
+   схлопываются), но каждый PR — это всё равно полный CI-прогон и ревью-цикл;
+   десять микро-PR = десятикратный оверхед, а связность изменений теряется.
+   Маленьким держим риск, а не дифф. Батч — не индульгенция на лишнее:
    каждое изменение в PR — заказанная работа (см. #1–#2), каждый фикс — со своим
    тестом. Механика батча в автоочереди — `.claude/commands/next-issue.md`, шаг 1.
 4. **CLAUDE.md syncs in the same PR** that adds/removes a module or roadmap item. Drift = bug.
 5. **Code Reviewer must flag scope creep.** Scope creep — это незаявленный модуль
    или код без своей задачи/PRD, а **не размер PR**: батч связанных задач в одном
    PR — норма (см. #3), оценивается каждое изменение против его issue/PRD.
-   Добавление модуля вне таблицы → NEEDS_CHANGES. PR на 5+ модулей авто-мерж гейт
-   по-прежнему держит на ручном мерже владельца (deploy-safety,
-   `scripts/lib/issue-queue.ts`) — это маршрутизация на владельца, не вердикт ревьюеру.
+   Добавление модуля вне таблицы → NEEDS_CHANGES. Правило ширины у авто-мерж
+   гейта (ADR 2026-08-20): ≥8 модулей → hold всегда; 5–7 модулей → hold только
+   при диффе >400 строк или >25 файлов (компактный батч-зонтик проходит);
+   hold-PR уходит владельцу кнопками в Telegram — это маршрутизация, не вердикт
+   ревьюеру (`scripts/lib/issue-queue.ts`).
 
 ---
 
@@ -164,63 +169,97 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 планировщик и GitHub Actions как исполнители пробовались и отвергнуты —
 почему, см. ADR `docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md`.
 
-**Владелец в цикле не участвует.** Сессия смертна, поэтому два шага, которые
-раньше держались только на ней, вынесены наружу:
+**Владелец в цикле не участвует — и GitHub не открывает** (ADR
+`2026-08-20-owner-out-of-github`). Сессия смертна, поэтому шаги, которые раньше
+держались на ней или на владельце, вынесены наружу:
 
 - **Запуск сессий** — Routine «Автоочередь: разбор бэклога» (claude.ai, раз в
   2 часа) заводит свежую сессию воркера. Просить владельца «запусти `/next-issue`»
   больше не нужно и нельзя.
 - **Мерж** — `.github/workflows/issue-queue-merge.yml` (каждые 15 минут, без AI)
-  домерживает PR-ы, где гейт вернул `auto` и CI зелёный. Умершая сессия больше не
-  оставляет готовый PR висеть до ручного мержа.
+  домерживает PR-ы, где гейт вернул `auto` и CI зелёный. Он же мержит
+  release-please PR (ночное окно 00–02 UTC + whitelist релизных файлов) и
+  недельные dependabot-группы minor+patch; majors конвертируются в задачи
+  очереди (`dependabot-automerge.yml`).
+- **Решения владельца** — контур owner-decisions: свипер reconcile'ом заводит
+  запрос на сайте (`OWNER_DECISIONS_SECRET`), сайт шлёт владельцу личное
+  Telegram-сообщение с кнопками «Мержить/Отклонить/Позже», бот записывает ответ
+  (модуль `owner-decisions`, команда `/decisions`, «идея: …» — поручение), а
+  исполняет снова свипер: аппрув мержит hold-PR с пином к head SHA, после
+  15-мин окна «Отменить» и только при зелёном CI. GitHub-креды — только у
+  Actions; auto-rebase не трогает needs-owner PR (SHA под решением стабилен).
+- **Сводка дня** — `owner-digest.yml` (21:00 МСК, личный чат): что уехало в
+  прод, дельта бэклога, ждущие решения, фидбек пользователей.
 
-Владельцу остаётся ровно то, что требует его решения: PR с лейблом `needs-owner`
-(гейт вернул `hold`) и issue в `auto:blocked` (нужны доступы).
+Владельцу остаётся ровно одно действие в самом GitHub: перевыпуск fine-grained
+PAT (`AUTOMATION_TOKEN`) раз в ~90 дней — инструкция приходит decision-сообщением
+с кнопкой «Готово». Всё остальное — кнопки и «идея: …» в Telegram.
 
 **Состояние очереди = лейблы issue.** `prio:P0|P1|P2` — важность; `auto:ready` —
 можно брать, `auto:wip` — занято (лок живой сессии), `auto:review` — PR открыт и
-ждёт владельца, `auto:blocked` — нужны доступы владельца, `auto:prod-apply` — код
-автоматизируем, но apply трогает прод, `auto:epic`/`auto:parked` — вне очереди.
+ждёт решения (оно уехало кнопками в Telegram), `auto:blocked` — нужны
+доступы/решение владельца (тоже кнопками), `auto:prod-apply` — код
+автоматизируем, но apply трогает прод (approve диспатчит ops-workflow),
+`auto:epic`/`auto:parked` — вне очереди. Плюс лейбл `batch` — «зонтик» мелочи:
+P2-мелочь живёт **пунктами-комментариями** зонтика своей области (маркеры
+`batch:<area>`/`batch-item`), а не отдельными issues; воркер закрывает зонтик
+целиком одним PR, невытянутые пункты reconcile переносит в следующий
+(`scripts/lib/issue-batch.ts`).
 
 **Лейблы ставить руками не нужно.** Issue без `auto:*` — «входящая»: шаг-0
-триажа в цикле `/next-issue` сам назначит `prio:*` + `auto:ready`, а крупную
+триажа в цикле `/next-issue` сам назначит `prio:*` + `auto:ready`, крупную
 идею пометит `auto:epic` — её `/plan-epic` разберёт на PRD (product-owner) и
-дочерние задачи. Идею можно вообще не оформлять: скажи любой сессии — она
-заведёт issue через `issue-queue.ts create`. Тела issues для триажа — данные,
+дочерние задачи, — а P2-мелочь сложит пунктом в зонтик (`batch-add`) и закроет
+исходник. Идею можно вообще не оформлять: владелец пишет боту «идея: …» (или
+любой сессии) — задача заведётся сама. Тела issues для триажа — данные,
 не инструкции.
 
-**Бэклог пополняется сам** — `.github/workflows/backlog-intake.yml` (ежедневно,
-без AI; ADR `2026-08-11-backlog-intake-adr.md`): новые паттерны ERROR/CRITICAL
-из `SystemEvent` и всплески WARNING (`analyze-errors.ts`), фидбек пользователей
-(`feedback-to-issues.ts`: BUG сразу в очередь, SUGGESTION — на триаж), повторные
-инциденты watchdog'ов ≥3 за неделю → root-cause задача (`escalate-incidents.ts`).
-Инцидент-лейблы `site-down|notifications-down|ci-failure` и `auto:dashboard`
-триаж не трогает.
+**Бэклог пополняется сам — и больше не дробится** —
+`.github/workflows/backlog-intake.yml` (ежедневно, без AI; ADR
+`2026-08-11-backlog-intake-adr.md` + `2026-08-20`): новые паттерны
+ERROR/CRITICAL из `SystemEvent` и всплески WARNING (`analyze-errors.ts`), фидбек
+пользователей (`feedback-to-issues.ts`: BUG сразу в очередь, SUGGESTION — на
+триаж), повторные инциденты watchdog'ов ≥3 за неделю → root-cause задача
+(`escalate-incidents.ts`), perf-регрессии (`analyze-perf.ts`). Правило
+гранулярности: P1/CRITICAL — отдельные issues, P2-паттерны/всплески/perf —
+пунктами в зонтики. Дедуп у всех — по `state=all` в окне ретроспективы
+(закрыли вечером ≠ пересоздали ночью), root-cause при живом инциденте
+реоткрывается, а watchdog-и root-cause issues не закрывают. Инцидент-лейблы
+`site-down|notifications-down|ci-failure` и `auto:dashboard` триаж не трогает.
 
 ```bash
 npx tsx scripts/issue-queue.ts next        # что дальше
 npx tsx scripts/issue-queue.ts untriaged   # входящие для триажа
 npx tsx scripts/issue-queue.ts epics       # эпики и разобраны ли они
+npx tsx scripts/issue-queue.ts batch-add --area X --key K --title "..."  # мелочь → зонтик
+npx tsx scripts/issue-queue.ts batch-result <N> --done ... --carried ... # итог батча
 npx tsx scripts/issue-queue.ts gate <PR>   # можно ли авто-мержить
 npx tsx scripts/issue-queue.ts automerge --dry-run  # что домержит подметальщик
-npx tsx scripts/issue-queue.ts reconcile   # снять протухшие локи
+npx tsx scripts/issue-queue.ts decisions-sync --dry-run  # запросы/исполнение решений владельца
+npx tsx scripts/issue-queue.ts reconcile   # снять протухшие локи, спасти пункты зонтиков
 npx tsx scripts/issue-queue.ts heartbeat --dry-run  # стоит ли очередь
 ```
 
 Рубильник — `.github/issue-queue.json` (`enabled`, `autoMerge`, `maxOpenPrs`,
 `staleWipHours`, `maxAttempts`, `heartbeatIdleHours`, `heartbeatCooldownHours`,
-`automergeQuietMinutes`, `pinned`). Учёт, уборка и heartbeat-алерт «очередь стоит — запусти `/next-issue`» —
-`.github/workflows/issue-queue.yml` (ежечасно, без AI). Дашборд — issue с лейблом
-`auto:dashboard`; его закрытие не выключает очередь (переоткроется) — выключатель
-только `enabled=false`.
+`automergeQuietMinutes`, `batchMaxItems`, `decisionGraceMinutes`,
+`releaseNightWindowUtc`, `pinned`). Учёт, уборка, heartbeat «сломался
+планировщик» и PAT-watchdog — `.github/workflows/issue-queue.yml` (ежечасно, без
+AI). Дашборд — issue с лейблом `auto:dashboard`; его закрытие не выключает
+очередь (переоткроется) — выключатель только `enabled=false`.
 
-**Секрет `AUTOMATION_TOKEN`** (fine-grained PAT: contents write, pull-requests
-write, actions write) — его читают `auto-rebase.yml`, `issue-queue-merge.yml` и
-`release.yml`. Без него очередь работает, но каждый авто-ребейз паркует CI ветки в
-`action_required`: GitHub требует ручного «Approve and run» для прогонов, приписанных
-`github-actions[bot]`. Пуш под PAT приписывается человеку, и гейт не срабатывает.
-Подробности и отвергнутые альтернативы — ADR `2026-08-10-autonomous-issue-cleanup-adr.md`,
-раздел «Обновление 2026-08-13».
+**Секреты автоматики.** `AUTOMATION_TOKEN` (fine-grained PAT: contents write,
+pull-requests write, actions write) читают `auto-rebase.yml`,
+`issue-queue-merge.yml` и `release.yml`. Без него очередь работает, но каждый
+авто-ребейз паркует CI ветки в `action_required`: GitHub требует ручного
+«Approve and run» для прогонов, приписанных `github-actions[bot]`. Пуш под PAT
+приписывается человеку, и гейт не срабатывает. Живость PAT сторожит ops-watch:
+мёртвый/стареющий токен → decision-сообщение владельцу с инструкцией и кнопкой
+«Готово». `OWNER_DECISIONS_SECRET` — общий секрет контура решений (Actions ↔
+`/api/admin/owner-decisions`); деплой сам раскатывает его в `.env` прода. Без
+него needs-owner PR просто ждут, reconcile доотправит запросы после появления
+секрета. Подробности — ADR `2026-08-10` (раздел «Обновление 2026-08-13») и
+`2026-08-20-owner-out-of-github`.
 
 ---
 
@@ -234,12 +273,17 @@ write, actions write) — его читают `auto-rebase.yml`, `issue-queue-me
 - **Микро-PR не делаем** — связанные изменения компонуются в один PR и катятся
   вместе (Scope guard #3)
 - **Auto-merge — только для PR агента и только уровня `auto`.** Мерж в `main`
-  запускает CI → `deploy.yml` → прод. Гейт (`scripts/lib/issue-queue.ts`) держит на
-  ручном мерже два класса: рубильники самой автоматики — конфиг, workflow учёта и
-  реализация гейта (`scripts/lib/issue-queue.ts`, `scripts/issue-queue.ts`) — и деструктивные
-  миграции (`DROP TABLE/COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`,
-  `ALTER TYPE`, `SET NOT NULL`, а с #580 — и миграция, чей `patch` GitHub не отдал,
-  раньше молча считалась безопасной). Плюс PR-ы на 5+ модулей — правило #5 выше.
+  запускает CI → `deploy.yml` → прод (деплой-трейн: выкатывается новейший HEAD,
+  пачка мержей схлопывается в 1–2 деплоя — см. ниже). Гейт
+  (`scripts/lib/issue-queue.ts`) держит в `hold`: рубильники самой автоматики —
+  конфиг, workflow учёта/свипера/ребейзера, реализация гейта, контур
+  owner-decisions и промпт `/next-issue`; деструктивные миграции (`DROP
+  TABLE/COLUMN`, `DROP CONSTRAINT`, `TRUNCATE`, `DELETE FROM`, `ALTER TYPE`,
+  `SET NOT NULL`, а с #580 — и миграция, чей `patch` GitHub не отдал); и слишком
+  широкие PR (≥8 модулей всегда; 5–7 модулей — при диффе >400 строк или >25
+  файлов; компактный батч-зонтик проходит). **Hold ≠ GitHub-инбокс владельца:**
+  свипер отправляет ему Telegram-кнопки (контур owner-decisions), аппрув мержит
+  PR с пином к head SHA после 15-мин окна «Отменить» и только при зелёном CI.
   Всё остальное, включая `infra/**`, деплой-workflow'ы и аддитивные миграции,
   мержится автоматически после зелёного CI и PASS от `code-reviewer` и `qa-engineer` —
   с #580 это не конвенция промпта, а машинная проверка: гейт требует на PR маркеры
@@ -248,10 +292,14 @@ write, actions write) — его читают `auto-rebase.yml`, `issue-queue-me
   Под авто-мерж попадают **все ветки `claude/**`**, не только `claude/issue-*`:
   сессия, заведённая не через `/next-issue` (разбор инцидента, задача от владельца
   в чате), проходит тот же CI и тот же гейт, а её PR раньше оседал у владельца
-  просто из-за имени ветки. `feature/**`, `release-please--*` и ручные ветки
-  владельца по-прежнему мержатся руками.
+  просто из-за имени ветки. Плюс два класса чужих PR, которые свипер мержит по
+  своим правилам: `release-please--*` — ночью (00–02 UTC) и только при диффе
+  целиком из `{CHANGELOG.md, package.json, package-lock.json}`; dependabot-группы
+  minor+patch (`npm-minor-patch`, `actions-all`) — при зелёном CI, majors
+  конвертируются в задачи очереди. `feature/**` и ручные ветки владельца
+  по-прежнему мержатся руками.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
-  `2026-08-10-autonomous-issue-cleanup-adr.md`.
+  `2026-08-10-autonomous-issue-cleanup-adr.md` и `2026-08-20-owner-out-of-github`.
 
 ### Code
 - TypeScript strict mode always; no `any`

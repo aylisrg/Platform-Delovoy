@@ -12,9 +12,13 @@ import {
   countAttempts,
   countBackpressurePrs,
   destructiveSqlIn,
+  graceElapsed,
+  isDependabotAutoMergeBranch,
   isEligible,
+  isNightWindowUtc,
   isTrustedVerdictAuthor,
   isUntriaged,
+  releasePrGate,
   laneOf,
   missedAutoCloseIssues,
   moduleOf,
@@ -369,7 +373,44 @@ describe('classifyMergeGate', () => {
     expect(classifyMergeGate(['.github/workflows/issue-templates.yml'], config(), PASSING_VERDICTS).tier).toBe('auto');
   });
 
-  it('5+ модулей — scope creep по правилу CLAUDE.md #5', () => {
+  // Правило ширины PR (v2, под зонтики мелочи): жёсткий hold с 8 модулей;
+  // коридор 5-7 модулей открыт только компактным диффам (≤400 строк, ≤25 файлов);
+  // отсутствие метрик диффа в этом коридоре — консервативный hold.
+  const moduleFile = (slug: string, lines = 20) => ({
+    filename: `src/modules/${slug}/service.ts`,
+    additions: lines,
+    deletions: 0,
+  });
+
+  it('компактный батч по 5-7 модулям проходит — типичный зонтик мелочи', () => {
+    const gate = classifyMergeGate(
+      ['booking', 'gazebos', 'cafe', 'rental', 'clients', 'tasks'].map((s) => moduleFile(s, 40)),
+      config(),
+      PASSING_VERDICTS,
+    );
+    expect(gate.tier).toBe('auto');
+  });
+
+  it('5-7 модулей с диффом >400 строк — hold (широкая свалка, а не батч)', () => {
+    const gate = classifyMergeGate(
+      ['booking', 'gazebos', 'cafe', 'rental', 'clients'].map((s) => moduleFile(s, 120)),
+      config(),
+      PASSING_VERDICTS,
+    );
+    expect(gate.tier).toBe('hold');
+    expect(gate.reasons.join(' ')).toContain('scope creep');
+  });
+
+  it('5-7 модулей и >25 файлов — hold независимо от строк', () => {
+    const files = Array.from({ length: 26 }, (_, i) => ({
+      filename: `src/modules/${['booking', 'gazebos', 'cafe', 'rental', 'clients'][i % 5]}/f${i}.ts`,
+      additions: 2,
+      deletions: 0,
+    }));
+    expect(classifyMergeGate(files, config(), PASSING_VERDICTS).tier).toBe('hold');
+  });
+
+  it('5-7 модулей БЕЗ метрик диффа — консервативный hold (нет данных ≠ можно)', () => {
     const gate = classifyMergeGate(
       [
         'src/modules/booking/service.ts',
@@ -382,11 +423,21 @@ describe('classifyMergeGate', () => {
       PASSING_VERDICTS,
     );
     expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('scope creep');
+    expect(gate.reasons.join(' ')).toContain('метрики диффа недоступны');
     expect(gate.modules).toHaveLength(5);
   });
 
-  it('4 модуля ещё проходят', () => {
+  it('8+ модулей — hold всегда, даже компактные', () => {
+    const gate = classifyMergeGate(
+      ['booking', 'gazebos', 'cafe', 'rental', 'clients', 'tasks', 'users', 'analytics'].map((s) => moduleFile(s, 5)),
+      config(),
+      PASSING_VERDICTS,
+    );
+    expect(gate.tier).toBe('hold');
+    expect(gate.reasons.join(' ')).toContain('scope creep');
+  });
+
+  it('4 модуля проходят как раньше — правило ширины их не трогает', () => {
     const gate = classifyMergeGate(
       [
         'src/modules/booking/service.ts',
@@ -936,5 +987,112 @@ describe('autoMergeSkipReason', () => {
 
   it('issue в auto:review не блокирует мерж — туда уезжают PR умерших сессий', () => {
     expect(autoMergeSkipReason(pr({ branch: 'x/y', issueLanes: ['review'] }), config(), NOW)).toBeNull();
+  });
+});
+
+// ── Расширение HOLD_PATTERNS (ADR 2026-08-20-owner-out-of-github) ───────────
+
+describe('HOLD_PATTERNS v2', () => {
+  it.each([
+    // Свипер: агент не может переписать мержащий механизм и тем же прогоном замержить.
+    '.github/workflows/issue-queue-merge.yml',
+    // Ребейзер форс-пушит чужие ветки под PAT с человеческой атрибуцией.
+    '.github/workflows/auto-rebase.yml',
+    // Контур owner-decisions — путь к мержу мимо гейта.
+    'src/modules/owner-decisions/service.ts',
+    'src/app/api/admin/owner-decisions/route.ts',
+    'src/app/api/bot/owner-decisions/route.ts',
+    'bot/handlers/owner-decisions.ts',
+    // Промпт /next-issue — программа агента с правом мержа (ведёт к вердиктам #580).
+    '.claude/commands/next-issue.md',
+  ])('%s — рубильник, автоматика не мержит сама', (file) => {
+    expect(classifyMergeGate([file], config(), PASSING_VERDICTS).tier).toBe('hold');
+  });
+
+  it.each([
+    // Чистые функции зонтиков и сторожей решений о мерже не принимают.
+    'scripts/lib/issue-batch.ts',
+    'scripts/lib/batch-io.ts',
+    'scripts/lib/queue-watch.ts',
+    // Остальные командные промпты — ручка тюнинга, меняются часто (ADR: асимметрия
+    // с next-issue.md осознанная).
+    '.claude/commands/plan-epic.md',
+    // Тест бот-хендлера — не сам хендлер.
+    'bot/handlers/__tests__/owner-decisions.test.ts',
+  ])('%s рубильником не считается', (file) => {
+    expect(classifyMergeGate([file], config(), PASSING_VERDICTS).tier).toBe('auto');
+  });
+});
+
+// ── Ночной релиз-трейн и dependabot-группы ──────────────────────────────────
+
+describe('isNightWindowUtc', () => {
+  it('окно [0,2): 00:30 внутри, 02:00 и 12:00 снаружи', () => {
+    expect(isNightWindowUtc(new Date('2026-08-20T00:30:00Z'), [0, 2])).toBe(true);
+    expect(isNightWindowUtc(new Date('2026-08-20T01:59:00Z'), [0, 2])).toBe(true);
+    expect(isNightWindowUtc(new Date('2026-08-20T02:00:00Z'), [0, 2])).toBe(false);
+    expect(isNightWindowUtc(new Date('2026-08-20T12:00:00Z'), [0, 2])).toBe(false);
+  });
+
+  it('окно через полночь [23,1)', () => {
+    expect(isNightWindowUtc(new Date('2026-08-20T23:30:00Z'), [23, 1])).toBe(true);
+    expect(isNightWindowUtc(new Date('2026-08-20T00:30:00Z'), [23, 1])).toBe(true);
+    expect(isNightWindowUtc(new Date('2026-08-20T02:00:00Z'), [23, 1])).toBe(false);
+  });
+});
+
+describe('releasePrGate', () => {
+  const NIGHT = new Date('2026-08-20T00:30:00Z');
+  const DAY = new Date('2026-08-20T14:00:00Z');
+  const RELEASE_FILES = ['CHANGELOG.md', 'package.json', 'package-lock.json'];
+
+  it('whitelist + ночь → мерж', () => {
+    expect(releasePrGate(RELEASE_FILES, NIGHT, config()).merge).toBe(true);
+  });
+
+  it('днём релиз ждёт ночного окна — мерж release-PR это деплой без кода', () => {
+    const res = releasePrGate(RELEASE_FILES, DAY, config());
+    expect(res.merge).toBe(false);
+    expect(res.reason).toContain('ночного окна');
+  });
+
+  it('файл вне whitelist — не release-PR, обычный путь через гейт', () => {
+    const res = releasePrGate([...RELEASE_FILES, 'src/lib/db.ts'], NIGHT, config());
+    expect(res.merge).toBe(false);
+    expect(res.reason).toContain('вне whitelist');
+  });
+});
+
+describe('isDependabotAutoMergeBranch', () => {
+  it('групповые ветки minor+patch мержатся свипером', () => {
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/npm-minor-patch-8f21ab90c1')).toBe(true);
+    expect(isDependabotAutoMergeBranch('dependabot/github_actions/actions-all-1a2b3c')).toBe(true);
+  });
+
+  it('одиночные ветки (majors) — нет: их конвертируют в задачи очереди', () => {
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/ioredis-6.0.0')).toBe(false);
+    expect(isDependabotAutoMergeBranch('dependabot/github_actions/actions/setup-node-7')).toBe(false);
+  });
+
+  it('имя группы в середине сегмента не совпадает — сравнение по сегменту, не includes', () => {
+    // Пакет с именем, содержащим подстроку группы, — не группа.
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/some-npm-minor-patch-lib-2.0.0')).toBe(false);
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/npm-minor-patch')).toBe(true);
+  });
+
+  it('не-dependabot ветка — нет, даже с похожим сегментом', () => {
+    expect(isDependabotAutoMergeBranch('claude/issue-1-npm-minor-patch')).toBe(false);
+  });
+});
+
+describe('graceElapsed', () => {
+  const NOW = new Date('2026-08-20T12:00:00Z');
+
+  it('окно «Отменить» ещё идёт — исполнять рано', () => {
+    expect(graceElapsed('2026-08-20T11:50:00Z', NOW, 15)).toBe(false);
+  });
+
+  it('окно прошло — можно мержить', () => {
+    expect(graceElapsed('2026-08-20T11:44:00Z', NOW, 15)).toBe(true);
   });
 });

@@ -74,10 +74,19 @@ docker compose logs -f bot   # убедиться что бот стартану
 2. Push в GitHub
 3. CI автоматически: lint → test → typecheck → build
 4. Если CI зелёный → PR → Review → Merge в main
-5. Merge в main → автодеплой на VPS
+5. Merge в main → автодеплой на VPS (деплой-трейн)
 ```
 
 Исключений нет. Даже hotfix идёт через PR (можно с пометкой `hotfix/`).
+
+**Деплой-трейн** (ADR `2026-08-20-owner-out-of-github`): `deploy.yml` живёт в
+одной concurrency-группе `deploy-production-train` — при пачке мержей подряд
+GitHub держит максимум «1 бегущий + 1 pending» ран, промежуточные отменяет сам.
+Каждый ран трейна деплоит **текущий HEAD `main`** (guard-джоба resolve-to-HEAD),
+а не SHA своего события, и скипается за ~10с, если HEAD уже задеплоен
+(repo variable `DEPLOYED_SHA_CURRENT`). Итог: N мержей = 1–2 деплоя новейшего
+кода, без промежуточных выкаток. `workflow_dispatch` с явным `sha`
+(hotfix, авто-откат error-budget) едет вне трейна, своей группой.
 
 ---
 

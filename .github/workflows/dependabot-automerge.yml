@@ -1,18 +1,37 @@
-name: Auto-merge bot PRs
+name: Dependabot — majors to queue
+
+# ADR 2026-08-20-owner-out-of-github. Раньше здесь был автомерж patch-PR через
+# `gh pr merge --auto` под GITHUB_TOKEN — мерж без событий (loop-protection):
+# deploy.yml после него молча не стартовал. Теперь групповые minor+patch PR
+# мержит свипер issue-queue-merge.yml (у него PAT → события рождаются, а без
+# PAT — явный Kick-dispatch деплоя), автомержу здесь делать нечего.
+#
+# Осталась одна обязанность: одиночный dependabot-PR = major (minor+patch
+# собраны в группы конфигом .github/dependabot.yml) — ему нужно настоящее
+# ревью, а не вечное висение в списке PR у владельца. Конвертируем в задачу
+# очереди: сессия оценит changelog, допишет адаптацию прямо в dependabot-ветку,
+# поставит Closes + вердикты — и PR смержит свипер как обычный PR автоматики.
+#
+# Мёртвая джоба автомержа release-please удалена: она не срабатывала по
+# конструкции (PR от GITHUB_TOKEN не рождает pull_request-событий, а с PAT
+# актор — человек, не github-actions[bot]). Release-PR мержит свипер ночью
+# (releasePrGate: окно 00-02 UTC + whitelist релизных файлов).
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
+  issues: write
 
 jobs:
-  dependabot:
-    name: Auto-merge Dependabot patches
+  major-to-queue:
+    name: Convert major update to queue issue
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -20,27 +39,39 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-approve patch updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v7
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+      - uses: ./.github/actions/setup-node
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
 
-      - name: Auto-merge patch updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Create queue issue for the major bump
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPS: ${{ steps.metadata.outputs.dependency-names }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          SLUG=$(echo "$DEPS" | tr -c 'a-zA-Z0-9' '-' | sed 's/-*$//;s/^-*//' | cut -c1-60)
+          cat > body.md <<BODY
+          Dependabot предлагает major-обновление: **${DEPS}** — PR #${PR_NUMBER} (${PR_URL}).
 
-  release-please:
-    name: Auto-merge release-please
-    if: github.actor == 'github-actions[bot]' && startsWith(github.head_ref, 'release-please-')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Auto-merge release PR
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          Major не мержится автоматически. Задача воркера:
+          1. Прочитать changelog/breaking changes обновляемых пакетов.
+          2. Дописать адаптацию кода ПРЯМО в ветку dependabot-PR (не заводить свою).
+          3. Добавить в тело PR строку \`Closes #<этот номер>\`, прогнать ревью и поставить вердикты.
+          4. Дальше PR мержит свипер как обычный PR автоматики.
+
+          Если обновление сейчас не нужно — закрыть PR комментарием \`@dependabot ignore this major version\` и закрыть эту задачу.
+          BODY
+          npx tsx scripts/issue-queue.ts create \
+            --title "chore(deps): major-обновление ${DEPS}" \
+            --body-file body.md \
+            --prio P2 --ready \
+            --label dependencies \
+            --dedup-key "deps-major-${SLUG}" || {
+              code=$?
+              # exit 3 = дубль найден (задача уже заведена прошлым прогоном) — это норма.
+              [ "$code" -eq 3 ] && echo "Queue issue already exists — ok" && exit 0
+              exit "$code"
+            }

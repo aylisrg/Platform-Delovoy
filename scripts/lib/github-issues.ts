@@ -10,6 +10,16 @@
  */
 import { ErrorPattern, WarningSpike } from './pattern-extractor';
 import { REPO, ghApi } from './gh-api';
+import { BATCH_LABEL } from './issue-batch';
+import { batchAdd, batchCommentBodies, loadBatchMaxItems } from './batch-io';
+
+/**
+ * Окно дедупа (state=all): паттерн, чью issue закрыли внутри окна, не
+ * перечеканивается — «закрыли вечером → пересоздали ночью» и была болезнь
+ * open-only дедупа (6 подряд дублей root-cause). Ширина = базлайн-окну
+ * fingerprint'а: закрытая раньше окна issue — легитимно новая эпоха паттерна.
+ */
+export const DEDUP_WINDOW_DAYS = 14;
 
 /** ERROR с такой суточной частотой приравнивается к CRITICAL по приоритету. */
 export const HIGH_FREQ_ERROR = 20;
@@ -115,21 +125,37 @@ ${examples}
 }
 
 export class GitHubIssueCreator {
-  /** Тела открытых auto-detected issues — кэш для дедупа в рамках одного прогона. */
+  /**
+   * Тела для дедупа: issues с `auto-detected` за окно (state=all — закрытые
+   * тоже блокируют пересоздание) ПЛЮС зонтики (`batch`) с их комментариями —
+   * P2-паттерн, уехавший пунктом в зонтик, несёт свой маркер в теле пункта,
+   * и без скана комментариев зонтиков дедуп был бы слеп к нему.
+   */
   private existingBodies: string[] | null = null;
 
   private loadExistingBodies(): string[] {
     if (this.existingBodies !== null) return this.existingBodies;
+    const since = new Date(Date.now() - DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
     const bodies: string[] = [];
-    for (let page = 1; page <= 10; page++) {
-      const batch = ghApi<{ body: string | null; pull_request?: unknown }[]>(
-        `/repos/${REPO}/issues?state=open&labels=auto-detected&per_page=100&page=${page}`,
-      );
-      bodies.push(...batch.filter((i) => !i.pull_request).map((i) => i.body ?? ''));
-      if (batch.length < 100) break;
+    for (const label of ['auto-detected', BATCH_LABEL]) {
+      for (let page = 1; page <= 10; page++) {
+        const batch = ghApi<{ number: number; body: string | null; pull_request?: unknown }[]>(
+          `/repos/${REPO}/issues?state=all&labels=${encodeURIComponent(label)}&since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
+        );
+        const issues = batch.filter((i) => !i.pull_request);
+        bodies.push(...issues.map((i) => i.body ?? ''));
+        if (label === BATCH_LABEL) {
+          for (const i of issues) bodies.push(...batchCommentBodies(i.number));
+        }
+        if (batch.length < 100) break;
+      }
     }
     this.existingBodies = bodies;
     return bodies;
+  }
+
+  private seen(marker: string): boolean {
+    return this.loadExistingBodies().some((b) => b.includes(marker));
   }
 
   private create(marker: string, issue: { title: string; body: string; labels: string[] }, dryRun: boolean): string | null {
@@ -137,7 +163,7 @@ export class GitHubIssueCreator {
       console.log(`\n[DRY RUN] Would create issue:\nTitle: ${issue.title}\nLabels: ${issue.labels.join(', ')}\n---`);
       return null;
     }
-    if (this.loadExistingBodies().some((b) => b.includes(marker))) {
+    if (this.seen(marker)) {
       console.log(`Issue already exists (${marker}), skipping`);
       return null;
     }
@@ -147,11 +173,53 @@ export class GitHubIssueCreator {
     return created.html_url;
   }
 
+  /**
+   * P2-мелочь — пунктом в зонтик области, а не отдельной issue (правило
+   * гранулярности CLAUDE.md). Тело issue целиком уезжает в детали пункта —
+   * вместе со старым маркером, поэтому дедуп по маркеру продолжает работать.
+   */
+  private addToBatch(
+    area: string,
+    key: string,
+    marker: string,
+    issue: { title: string; body: string },
+    dryRun: boolean,
+  ): string | null {
+    if (dryRun) {
+      console.log(`\n[DRY RUN] Would add batch item (${area}):\n${issue.title}\n---`);
+      return null;
+    }
+    if (this.seen(marker)) {
+      console.log(`Batch item already exists (${marker}), skipping`);
+      return null;
+    }
+    const res = batchAdd({ area, key, title: issue.title, details: issue.body, maxItems: loadBatchMaxItems() });
+    if (res.deduped) {
+      console.log(`Batch item already exists (key ${key}), skipping`);
+      return null;
+    }
+    this.existingBodies?.push(issue.body);
+    console.log(`Added batch item to ${res.url}`);
+    return res.url;
+  }
+
   async createIssue(pattern: ErrorPattern, dryRun = false): Promise<string | null> {
-    return this.create(fingerprintMarker(pattern.fingerprint), issueForPattern(pattern), dryRun);
+    const issue = issueForPattern(pattern);
+    if (!issue.labels.includes('prio:P1')) {
+      return this.addToBatch(
+        pattern.source,
+        `err-${pattern.fingerprint}`,
+        fingerprintMarker(pattern.fingerprint),
+        issue,
+        dryRun,
+      );
+    }
+    return this.create(fingerprintMarker(pattern.fingerprint), issue, dryRun);
   }
 
   async createSpikeIssue(spike: WarningSpike, windowHours: number, dryRun = false): Promise<string | null> {
-    return this.create(spikeMarker(spike.source), issueForSpike(spike, windowHours), dryRun);
+    // Всплески всегда P2 — всегда пунктом в зонтик своего source.
+    const issue = issueForSpike(spike, windowHours);
+    return this.addToBatch(spike.source, `spike-${spike.source}`, spikeMarker(spike.source), issue, dryRun);
   }
 }

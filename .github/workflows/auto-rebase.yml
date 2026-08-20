@@ -77,12 +77,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Берём все открытые PR с base=main и head в нашем репо
+          # Берём все открытые PR с base=main и head в нашем репо.
+          # needs-owner пропускаем (ADR 2026-08-20): такой PR ждёт решения
+          # владельца в Telegram, и аппрув пинится к head SHA — ребейз менял бы
+          # SHA под ждущим решением, аппрув вечно устаревал бы (EXPIRED-цикл),
+          # а канал решений деградировал бы в спам повторных запросов. Мержить
+          # его всё равно нельзя до решения — ребейзить нечего и незачем.
           PRS=$(gh pr list \
             --state open \
             --base main \
-            --json number,headRefName,headRepositoryOwner \
-            --jq '.[] | select(.headRepositoryOwner.login == "${{ github.repository_owner }}") | "\(.number)\t\(.headRefName)"')
+            --json number,headRefName,headRepositoryOwner,labels \
+            --jq '.[] | select(.headRepositoryOwner.login == "${{ github.repository_owner }}") | select((.labels | map(.name) | index("needs-owner")) | not) | "\(.number)\t\(.headRefName)"')
 
           if [ -z "$PRS" ]; then
             echo "No open PRs to rebase."

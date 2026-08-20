@@ -104,24 +104,25 @@ jobs:
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
 
-      # Watchdog автономии (issue #573): живость AUTOMATION_TOKEN + суточный
-      # дайджест PR needs-owner старше 48ч. Решение — в CLI (JSON), Telegram —
-      # отдельными шагами ниже, тем же паттерном, что и heartbeat выше.
-      - name: Ops watch — AUTOMATION_TOKEN liveness + needs-owner digest
+      # Watchdog автономии (issue #573): живость AUTOMATION_TOKEN. Мёртвый или
+      # стареющий токен дополнительно заводит pat-rotation decision на сайте —
+      # владельцу приходит Telegram-инструкция с кнопкой «Готово» (это
+      # единственный его легальный заход в GitHub, ~2 мин раз в 90 дней).
+      # Старый суточный дайджест needs-owner убран: hold-PR теперь приходит
+      # кнопками в момент навешивания лейбла (decisions-sync свипера), о
+      # зависших напоминает вечерний owner-digest.yml.
+      - name: Ops watch — AUTOMATION_TOKEN liveness
         id: ops
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTOMATION_TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
+          OWNER_DECISIONS_SECRET: ${{ secrets.OWNER_DECISIONS_SECRET }}
         run: |
           npx tsx scripts/issue-queue.ts ops-watch > ops.json
           cat ops.json
           {
             echo "token_alert=$(jq -r '.tokenAlert // false' ops.json)"
             echo "token_status=$(jq -r '.token.status // "n/a"' ops.json)"
-            echo "digest_send=$(jq -r '.digest.send // false' ops.json)"
-            echo "digest_text<<QUEUEWATCH_EOF"
-            jq -r '.digestTextHtml // ""' ops.json
-            echo "QUEUEWATCH_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Telegram — AUTOMATION_TOKEN мёртв или протух
@@ -150,21 +151,3 @@ jobs:
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
 
-      - name: Telegram — needs-owner digest
-        if: steps.ops.outputs.digest_send == 'true'
-        continue-on-error: true
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
-          DIGEST: ${{ steps.ops.outputs.digest_text }}
-        run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-            echo "Telegram secrets not set — skipping digest"; exit 0
-          fi
-          TEXT="📋 <b>${DIGEST}</b>"
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${CHAT_ID}" \
-            -d "parse_mode=HTML" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${TEXT}" \
-            -o /dev/null || true

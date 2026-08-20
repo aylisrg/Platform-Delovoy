@@ -50,9 +50,16 @@ on:
         default: false
 
 concurrency:
-  # Group by commit SHA so push + workflow_run for the same commit don't both
-  # deploy. workflow_dispatch (manual) is allowed in parallel for hotfixes.
-  group: deploy-production-${{ github.event.workflow_run.head_sha || github.sha }}
+  # Деплой-трейн (ADR 2026-08-20-owner-out-of-github). Группа фиксированная:
+  # пачка мержей = максимум «1 бегущий + 1 pending» — промежуточные pending
+  # GitHub отменяет сам (отменённый pending не исполняет шагов, «Deploy FAILED»
+  # от него не бывает). Каждый ран трейна деплоит ТЕКУЩИЙ HEAD main (см. guard:
+  # resolve-to-HEAD), а не SHA своего события — поэтому «какой ран выжил в
+  # pending» не имеет значения, доехавший всегда выкатывает новейшее.
+  # workflow_dispatch с ЯВНЫМ sha (hotfix, авто-откат error-budget) — отдельная
+  # группа: он не должен стоять в очереди за трейном; dispatch без sha деплоит
+  # HEAD и едет общим трейном.
+  group: deploy-production-${{ (github.event_name == 'workflow_dispatch' && inputs.sha != '') && format('manual-{0}', github.run_id) || 'train' }}
   cancel-in-progress: false  # Never cancel a deploy in progress
 
 env:
@@ -60,40 +67,58 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
 jobs:
-  # Double-trigger guard: workflow_run and push both fire for the same commit.
-  # concurrency (group by SHA, cancel-in-progress: false) queues the second run
-  # instead of dropping it, so it used to deploy the same SHA twice. Order
-  # between the two triggers is NOT guaranteed — #525 observed push fire at
-  # merge time and workflow_run only after CI finished several minutes later,
-  # the reverse of what a push-only guard assumed. So the check runs for any
-  # trigger except workflow_dispatch: whichever run finishes second finds the
-  # first's successful run for this exact SHA ⇒ skip in ~10s. workflow_dispatch
-  # is exempt — manual re-deploys must be able to redeploy an already-deployed
-  # SHA on purpose. No successful run found ⇒ skip=false ⇒ deploy proceeds.
+  # Guard трейна: resolve-to-HEAD + дедуп уже задеплоенного.
+  #
+  # Любой не-dispatch ран деплоит ТЕКУЩИЙ HEAD main, а не SHA своего события.
+  # Почему так: события приходят out-of-order (workflow_run старого коммита
+  # создаётся ПОЗЖЕ push-рана нового и вытесняет его из pending-слота — #525
+  # наблюдал обратный порядок триггеров), и ран, привязанный к SHA события,
+  # мог бы выкатить старьё или молча не выкатить ничего, если у новейшего
+  # коммита упал CI. Resolve-to-HEAD снимает оба случая: доехавший ран всегда
+  # выкатывает новейшее; это не слабее прежнего поведения — push-триггер и
+  # раньше деплоил, не дожидаясь CI (блокирующие smoke/health и авто-откат
+  # остаются последней линией).
+  #
+  # Дедуп: HEAD уже задеплоен (repo var DEPLOYED_SHA_CURRENT, её пишет сам
+  # deploy.yml после успеха) ⇒ skip за ~10с — так схлопывается хвост pending
+  # рана после того, как бегущий уже выкатил тот же HEAD. Сбой API — fail-open
+  # (деплоим). workflow_dispatch не скипается никогда: ручной редеплой того же
+  # SHA — осознанное действие.
   guard:
-    name: Skip duplicate trigger
+    name: Resolve HEAD & skip already-deployed
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      contents: read
     outputs:
       skip: ${{ steps.check.outputs.skip }}
+      sha: ${{ steps.check.outputs.sha }}
     steps:
-      - name: Look for an already successful run of this SHA
+      - name: Resolve deploy target (HEAD for train, inputs.sha for manual)
         id: check
-        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # workflow_run's github.sha is the deploy workflow's own ref, not the
-          # commit that finished CI — use workflow_run.head_sha when present
-          # (push events don't have it, so this falls back to github.sha).
-          TARGET_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
-          # Сбой gh api (лимит, 5xx) не должен блокировать деплой: пустой ответ
-          # трактуем как «успешных прогонов не найдено» и деплоим (fail-open).
-          DONE=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${TARGET_SHA}&status=success&per_page=20" \
-                 --jq "[.workflow_runs[] | select(.id != ${{ github.run_id }})] | length" || echo "0")
-          if [ "${DONE:-0}" -gt 0 ]; then
-            echo "Deploy for ${TARGET_SHA} already succeeded ($DONE run(s)) — skipping duplicate"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.sha }}" ]; then
+            echo "sha=${{ inputs.sha }}" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Manual deploy of explicit SHA — no skip checks"
+            exit 0
+          fi
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq .object.sha || echo "")
+          if [ -z "$HEAD_SHA" ]; then
+            # API недоступен — fail-open: деплоим SHA события, как раньше.
+            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "::warning::не смог прочитать HEAD main — деплою SHA события ${HEAD_SHA}"
+          fi
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          DEPLOYED=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
+          if [ -n "$DEPLOYED" ] && [ "$DEPLOYED" = "$HEAD_SHA" ]; then
+            echo "HEAD ${HEAD_SHA} уже задеплоен — skip (хвост трейна)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -120,7 +145,11 @@ jobs:
       - name: Resolve target SHA
         id: resolve
         run: |
-          if [ -n "${{ github.event.inputs.sha }}" ]; then
+          # Целевой SHA решает guard (resolve-to-HEAD для трейна, inputs.sha для
+          # ручного) — здесь только фолбэк на SHA события, если guard не отдал.
+          if [ -n "${{ needs.guard.outputs.sha }}" ]; then
+            echo "sha=${{ needs.guard.outputs.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.sha }}" ]; then
             echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
@@ -287,6 +316,7 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           BOT_INTERNAL_SECRET: ${{ secrets.BOT_INTERNAL_SECRET }}
           RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+          OWNER_DECISIONS_SECRET: ${{ secrets.OWNER_DECISIONS_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
           TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
@@ -296,7 +326,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
+          envs: NOVOFON_API_KEY,NOVOFON_WEBHOOK_SECRET,NOVOFON_DEFAULT_SIP_LINE,NOVOFON_CALLER_ID,YANDEX_CLIENT_ID,YANDEX_CLIENT_SECRET,SMTP_USER,SMTP_PASS,SMTP_FROM,BOT_INTERNAL_SECRET,RELEASE_NOTIFY_SECRET,OWNER_DECISIONS_SECRET,TELEGRAM_BOT_TOKEN,TELEGRAM_ADMIN_CHAT_ID,TELEGRAM_OWNER_CHAT_ID,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY
           script: |
             set -e
             cd /opt/delovoy-park
@@ -327,6 +357,7 @@ jobs:
             upsert_env SMTP_FROM                  "$SMTP_FROM"
             upsert_env BOT_INTERNAL_SECRET        "$BOT_INTERNAL_SECRET"
             upsert_env RELEASE_NOTIFY_SECRET      "$RELEASE_NOTIFY_SECRET"
+            upsert_env OWNER_DECISIONS_SECRET     "$OWNER_DECISIONS_SECRET"
             upsert_env TELEGRAM_BOT_TOKEN         "$TELEGRAM_BOT_TOKEN"
             upsert_env TELEGRAM_ADMIN_CHAT_ID     "$TELEGRAM_ADMIN_CHAT_ID"
             upsert_env TELEGRAM_OWNER_CHAT_ID     "$TELEGRAM_OWNER_CHAT_ID"

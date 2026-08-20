@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import {
-  isTokenDead,
-  shouldRemindRotation,
-  buildNeedsOwnerDigest,
-  type NeedsOwnerPr,
-} from '../queue-watch';
+import { isTokenDead, shouldRemindRotation } from '../queue-watch';
+
+// buildNeedsOwnerDigest удалён вместе с суточным дайджестом (ADR 2026-08-20):
+// hold-PR теперь приходит владельцу Telegram-кнопками в момент навешивания
+// needs-owner, о зависших напоминает вечерний owner-digest.
 
 describe('isTokenDead', () => {
   it('живой токен — 2xx', () => {
@@ -59,80 +58,3 @@ describe('shouldRemindRotation', () => {
   });
 });
 
-describe('buildNeedsOwnerDigest', () => {
-  const now = new Date('2026-08-14T12:00:00Z');
-  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3.6e6).toISOString();
-
-  const stale: NeedsOwnerPr = { number: 483, title: 'Stale PR', labeledAt: hoursAgo(50) };
-  const fresh: NeedsOwnerPr = { number: 500, title: 'Fresh PR', labeledAt: hoursAgo(10) };
-
-  it('пустой список PR — молчать', () => {
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [],
-      minAgeHours: 48,
-      lastDigestAt: null,
-      intervalHours: 24,
-    });
-    expect(result.send).toBe(false);
-    expect(result.stalePrs).toEqual([]);
-  });
-
-  it('все PR младше порога — молчать', () => {
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [fresh],
-      minAgeHours: 48,
-      lastDigestAt: null,
-      intervalHours: 24,
-    });
-    expect(result.send).toBe(false);
-  });
-
-  it('есть PR старше порога, дайджеста ещё не было — слать', () => {
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [stale, fresh],
-      minAgeHours: 48,
-      lastDigestAt: null,
-      intervalHours: 24,
-    });
-    expect(result.send).toBe(true);
-    expect(result.stalePrs).toEqual([stale]);
-  });
-
-  it('дайджест уже был в пределах intervalHours — не дублировать', () => {
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [stale],
-      minAgeHours: 48,
-      lastDigestAt: hoursAgo(5),
-      intervalHours: 24,
-    });
-    expect(result.send).toBe(false);
-    expect(result.stalePrs).toEqual([stale]); // список считается, просто не отправляется
-  });
-
-  it('дайджест был больше intervalHours назад — слать снова', () => {
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [stale],
-      minAgeHours: 48,
-      lastDigestAt: hoursAgo(25),
-      intervalHours: 24,
-    });
-    expect(result.send).toBe(true);
-  });
-
-  it('несколько застрявших PR — сортировка по возрасту, старые первыми', () => {
-    const older: NeedsOwnerPr = { number: 100, title: 'Oldest', labeledAt: hoursAgo(100) };
-    const result = buildNeedsOwnerDigest({
-      now,
-      prs: [stale, older],
-      minAgeHours: 48,
-      lastDigestAt: null,
-      intervalHours: 24,
-    });
-    expect(result.stalePrs.map((p) => p.number)).toEqual([100, 483]);
-  });
-});

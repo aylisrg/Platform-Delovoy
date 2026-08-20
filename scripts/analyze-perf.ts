@@ -20,6 +20,9 @@ import {
   summarizeRoutes,
   topRoutesByVolume,
 } from './lib/perf-analyzer';
+import { BATCH_LABEL } from './lib/issue-batch';
+import { batchAdd, batchCommentBodies, loadBatchMaxItems } from './lib/batch-io';
+import { DEDUP_WINDOW_DAYS } from './lib/github-issues';
 
 const BASELINE_DAYS = 7;
 
@@ -29,18 +32,31 @@ interface Aggregate {
 }
 
 interface RawIssue {
+  number: number;
   body: string | null;
   pull_request?: unknown;
 }
 
+/**
+ * Дедуп-скан: perf-regression issues за окно (state=all — регрессия, чью issue
+ * закрыли на днях, не перечеканивается назавтра) плюс зонтики с комментариями —
+ * P2-регрессии теперь живут пунктами зонтика `perf`, их маркеры внутри пунктов.
+ */
 function loadExistingBodies(): string[] {
+  const since = new Date(Date.now() - DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
   const bodies: string[] = [];
-  for (let page = 1; page <= 5; page++) {
-    const batch = ghApi<RawIssue[]>(
-      `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent('perf-regression')}&per_page=100&page=${page}`,
-    );
-    bodies.push(...batch.filter((i) => !i.pull_request).map((i) => i.body ?? ''));
-    if (batch.length < 100) break;
+  for (const label of ['perf-regression', BATCH_LABEL]) {
+    for (let page = 1; page <= 5; page++) {
+      const batch = ghApi<RawIssue[]>(
+        `/repos/${REPO}/issues?state=all&labels=${encodeURIComponent(label)}&since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
+      );
+      const issues = batch.filter((i) => !i.pull_request);
+      bodies.push(...issues.map((i) => i.body ?? ''));
+      if (label === BATCH_LABEL) {
+        for (const i of issues) bodies.push(...batchCommentBodies(i.number));
+      }
+      if (batch.length < 100) break;
+    }
   }
   return bodies;
 }
@@ -90,20 +106,33 @@ function main(): void {
     console.log(`  p95: ${r.baseline.p95}ms → ${r.current.p95}ms; 5xx: ${r.baseline.status5xx} → ${r.current.status5xx}`);
 
     if (dryRun) {
-      console.log(`[DRY RUN] Would create issue:\nTitle: ${issue.title}\nLabels: ${issue.labels.join(', ')}`);
+      console.log(`[DRY RUN] Would add batch item (perf):\nTitle: ${issue.title}`);
       continue;
     }
     if (existingBodies.some((b) => b.includes(marker))) {
       console.log(`Issue already exists (${marker}), skipping`);
       continue;
     }
-    const res = ghApi<{ number: number; html_url: string }>(`/repos/${REPO}/issues`, 'POST', issue);
+    // Perf-регрессии всегда P2 → пунктом в зонтик `perf`, не отдельной issue
+    // (правило гранулярности CLAUDE.md). Тело issue целиком — в детали пункта,
+    // вместе с маркером: дедуп по маркеру продолжает работать.
+    const res = batchAdd({
+      area: 'perf',
+      key: `perf-${r.route}`,
+      title: issue.title,
+      details: issue.body,
+      maxItems: loadBatchMaxItems(),
+    });
+    if (res.deduped) {
+      console.log(`Batch item already exists (perf-${r.route}), skipping`);
+      continue;
+    }
     existingBodies.push(issue.body);
-    console.log(`Created issue: ${res.html_url}`);
+    console.log(`Added batch item: ${res.url}`);
     created++;
   }
 
-  console.log(`\n✅ Создано ${created} issue(s)`);
+  console.log(`\n✅ Добавлено ${created} пункт(ов) в зонтик perf`);
 }
 
 try {

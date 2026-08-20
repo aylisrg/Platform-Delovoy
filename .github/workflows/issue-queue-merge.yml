@@ -14,10 +14,16 @@ name: Issue Queue — Auto-merge
 # `auto`, CI зелёный, нет лейбла `needs-owner` и PR не обновлялся последние
 # `automergeQuietMinutes` минут. PR-ы уровня `hold` получают `needs-owner`, а их
 # issue уезжает в `auto:review` — очередь идёт дальше, не дожидаясь человека.
+# Отдельными код-путями мержатся release-please PR (ночное окно + whitelist
+# файлов) и dependabot-группы minor+patch — их раньше мержил владелец руками.
 #
 # Владелец остаётся ровно там, где нужно именно его решение: рубильники самой
-# автоматики и деструктивные миграции. Список — HOLD_PATTERNS в
-# scripts/lib/issue-queue.ts, обоснование — ADR 2026-08-10.
+# автоматики и деструктивные миграции. Но решает он теперь НЕ в GitHub: шаг
+# decisions-sync каждые 15 минут заводит на сайте запрос решения для каждого
+# needs-owner PR (сайт шлёт владельцу Telegram-кнопки) и исполняет принятые —
+# аппрув мержит hold-PR с пином к head SHA, после grace-окна «Отменить» и
+# только при зелёном CI. Список HOLD — scripts/lib/issue-queue.ts, обоснование —
+# ADR 2026-08-10 и ADR 2026-08-20-owner-out-of-github.
 
 on:
   # Основной триггер: CI позеленел — возможно, появился PR, готовый к мержу.
@@ -73,6 +79,20 @@ jobs:
           npx tsx scripts/issue-queue.ts automerge $DRY | tee sweep.json
           echo "merged=$(jq -r '.merged' sweep.json)" >> "$GITHUB_OUTPUT"
 
+      # Контур owner-decisions: reconcile-запросы для needs-owner PR (upsert —
+      # сайт не спамит повторными сообщениями) + исполнение принятых решений.
+      # continue-on-error: лежащий сайт не должен останавливать сам свипер —
+      # запросы доотправятся следующим проходом, ничего не теряется.
+      - name: Owner decisions — sync requests + execute decided
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          OWNER_DECISIONS_SECRET: ${{ secrets.OWNER_DECISIONS_SECRET }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/issue-queue.ts decisions-sync | tee decisions.json
+
       - name: Report
         run: |
           {
@@ -83,6 +103,14 @@ jobs:
             echo '```json'
             cat sweep.json
             echo '```'
+            if [ -f decisions.json ]; then
+              echo ''
+              echo '## Решения владельца (decisions-sync)'
+              echo ''
+              echo '```json'
+              cat decisions.json
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Без PAT мерж не порождает push-события, поэтому всё, что висит на

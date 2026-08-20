@@ -62,6 +62,19 @@ export interface QueueConfig {
    * Защита от мержа середины работы: сессия может пушить в PR прямо сейчас.
    */
   automergeQuietMinutes: number;
+  /** Максимум пунктов в зонтике мелочи; полный зонтик закрывается новым. */
+  batchMaxItems: number;
+  /**
+   * Сколько минут должно пройти после аппрува merge-hold решения владельцем,
+   * прежде чем свипер его исполнит. Окно «Отменить»: мерж необратим, и владелец,
+   * промахнувшийся пальцем по кнопке в Telegram, должен успеть передумать.
+   */
+  decisionGraceMinutes: number;
+  /**
+   * Ночное окно (UTC-часы, [start, end)) для авто-мержа release-please PR.
+   * Мерж release-PR — это деплой без кода; в трафик-часы он не нужен никому.
+   */
+  releaseNightWindowUtc: [number, number];
 }
 
 export const DEFAULT_CONFIG: QueueConfig = {
@@ -74,6 +87,9 @@ export const DEFAULT_CONFIG: QueueConfig = {
   heartbeatIdleHours: 3,
   heartbeatCooldownHours: 12,
   automergeQuietMinutes: 20,
+  batchMaxItems: 8,
+  decisionGraceMinutes: 15,
+  releaseNightWindowUtc: [0, 2],
 };
 
 const PRIORITY_ORDER: Record<Priority, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
@@ -466,6 +482,24 @@ export const HOLD_PATTERNS: RegExp[] = [
   // Интейк чеканит auto:ready-issues из внешних данных (фидбек, client-beacon) —
   // менять его правила без присмотра автоматика не должна.
   /^\.github\/workflows\/backlog-intake\.yml$/,
+  // Сам мержащий механизм: без этого агент мог бы переписать подметальщика и тем
+  // же прогоном замержить правку — та же циклическая дыра, что и у файлов гейта.
+  /^\.github\/workflows\/issue-queue-merge\.yml$/,
+  // Форс-пушит чужие ветки под PAT с человеческой атрибуцией (обход анти-бот
+  // защиты GitHub) — рубильник, а не рядовой workflow.
+  /^\.github\/workflows\/auto-rebase\.yml$/,
+  // Контур owner-decisions — канал, через который hold-PR мержится мимо гейта
+  // по кнопке владельца в Telegram. Автоматика не расширяет себе полномочия сама.
+  /^src\/modules\/owner-decisions\//,
+  /^src\/app\/api\/admin\/owner-decisions\//,
+  /^src\/app\/api\/bot\/owner-decisions\//,
+  /^bot\/handlers\/owner-decisions\.ts$/,
+  // Промпт /next-issue — программа агента с правом мержа в прод: правка может
+  // убрать шаги ревью, и вердикты (#580) начнут ставиться без реального прогона
+  // агентов. CLAUDE.md сюда сознательно НЕ входит: он правится на порядок чаще
+  // (каждый синк модулей), а механику мержа не задаёт — асимметрия зафиксирована
+  // в ADR 2026-08-20-owner-out-of-github.
+  /^\.claude\/commands\/next-issue\.md$/,
 ];
 
 /**
@@ -502,6 +536,9 @@ export interface ChangedFile {
   filename: string;
   /** Дифф файла; у бинарных и слишком больших файлов GitHub его не отдаёт. */
   patch?: string;
+  /** Метрики диффа из /pulls/{n}/files — для правила ширины PR. */
+  additions?: number;
+  deletions?: number;
 }
 
 export interface MergeGate {
@@ -575,13 +612,44 @@ export function classifyMergeGate(
     reasons.push('нет вердиктов ревью-агентов (маркеры code-reviewer/qa-engineer PASS не найдены в комментариях PR)');
   }
 
+  // Правило ширины PR. Раньше «≥5 модулей → hold» без оговорок; с появлением
+  // зонтиков мелочи (батч P2-фиксов по 5-7 областям × 20-50 строк) это стало бы
+  // ложным срабатыванием на каждом батче. Узкий коридор 5-7 модулей открыт только
+  // компактным PR (вердикты #580 и зелёный CI при этом обязательны как всегда),
+  // взамен появились два стопа, которых не было: жёсткий потолок ≥8 модулей и
+  // лимит файлов — раньше PR на 4 модуля и 3000 строк ехал в auto беспрепятственно.
   const modules = [...new Set(names.map(moduleOf).filter((m): m is string => m !== null))].sort();
-  if (modules.length >= 5) {
-    reasons.push(`scope creep: затронуто ${modules.length} модулей (${modules.join(', ')}) — правило CLAUDE.md #5`);
+  if (modules.length >= WIDE_PR_HOLD_MODULES) {
+    reasons.push(
+      `scope creep: затронуто ${modules.length} модулей (${modules.join(', ')}) — шире ${WIDE_PR_HOLD_MODULES - 1} модулей авто-мерж не бывает`,
+    );
+  } else if (modules.length >= WIDE_PR_REVIEW_MODULES) {
+    const metricsKnown = files.every(
+      (f) => typeof f.additions === 'number' && typeof f.deletions === 'number',
+    );
+    const totalLines = files.reduce((sum, f) => sum + (f.additions ?? 0) + (f.deletions ?? 0), 0);
+    if (!metricsKnown) {
+      // Консервативно: вызов с голыми именами файлов (без метрик диффа) не должен
+      // молча ослаблять правило — нет данных, значит ручная проверка.
+      reasons.push(
+        `затронуто ${modules.length} модулей, метрики диффа недоступны — ручная проверка ширины PR`,
+      );
+    } else if (totalLines > WIDE_PR_MAX_LINES || files.length > WIDE_PR_MAX_FILES) {
+      reasons.push(
+        `scope creep: ${modules.length} модулей и ${totalLines} строк в ${files.length} файлах ` +
+          `(лимит для 5-7 модулей: ≤${WIDE_PR_MAX_LINES} строк, ≤${WIDE_PR_MAX_FILES} файлов) — правило CLAUDE.md #5`,
+      );
+    }
   }
 
   return { tier: reasons.length === 0 ? 'auto' : 'hold', reasons, modules };
 }
+
+/** Пороги правила ширины PR — экспортированы для тестов и документации. */
+export const WIDE_PR_HOLD_MODULES = 8;
+export const WIDE_PR_REVIEW_MODULES = 5;
+export const WIDE_PR_MAX_LINES = 400;
+export const WIDE_PR_MAX_FILES = 25;
 
 // ── Подметальщик авто-мержа ─────────────────────────────────────────────────
 //
@@ -621,15 +689,18 @@ export interface SweepPr {
  * Черновики снимает сам подметальщик, и только когда всё остальное уже сошлось.
  */
 export function autoMergeSkipReason(pr: SweepPr, config: QueueConfig, now: Date): string | null {
-  // Явная метка владельца «беру себе». Ставится, когда гейт вернул hold или когда
-  // сессия сдалась после трёх кругов ревью — в обоих случаях решение за человеком.
-  if (pr.labels.includes('needs-owner')) return 'needs-owner — забрал владелец';
+  // PR ждёт решения владельца: гейт вернул hold, и запрос уже уехал кнопками в
+  // Telegram (контур owner-decisions). Обычный проход свипера такой PR не трогает —
+  // мержит его только apply-decision после аппрува. Лейбл также ставится руками,
+  // когда владелец хочет придержать конкретный PR.
+  if (pr.labels.includes('needs-owner')) return 'needs-owner — ждёт решения владельца (Telegram)';
   // PR принадлежит автоматике либо по ветке агента, либо по закрываемой issue
   // очереди. Второй путь нужен потому, что ветку именует сессия и она не всегда
   // следует конвенции; первый — потому, что issue может быть уже закрыта
   // (инцидент watchdog'а закрывается сам, когда сайт поднялся) или её не быть вовсе.
-  // Чужие PR-ы — release-please, dependabot, `feature/**` и ручные ветки
-  // владельца — сюда не попадают и мержатся по-прежнему руками.
+  // release-please и dependabot-группы обрабатываются ДО этой функции своими
+  // код-путями (releasePrGate / isDependabotAutoMergeBranch); `feature/**` и
+  // ручные ветки владельца сюда не попадают и мержатся по-прежнему руками.
   const ownedByAgent =
     AGENT_BRANCH_RE.test(pr.branch) ||
     pr.issueLanes.some((l) => l === 'wip' || l === 'ready' || l === 'review');
@@ -642,6 +713,87 @@ export function autoMergeSkipReason(pr: SweepPr, config: QueueConfig, now: Date)
     return `обновлялся ${Math.round(quietMin)} мин назад — жду ${config.automergeQuietMinutes} мин тишины`;
   }
   return null;
+}
+
+// ── Release-please и dependabot: чужие PR, которые свипер всё же мержит ─────
+//
+// Оба класса раньше мержил владелец руками — единственные регулярные «чужие» PR.
+// Release-PR — это чистый changelog/version bump (кода нет), его ручной мерж не
+// давал ничего, кроме ещё одного дневного деплоя без изменений. Dependabot-группы
+// minor+patch безопасны по построению (границы задаёт dependabot.yml), а мерж под
+// PAT свипера рождает настоящие события — deploy и auto-rebase стартуют сами.
+
+/** Ветка release-please. */
+export const RELEASE_BRANCH_RE = /^release-please--/;
+
+/**
+ * Файлы, которые release-please правит в этом репо (проверено по #649/#611:
+ * ровно эти три; manifest-режим не используется). Дифф с чем-то сверх — не
+ * release-PR, а что-то притворяющееся им: обычный путь через гейт (hold).
+ */
+export const RELEASE_FILE_WHITELIST = new Set(['CHANGELOG.md', 'package.json', 'package-lock.json']);
+
+/** UTC-час внутри полуоткрытого окна [start, end); окно может переходить полночь. */
+export function isNightWindowUtc(now: Date, window: [number, number]): boolean {
+  const [start, end] = window;
+  const h = now.getUTCHours();
+  return start <= end ? h >= start && h < end : h >= start || h < end;
+}
+
+export interface ReleasePrGate {
+  merge: boolean;
+  reason: string;
+}
+
+/**
+ * Решение по release-PR. Вердикты ревью-агентов здесь не требуются намеренно:
+ * это не агентский код, его и руками мержили без ревью, а whitelist файлов
+ * строже ручного мержа. CI и окно тишины проверяет вызывающий код как обычно.
+ */
+export function releasePrGate(fileNames: string[], now: Date, config: QueueConfig): ReleasePrGate {
+  const offWhitelist = fileNames.filter((f) => !RELEASE_FILE_WHITELIST.has(f));
+  if (offWhitelist.length > 0) {
+    return {
+      merge: false,
+      reason: `дифф вне whitelist релизных файлов: ${offWhitelist.slice(0, 5).join(', ')} — обычный путь через гейт`,
+    };
+  }
+  if (!isNightWindowUtc(now, config.releaseNightWindowUtc)) {
+    const [s, e] = config.releaseNightWindowUtc;
+    return { merge: false, reason: `ждёт ночного окна ${s}:00-${e}:00 UTC — релиз-деплой не нужен в трафик-часы` };
+  }
+  return { merge: true, reason: 'release-PR: whitelist + ночное окно' };
+}
+
+/** Ветка dependabot. */
+export const DEPENDABOT_BRANCH_RE = /^dependabot\//;
+
+/**
+ * Имена групп из .github/dependabot.yml, чьи PR свипер мержит сам. Группы
+ * собраны только из minor+patch обновлений — границу задаёт dependabot.yml,
+ * а не эта проверка. Одиночные dependabot-PR (majors) сюда не попадают: их
+ * конвертирует в задачи очереди dependabot-automerge.yml.
+ */
+export const DEPENDABOT_AUTOMERGE_GROUPS = ['npm-minor-patch', 'actions-all'];
+
+export function isDependabotAutoMergeBranch(branch: string): boolean {
+  if (!DEPENDABOT_BRANCH_RE.test(branch)) return false;
+  // Точный сегмент, не includes: имя группы стоит последним сегментом ветки
+  // (`dependabot/npm_and_yarn/npm-minor-patch-<hash>`); одиночный major пакета,
+  // чьё ИМЯ содержит такую подстроку в середине сегмента, совпасть не должен.
+  const segment = branch.split('/').pop() ?? '';
+  return DEPENDABOT_AUTOMERGE_GROUPS.some((g) => segment === g || segment.startsWith(`${g}-`));
+}
+
+// ── Owner-decisions: исполнение решений владельца ───────────────────────────
+
+/**
+ * Прошёл ли grace-период после аппрува. Только для merge-hold: мерж необратим,
+ * и окно даёт владельцу «Отменить» после случайного тапа. Reject/defer и
+ * blocked-question исполняются сразу — они обратимы (reopen PR, вернуть лейбл).
+ */
+export function graceElapsed(decidedAtIso: string, now: Date, graceMinutes: number): boolean {
+  return now.getTime() - new Date(decidedAtIso).getTime() >= graceMinutes * 60_000;
 }
 
 // ── Состояние CI ────────────────────────────────────────────────────────────

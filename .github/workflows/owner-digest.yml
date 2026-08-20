@@ -1,0 +1,98 @@
+name: Owner Digest — вечерняя сводка
+
+# Вечерняя сводка владельцу в личный Telegram (ADR 2026-08-20-owner-out-of-github):
+# что уехало в прод за сутки, дельта бэклога, ждущие решения, фидбек
+# пользователей. Владелец не открывает GitHub — это его единственное регулярное
+# окно в состояние разработки; всё срочное приходит отдельными
+# decision-сообщениями и алертами и в дайджест не упирается.
+#
+# AI нет. Сборка — детерминированный scripts/owner-digest.ts (чистая логика +
+# тесты в scripts/lib/owner-digest.ts); Telegram-отправка — отдельным шагом,
+# чтобы секреты не попадали в CLI (паттерн heartbeat из issue-queue.yml).
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # 21:00 МСК (РФ без DST — чистый UTC-сдвиг стабилен)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read # чтение repo variable DEPLOYED_SHA_CURRENT
+
+concurrency:
+  group: owner-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Собрать и отправить сводку
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      # Счётчики фидбека за сутки — SSH-psql (паттерн backlog-intake.yml).
+      # Прод недоступен — секция просто выпадает из сводки, дайджест едет без неё.
+      - name: Фидбек за сутки (SSH → psql)
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "VPS secrets not set — пропускаю секцию фидбека"; exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/digest_key
+          chmod 600 ~/.ssh/digest_key
+          # Без одинарных кавычек в SQL — он едет через два слоя shell
+          # (паттерн и обоснование — backlog-intake.yml).
+          SQL=$(cat <<'SQL'
+          SELECT json_build_object(
+            $$bugs$$, count(*) FILTER (WHERE type::text = $$BUG$$),
+            $$suggestions$$, count(*) FILTER (WHERE type::text = $$SUGGESTION$$)
+          ) FROM "FeedbackItem" WHERE "createdAt" > now() - make_interval(hours => 24);
+          SQL
+          )
+          ssh -i ~/.ssh/digest_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              "$VPS_USER@$VPS_HOST" \
+              "docker exec delovoy-postgres psql -U delovoy -d delovoy_park -Atc '$SQL'" > feedback.json
+          jq -e 'type == "object"' feedback.json > /dev/null
+          cat feedback.json
+
+      - name: Собрать сводку
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER_DECISIONS_SECRET: ${{ secrets.OWNER_DECISIONS_SECRET }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/owner-digest.ts --feedback-file feedback.json | tee digest.json
+          {
+            echo '## Вечерняя сводка владельцу'
+            echo ''
+            jq -r '.textHtml' digest.json | sed 's/<[^>]*>//g'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Отправить в личный чат владельца
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "::warning::TELEGRAM_BOT_TOKEN/TELEGRAM_OWNER_CHAT_ID не заданы — сводка не отправлена"
+            exit 0
+          fi
+          TEXT=$(jq -r '.textHtml' digest.json)
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o response.json
+          jq -e '.ok == true' response.json > /dev/null || { cat response.json; exit 1; }

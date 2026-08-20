@@ -296,13 +296,16 @@ jobs:
           MSG:      ${{ needs.collect.outputs.commit_msg }}
           URL:      ${{ needs.collect.outputs.run_url }}
         run: |
-          # Find all open ci-failure issues and close them
+          # Find all open ci-failure issues and close them. root-cause issues
+          # НЕ закрываем: они живут циклом бэклога, а не «упало-поднялось» —
+          # watchdog, закрывавший их при восстановлении CI, плодил дубли
+          # эскалации (ADR 2026-08-20).
           gh issue list \
             --repo "$REPO" \
             --label "ci-failure" \
             --state open \
-            --json number \
-            --jq '.[].number' | \
+            --json number,labels \
+            --jq '.[] | select((.labels | map(.name) | index("root-cause")) | not) | .number' | \
           while read -r ISSUE; do
             gh issue close "$ISSUE" \
               --repo "$REPO" \
