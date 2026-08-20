@@ -88,6 +88,8 @@ import {
   createBooking,
   createAdminBooking,
   createResource,
+  listResources,
+  getResource,
   updateBookingStatus,
   cancelBooking,
   rescheduleBooking,
@@ -207,6 +209,30 @@ describe("createResource", () => {
     const result = await createResource({ name: "Беседка №8" });
 
     expect(result).toEqual(created);
+  });
+});
+
+describe("listResources / getResource", () => {
+  it("listResources фильтрует deletedAt: null (issue #675)", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([]);
+
+    await listResources(false);
+
+    expect(prisma.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ moduleSlug: "gazebos", deletedAt: null }),
+      })
+    );
+  });
+
+  it("getResource фильтрует deletedAt: null (issue #675)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+
+    await getResource("resource-1");
+
+    expect(prisma.resource.findFirst).toHaveBeenCalledWith({
+      where: { id: "resource-1", moduleSlug: "gazebos", deletedAt: null },
+    });
   });
 });
 

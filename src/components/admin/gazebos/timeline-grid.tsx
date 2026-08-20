@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
+import { PrintDaySheet } from "@/components/admin/shared/print-day-sheet";
 import { GazeboQuickBookingPopover } from "./quick-booking-popover";
 import { GazeboBookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
@@ -59,6 +60,7 @@ export function GazeboTimelineGrid({
     () => initialData.bookings.find((b) => b.id === initialBookingId) ?? null
   );
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
+  const [showPrint, setShowPrint] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const hours = data.hours;
@@ -200,11 +202,20 @@ export function GazeboTimelineGrid({
     <div>
       <div className="flex items-center justify-between mb-4">
         <DateNavigator currentDate={date} onChange={loadTimeline} />
-        {loading && (
-          <span className="text-xs text-zinc-400 animate-pulse">
-            Загрузка...
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {loading && (
+            <span className="text-xs text-zinc-400 animate-pulse">
+              Загрузка...
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowPrint(true)}
+            className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
+          >
+            Печать
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-zinc-200 overflow-hidden" ref={gridRef}>
@@ -347,6 +358,16 @@ export function GazeboTimelineGrid({
           minBookingHours={data.minBookingHours}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}
+        />
+      )}
+
+      {showPrint && (
+        <PrintDaySheet
+          moduleSlug="gazebos"
+          title="Барбекю Парк"
+          resourceLabel="Беседка"
+          date={date}
+          onClose={() => setShowPrint(false)}
         />
       )}
     </div>
