@@ -349,7 +349,10 @@ jobs:
               fi
             }
             ensure_env YOOKASSA_RECEIPTS_ENABLED "true"
-            ensure_env YOOKASSA_VAT_CODE "1"
+            # 7 = НДС 5 % (код ставки, не процент). ensure_env НЕ меняет уже
+            # существующий ключ — на работающем проде ставка правится только
+            # через ops-env.yml (key=custom, YOOKASSA_VAT_CODE, restart=app).
+            ensure_env YOOKASSA_VAT_CODE "7"
 
             # CRON_SECRET: без него шаг регистрации кронов молча выходит и ни
             # один cron (process-outgoing, payments-reconcile) не ставится.

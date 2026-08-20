@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { buildReceipt, receiptsEnabled, ReceiptContactError } from "../receipts";
+import {
+  buildReceipt,
+  receiptsEnabled,
+  resolveVatCode,
+  ReceiptContactError,
+  ReceiptVatCodeError,
+  VAT_CODES,
+  DEFAULT_VAT_CODE,
+} from "../receipts";
 import { toAmountValue } from "../client";
 import { isYooKassaIp } from "../webhook-ips";
 
@@ -63,6 +71,77 @@ describe("buildReceipt (54-ФЗ)", () => {
       { description: "х".repeat(200), amount: 10 },
     ]);
     expect(receipt?.items[0].description).toHaveLength(128);
+  });
+});
+
+describe("ставка НДС (vat_code)", () => {
+  it("НДС 5 % — это код 7, а код 5 — расчётная 10/110", () => {
+    // Ловушка справочника ЮKassa: значение env — код, а не процент.
+    expect(VAT_CODES.RATE_5).toBe(7);
+    expect(VAT_CODES.RATE_10_110).toBe(5);
+    expect(DEFAULT_VAT_CODE).toBe(VAT_CODES.RATE_5);
+  });
+
+  it("env не задан → дефолт 5 % (код 7)", () => {
+    expect(resolveVatCode()).toBe(7);
+  });
+
+  it("пустая строка → дефолт (ops-env удаляет ключ при пустом значении)", () => {
+    process.env.YOOKASSA_VAT_CODE = "   ";
+    expect(resolveVatCode()).toBe(7);
+  });
+
+  it("валидный код из env проходит как есть", () => {
+    process.env.YOOKASSA_VAT_CODE = "11";
+    expect(resolveVatCode()).toBe(11);
+  });
+
+  it.each(["0", "13", "abc", "5%", "7.5", "-7", "Infinity"])(
+    "невалидный код %s → ReceiptVatCodeError",
+    (raw) => {
+      process.env.YOOKASSA_VAT_CODE = raw;
+      expect(() => resolveVatCode()).toThrow(ReceiptVatCodeError);
+    }
+  );
+
+  it("невалидный env валит сборку чека, а не уходит молча в ЮKassa", () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    process.env.YOOKASSA_VAT_CODE = "20"; // процент вместо кода
+    expect(() => buildReceipt({ email: "a@b.ru" }, [{ description: "Тест", amount: 10 }])).toThrow(
+      ReceiptVatCodeError
+    );
+  });
+
+  it("выключенная фискализация → невалидный env платежи не ломает", () => {
+    process.env.YOOKASSA_VAT_CODE = "999";
+    expect(buildReceipt({ email: "a@b.ru" }, [{ description: "Тест", amount: 10 }])).toBeUndefined();
+  });
+
+  it("дефолт применяется ко всем позициям чека, включая товары кафе", () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    const receipt = buildReceipt({ email: "a@b.ru" }, [
+      { description: "Круассан", amount: 180, paymentSubject: "commodity" },
+      { description: "Аренда беседки", amount: 1500 },
+    ]);
+    expect(receipt?.items.map((i) => i.vat_code)).toEqual([7, 7]);
+  });
+
+  it("vatCode позиции перебивает env (чек возврата повторяет ставку продажи)", () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    process.env.YOOKASSA_VAT_CODE = "7";
+    const receipt = buildReceipt({ email: "a@b.ru" }, [
+      { description: "Возврат брони", amount: 1500, vatCode: VAT_CODES.NONE },
+    ]);
+    expect(receipt?.items[0].vat_code).toBe(1);
+  });
+
+  it("битый vatCode позиции (порча снапшота) → ReceiptVatCodeError", () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    expect(() =>
+      buildReceipt({ email: "a@b.ru" }, [
+        { description: "Возврат", amount: 100, vatCode: 42 },
+      ])
+    ).toThrow(ReceiptVatCodeError);
   });
 });
 

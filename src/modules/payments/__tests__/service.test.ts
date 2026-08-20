@@ -141,6 +141,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isYooKassaConfigured).mockReturnValue(true);
   delete process.env.YOOKASSA_RECEIPTS_ENABLED;
+  delete process.env.YOOKASSA_VAT_CODE;
 });
 
 afterEach(() => {
@@ -159,6 +160,51 @@ describe("createOnlinePayment", () => {
     receiptItems: [{ description: "Аренда беседки", amount: 1500 }],
     returnUrl: "https://park.example/payments/{paymentId}",
   };
+
+  it("фиксирует ставку НДС в metadata: чек возврата не поедет за текущим env", async () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    vi.mocked(prisma.payment.create).mockResolvedValue(paymentRow({ providerPaymentId: null }));
+    vi.mocked(yooCreate).mockResolvedValue({
+      ...remoteSucceeded,
+      status: "pending",
+      confirmation: { type: "redirect", confirmation_url: "https://yookassa.example/pay" },
+    } as never);
+    vi.mocked(prisma.payment.update).mockResolvedValue(paymentRow());
+
+    await createOnlinePayment(input);
+
+    const meta = vi.mocked(prisma.payment.create).mock.calls[0][0].data
+      .metadata as Record<string, unknown>;
+    expect(meta.vatCode).toBe(7);
+    expect(vi.mocked(yooCreate).mock.calls[0][0].receipt?.items[0].vat_code).toBe(7);
+  });
+
+  it("фискализация выключена → ставка в metadata не пишется", async () => {
+    vi.mocked(prisma.payment.create).mockResolvedValue(paymentRow({ providerPaymentId: null }));
+    vi.mocked(yooCreate).mockResolvedValue({
+      ...remoteSucceeded,
+      status: "pending",
+      confirmation: { type: "redirect", confirmation_url: "https://yookassa.example/pay" },
+    } as never);
+    vi.mocked(prisma.payment.update).mockResolvedValue(paymentRow());
+
+    await createOnlinePayment(input);
+
+    const meta = vi.mocked(prisma.payment.create).mock.calls[0][0].data
+      .metadata as Record<string, unknown>;
+    expect(meta.vatCode).toBeUndefined();
+  });
+
+  it("битый YOOKASSA_VAT_CODE → PAYMENTS_MISCONFIGURED, платёж у провайдера не создаётся", async () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    process.env.YOOKASSA_VAT_CODE = "5%";
+
+    await expect(createOnlinePayment(input)).rejects.toMatchObject({
+      code: "PAYMENTS_MISCONFIGURED",
+    });
+    expect(yooCreate).not.toHaveBeenCalled();
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
 
   it("создаёт платёж: idempotenceKey до запроса, {paymentId} в return_url, сохраняет providerPaymentId", async () => {
     vi.mocked(prisma.payment.create).mockResolvedValue(paymentRow({ providerPaymentId: null }));
@@ -403,6 +449,67 @@ describe("refundPayment", () => {
     expect(enqueueNotification).toHaveBeenCalledWith(
       expect.objectContaining({ type: "payment.refund.succeeded" })
     );
+  });
+
+  it("чек возврата берёт ставку из снапшота продажи, а не текущую из env", async () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    process.env.YOOKASSA_VAT_CODE = "7"; // ставка успела смениться на 5 %
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(
+      paymentRow({
+        status: "SUCCEEDED",
+        // Платёж времён «без НДС»: ставка зафиксирована в metadata.
+        metadata: { vatCode: 1, receiptItems: [] } as never,
+      })
+    );
+    vi.mocked(prisma.paymentRefund.create).mockResolvedValue({ id: "ref1" } as never);
+    vi.mocked(yooRefund).mockRejectedValue(new YooKassaError("insufficient_funds", "no money", 400));
+
+    await expect(
+      refundPayment("pay1", { reason: "тест", performedById: "admin1", performedByName: "Admin" })
+    ).rejects.toMatchObject({ code: "REFUND_INSUFFICIENT_FUNDS" });
+
+    expect(vi.mocked(yooRefund).mock.calls[0][0].receipt?.items[0].vat_code).toBe(1);
+  });
+
+  it("старый платёж без ставки в metadata → возврат по «без НДС» (код 1)", async () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(
+      paymentRow({
+        status: "SUCCEEDED",
+        metadata: {
+          receiptItems: [{ description: "Аренда беседки", amount: "1500.00", quantity: 1 }],
+        } as never,
+      })
+    );
+    vi.mocked(prisma.paymentRefund.create).mockResolvedValue({ id: "ref1" } as never);
+    vi.mocked(yooRefund).mockRejectedValue(new YooKassaError("insufficient_funds", "no money", 400));
+
+    await expect(
+      refundPayment("pay1", { reason: "тест", performedById: "admin1", performedByName: "Admin" })
+    ).rejects.toMatchObject({ code: "REFUND_INSUFFICIENT_FUNDS" });
+
+    expect(vi.mocked(yooRefund).mock.calls[0][0].receipt?.items[0].vat_code).toBe(1);
+  });
+
+  it("платёж, проданный по 5 % → возврат тоже по 5 % (код 7)", async () => {
+    process.env.YOOKASSA_RECEIPTS_ENABLED = "true";
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(
+      paymentRow({
+        status: "SUCCEEDED",
+        metadata: {
+          vatCode: 7,
+          receiptItems: [{ description: "Аренда беседки", amount: "1500.00", quantity: 1 }],
+        } as never,
+      })
+    );
+    vi.mocked(prisma.paymentRefund.create).mockResolvedValue({ id: "ref1" } as never);
+    vi.mocked(yooRefund).mockRejectedValue(new YooKassaError("insufficient_funds", "no money", 400));
+
+    await expect(
+      refundPayment("pay1", { reason: "тест", performedById: "admin1", performedByName: "Admin" })
+    ).rejects.toMatchObject({ code: "REFUND_INSUFFICIENT_FUNDS" });
+
+    expect(vi.mocked(yooRefund).mock.calls[0][0].receipt?.items[0].vat_code).toBe(7);
   });
 
   it("insufficient_funds → понятная ошибка, локальный возврат отменён", async () => {
