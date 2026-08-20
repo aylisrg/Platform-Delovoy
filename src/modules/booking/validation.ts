@@ -137,3 +137,17 @@ export const guestSearchQuerySchema = z.object({
 });
 
 export type GuestSearchQuery = z.infer<typeof guestSearchQuerySchema>;
+
+/**
+ * Запрос печатного листа дня (#668). `includeCancelled` приходит из
+ * query-строки как `"true"`/`"false"` (или отсутствует) — не boolean.
+ */
+export const printScheduleQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Формат даты: YYYY-MM-DD"),
+  includeCancelled: z
+    .enum(["true", "false"])
+    .nullish()
+    .transform((v) => v === "true"),
+});
+
+export type PrintScheduleQuery = z.infer<typeof printScheduleQuerySchema>;

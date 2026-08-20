@@ -67,6 +67,8 @@ import {
   createBooking,
   createAdminBooking,
   createTable,
+  listTables,
+  getTable,
   updateBookingStatus,
   cancelBooking,
   getAvailability,
@@ -184,6 +186,30 @@ describe("createTable", () => {
     const result = await createTable({ name: "Стол №7" });
 
     expect(result).toEqual(created);
+  });
+});
+
+describe("listTables / getTable", () => {
+  it("listTables фильтрует deletedAt: null (issue #675)", async () => {
+    vi.mocked(prisma.resource.findMany).mockResolvedValue([]);
+
+    await listTables(false);
+
+    expect(prisma.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ moduleSlug: "ps-park", deletedAt: null }),
+      })
+    );
+  });
+
+  it("getTable фильтрует deletedAt: null (issue #675)", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+
+    await getTable("table-1");
+
+    expect(prisma.resource.findFirst).toHaveBeenCalledWith({
+      where: { id: "table-1", moduleSlug: "ps-park", deletedAt: null },
+    });
   });
 });
 

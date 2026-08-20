@@ -128,6 +128,7 @@ export async function listResources(activeOnly = true): Promise<GazeboResource[]
   return prisma.resource.findMany({
     where: {
       moduleSlug: MODULE_SLUG,
+      deletedAt: null,
       ...(activeOnly && { isActive: true }),
     },
     orderBy: { name: "asc" },
@@ -136,7 +137,7 @@ export async function listResources(activeOnly = true): Promise<GazeboResource[]
 
 export async function getResource(id: string) {
   return prisma.resource.findFirst({
-    where: { id, moduleSlug: MODULE_SLUG },
+    where: { id, moduleSlug: MODULE_SLUG, deletedAt: null },
   });
 }
 

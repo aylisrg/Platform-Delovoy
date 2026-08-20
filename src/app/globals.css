@@ -186,3 +186,24 @@ body {
     animation: none;
   }
 }
+
+/* =======================================================
+ * Печатный лист дня (issue #668)
+ * Печатаем ТОЛЬКО #print-day-sheet, если он смонтирован — прячем весь
+ * остальной интерфейс (сайдбар, хедер, вкладки модуля). `:has()` ограничивает
+ * правило страницами, где сейчас реально открыт этот компонент — на
+ * остальных страницах печать не затронута.
+ * ======================================================= */
+@media print {
+  body:has(#print-day-sheet) * {
+    visibility: hidden;
+  }
+  body:has(#print-day-sheet) #print-day-sheet,
+  body:has(#print-day-sheet) #print-day-sheet * {
+    visibility: visible;
+  }
+  #print-day-sheet {
+    position: fixed;
+    inset: 0;
+  }
+}

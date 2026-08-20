@@ -206,7 +206,9 @@ export async function getBookingHistory(
   // Синтетическая запись о создании: старые брони заводились до того, как
   // роуты стали писать `booking.create`, и без неё лента начиналась бы с
   // середины. Дубль не создаём — только если создания в журнале нет.
-  const hasCreation = entries.some((e) => e.action.startsWith("booking.create"));
+  const hasCreation = entries.some(
+    (e) => e.action.startsWith("booking.create") || e.action === "booking.admin_create",
+  );
   if (!hasCreation) {
     entries.push({
       id: `synthetic-created-${booking.id}`,

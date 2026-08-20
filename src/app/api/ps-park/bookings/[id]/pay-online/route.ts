@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasRole } from "@/lib/permissions";
 import { logAudit } from "@/lib/logger";
-import { getBookingBill, PSBookingError } from "@/modules/ps-park/service";
+import { getBooking, getBookingBill, PSBookingError } from "@/modules/ps-park/service";
 import { createOnlinePayment } from "@/modules/payments/service";
 import { PaymentError } from "@/modules/payments/types";
 
@@ -28,9 +28,7 @@ export async function POST(
     if (denied) return denied;
 
     const { id } = await params;
-    const booking = await prisma.booking.findFirst({
-      where: { id, moduleSlug: "ps-park" },
-    });
+    const booking = await getBooking(id);
     if (!booking) return apiError("BOOKING_NOT_FOUND", "Бронирование не найдено", 404);
     if (booking.status !== "CONFIRMED" && booking.status !== "CHECKED_IN") {
       return apiError(
@@ -67,7 +65,7 @@ export async function POST(
       description: `Плей Парк: ${resource?.name ?? "сессия"} · счёт`,
       userId: booking.userId,
       createdById: session.user.id,
-      customerEmail: user?.email ?? null,
+      customerEmail: user?.email ?? (metadata.email as string | undefined) ?? null,
       customerPhone: user?.phone ?? booking.clientPhone,
       receiptItems: [
         {
