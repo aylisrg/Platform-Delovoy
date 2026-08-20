@@ -16,8 +16,21 @@
  *   untriaged                                issues без auto:* — входящие для триажа (JSON)
  *   triage 480 P1 ready                      назначить prio + auto:ready|epic
  *   create --title "..." --body-file f.md    завести issue [--prio P2] [--ready|--epic]
- *                                            [--label X ...] [--parent N]
+ *                                            [--label X ...] [--parent N] [--force]
+ *                                            [--dedup-key slug] — дедуп по точному title
+ *                                            и/или маркеру create-dedup (exit 3 при дубле)
  *   epics                                    открытые эпики и разобраны ли они (JSON)
+ *
+ * Зонтики мелочи (P2 не становится отдельной issue — правило гранулярности CLAUDE.md):
+ *   batch-add --area X --key K --title "..." [--details "..."] [--dry-run]
+ *                                            пункт в зонтик области (или новый зонтик)
+ *   batch-result 700 --done k1,k2 --carried k3=712,k4
+ *                                            итог батча перед PR: что сделано/перенесено
+ *
+ * Решения владельца (Telegram-кнопки вместо needs-owner-инбокса в GitHub):
+ *   decisions-sync [--dry-run]               reconcile: needs-owner PR → запросы решений на
+ *                                            сайт + исполнение принятых (мерж/reject/...)
+ *                                            env: OWNER_DECISIONS_SECRET, OWNER_DECISIONS_URL
  *
  * Жизненный цикл PR (в сессии без MCP хватает Bash):
  *   pr-open 445 claude/issue-445-lockfile    создать PR с `Closes #445`
@@ -44,6 +57,7 @@ import { REPO, ghApi as gh } from './lib/gh-api';
 import {
   CODE_REVIEWER_PASS_MARKER,
   DEFAULT_CONFIG,
+  DEPENDABOT_BRANCH_RE,
   DRAFT_STUCK_MARKER,
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
@@ -51,6 +65,7 @@ import {
   MISSED_AUTOCLOSE_MARKER,
   QA_ENGINEER_PASS_MARKER,
   QUEUE_BRANCH_RE,
+  RELEASE_BRANCH_RE,
   STALE_MARKER,
   STALE_PR_MARKER,
   assertClaimable,
@@ -59,11 +74,14 @@ import {
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
+  graceElapsed,
+  isDependabotAutoMergeBranch,
   isTrustedVerdictAuthor,
   laneOf,
   missedAutoCloseIssues,
   pickNext,
   priorityOf,
+  releasePrGate,
   shouldHeartbeat,
   snapshot,
   staleWipIssues,
@@ -79,13 +97,16 @@ import {
   type QueueIssue,
 } from './lib/issue-queue';
 import {
-  NEEDS_OWNER_DIGEST_MARKER,
-  TOKEN_ROTATION_MARKER,
-  buildNeedsOwnerDigest,
-  isTokenDead,
-  shouldRemindRotation,
-  type NeedsOwnerPr,
-} from './lib/queue-watch';
+  BATCH_LABEL,
+  BATCH_RESCUE_MARKER,
+  batchAreaOf,
+  parseBatchItems,
+  parseBatchResult,
+  renderBatchResult,
+  unprocessedBatchItems,
+} from './lib/issue-batch';
+import { batchAdd, batchCommentBodies } from './lib/batch-io';
+import { TOKEN_ROTATION_MARKER, isTokenDead, shouldRemindRotation } from './lib/queue-watch';
 
 const ROOT = resolve(__dirname, '..');
 const CONFIG_PATH = resolve(ROOT, '.github/issue-queue.json');
@@ -186,22 +207,6 @@ function trustedCommentBodies(num: number): string[] {
     .map((c) => c.body);
 }
 
-/**
- * Момент, когда на issue/PR реально появился лейбл `needs-owner` — берём
- * последнее событие `labeled` с этим именем, а не `updated_at` PR (который
- * сдвигает любой посторонний коммент/пуш и тем самым прячет по-настоящему
- * старый needs-owner из дайджеста). Событий не нашлось (редкий краевой
- * случай — GitHub иногда не отдаёт историю за давностью) → null, вызывающий
- * код падает на `updated_at` как на приближение.
- */
-function needsOwnerLabeledAt(num: number): string | null {
-  const events = gh<{ event: string; label?: { name: string }; created_at: string }[]>(
-    `/repos/${REPO}/issues/${num}/events?per_page=100`,
-  );
-  const labeled = events.filter((e) => e.event === 'labeled' && e.label?.name === 'needs-owner');
-  return labeled.length > 0 ? labeled[labeled.length - 1].created_at : null;
-}
-
 /** `GET /user` с явным токеном (не $GH_TOKEN сессии/Actions) — код ответа, не парсим тело. */
 function checkTokenStatus(token: string): number {
   const out = execFileSync(
@@ -210,15 +215,6 @@ function checkTokenStatus(token: string): number {
     { encoding: 'utf8' },
   );
   return Number(out.trim());
-}
-
-/**
- * Экранирование для Telegram `parse_mode: "HTML"` — PR-заголовки в дайджесте
- * needs-owner не проверены на спецсимволы (по конвенции очереди их пишет
- * агент, но заголовок мог прийти и от человека при ручном триаже).
- */
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Номера issue, которые закрывает данный PR: `Closes #N` в теле или `-N-` в имени ветки. */
@@ -408,6 +404,70 @@ function cmdTriage(num: number, prio: string, lane: string): void {
   console.log(`triaged #${num} → prio:${prio} + auto:${lane}`);
 }
 
+const CREATE_DEDUP_WINDOW_DAYS = 14;
+
+/**
+ * Дубликат по `--dedup-key`: маркер `<!-- create-dedup:<slug> -->` в теле issue,
+ * обновлявшейся за последние 14 дней (state=all — закрытая недавно issue тоже
+ * блокирует пересоздание: «закрыли → пересоздали следующей ночью» и есть болезнь,
+ * от которой дедуп заводится). Только repo-scoped пути — /search/issues
+ * agent-proxy сессий не пропускает.
+ */
+function findByDedupKey(key: string): { number: number; state: string } | null {
+  const marker = `<!-- create-dedup:${key} -->`;
+  const since = new Date(Date.now() - CREATE_DEDUP_WINDOW_DAYS * 86_400_000).toISOString();
+  for (let page = 1; page <= 3; page++) {
+    const batch = gh<RawIssue[]>(
+      `/repos/${REPO}/issues?state=all&since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
+    );
+    const hit = batch.find((i) => !i.pull_request && (i.body ?? '').includes(marker));
+    if (hit) return { number: hit.number, state: hit.state ?? 'open' };
+    if (batch.length < 100) break;
+  }
+  return null;
+}
+
+interface CreateIssueInput {
+  title: string;
+  body: string;
+  labels: string[];
+  /** Дедуп-slug; пишется маркером в тело и проверяется перед созданием. */
+  dedupKey?: string;
+  /** Пропустить дедуп по точному совпадению title. */
+  force?: boolean;
+}
+
+/**
+ * Единая точка создания issue (cmdCreate и исполнение owner-idea решений).
+ * Дедуп двухслойный: точное совпадение title с ОТКРЫТОЙ issue (создание
+ * отклоняется, exit 3 у CLI) и опциональный `dedupKey` (окно 14 дней,
+ * включая закрытые). Fuzzy-похожесть намеренно не делаем: механика очереди —
+ * детерминированный код без AI, ложное «похоже» здесь дороже дубля.
+ */
+function createIssue(input: CreateIssueInput): { issue: number; url: string; deduped: boolean; existing?: number } {
+  if (input.dedupKey) {
+    const existing = findByDedupKey(input.dedupKey);
+    if (existing) {
+      return { issue: existing.number, url: `https://github.com/${REPO}/issues/${existing.number}`, deduped: true, existing: existing.number };
+    }
+  }
+  if (!input.force) {
+    const dup = openIssues().find((i) => i.title.trim() === input.title.trim());
+    if (dup) {
+      return { issue: dup.number, url: `https://github.com/${REPO}/issues/${dup.number}`, deduped: true, existing: dup.number };
+    }
+  }
+  const body = input.dedupKey
+    ? `${input.body.trimEnd()}\n\n<!-- create-dedup:${input.dedupKey} -->\n`
+    : input.body;
+  const created = gh<{ number: number; html_url: string }>(`/repos/${REPO}/issues`, 'POST', {
+    title: input.title,
+    body,
+    labels: input.labels,
+  });
+  return { issue: created.number, url: created.html_url, deduped: false };
+}
+
 /** Завести issue из сессии: побочные баги, дочерние задачи эпиков, идеи владельца. */
 function cmdCreate(rest: string[]): void {
   let title = '';
@@ -415,6 +475,8 @@ function cmdCreate(rest: string[]): void {
   let prio = '';
   let parent = 0;
   let lane: 'ready' | 'epic' | null = null;
+  let force = false;
+  let dedupKey = '';
   const extraLabels: string[] = [];
 
   for (let i = 0; i < rest.length; i++) {
@@ -426,6 +488,8 @@ function cmdCreate(rest: string[]): void {
       case '--epic': lane = 'epic'; break;
       case '--label': extraLabels.push(rest[++i] ?? ''); break;
       case '--parent': parent = Number(rest[++i]); break;
+      case '--force': force = true; break;
+      case '--dedup-key': dedupKey = rest[++i] ?? ''; break;
       default: throw new Error(`неизвестный флаг «${rest[i]}»`);
     }
   }
@@ -439,12 +503,9 @@ function cmdCreate(rest: string[]): void {
   if (prio) labels.push(`prio:${prio}`);
   if (lane) labels.push(`auto:${lane}`);
 
-  const created = gh<{ number: number; html_url: string }>(`/repos/${REPO}/issues`, 'POST', {
-    title,
-    body,
-    labels,
-  });
-  console.log(JSON.stringify({ issue: created.number, url: created.html_url }, null, 2));
+  const result = createIssue({ title, body, labels, dedupKey: dedupKey || undefined, force });
+  console.log(JSON.stringify(result, null, 2));
+  if (result.deduped) process.exitCode = 3; // отличимо от ошибки: дубль найден, ничего не создано
 }
 
 /** Открытые эпики, старые вперёд; planned=true — уже разобран на задачи. */
@@ -625,30 +686,61 @@ interface MergeAttempt {
 /**
  * Последний предохранитель перед прод-деплоем: мержит, только если гейт разрешает
  * И весь CI зелёный. Проверяет сам, а не верит вызывающему — а вызывающих теперь
- * двое: сессия воркера (`pr-merge`) и крон-подметальщик (`automerge`).
+ * трое: сессия воркера (`pr-merge`), крон-подметальщик (`automerge`) и исполнение
+ * решений владельца (`decisions-sync`).
+ *
+ * `gateExempt` пропускает ТОЛЬКО проверку гейта — CI green и снятие draft
+ * обязательны всегда. Легальны ровно три случая: `owner-approved` (владелец
+ * решил кнопкой в Telegram — человеческое решение и заменяет гейт), `release`
+ * (release-please PR: whitelist файлов проверен вызывающим, вердиктов ревью на
+ * changelog-бампе не бывает и при ручном мерже) и `dependabot-group` (границы
+ * задаёт dependabot.yml, конфиг групп — HOLD-файл).
+ *
+ * Мерж всегда пинится к SHA: `PUT /merge` с `sha` атомарно отвергает мерж (409),
+ * если в ветку успел прилететь коммит после того, как мы проверили CI. Без пина
+ * между проверкой и мержем было окно TOCTOU.
  */
 function attemptMerge(
   prNumber: number,
   config: QueueConfig,
-  opts: { promoteDraft?: boolean } = {},
+  opts: {
+    promoteDraft?: boolean;
+    gateExempt?: 'owner-approved' | 'release' | 'dependabot-group';
+    /** Мержить только этот head SHA (решения владельца пинятся к моменту аппрува). */
+    expectedSha?: string;
+  } = {},
 ): MergeAttempt {
-  const gate = classifyMergeGate(
-    changedFiles(prNumber),
-    config,
-    trustedCommentBodies(prNumber),
+  const pr = gh<{ draft: boolean; title: string; node_id: string; head: { sha: string }; state: string; merged: boolean }>(
+    `/repos/${REPO}/pulls/${prNumber}`,
   );
-  if (gate.tier === 'hold') {
-    return { merged: false, reason: 'gate=hold', hold: true, reasons: gate.reasons };
+  if (pr.merged) return { merged: false, reason: 'PR уже смержен' };
+  if (pr.state !== 'open') return { merged: false, reason: 'PR закрыт' };
+
+  const sha = opts.expectedSha ?? pr.head.sha;
+  if (opts.expectedSha && pr.head.sha !== opts.expectedSha) {
+    return { merged: false, reason: 'head SHA изменился после решения', detail: `ожидался ${opts.expectedSha.slice(0, 8)}, сейчас ${pr.head.sha.slice(0, 8)}` };
   }
 
-  const runs = checksFor(prNumber);
+  if (!opts.gateExempt) {
+    const gate = classifyMergeGate(
+      changedFiles(prNumber),
+      config,
+      trustedCommentBodies(prNumber),
+    );
+    if (gate.tier === 'hold') {
+      return { merged: false, reason: 'gate=hold', hold: true, reasons: gate.reasons };
+    }
+  }
+
+  const runs = gh<{ check_runs: CheckRun[] }>(
+    `/repos/${REPO}/commits/${sha}/check-runs?per_page=100`,
+  ).check_runs;
   const s = summarizeChecks(runs);
   if (!s.green) {
     const reason = runs.length === 0 ? 'CI не стартовал — чеков нет вообще' : s.done ? 'CI красный' : 'CI ещё идёт';
     return { merged: false, reason, failed: s.failed.map((r) => r.name), pending: s.pending.map((r) => r.name) };
   }
 
-  const pr = gh<{ draft: boolean; title: string; node_id: string }>(`/repos/${REPO}/pulls/${prNumber}`);
   if (pr.draft) {
     // Снимаем черновик только здесь — когда гейт и CI уже сказали «да». До этой
     // точки PR мог быть незакончен, после неё флаг остаётся единственным, что
@@ -664,11 +756,18 @@ function attemptMerge(
     gh(`/repos/${REPO}/pulls/${prNumber}/merge`, 'PUT', {
       merge_method: 'squash',
       commit_title: `${pr.title} (#${prNumber})`,
+      sha,
     });
     return { merged: true };
   } catch (err) {
+    const detail = String(err).slice(0, 300);
+    // 409 по sha — ветка сдвинулась между проверкой CI и мержем: не ошибка, а
+    // сработавший пин. Вызывающий решает, перечитывать ли состояние.
+    if (detail.includes('409')) {
+      return { merged: false, reason: 'head SHA изменился после решения', detail };
+    }
     // Обычно это branch protection (нужен ревью) — не наша ошибка, а решение владельца.
-    return { merged: false, reason: 'GitHub отказал в мерже', detail: String(err).slice(0, 300) };
+    return { merged: false, reason: 'GitHub отказал в мерже', detail };
   }
 }
 
@@ -755,6 +854,67 @@ function cmdAutoMerge(dryRun: boolean): void {
     const prLabels = gh<{ labels: { name: string }[] }>(`/repos/${REPO}/issues/${pr.number}`).labels.map(
       (l) => l.name,
     );
+
+    const quietMin = (now.getTime() - new Date(pr.updated_at).getTime()) / 60_000;
+
+    // release-please: чистый changelog/version-бамп без кода. Мержится сам, но
+    // только ночью (мерж release-PR = деплой; в трафик-часы он не нужен никому)
+    // и только если дифф целиком в whitelist релизных файлов — что-то сверх
+    // означает «это не release-PR», и такой идёт обычным путём через гейт.
+    // Вердикты ревью не требуются: их не было и при ручном мерже владельцем.
+    if (RELEASE_BRANCH_RE.test(pr.head.ref)) {
+      if (prLabels.includes('needs-owner')) {
+        results.push({ pr: pr.number, merged: false, skipped: 'needs-owner — ждёт решения владельца' });
+        continue;
+      }
+      if (quietMin < config.automergeQuietMinutes) {
+        results.push({ pr: pr.number, merged: false, skipped: `release-PR обновлялся ${Math.round(quietMin)} мин назад — жду тишины` });
+        continue;
+      }
+      const relGate = releasePrGate(changedFiles(pr.number).map((f) => f.filename), now, config);
+      if (!relGate.merge) {
+        results.push({ pr: pr.number, merged: false, skipped: relGate.reason });
+        continue;
+      }
+      if (dryRun) {
+        const s = summarizeChecks(checksFor(pr.number));
+        results.push({ pr: pr.number, merged: false, dryRun: true, path: 'release', wouldMerge: s.green, ci: s.green ? 'green' : s.done ? 'red' : 'pending' });
+        continue;
+      }
+      const result = attemptMerge(pr.number, config, { promoteDraft: true, gateExempt: 'release' });
+      if (result.merged) merged++;
+      results.push({ pr: pr.number, path: 'release', ...result });
+      continue;
+    }
+
+    // dependabot: групповые minor+patch PR мержим сами — границы обновлений
+    // задаёт dependabot.yml, а мерж под PAT свипера рождает настоящие события
+    // (deploy и auto-rebase стартуют без Kick). Одиночные PR (majors) ждут
+    // конверсии в задачу очереди (dependabot-automerge.yml) и здесь пропускаются.
+    if (DEPENDABOT_BRANCH_RE.test(pr.head.ref)) {
+      if (prLabels.includes('needs-owner')) {
+        results.push({ pr: pr.number, merged: false, skipped: 'needs-owner — ждёт решения владельца' });
+        continue;
+      }
+      if (!isDependabotAutoMergeBranch(pr.head.ref)) {
+        results.push({ pr: pr.number, merged: false, skipped: 'dependabot вне групп minor+patch (major?) — конвертируется в задачу очереди, не мержится сам' });
+        continue;
+      }
+      if (quietMin < config.automergeQuietMinutes) {
+        results.push({ pr: pr.number, merged: false, skipped: `dependabot-PR обновлялся ${Math.round(quietMin)} мин назад — жду тишины` });
+        continue;
+      }
+      if (dryRun) {
+        const s = summarizeChecks(checksFor(pr.number));
+        results.push({ pr: pr.number, merged: false, dryRun: true, path: 'dependabot-group', wouldMerge: s.green, ci: s.green ? 'green' : s.done ? 'red' : 'pending' });
+        continue;
+      }
+      const result = attemptMerge(pr.number, config, { promoteDraft: true, gateExempt: 'dependabot-group' });
+      if (result.merged) merged++;
+      results.push({ pr: pr.number, path: 'dependabot-group', ...result });
+      continue;
+    }
+
     const skip = autoMergeSkipReason(
       {
         prNumber: pr.number,
@@ -952,6 +1112,34 @@ function cmdReconcile(): void {
     }
   }
 
+  // Закрытые зонтики: сессия могла замержить батч-PR, забыв batch-result или
+  // оставив пункты неучтёнными — сигналы исчезли бы молча. Спасаем механически:
+  // каждый неучтённый пункт уезжает batch-add'ом в новый зонтик своей области,
+  // на закрытом зонтике остаётся rescue-маркер (дедуп повторного спасения).
+  const rescueSince = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const closedBatches = gh<RawIssue[]>(
+    `/repos/${REPO}/issues?state=closed&labels=${encodeURIComponent(BATCH_LABEL)}&since=${encodeURIComponent(rescueSince)}&per_page=100`,
+  ).filter((i) => !i.pull_request);
+  for (const b of closedBatches) {
+    const bodies = allComments(b.number).map((c) => c.body);
+    if (bodies.some((x) => x.includes(BATCH_RESCUE_MARKER))) continue;
+    const missing = unprocessedBatchItems(parseBatchItems(bodies), parseBatchResult(bodies));
+    if (missing.length === 0) continue;
+    const area = batchAreaOf(b.body) ?? 'misc';
+    const targets = new Set<number>();
+    for (const item of missing) {
+      const res = batchAdd({ area, key: item.key, title: item.title, details: item.body, maxItems: config.batchMaxItems });
+      if (res.issue !== null) targets.add(res.issue);
+    }
+    comment(
+      b.number,
+      `${BATCH_RESCUE_MARKER}\n\nЗонтик закрыт, но ${missing.length} пункт(ов) не учтены в batch-result: ` +
+        `${missing.map((i) => `\`${i.key}\``).join(', ')} — перенесены reconcile'ом в ${[...targets].map((n) => `#${n}`).join(', ') || 'новый зонтик'}.`,
+    );
+    console.log(`rescued ${missing.length} batch items from closed #${b.number}`);
+    touched++;
+  }
+
   console.log(`reconcile: ${touched} изменений`);
 }
 
@@ -961,8 +1149,13 @@ function renderDashboard(config: QueueConfig): string {
   const snap = snapshot(issues, config, countBackpressurePrs(links));
   const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
 
-  const row = (i: QueueIssue) =>
-    `| ${priorityOf(i.labels) ?? '—'} | #${i.number} | ${i.title.replace(/\|/g, '\\|').slice(0, 90)} |`;
+  // Для зонтиков — счётчик пунктов: «размер» батча иначе не виден снаружи.
+  const row = (i: QueueIssue) => {
+    const batchNote = i.labels.includes(BATCH_LABEL)
+      ? ` · 🧺 ${parseBatchItems(batchCommentBodies(i.number)).length} пунктов`
+      : '';
+    return `| ${priorityOf(i.labels) ?? '—'} | #${i.number} | ${i.title.replace(/\|/g, '\\|').slice(0, 90)}${batchNote} |`;
+  };
 
   const lines: string[] = [
     DASHBOARD_MARKER,
@@ -1100,10 +1293,12 @@ function cmdHeartbeat(dryRun: boolean): void {
 }
 
 /**
- * Watchdog автономии (issue #573): живость AUTOMATION_TOKEN + суточный
- * дайджест needs-owner. Как и heartbeat — только решения и запись
- * маркер-комментариев на дашборд; сам вызов Telegram (секреты) — в
- * issue-queue.yml, отдельным шагом по JSON-выводу этой команды.
+ * Watchdog автономии (issue #573): живость AUTOMATION_TOKEN. Как и heartbeat —
+ * только решения и запись маркер-комментариев на дашборд; сам вызов Telegram
+ * (секреты) — в issue-queue.yml, отдельным шагом по JSON-выводу этой команды.
+ * Дайджест needs-owner отсюда убран: hold-PR теперь приходит владельцу
+ * кнопками в момент навешивания лейбла (decisions-sync), а напоминает о
+ * зависших вечерний owner-digest.
  */
 function cmdOpsWatch(dryRun: boolean): void {
   const dash = gh<RawIssue[]>(
@@ -1127,6 +1322,14 @@ function cmdOpsWatch(dryRun: boolean): void {
     result.token = { checked: true, dead, status };
     result.tokenAlert = dead;
 
+    // Мёртвый токен — это действие владельца; кроме Telegram-алерта (шаг
+    // workflow) заводим decision с пошаговой инструкцией и кнопкой «Готово».
+    if (dead && !dryRun) {
+      result.rotationDecision = postPatRotationDecision(
+        'AUTOMATION_TOKEN мёртв — перевыпусти fine-grained PAT',
+      );
+    }
+
     if (!dead) {
       const lastReminderAt =
         dashComments.filter((c) => c.body.includes(TOKEN_ROTATION_MARKER)).at(-1)?.created_at ?? null;
@@ -1140,51 +1343,369 @@ function cmdOpsWatch(dryRun: boolean): void {
             `GitHub → Settings → Developer settings → Fine-grained tokens и при необходимости ` +
             `сгенерируй новый (issue #573, ADR 2026-08-10 §«Обновление 2026-08-13»).`,
         );
+        result.rotationDecision = postPatRotationDecision(
+          'Пора проверить срок AUTOMATION_TOKEN (fine-grained PAT живёт ≤90 дней)',
+        );
       }
     }
   }
 
-  // --- 2. Дайджест needs-owner старше 48ч ---
-  const needsOwnerRaw = gh<RawIssue[]>(
-    `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent('needs-owner')}&per_page=100`,
-  ).filter((i) => i.pull_request);
-  const needsOwnerPrs: NeedsOwnerPr[] = needsOwnerRaw.map((pr) => ({
-    number: pr.number,
-    title: pr.title,
-    labeledAt: needsOwnerLabeledAt(pr.number) ?? pr.updated_at,
-  }));
-  const lastDigestAt =
-    dashComments.filter((c) => c.body.includes(NEEDS_OWNER_DIGEST_MARKER)).at(-1)?.created_at ?? null;
+  console.log(JSON.stringify(result, null, 2));
+}
 
-  const digest = buildNeedsOwnerDigest({
-    now: new Date(),
-    prs: needsOwnerPrs,
-    minAgeHours: 48,
-    lastDigestAt,
-    intervalHours: 24,
-  });
-  result.digest = digest;
+/**
+ * Decision «ротация PAT» — единственный легальный GitHub-заход владельца
+ * (~2 мин раз в 90 дней), инструкция приходит кнопкой в Telegram. Дедуп
+ * PENDING-решений того же kind — на стороне сервиса сайта. Сайт может лежать
+ * или секрет не заведён — тогда честно возвращаем причину, алерт-шаг workflow
+ * остаётся страховкой.
+ */
+function postPatRotationDecision(title: string): Record<string, unknown> {
+  if (!process.env.OWNER_DECISIONS_SECRET) return { posted: false, reason: 'OWNER_DECISIONS_SECRET не задан' };
+  try {
+    const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
+      kind: 'pat-rotation',
+      subjectType: 'none',
+      subjectNumber: null,
+      headSha: null,
+      title,
+      payload: {
+        instructions:
+          'GitHub → Settings → Developer settings → Fine-grained tokens → Generate new: ' +
+          'repo Platform-Delovoy, permissions Contents (write) + Pull requests (write) + Actions (write), 90 дней. ' +
+          'Значение вставить в Settings → Secrets and variables → Actions → AUTOMATION_TOKEN. ' +
+          'После — кнопка «Готово» здесь.',
+      },
+    });
+    return { posted: true, id: res.id, created: res.created };
+  } catch (err) {
+    return { posted: false, reason: String(err).slice(0, 200) };
+  }
+}
 
-  if (digest.send) {
-    const now = Date.now();
-    const ageLine = (pr: NeedsOwnerPr, title: string) => {
-      const ageHours = Math.round((now - new Date(pr.labeledAt).getTime()) / 3.6e6);
-      return `- #${pr.number} ${title} — ${ageHours} ч`;
-    };
-    // GH-комментарий — обычный markdown-текст (дедуп-маркер для этой команды).
-    const plainLines = digest.stalePrs.map((pr) => ageLine(pr, pr.title));
-    const digestText = `needs-owner дольше 48 ч, ждут решения владельца:\n${plainLines.join('\n')}`;
-    result.digestText = digestText;
-    // Отдельная HTML-экранированная версия — для Telegram (parse_mode:"HTML"
-    // в issue-queue.yml); заголовок PR не гарантированно безопасен для HTML.
-    const htmlLines = digest.stalePrs.map((pr) => ageLine(pr, escapeHtml(pr.title)));
-    result.digestTextHtml = `needs-owner дольше 48 ч, ждут решения владельца:\n${htmlLines.join('\n')}`;
-    if (!dryRun && dashNumber !== null) {
-      comment(dashNumber, `${NEEDS_OWNER_DIGEST_MARKER}\n\n📋 ${digestText}`);
+// ── Зонтики мелочи (CLI-обёртки над batch-io) ───────────────────────────────
+
+function cmdBatchAdd(rest: string[]): void {
+  let area = '';
+  let key = '';
+  let title = '';
+  let details = '';
+  const dryRun = rest.includes('--dry-run');
+  for (let i = 0; i < rest.length; i++) {
+    switch (rest[i]) {
+      case '--area': area = rest[++i] ?? ''; break;
+      case '--key': key = rest[++i] ?? ''; break;
+      case '--title': title = rest[++i] ?? ''; break;
+      case '--details': details = rest[++i] ?? ''; break;
+      case '--dry-run': break;
+      default: throw new Error(`неизвестный флаг «${rest[i]}»`);
+    }
+  }
+  if (!area || !key || !title) throw new Error('нужны --area, --key и --title');
+  const config = loadConfig();
+  const res = batchAdd({ area, key, title, details: details || undefined, maxItems: config.batchMaxItems, dryRun });
+  console.log(JSON.stringify(res, null, 2));
+}
+
+/**
+ * Итог батча перед PR: машинно-читаемый список сделанного и перенесённого.
+ * Отдельная команда по той же причине, что и `verdict`: формат маркеров живёт
+ * в одном месте (scripts/lib/issue-batch.ts), а не в промпте.
+ */
+function cmdBatchResult(num: number, rest: string[]): void {
+  let doneRaw = '';
+  let carriedRaw = '';
+  for (let i = 0; i < rest.length; i++) {
+    switch (rest[i]) {
+      case '--done': doneRaw = rest[++i] ?? ''; break;
+      case '--carried': carriedRaw = rest[++i] ?? ''; break;
+      default: throw new Error(`неизвестный флаг «${rest[i]}»`);
+    }
+  }
+  const done = doneRaw
+    ? doneRaw.split(',').map((k) => ({ key: k.trim() })).filter((d) => d.key)
+    : [];
+  // Формат --carried: "key" или "key=712" (номер зонтика, куда перенесён пункт).
+  const carried = carriedRaw
+    ? carriedRaw.split(',').map((part) => {
+        const [k, to] = part.split('=');
+        return { key: k.trim(), toIssue: to ? Number(to) : undefined };
+      }).filter((c) => c.key)
+    : [];
+  if (done.length === 0 && carried.length === 0) throw new Error('нужен --done и/или --carried');
+  comment(num, renderBatchResult(done, carried));
+  console.log(`batch-result posted on #${num}: done=${done.length}, carried=${carried.length}`);
+}
+
+// ── Решения владельца: Telegram-кнопки вместо needs-owner-инбокса ───────────
+//
+// GitHub-креды есть только у Actions и сессий, поэтому контур такой:
+// свипер (этот CLI из issue-queue-merge.yml) reconcile'ом заводит запросы
+// решений на САЙТЕ (POST по секрету — паттерн release-notify), сайт шлёт
+// владельцу личное Telegram-сообщение с кнопками, бот записывает решение в БД,
+// а исполняет его снова свипер на следующем проходе. Сайт и бот GitHub не
+// трогают вообще. Файлы контура — в HOLD_PATTERNS: это путь к мержу мимо
+// гейта, автоматика не расширяет его сама.
+
+const DECISIONS_BASE_URL = process.env.OWNER_DECISIONS_URL ?? 'https://delovoy-park.ru';
+const DECISIONS_API = '/api/admin/owner-decisions';
+
+/**
+ * HTTP к сайту платформы. НЕ ghApi: тот в Actions прикладывает GH_TOKEN к
+ * любому URL — светить GitHub-токен собственному сайту незачем. Тот же curl
+ * (fetch игнорирует agent-proxy), свой секрет, жёсткий таймаут — сайт может
+ * лежать, и свипер не должен висеть из-за него. Ответы сайта приходят в
+ * конверте apiResponse ({success, data}) — распаковываем здесь.
+ */
+function siteApi<T = unknown>(path: string, method = 'GET', body?: unknown): T {
+  const secret = process.env.OWNER_DECISIONS_SECRET;
+  if (!secret) throw new Error('OWNER_DECISIONS_SECRET не задан');
+  const args = [
+    '-sS', '-X', method,
+    '-H', `Authorization: Bearer ${secret}`,
+    '-H', 'Accept: application/json',
+    '--max-time', '20',
+    '-w', '\n%{http_code}',
+  ];
+  if (body !== undefined) args.push('-H', 'Content-Type: application/json', '-d', JSON.stringify(body));
+  args.push(`${DECISIONS_BASE_URL}${path}`);
+  const out = execFileSync('curl', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const nl = out.lastIndexOf('\n');
+  const status = Number(out.slice(nl + 1));
+  const text = out.slice(0, nl);
+  if (status < 200 || status >= 300) {
+    throw new Error(`${method} ${path} → ${status}: ${text.slice(0, 300)}`);
+  }
+  const parsed = text.trim() ? (JSON.parse(text) as { success?: boolean; data?: unknown }) : null;
+  if (parsed && typeof parsed === 'object' && 'success' in parsed) {
+    if (!parsed.success) throw new Error(`${method} ${path}: сайт вернул success=false`);
+    return parsed.data as T;
+  }
+  return parsed as T;
+}
+
+interface DecisionWire {
+  id: string;
+  kind: 'merge-hold' | 'blocked-question' | 'owner-idea' | 'pat-rotation' | string;
+  subjectType: 'pr' | 'issue' | 'none' | string;
+  subjectNumber: number | null;
+  headSha: string | null;
+  title: string;
+  status: string;
+  decision: 'approve' | 'reject' | null;
+  note: string | null;
+  payload: {
+    reasons?: string[];
+    url?: string;
+    /** Для prod-apply: какой ops-workflow диспатчить после «да» владельца. */
+    dispatchWorkflow?: string;
+    dispatchInputs?: Record<string, string>;
+    /** Для owner-idea: свободный текст идеи. */
+    text?: string;
+    prio?: string;
+  } | null;
+  decidedAt: string | null;
+}
+
+function patchDecision(id: string, status: string, note?: string): void {
+  siteApi(DECISIONS_API, 'PATCH', { id, status, executorNote: note });
+}
+
+/** Исполнение одного принятого решения. Ошибки не глотаем — ловит вызывающий цикл. */
+function executeDecision(d: DecisionWire, config: QueueConfig, now: Date, dryRun: boolean): Record<string, unknown> {
+  const base = { id: d.id, kind: d.kind, decision: d.decision, subject: d.subjectNumber };
+
+  if (d.kind === 'merge-hold') {
+    const prNumber = d.subjectNumber;
+    if (!prNumber) return { ...base, error: 'нет subjectNumber' };
+
+    if (d.decision === 'approve') {
+      if (!config.autoMerge) return { ...base, skipped: 'autoMerge=false — аварийный стоп глушит и решения' };
+      // Grace-окно «Отменить»: мерж необратим, случайный тап по кнопке — нет.
+      if (!d.decidedAt || !graceElapsed(d.decidedAt, now, config.decisionGraceMinutes)) {
+        return { ...base, waiting: `grace ${config.decisionGraceMinutes} мин после аппрува ещё не прошёл` };
+      }
+      const pr = gh<{ state: string; merged: boolean; head: { sha: string } }>(`/repos/${REPO}/pulls/${prNumber}`);
+      if (pr.merged || pr.state !== 'open') {
+        if (!dryRun) patchDecision(d.id, 'EXECUTED', pr.merged ? 'PR уже смержен' : 'PR уже закрыт');
+        return { ...base, executed: true, note: 'PR уже закрыт/смержен' };
+      }
+      if (!d.headSha || pr.head.sha !== d.headSha) {
+        // Аппрув пинится к SHA момента решения — новые коммиты его гасят.
+        // decisions-sync на этом же проходе заведёт свежий запрос под новый SHA.
+        if (!dryRun) {
+          patchDecision(d.id, 'EXPIRED', `head SHA изменился: ожидался ${d.headSha?.slice(0, 8)}, сейчас ${pr.head.sha.slice(0, 8)}`);
+          comment(prNumber, `Аппрув владельца (Telegram) устарел: PR изменился после решения. Запрос уйдёт заново под новый коммит.`);
+        }
+        return { ...base, expired: true };
+      }
+      if (dryRun) return { ...base, dryRun: true, wouldMerge: true };
+      const result = attemptMerge(prNumber, config, { promoteDraft: true, gateExempt: 'owner-approved', expectedSha: d.headSha });
+      if (result.merged) {
+        patchDecision(d.id, 'EXECUTED', 'смержен');
+        comment(prNumber, `Смержено по решению владельца из Telegram (decision \`${d.id}\`).`);
+        return { ...base, merged: true };
+      }
+      if (result.reason === 'head SHA изменился после решения') {
+        patchDecision(d.id, 'EXPIRED', result.detail);
+        return { ...base, expired: true, detail: result.detail };
+      }
+      // CI ещё идёт/красный — решение остаётся APPROVED, добьём на следующем проходе.
+      return { ...base, deferredExecution: result.reason, detail: result.detail };
+    }
+
+    if (d.decision === 'reject') {
+      if (dryRun) return { ...base, dryRun: true, wouldClose: true };
+      gh(`/repos/${REPO}/pulls/${prNumber}`, 'PATCH', { state: 'closed' });
+      comment(
+        prNumber,
+        `Отклонено владельцем из Telegram${d.note ? `: ${d.note}` : ''}. PR закрыт; связанная задача переведена в \`auto:blocked\` — нужна переформулировка.`,
+      );
+      const prRaw = gh<RawPr>(`/repos/${REPO}/pulls/${prNumber}`);
+      for (const num of closedIssueNumbers(prRaw)) {
+        try {
+          const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
+          if (issue.state === 'open') {
+            setLabels(num, swapLane(issue.labels.map((l) => l.name), 'auto:blocked'));
+          }
+        } catch { /* issue могла быть удалена — не роняем исполнение */ }
+      }
+      patchDecision(d.id, 'EXECUTED', 'PR закрыт');
+      return { ...base, closed: true };
     }
   }
 
-  console.log(JSON.stringify(result, null, 2));
+  if (d.kind === 'blocked-question') {
+    const issueNumber = d.subjectNumber;
+    if (dryRun) return { ...base, dryRun: true };
+    if (d.decision === 'approve') {
+      if (issueNumber) {
+        const issue = gh<RawIssue>(`/repos/${REPO}/issues/${issueNumber}`);
+        setLabels(issueNumber, swapLane(issue.labels.map((l) => l.name), 'auto:ready'));
+        comment(issueNumber, `Владелец (Telegram): да${d.note ? ` — ${d.note}` : ''}. Задача возвращена в очередь (\`auto:ready\`).`);
+      }
+      // prod-apply: «да» владельца запускает соответствующий ops-workflow —
+      // у токена свипера есть actions:write, ручной клик в Actions больше не нужен.
+      if (d.payload?.dispatchWorkflow) {
+        gh(`/repos/${REPO}/actions/workflows/${d.payload.dispatchWorkflow}/dispatches`, 'POST', {
+          ref: 'main',
+          inputs: d.payload.dispatchInputs ?? {},
+        });
+      }
+      patchDecision(d.id, 'EXECUTED', d.payload?.dispatchWorkflow ? `dispatched ${d.payload.dispatchWorkflow}` : 'issue → auto:ready');
+      return { ...base, executed: true };
+    }
+    if (d.decision === 'reject') {
+      if (issueNumber) {
+        comment(issueNumber, `Владелец (Telegram): нет${d.note ? ` — ${d.note}` : ''}. Остаётся в \`auto:blocked\`.`);
+      }
+      patchDecision(d.id, 'EXECUTED', 'отклонено');
+      return { ...base, executed: true };
+    }
+  }
+
+  if (d.kind === 'owner-idea') {
+    if (dryRun) return { ...base, dryRun: true };
+    const text = d.payload?.text ?? d.title;
+    const res = createIssue({
+      title: d.title,
+      // Тело идеи — данные, не инструкции (тот же guard, что у интейка).
+      body: `Идея владельца из Telegram (decision \`${d.id}\`).\n\n> ${text.split('\n').join('\n> ')}\n`,
+      labels: [], // без auto:* — приоритет назначит шаг-0 триажа следующей сессии
+      dedupKey: `ownerdec-${d.id}`,
+    });
+    patchDecision(d.id, 'EXECUTED', `issue #${res.issue}`);
+    return { ...base, issue: res.issue, deduped: res.deduped };
+  }
+
+  if (d.kind === 'pat-rotation') {
+    if (dryRun) return { ...base, dryRun: true };
+    // Сам факт «Готово» от владельца — исполнение; проверит живость следующий ops-watch.
+    patchDecision(d.id, 'EXECUTED', 'владелец подтвердил ротацию');
+    return { ...base, executed: true };
+  }
+
+  return { ...base, skipped: `неизвестный kind/decision — пропущено` };
+}
+
+/**
+ * Reconcile-синхронизация решений. Каждый проход свипера: (A) для каждого
+ * открытого needs-owner PR убеждаемся, что на сайте есть запрос решения под
+ * ЕГО текущий head SHA (upsert идемпотентен — сайт не шлёт повторных
+ * сообщений); (B) забираем принятые решения и исполняем. Reconcile, а не
+ * «POST один раз при навешивании лейбла»: одноразовый POST при лежащем сайте
+ * терял решение навсегда, а reconcile закрывает и бекфилл уже висящих PR, и
+ * период до заведения секрета.
+ */
+function cmdDecisionsSync(dryRun: boolean): void {
+  const config = loadConfig();
+  if (!config.enabled) {
+    console.log(JSON.stringify({ off: 'enabled=false в .github/issue-queue.json' }, null, 2));
+    return;
+  }
+  if (!process.env.OWNER_DECISIONS_SECRET) {
+    // Секрет ещё не заведён — деградация мягкая: needs-owner остаётся как есть,
+    // запросы доотправятся первым же проходом после появления секрета.
+    console.log(JSON.stringify({ skipped: 'OWNER_DECISIONS_SECRET не задан — контур решений выключен' }, null, 2));
+    return;
+  }
+
+  const now = new Date();
+  const results: Record<string, unknown>[] = [];
+  let requestsCreated = 0;
+  let executed = 0;
+
+  // --- A. Запросы решений для needs-owner PR (upsert по kind+subject+headSha) ---
+  const needsOwnerPrs = gh<RawIssue[]>(
+    `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent('needs-owner')}&per_page=100`,
+  ).filter((i) => i.pull_request);
+  for (const item of needsOwnerPrs) {
+    try {
+      const pr = gh<{ head: { sha: string }; html_url: string }>(`/repos/${REPO}/pulls/${item.number}`);
+      let reasons: string[];
+      try {
+        reasons = classifyMergeGate(changedFiles(item.number), config, trustedCommentBodies(item.number)).reasons;
+      } catch {
+        reasons = ['не удалось перечитать причины гейта'];
+      }
+      if (dryRun) {
+        results.push({ requestFor: item.number, headSha: pr.head.sha.slice(0, 8), dryRun: true });
+        continue;
+      }
+      const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
+        kind: 'merge-hold',
+        subjectType: 'pr',
+        subjectNumber: item.number,
+        headSha: pr.head.sha,
+        title: item.title,
+        payload: { reasons, url: pr.html_url },
+      });
+      if (res.created) requestsCreated++;
+      results.push({ requestFor: item.number, id: res.id, created: res.created });
+    } catch (err) {
+      // Сайт лежит — мержи и остальная уборка не должны вставать из-за него.
+      results.push({ requestFor: item.number, siteError: String(err).slice(0, 200) });
+    }
+  }
+
+  // --- B. Исполнение принятых решений ---
+  let decided: DecisionWire[] = [];
+  try {
+    decided = siteApi<DecisionWire[]>(`${DECISIONS_API}?status=decided`);
+  } catch (err) {
+    results.push({ decidedFetchError: String(err).slice(0, 200) });
+  }
+  for (const d of decided) {
+    try {
+      const r = executeDecision(d, config, now, dryRun);
+      if (r.merged || r.executed || r.closed) executed++;
+      results.push(r);
+    } catch (err) {
+      results.push({ id: d.id, executeError: String(err).slice(0, 300) });
+    }
+  }
+
+  console.log(JSON.stringify({ requestsCreated, executed, considered: decided.length, results }, null, 2));
 }
 
 // ── Точка входа ─────────────────────────────────────────────────────────────
@@ -1222,9 +1743,12 @@ try {
       );
       break;
     case 'automerge': cmdAutoMerge(rest.includes('--dry-run')); break;
+    case 'batch-add': cmdBatchAdd(rest); break;
+    case 'batch-result': cmdBatchResult(Number(rest[0]), rest.slice(1)); break;
+    case 'decisions-sync': cmdDecisionsSync(rest.includes('--dry-run')); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|batch-add|batch-result|decisions-sync|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric|automerge|ops-watch> [args]',
       );
       process.exitCode = 2;
   }

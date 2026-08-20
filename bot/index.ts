@@ -21,6 +21,7 @@ import {
   registerAuthDeepLinkHandlers,
 } from "./handlers/auth-deeplink";
 import { registerTeamSettingsHandlers } from "./handlers/team-settings";
+import { registerOwnerDecisionsHandlers } from "./handlers/owner-decisions";
 import { buildWelcomeText, mainMenuKeyboard } from "./handlers/welcome";
 import { registerUnknownTextHandler } from "./handlers/unknown";
 import { mintBotLoginUrl } from "./lib/bot-login";
@@ -251,6 +252,9 @@ async function startBot() {
   registerMyBookingsHandler(bot);
   registerTeamSettingsHandlers(bot);
   registerAuthDeepLinkHandlers(bot);
+  // Решения владельца (кнопки автоочереди) — до catch-all: его text-хендлер
+  // перехватывает «идея:…» и реплаи на сообщения решений, остальное передаёт дальше.
+  registerOwnerDecisionsHandlers(bot);
 
   // Catch-all for unknown text — MUST be registered LAST so it only fires
   // when no command or domain handler matched the input.

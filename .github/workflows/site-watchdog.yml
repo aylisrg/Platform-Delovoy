@@ -467,7 +467,12 @@ jobs:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
         run: |
-          ISSUES=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number --jq '.[].number')
+          # root-cause issues НЕ закрываем: они несут инцидент-лейбл для дедупа
+          # эскалации, но живут циклом бэклога (фикс → PR → мерж), а не циклом
+          # «упало-поднялось». Watchdog, закрывавший их через минуты после
+          # создания, и был причиной 6 подряд дублей root-cause (ADR 2026-08-20).
+          ISSUES=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number,labels \
+            --jq '.[] | select((.labels | map(.name) | index("root-cause")) | not) | .number')
           [ -z "$ISSUES" ] && { echo "No open site-down issues — nothing to do"; exit 0; }
 
           for ISSUE in $ISSUES; do
@@ -490,7 +495,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          ISSUES=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number --jq '.[].number')
+          # root-cause не закрываем — см. комментарий у site-down выше.
+          ISSUES=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number,labels \
+            --jq '.[] | select((.labels | map(.name) | index("root-cause")) | not) | .number')
           [ -z "$ISSUES" ] && { echo "No open notifications-down issues"; exit 0; }
           for ISSUE in $ISSUES; do
             gh issue close "$ISSUE" --repo "$REPO" \

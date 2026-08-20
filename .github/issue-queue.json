@@ -1,12 +1,15 @@
 {
   "$comment": [
-    "Рубильник автономной разгрузки бэклога. Описание — docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md",
+    "Рубильник автономной разгрузки бэклога. Описание — docs/architecture/2026-08-10-autonomous-issue-cleanup-adr.md и 2026-08-20-owner-out-of-github-adr.md",
     "enabled=false останавливает воркер целиком: он проснётся, увидит флаг и уйдёт спать.",
-    "autoMerge=false оставляет всё как есть, но PR-ы будут ждать ручного мержа.",
+    "autoMerge=false оставляет всё как есть, но PR-ы будут ждать ручного мержа (глушит и исполнение owner-decisions мержей).",
     "Мерж в main запускает CI → deploy.yml → прод. autoMerge=true означает выкатку без человека.",
     "maxAttempts — потолок на брошенные попытки: задача, которую воркер не вытягивает, снимается с очереди в auto:blocked, а не крутится вечно.",
     "heartbeatIdleHours/heartbeatCooldownHours — сторож простоя: ready>0 без PR-активности дольше idle-порога → Telegram-алерт, не чаще одного в cooldown.",
-    "automergeQuietMinutes — сколько минут PR должен не обновляться, прежде чем подметальщик (issue-queue-merge.yml) его замержит. Защита от мержа середины работы живой сессии."
+    "automergeQuietMinutes — сколько минут PR должен не обновляться, прежде чем подметальщик (issue-queue-merge.yml) его замержит. Защита от мержа середины работы живой сессии.",
+    "batchMaxItems — потолок пунктов зонтика мелочи (batch-add заведёт следующий).",
+    "decisionGraceMinutes — окно «Отменить» после аппрува merge-hold в Telegram: мерж исполняется свипером не раньше, чем через столько минут.",
+    "releaseNightWindowUtc — [start,end) UTC-часов, когда свипер мержит release-please PR (мерж release-PR = деплой без кода; ему не место в трафик-часы)."
   ],
   "enabled": true,
   "autoMerge": true,
@@ -16,11 +19,8 @@
   "heartbeatIdleHours": 3,
   "heartbeatCooldownHours": 12,
   "automergeQuietMinutes": 20,
-  "pinned": [
-    429,
-    424,
-    423,
-    432,
-    430
-  ]
+  "batchMaxItems": 8,
+  "decisionGraceMinutes": 15,
+  "releaseNightWindowUtc": [0, 2],
+  "pinned": []
 }

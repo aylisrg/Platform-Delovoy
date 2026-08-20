@@ -25,10 +25,13 @@ permissions:
   actions: write
 
 concurrency:
-  # Группа по SHA — параллельные деплои того же коммита (push + workflow_run
-  # гонка в deploy.yml) не должны породить два конкурентных error-budget окна.
-  group: deploy-error-budget-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: false
+  # Фиксированная группа + cancel-in-progress (ADR 2026-08-20): деплой-трейн
+  # может выкатить несколько HEAD подряд — окно наблюдения нужно только для
+  # ИТОГОВОГО SHA. Новый успешный деплой отменяет спящее окно старого; SHA
+  # окно и так перечитывает из repo variables в начале, так что доживший ран
+  # всегда сравнивает вокруг последнего реального деплоя.
+  group: deploy-error-budget
+  cancel-in-progress: true
 
 jobs:
   watch:

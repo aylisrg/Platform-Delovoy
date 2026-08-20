@@ -1,35 +1,51 @@
 version: 2
+# Группы (ADR 2026-08-20-owner-out-of-github): вместо россыпи одиночных PR —
+# одна недельная пачка minor+patch на экосистему. Имена групп попадают в имя
+# ветки (dependabot/npm_and_yarn/npm-minor-patch-…) — по ним свипер
+# issue-queue-merge.yml мержит групповые PR сам при зелёном CI
+# (DEPENDABOT_AUTOMERGE_GROUPS в scripts/lib/issue-queue.ts; менять имя группы —
+# синхронно с той константой). Majors остаются одиночными PR — их
+# dependabot-automerge.yml конвертирует в задачи очереди на настоящее ревью.
+#
+# Расписание — ночь понедельника: мерж пачки по зелёному CI уезжает ночным
+# деплоем, не занимая трафик-часы.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-      time: "09:00"
+      time: "01:00"
       timezone: "Europe/Moscow"
     labels:
       - "dependencies"
       - "ci"
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-      time: "09:00"
+      time: "01:00"
       timezone: "Europe/Moscow"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
     commit-message:
       prefix: "chore"
-    auto-merge:
-      # Auto-merge patch and minor updates if CI passes
-      - match:
-          update-types: ["version-update:semver-patch", "version-update:semver-minor"]
-        enabled: true
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     ignore:
       # Keep next-auth on beta track — we're using v5 beta intentionally
       - dependency-name: "next-auth"
