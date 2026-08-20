@@ -4,7 +4,11 @@
  * Two ioredis clients:
  *   1. `redis` (shared singleton from @/lib/redis) — for PUBLISH only.
  *   2. `subscriber` (lazy private singleton) — SUBSCRIBE only.
- *      Once subscribed, ioredis blocks the connection for other commands.
+ *      На RESP2 подписанное соединение не принимало других команд; с ioredis 6
+ *      (RESP3 по умолчанию) это ограничение снято и `client.mode` остаётся
+ *      "normal". Отдельного клиента всё равно держим: publish на том же
+ *      соединении смешивал бы поток push-сообщений с ответами команд, а после
+ *      реконнекта ioredis восстанавливает подписки именно этого клиента.
  *
  * Local fan-out: multiple in-process listeners on the same channel are
  * managed via a Map<channel, Set<listener>>. A Redis SUBSCRIBE is issued
