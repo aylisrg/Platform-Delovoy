@@ -11,7 +11,15 @@ import {
   toAmountValue,
   YooKassaError,
 } from "@/lib/yookassa/client";
-import { buildReceipt, ReceiptContactError, type ReceiptItemInput } from "@/lib/yookassa/receipts";
+import {
+  buildReceipt,
+  receiptsEnabled,
+  resolveVatCode,
+  ReceiptContactError,
+  ReceiptVatCodeError,
+  LEGACY_VAT_CODE,
+  type ReceiptItemInput,
+} from "@/lib/yookassa/receipts";
 import type { YooPayment } from "@/lib/yookassa/types";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
@@ -77,14 +85,24 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
   }
 
   let receipt;
+  // Ставку фиксируем на момент продажи: чек возврата обязан её повторить,
+  // а YOOKASSA_VAT_CODE к тому времени может уже смениться.
+  let saleVatCode: number | null = null;
   try {
     receipt = buildReceipt(
       { email: input.customerEmail, phone: input.customerPhone },
       input.receiptItems
     );
+    saleVatCode = receiptsEnabled() ? resolveVatCode() : null;
   } catch (err) {
     if (err instanceof ReceiptContactError) {
       throw new PaymentError(err.code, err.message);
+    }
+    if (err instanceof ReceiptVatCodeError) {
+      log.critical(MODULE_SLUG, "Некорректный YOOKASSA_VAT_CODE — платежи остановлены", {
+        error: err.message,
+      });
+      throw new PaymentError(err.code, "Онлайн-оплата временно недоступна");
     }
     throw err;
   }
@@ -107,6 +125,7 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
       expiresAt: new Date(Date.now() + PENDING_TTL_MINUTES * 60_000),
       metadata: {
         ...(input.metadata ?? {}),
+        ...(saleVatCode !== null && { vatCode: saleVatCode }),
         receiptItems: input.receiptItems.map((item) => ({
           description: item.description,
           amount: toAmountValue(item.amount),
@@ -394,6 +413,9 @@ export async function refundPayment(paymentId: string, input: RefundInput): Prom
     quantity: number;
     paymentSubject?: "service" | "commodity";
   }>;
+  // Ставка НДС — из снапшота продажи. У платежей, созданных до перехода на
+  // 5 %, её в metadata нет: они пробивались «без НДС» (LEGACY_VAT_CODE).
+  const saleVatCode = typeof meta.vatCode === "number" ? meta.vatCode : LEGACY_VAT_CODE;
   const receiptItems: ReceiptItemInput[] =
     snapshotItems.length > 0
       ? snapshotItems.map((item) => ({
@@ -401,8 +423,9 @@ export async function refundPayment(paymentId: string, input: RefundInput): Prom
           amount: item.amount,
           quantity: item.quantity,
           paymentSubject: item.paymentSubject,
+          vatCode: saleVatCode,
         }))
-      : [{ description: payment.description, amount: remaining }];
+      : [{ description: payment.description, amount: remaining, vatCode: saleVatCode }];
   const receipt = buildReceipt(
     { email: payment.customerEmail, phone: payment.customerPhone },
     receiptItems
