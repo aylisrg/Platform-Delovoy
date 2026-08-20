@@ -8,7 +8,8 @@
  * исполнение — после grace-окна с кнопкой «Отменить», каждый шаг — в AuditLog.
  */
 import { prisma } from '@/lib/db';
-import { logAudit } from '@/lib/logger';
+import { EVENT_SOURCES } from '@/lib/event-sources';
+import { log, logAudit } from '@/lib/logger';
 import { telegramApi } from '@/lib/telegram/client';
 import { escapeHtml } from '@/lib/telegram/escape';
 import {
@@ -181,9 +182,22 @@ export async function createDecisionRequest(
       },
       data: { status: 'EXPIRED', executorNote: 'superseded: новый head SHA' },
     });
+  } else if (input.subjectNumber !== null) {
+    // Subject без SHA (blocked-question по issue): unique-ключ с NULL-полем не
+    // дедупит (Postgres считает NULL различными) — идемпотентность руками,
+    // ПО-СУБЪЕКТНО: один живой запрос на (kind, issue). Дедуп только по kind
+    // склеил бы вопросы по разным issues в один.
+    const existing = await prisma.ownerDecision.findFirst({
+      where: {
+        kind: input.kind,
+        subjectNumber: input.subjectNumber,
+        status: { in: ['PENDING', 'DEFERRED', 'APPROVED'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) return { id: existing.id, created: false };
   } else {
-    // Unique-ключ с NULL не дедупит (Postgres) — для kind без subject
-    // идемпотентность руками: один живой запрос такого kind за раз.
+    // Kind вообще без subject (pat-rotation): один живой запрос такого kind за раз.
     const existing = await prisma.ownerDecision.findFirst({
       where: { kind: input.kind, status: { in: ['PENDING', 'DEFERRED'] } },
       orderBy: { createdAt: 'desc' },
@@ -210,12 +224,26 @@ export async function createDecisionRequest(
   return { id: row.id, created: true };
 }
 
+/** APPROVED старше этого порога считается «зависшим» (CI не зеленеет) и показывается владельцу. */
+const STUCK_APPROVED_MINUTES = 60;
+
 export async function listDecisions(scope: 'decided' | 'pending' | 'all'): Promise<DecisionView[]> {
   const where =
     scope === 'decided'
       ? { status: { in: ['APPROVED', 'REJECTED'] as ('APPROVED' | 'REJECTED')[] } }
       : scope === 'pending'
-        ? { status: { in: ['PENDING', 'DEFERRED'] as ('PENDING' | 'DEFERRED')[] } }
+        ? {
+            // «Ждёт владельца» включает и зависшие APPROVED: аппрув есть, а мерж
+            // не случился дольше часа (CI не зеленеет) — иначе владелец получил
+            // бы «Принято, мержу» и тишину навсегда.
+            OR: [
+              { status: { in: ['PENDING', 'DEFERRED'] as ('PENDING' | 'DEFERRED')[] } },
+              {
+                status: 'APPROVED' as const,
+                decidedAt: { lt: new Date(Date.now() - STUCK_APPROVED_MINUTES * 60_000) },
+              },
+            ],
+          }
         : {};
   const rows = await prisma.ownerDecision.findMany({
     where,
@@ -235,7 +263,14 @@ async function auditOwnerAction(
   if (user) {
     await logAudit(user.id, action, 'OwnerDecision', decisionId, metadata);
   } else {
-    console.warn(`[owner-decisions] нет User с telegramId=${telegramUserId} — аудит без userId пропущен`);
+    // AuditLog.userId — FK на User: без привязанного Telegram-аккаунта владельца
+    // писать некуда. След всё равно оставляем — в SystemEvent, чтобы «мутации
+    // логируются» не превращалось в тихий console.warn.
+    await log.warn(EVENT_SOURCES.OWNER_DECISIONS, `решение владельца без AuditLog: нет User с telegramId`, {
+      action,
+      decisionId,
+      ...metadata,
+    });
   }
 }
 

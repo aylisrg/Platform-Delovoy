@@ -43,6 +43,9 @@ export const EVENT_SOURCES = {
   CLIENT_BEACON: "client-beacon", // НЕ переименовывать — scripts/lib/log-reader.ts
   MONITORING_ROUTING_MAP: "monitoring.routing-map",
 
+  // owner-decisions (контур решений владельца, ADR 2026-08-20)
+  OWNER_DECISIONS: "owner-decisions",
+
   // admin
   ADMIN_TELEGRAM: "admin.telegram",
 

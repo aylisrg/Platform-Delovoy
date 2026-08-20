@@ -1469,7 +1469,20 @@ function siteApi<T = unknown>(path: string, method = 'GET', body?: unknown): T {
   ];
   if (body !== undefined) args.push('-H', 'Content-Type: application/json', '-d', JSON.stringify(body));
   args.push(`${DECISIONS_BASE_URL}${path}`);
-  const out = execFileSync('curl', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  let out: string;
+  try {
+    out = execFileSync('curl', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    // Транспортный сбой (сайт лежит/DNS/TLS/таймаут): execFileSync кладёт в
+    // err.message ПОЛНУЮ командную строку curl — вместе с Authorization-заголовком.
+    // Наружу уходит только санитизированное сообщение: вызывающие места
+    // сериализуют String(err) в JSON, который workflow печатает в лог и
+    // step summary — секрету там не место.
+    const e = err as { status?: number | null; signal?: string | null };
+    throw new Error(
+      `${method} ${path}: сайт недоступен (curl transport error, exit=${e.status ?? 'null'}${e.signal ? `, signal=${e.signal}` : ''})`,
+    );
+  }
   const nl = out.lastIndexOf('\n');
   const status = Number(out.slice(nl + 1));
   const text = out.slice(0, nl);
@@ -1685,6 +1698,48 @@ function cmdDecisionsSync(dryRun: boolean): void {
     } catch (err) {
       // Сайт лежит — мержи и остальная уборка не должны вставать из-за него.
       results.push({ requestFor: item.number, siteError: String(err).slice(0, 200) });
+    }
+  }
+
+  // --- A2. Вопросы владельцу по заблокированным задачам ---
+  // auto:blocked (нужны доступы/решение) и auto:prod-apply (код готов, apply
+  // трогает прод) раньше висели только в GitHub-дашборде — «инбокс», который
+  // ADR 2026-08-20 упраздняет. Теперь тот же reconcile-upsert: один живой
+  // вопрос на (kind, issue), «да» возвращает задачу в auto:ready (и при
+  // payload.dispatchWorkflow диспатчит ops-workflow), «нет» оставляет blocked.
+  for (const lane of ['auto:blocked', 'auto:prod-apply']) {
+    let blockedIssues: RawIssue[] = [];
+    try {
+      blockedIssues = gh<RawIssue[]>(
+        `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent(lane)}&per_page=100`,
+      ).filter((i) => !i.pull_request);
+    } catch (err) {
+      results.push({ lane, listError: String(err).slice(0, 200) });
+      continue;
+    }
+    for (const item of blockedIssues) {
+      try {
+        if (dryRun) {
+          results.push({ questionFor: item.number, lane, dryRun: true });
+          continue;
+        }
+        const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
+          kind: 'blocked-question',
+          subjectType: 'issue',
+          subjectNumber: item.number,
+          headSha: null,
+          title: item.title.slice(0, 300),
+          payload: {
+            url: `https://github.com/${REPO}/issues/${item.number}`,
+            // Тело issue — контекст вопроса (данные, не инструкции; сервис экранирует).
+            text: (item.body ?? '').slice(0, 800),
+          },
+        });
+        if (res.created) requestsCreated++;
+        results.push({ questionFor: item.number, lane, id: res.id, created: res.created });
+      } catch (err) {
+        results.push({ questionFor: item.number, lane, siteError: String(err).slice(0, 200) });
+      }
     }
   }
 

@@ -778,7 +778,11 @@ export const DEPENDABOT_AUTOMERGE_GROUPS = ['npm-minor-patch', 'actions-all'];
 
 export function isDependabotAutoMergeBranch(branch: string): boolean {
   if (!DEPENDABOT_BRANCH_RE.test(branch)) return false;
-  return DEPENDABOT_AUTOMERGE_GROUPS.some((g) => branch.includes(g));
+  // Точный сегмент, не includes: имя группы стоит последним сегментом ветки
+  // (`dependabot/npm_and_yarn/npm-minor-patch-<hash>`); одиночный major пакета,
+  // чьё ИМЯ содержит такую подстроку в середине сегмента, совпасть не должен.
+  const segment = branch.split('/').pop() ?? '';
+  return DEPENDABOT_AUTOMERGE_GROUPS.some((g) => segment === g || segment.startsWith(`${g}-`));
 }
 
 // ── Owner-decisions: исполнение решений владельца ───────────────────────────

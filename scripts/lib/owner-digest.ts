@@ -77,8 +77,11 @@ export function buildOwnerDigest(i: OwnerDigestInput): string {
   } else {
     lines.push(`❓ <b>Ждут твоего решения (${i.decisions.length})</b> — команда /decisions в боте:`);
     for (const d of i.decisions.slice(0, 8)) {
-      const mark = d.status === 'DEFERRED' ? '⏸' : '•';
-      lines.push(`${mark} ${escapeHtml(d.title)} — ждёт ${Math.round(d.ageHours)} ч`);
+      // APPROVED в этом списке = «аппрув завис»: мерж не случился (CI не
+      // зеленеет) — владелец должен это видеть, а не жить с «Принято» и тишиной.
+      const mark = d.status === 'DEFERRED' ? '⏸' : d.status === 'APPROVED' ? '⚠' : '•';
+      const note = d.status === 'APPROVED' ? ' (аппрув есть, мерж завис — CI?)' : '';
+      lines.push(`${mark} ${escapeHtml(d.title)}${note} — ждёт ${Math.round(d.ageHours)} ч`);
     }
   }
   lines.push('');

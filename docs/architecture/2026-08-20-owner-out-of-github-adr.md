@@ -99,9 +99,11 @@ Release-please PR мержит свипер — только в ночное о�
 ### 4. Контур owner-decisions: решения — кнопками в Telegram
 
 `needs-owner` больше не GitHub-инбокс. Контур: **свипер** (Actions,
-`decisions-sync` каждые 15 минут) reconcile'ом заводит запрос решения на сайте
+`decisions-sync` каждые 15 минут) reconcile'ом заводит запросы решений на сайте
 (`POST /api/admin/owner-decisions`, секрет `OWNER_DECISIONS_SECRET` — паттерн
-release-notify) для каждого открытого needs-owner PR под его текущий head SHA;
+release-notify): для каждого открытого needs-owner PR — `merge-hold` под его
+текущий head SHA, для каждой открытой issue в `auto:blocked`/`auto:prod-apply` —
+`blocked-question` (один живой вопрос на issue, дедуп по-субъектный);
 **сайт** шлёт владельцу личное Telegram-сообщение с кнопками
 «Мержить/Отклонить/Позже»; **бот** записывает ответ (двухшаговый confirm,
 авторизация строго по `TELEGRAM_OWNER_CHAT_ID` и повторно на сервере, AuditLog,

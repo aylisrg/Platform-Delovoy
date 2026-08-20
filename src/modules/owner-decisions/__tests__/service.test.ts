@@ -18,6 +18,7 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('@/lib/logger', () => ({
   logAudit: vi.fn(),
+  log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
 const mockTelegramApi = vi.fn();
@@ -117,6 +118,29 @@ describe('createDecisionRequest', () => {
     expect(res).toEqual({ id: 'rot1', created: false });
     expect(mocked.create).not.toHaveBeenCalled();
   });
+
+  it('blocked-question дедупится ПО-СУБЪЕКТНО: вопросы по разным issues не склеиваются', async () => {
+    // Ревью-находка: дедуп только по kind вернул бы вопрос про issue #454
+    // вместо создания вопроса про issue #590.
+    mocked.findFirst.mockResolvedValue(null as never);
+    mocked.create.mockResolvedValue({ ...ROW, id: 'bq590', kind: 'blocked-question', subjectNumber: 590 } as never);
+    mocked.update.mockResolvedValue(ROW as never);
+
+    await createDecisionRequest({
+      kind: 'blocked-question',
+      subjectType: 'issue',
+      subjectNumber: 590,
+      headSha: null,
+      title: 'вопрос',
+    });
+
+    expect(mocked.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ kind: 'blocked-question', subjectNumber: 590 }),
+      }),
+    );
+    expect(mocked.create).toHaveBeenCalled();
+  });
 });
 
 describe('ownerDecide', () => {
@@ -186,5 +210,13 @@ describe('markExecutor / listDecisions', () => {
     expect(mocked.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { status: { in: ['APPROVED', 'REJECTED'] } } }),
     );
+  });
+
+  it('pending включает зависшие APPROVED — «Принято» без мержа не пропадает из виду', async () => {
+    mocked.findMany.mockResolvedValue([] as never);
+    await listDecisions('pending');
+    const where = mocked.findMany.mock.calls[0][0]?.where as { OR: unknown[] };
+    expect(where.OR).toHaveLength(2);
+    expect(JSON.stringify(where.OR)).toContain('APPROVED');
   });
 });

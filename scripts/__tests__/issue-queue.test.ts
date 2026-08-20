@@ -1074,6 +1074,12 @@ describe('isDependabotAutoMergeBranch', () => {
     expect(isDependabotAutoMergeBranch('dependabot/github_actions/actions/setup-node-7')).toBe(false);
   });
 
+  it('имя группы в середине сегмента не совпадает — сравнение по сегменту, не includes', () => {
+    // Пакет с именем, содержащим подстроку группы, — не группа.
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/some-npm-minor-patch-lib-2.0.0')).toBe(false);
+    expect(isDependabotAutoMergeBranch('dependabot/npm_and_yarn/npm-minor-patch')).toBe(true);
+  });
+
   it('не-dependabot ветка — нет, даже с похожим сегментом', () => {
     expect(isDependabotAutoMergeBranch('claude/issue-1-npm-minor-patch')).toBe(false);
   });

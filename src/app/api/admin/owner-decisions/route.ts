@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { apiError, apiResponse } from '@/lib/api-response';
 import {
@@ -25,13 +26,21 @@ import {
  * автоматика сама не может (ADR 2026-08-20-owner-out-of-github).
  */
 
+/** Constant-time сравнение (паттерн cron/webhook-роутов) — контур управляет мержем в прод. */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 function checkSecret(request: NextRequest): Response | null {
   const expected = process.env.OWNER_DECISIONS_SECRET;
   if (!expected) {
     return apiError('NOT_CONFIGURED', 'OWNER_DECISIONS_SECRET is not set on this server', 503);
   }
   const header = request.headers.get('authorization') ?? '';
-  if (header !== `Bearer ${expected}`) {
+  if (!safeEqual(header, `Bearer ${expected}`)) {
     return apiError('UNAUTHORIZED', 'Invalid owner-decisions secret', 401);
   }
   return null;

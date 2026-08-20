@@ -11,6 +11,7 @@ const base: OwnerDigestInput = {
   decisions: [
     { title: 'PR #677 ждёт решения', kind: 'merge-hold', status: 'PENDING', ageHours: 26 },
     { title: 'Второй RU-VPS — да/нет?', kind: 'blocked-question', status: 'DEFERRED', ageHours: 72 },
+    { title: 'PR #700: аппрув дан', kind: 'merge-hold', status: 'APPROVED', ageHours: 3 },
   ],
   feedback: { bugs: 1, suggestions: 2 },
 };
@@ -22,8 +23,10 @@ describe('buildOwnerDigest', () => {
     expect(text).toContain('&lt;b&gt;не&lt;/b&gt;'); // заголовок PR — данные, не разметка
     expect(text).toContain('abc12345');
     expect(text).toContain('открыто <b>15</b> (−3 за сутки');
-    expect(text).toContain('Ждут твоего решения (2)');
+    expect(text).toContain('Ждут твоего решения (3)');
     expect(text).toContain('⏸'); // DEFERRED помечен отдельно
+    expect(text).toContain('⚠'); // зависший APPROVED виден, а не «Принято» и тишина
+    expect(text).toContain('мерж завис');
     expect(text).toContain('багов — 1');
   });
 
