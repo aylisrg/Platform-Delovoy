@@ -304,6 +304,14 @@ export const EPIC_PLANNED_MARKER = '<!-- epic-planned -->';
  * Маркер дедупит: один видимый комментарий на PR вместо тишины или спама.
  */
 export const DRAFT_STUCK_MARKER = '<!-- issue-queue-draft-stuck -->';
+/**
+ * Комментарий «попросил dependabot пересобрать ветку» на PR. В теле маркера —
+ * head-SHA на момент просьбы: по нему видно, пересобрал ли бот ветку (SHA
+ * сменился) или ещё нет.
+ */
+export const DEPENDABOT_RECREATE_MARKER_PREFIX = '<!-- issue-queue-dependabot-recreate:';
+/** Комментарий «красный dependabot-PR отдан в очередь задачей». */
+export const DEPENDABOT_ESCALATED_MARKER = '<!-- issue-queue-dependabot-escalated -->';
 /** Комментарий «закрыто вручную reconcile'ом — GitHub не авто-закрыл» (issue #616). */
 export const MISSED_AUTOCLOSE_MARKER = '<!-- issue-queue-missed-autoclose -->';
 /** Фраза старых терминальных комментариев (до появления GIVEUP_MARKER). */
@@ -678,6 +686,17 @@ export interface SweepPr {
 }
 
 /**
+ * Взял ли PR кто-то из очереди: он закрывает issue, которая живёт в очереди
+ * (`auto:wip|ready|review`). Отдельная функция, потому что решает не только
+ * «чей PR» в `autoMergeSkipReason`, но и судьбу чужих веток: dependabot-PR,
+ * в который воркер дописал адаптацию, перестаёт быть PR бота и должен судиться
+ * гейтом и вердиктами, а не правилами для ботов.
+ */
+export function claimedByQueue(lanes: Lane[]): boolean {
+  return lanes.some((l) => l === 'wip' || l === 'ready' || l === 'review');
+}
+
+/**
  * Почему подметальщик не трогает этот PR. `null` — PR можно рассматривать;
  * решение всё равно принимают гейт и CI, эта функция только отсекает чужое.
  *
@@ -701,9 +720,7 @@ export function autoMergeSkipReason(pr: SweepPr, config: QueueConfig, now: Date)
   // release-please и dependabot-группы обрабатываются ДО этой функции своими
   // код-путями (releasePrGate / isDependabotAutoMergeBranch); `feature/**` и
   // ручные ветки владельца сюда не попадают и мержатся по-прежнему руками.
-  const ownedByAgent =
-    AGENT_BRANCH_RE.test(pr.branch) ||
-    pr.issueLanes.some((l) => l === 'wip' || l === 'ready' || l === 'review');
+  const ownedByAgent = AGENT_BRANCH_RE.test(pr.branch) || claimedByQueue(pr.issueLanes);
   if (!ownedByAgent) return 'не PR автоматики — ни ветки агента, ни связанной issue очереди';
   // Тишина: живая сессия может дописывать PR прямо сейчас, и зелёный CI на
   // промежуточном коммите — не признак готовности. Ждём паузы в обновлениях,
@@ -783,6 +800,72 @@ export function isDependabotAutoMergeBranch(branch: string): boolean {
   // чьё ИМЯ содержит такую подстроку в середине сегмента, совпасть не должен.
   const segment = branch.split('/').pop() ?? '';
   return DEPENDABOT_AUTOMERGE_GROUPS.some((g) => segment === g || segment.startsWith(`${g}-`));
+}
+
+/**
+ * Лечение красного dependabot-PR.
+ *
+ * Дыра, которую эта машинка закрывает: dependabot режет ветку от main на момент
+ * создания PR, а группа minor+patch трогает package-lock.json — тот самый файл,
+ * который меняет любой другой мерж зависимостей. Стоит main уехать вперёд, и
+ * `npm ci` на merge-коммите падает с EUSAGE («lock file out of sync»). CI красный,
+ * свипер мержит только зелёное, auto-rebase.yml чужие ветки не трогает (и не
+ * должен: force-push в ветку бота ломает его собственный учёт) — PR повисает
+ * в списке у владельца навсегда. Измерено на #714/#721.
+ *
+ * Лечение в два шага, состояние — в маркерах комментариев (отдельной БД у очереди
+ * нет): сначала просим самого dependabot пересобрать ветку от свежего main
+ * (`@dependabot recreate` — он перегенерирует и lock), и только если после
+ * пересборки всё ещё красно, отдаём PR в очередь задачей: значит дело не в
+ * протухшей базе, а в самом обновлении, и нужен воркер.
+ */
+export type DependabotHealAction = 'none' | 'wait' | 'recreate' | 'to-queue';
+
+/**
+ * Сколько ждать пересборки, прежде чем считать, что `@dependabot recreate` не
+ * сработал (бот выключен, лимит, команда проигнорирована), и отдавать PR воркеру.
+ * Пересборка обычно занимает минуты; сутки — заведомо «не придёт».
+ */
+export const DEPENDABOT_RECREATE_TIMEOUT_HOURS = 24;
+
+export interface DependabotHealInput {
+  /** Состояние CI на head-коммите PR. */
+  ci: 'green' | 'red' | 'pending';
+  /** Head-SHA PR — пишется в маркер, чтобы отличить «бот пересобрал» от «ещё нет». */
+  headSha: string;
+  /** Комментарии PR: тело плюс время — по нему истекает ожидание пересборки. */
+  comments: { body: string; createdAt: string }[];
+  now: Date;
+}
+
+export function dependabotHealAction(input: DependabotHealInput): { action: DependabotHealAction; reason: string } {
+  if (input.ci !== 'red') {
+    return { action: 'none', reason: `CI ${input.ci === 'green' ? 'зелёный' : 'ещё идёт'} — лечить нечего` };
+  }
+  if (input.comments.some((c) => c.body.includes(DEPENDABOT_ESCALATED_MARKER))) {
+    return { action: 'none', reason: 'уже отдан в очередь задачей' };
+  }
+  // Последняя просьба, а не первая: после успешной пересборки маркеров может быть
+  // несколько (новый head → снова красный → снова просьба не пойдёт, но история
+  // остаётся), и решение принимает свежий.
+  const asked = input.comments.filter((c) => c.body.includes(DEPENDABOT_RECREATE_MARKER_PREFIX)).at(-1);
+  if (!asked) {
+    return { action: 'recreate', reason: 'красный CI — прошу dependabot пересобрать ветку от свежего main' };
+  }
+  const askedSha = asked.body.split(DEPENDABOT_RECREATE_MARKER_PREFIX)[1]?.split('-->')[0]?.trim() ?? '';
+  if (askedSha !== input.headSha) {
+    return { action: 'to-queue', reason: 'красный CI и после пересборки — дело в самом обновлении, нужен воркер' };
+  }
+  const waitedH = (input.now.getTime() - new Date(asked.createdAt).getTime()) / 3_600_000;
+  if (waitedH >= DEPENDABOT_RECREATE_TIMEOUT_HOURS) {
+    return { action: 'to-queue', reason: `пересборки нет ${Math.round(waitedH)} ч — dependabot не ответил, нужен воркер` };
+  }
+  return { action: 'wait', reason: 'пересборка запрошена, ветка ещё не обновилась — жду' };
+}
+
+/** Тело маркера просьбы о пересборке: SHA внутри — состояние, а не украшение. */
+export function dependabotRecreateMarker(headSha: string): string {
+  return `${DEPENDABOT_RECREATE_MARKER_PREFIX}${headSha} -->`;
 }
 
 // ── Owner-decisions: исполнение решений владельца ───────────────────────────

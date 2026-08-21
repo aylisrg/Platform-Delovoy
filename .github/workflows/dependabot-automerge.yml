@@ -1,4 +1,4 @@
-name: Dependabot — majors to queue
+name: Dependabot — singles to queue
 
 # ADR 2026-08-20-owner-out-of-github. Раньше здесь был автомерж patch-PR через
 # `gh pr merge --auto` под GITHUB_TOKEN — мерж без событий (loop-protection):
@@ -6,11 +6,19 @@ name: Dependabot — majors to queue
 # мержит свипер issue-queue-merge.yml (у него PAT → события рождаются, а без
 # PAT — явный Kick-dispatch деплоя), автомержу здесь делать нечего.
 #
-# Осталась одна обязанность: одиночный dependabot-PR = major (minor+patch
-# собраны в группы конфигом .github/dependabot.yml) — ему нужно настоящее
-# ревью, а не вечное висение в списке PR у владельца. Конвертируем в задачу
-# очереди: сессия оценит changelog, допишет адаптацию прямо в dependabot-ветку,
-# поставит Closes + вердикты — и PR смержит свипер как обычный PR автоматики.
+# Осталась одна обязанность: ОДИНОЧНЫЙ dependabot-PR (minor+patch собраны в
+# группы конфигом .github/dependabot.yml, значит вне группы — либо major, либо
+# обновление, которое dependabot не сумел отнести ни к minor, ни к patch) —
+# ему нужно настоящее ревью, а не вечное висение в списке PR у владельца.
+# Конвертируем в задачу очереди: сессия оценит changelog, допишет адаптацию
+# прямо в dependabot-ветку, поставит Closes + вердикты — и PR смержит свипер
+# как обычный PR автоматики.
+#
+# Почему не только majors (как было до #721): prerelease-бампы в группу не
+# попадают — для 5.0.0-beta.31 → 5.0.0-beta.32 версия по семверу не выросла ни
+# в minor, ни в patch, и dependabot режет отдельный PR. Такой PR не мержил
+# свипер (не группа) и не забирала очередь (не major) — он просто копился у
+# владельца. Замерено на next-auth #714.
 #
 # Мёртвая джоба автомержа release-please удалена: она не срабатывала по
 # конструкции (PR от GITHUB_TOKEN не рождает pull_request-событий, а с PAT
@@ -27,9 +35,9 @@ permissions:
   issues: write
 
 jobs:
-  major-to-queue:
-    name: Convert major update to queue issue
-    if: github.actor == 'dependabot[bot]'
+  single-to-queue:
+    name: Convert single-package update to queue issue
+    if: github.actor == 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/npm_and_yarn/npm-minor-patch') && !startsWith(github.head_ref, 'dependabot/github_actions/actions-all')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,36 +48,45 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/checkout@v7
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
       - uses: ./.github/actions/setup-node
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
 
-      - name: Create queue issue for the major bump
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+      - name: Create queue issue for the update
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPS: ${{ steps.metadata.outputs.dependency-names }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           SLUG=$(echo "$DEPS" | tr -c 'a-zA-Z0-9' '-' | sed 's/-*$//;s/^-*//' | cut -c1-60)
+          # Заголовок и dedup-key majors оставлены прежними намеренно: у уже
+          # заведённых задач дедуп идёт по ним, переименование их задвоило бы.
+          if [ "$UPDATE_TYPE" = "version-update:semver-major" ]; then
+            TITLE="chore(deps): major-обновление ${DEPS}"
+            DEDUP="deps-major-${SLUG}"
+            WHY="Major не мержится автоматически."
+          else
+            TITLE="chore(deps): обновление ${DEPS} вне группы minor+patch"
+            DEDUP="deps-single-${SLUG}"
+            WHY="Обновление вне группы minor+patch (${UPDATE_TYPE:-тип не определён}) — свипер такие не мержит."
+          fi
           cat > body.md <<BODY
-          Dependabot предлагает major-обновление: **${DEPS}** — PR #${PR_NUMBER} (${PR_URL}).
+          Dependabot предлагает обновление: **${DEPS}** — PR #${PR_NUMBER} (${PR_URL}).
 
-          Major не мержится автоматически. Задача воркера:
+          ${WHY} Задача воркера:
           1. Прочитать changelog/breaking changes обновляемых пакетов.
           2. Дописать адаптацию кода ПРЯМО в ветку dependabot-PR (не заводить свою).
           3. Добавить в тело PR строку \`Closes #<этот номер>\`, прогнать ревью и поставить вердикты.
           4. Дальше PR мержит свипер как обычный PR автоматики.
 
-          Если обновление сейчас не нужно — закрыть PR комментарием \`@dependabot ignore this major version\` и закрыть эту задачу.
+          Если обновление сейчас не нужно — закрыть PR комментарием \`@dependabot ignore this dependency\` (или \`ignore this major version\`) и закрыть эту задачу.
           BODY
           npx tsx scripts/issue-queue.ts create \
-            --title "chore(deps): major-обновление ${DEPS}" \
+            --title "$TITLE" \
             --body-file body.md \
             --prio P2 --ready \
             --label dependencies \
-            --dedup-key "deps-major-${SLUG}" || {
+            --dedup-key "$DEDUP" || {
               code=$?
               # exit 3 = дубль найден (задача уже заведена прошлым прогоном) — это норма.
               [ "$code" -eq 3 ] && echo "Queue issue already exists — ok" && exit 0

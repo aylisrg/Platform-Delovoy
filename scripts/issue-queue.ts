@@ -58,6 +58,7 @@ import {
   CODE_REVIEWER_PASS_MARKER,
   DEFAULT_CONFIG,
   DEPENDABOT_BRANCH_RE,
+  DEPENDABOT_ESCALATED_MARKER,
   DRAFT_STUCK_MARKER,
   EPIC_PLANNED_MARKER,
   GIVEUP_MARKER,
@@ -72,8 +73,11 @@ import {
   autoMergeSkipReason,
   claimJitterSeconds,
   classifyMergeGate,
+  claimedByQueue,
   countAttempts,
   countBackpressurePrs,
+  dependabotHealAction,
+  dependabotRecreateMarker,
   graceElapsed,
   isDependabotAutoMergeBranch,
   isTrustedVerdictAuthor,
@@ -133,7 +137,7 @@ interface RawPr {
   number: number;
   title: string;
   draft: boolean;
-  head: { ref: string };
+  head: { ref: string; sha: string };
   body?: string | null;
   html_url: string;
   updated_at: string;
@@ -822,6 +826,64 @@ function cmdPrMerge(prNumber: number): void {
 }
 
 /**
+ * Лечение красного dependabot-PR: `@dependabot recreate`, а если и пересобранная
+ * ветка красная — задача в очередь. Возвращает запись результата, когда PR
+ * обработан здесь и дальше по конвейеру идти не должен; `null` — лечить нечего.
+ *
+ * Зачем вообще: dependabot режет ветку от main один раз, а package-lock.json
+ * трогает каждый мерж зависимостей — уехавший вперёд main роняет `npm ci` на
+ * merge-коммите («lock file out of sync»). Свипер мержит только зелёное,
+ * auto-rebase.yml ветки ботов не трогает — и PR висел у владельца, пока тот не
+ * разгребал руками. Ровно это случилось с #714 и #721.
+ *
+ * Вызывается только для PR, которых очередь ещё не взяла (`claimedByQueue` у
+ * вызывающего): пересборка ветки снесла бы коммиты адаптации воркера.
+ */
+function healDependabotPr(pr: RawPr, dryRun: boolean, now: Date): Record<string, unknown> | null {
+  const checks = summarizeChecks(checksFor(pr.number));
+  const ci = checks.green ? 'green' : checks.done ? 'red' : 'pending';
+  const comments = allComments(pr.number).map((c) => ({ body: c.body, createdAt: c.created_at }));
+  const { action, reason } = dependabotHealAction({ ci, headSha: pr.head.sha, comments, now });
+
+  if (action === 'none') return null;
+  if (dryRun) return { dryRun: true, path: 'dependabot-heal', wouldDo: action, reason };
+  if (action === 'wait') return { skipped: reason };
+
+  if (action === 'recreate') {
+    comment(
+      pr.number,
+      `@dependabot recreate\n\nCI красный на текущем head — почти всегда это протухший ` +
+        `\`package-lock.json\`: main уехал вперёд с момента, когда ветка была нарезана. ` +
+        `Пересобери её от свежего main.\n\nЕсли после пересборки CI снова красный — ` +
+        `автоматика заведёт задачу в очередь, и обновление разберёт воркер.\n\n` +
+        `${dependabotRecreateMarker(pr.head.sha)}`,
+    );
+    return { path: 'dependabot-heal', did: 'recreate', reason };
+  }
+
+  const created = createIssue({
+    title: `chore(deps): красный CI у dependabot-PR #${pr.number} — ${pr.title}`,
+    body:
+      `Dependabot-PR #${pr.number} (${pr.html_url}) красный и после пересборки ветки — ` +
+      `значит дело не в протухшей базе, а в самом обновлении.\n\n` +
+      `Задача воркера:\n` +
+      `1. Прочитать лог упавших чеков и changelog обновляемых пакетов.\n` +
+      `2. Дописать адаптацию кода ПРЯМО в ветку dependabot-PR (не заводить свою).\n` +
+      `3. Добавить в тело PR строку \`Closes #<этот номер>\`, прогнать ревью и поставить вердикты.\n` +
+      `4. Дальше PR мержит свипер как обычный PR автоматики.\n\n` +
+      `Если обновление сейчас не нужно — закрыть PR и эту задачу.`,
+    labels: ['dependencies', 'prio:P2', 'auto:ready'],
+    dedupKey: `deps-red-pr-${pr.number}`,
+  });
+  comment(
+    pr.number,
+    `${DEPENDABOT_ESCALATED_MARKER}\n\nCI красный и после пересборки — обновление отдано в ` +
+      `автоочередь задачей #${created.issue}. PR не закрываю: воркер допишет адаптацию сюда же.`,
+  );
+  return { path: 'dependabot-heal', did: 'to-queue', issue: created.issue, reason };
+}
+
+/**
  * Крон-подметальщик: обходит открытые PR-ы очереди и домерживает всё, что гейт и
  * зелёный CI уже разрешили. Раньше это умела только живая сессия, и её смерть
  * между `pr-open` и `pr-merge` отправляла готовый PR в инбокс владельца.
@@ -850,6 +912,7 @@ function cmdAutoMerge(dryRun: boolean): void {
 
   for (const pr of prs) {
     const closes = closedIssueNumbers(pr);
+    const lanes = closes.map((n) => laneByNumber.get(n)).filter((l): l is Lane => l !== undefined);
     // Лейблы PR живут в /issues/{n} — у PR-ов и issues общее пространство номеров.
     const prLabels = gh<{ labels: { name: string }[] }>(`/repos/${REPO}/issues/${pr.number}`).labels.map(
       (l) => l.name,
@@ -891,17 +954,31 @@ function cmdAutoMerge(dryRun: boolean): void {
     // задаёт dependabot.yml, а мерж под PAT свипера рождает настоящие события
     // (deploy и auto-rebase стартуют без Kick). Одиночные PR (majors) ждут
     // конверсии в задачу очереди (dependabot-automerge.yml) и здесь пропускаются.
-    if (DEPENDABOT_BRANCH_RE.test(pr.head.ref)) {
+    // `claimedByQueue` — граница: пока PR ничей, он живёт по правилам ботов
+    // (лечение, группы, конверсия в задачу). Как только воркер дописал в ветку
+    // адаптацию и `Closes #N`, это обычный PR автоматики — его судят гейт и
+    // вердикты ревью, иначе он не мержился бы никогда: одиночная ветка не группа,
+    // и правило ниже отправляло такой PR в вечный пропуск.
+    if (DEPENDABOT_BRANCH_RE.test(pr.head.ref) && !claimedByQueue(lanes)) {
       if (prLabels.includes('needs-owner')) {
         results.push({ pr: pr.number, merged: false, skipped: 'needs-owner — ждёт решения владельца' });
         continue;
       }
-      if (!isDependabotAutoMergeBranch(pr.head.ref)) {
-        results.push({ pr: pr.number, merged: false, skipped: 'dependabot вне групп minor+patch (major?) — конвертируется в задачу очереди, не мержится сам' });
-        continue;
-      }
       if (quietMin < config.automergeQuietMinutes) {
         results.push({ pr: pr.number, merged: false, skipped: `dependabot-PR обновлялся ${Math.round(quietMin)} мин назад — жду тишины` });
+        continue;
+      }
+      // Красный dependabot-PR — не «чужая проблема»: чинить его больше некому.
+      // Лечим до проверки на группу, потому что гниют одинаково и групповые, и
+      // одиночные: у первых после мержа соседней пачки протухает lock, вторые
+      // ждут воркера, который на красный CI всё равно наткнётся.
+      const heal = healDependabotPr(pr, dryRun, now);
+      if (heal) {
+        results.push({ pr: pr.number, merged: false, ...heal });
+        continue;
+      }
+      if (!isDependabotAutoMergeBranch(pr.head.ref)) {
+        results.push({ pr: pr.number, merged: false, skipped: 'dependabot вне групп minor+patch (major?) — конвертируется в задачу очереди, не мержится сам' });
         continue;
       }
       if (dryRun) {
@@ -920,7 +997,7 @@ function cmdAutoMerge(dryRun: boolean): void {
         prNumber: pr.number,
         branch: pr.head.ref,
         labels: prLabels,
-        issueLanes: closes.map((n) => laneByNumber.get(n)).filter((l): l is Lane => l !== undefined),
+        issueLanes: lanes,
         updatedAt: pr.updated_at,
       },
       config,
