@@ -179,8 +179,10 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 - **Мерж** — `.github/workflows/issue-queue-merge.yml` (каждые 15 минут, без AI)
   домерживает PR-ы, где гейт вернул `auto` и CI зелёный. Он же мержит
   release-please PR (ночное окно 00–02 UTC + whitelist релизных файлов) и
-  недельные dependabot-группы minor+patch; majors конвертируются в задачи
-  очереди (`dependabot-automerge.yml`).
+  недельные dependabot-группы minor+patch; одиночные PR (majors и prerelease-бампы
+  вне группы) конвертируются в задачи очереди (`dependabot-automerge.yml`), а
+  красный dependabot-PR свипер сначала лечит `@dependabot recreate` (протухший
+  lock после чужого мержа) и только потом отдаёт задачей.
 - **Решения владельца** — контур owner-decisions: свипер reconcile'ом заводит
   запрос на сайте (`OWNER_DECISIONS_SECRET`), сайт шлёт владельцу личное
   Telegram-сообщение с кнопками «Мержить/Отклонить/Позже», бот записывает ответ
@@ -295,8 +297,11 @@ pull-requests write, actions write) читают `auto-rebase.yml`,
   просто из-за имени ветки. Плюс два класса чужих PR, которые свипер мержит по
   своим правилам: `release-please--*` — ночью (00–02 UTC) и только при диффе
   целиком из `{CHANGELOG.md, package.json, package-lock.json}`; dependabot-группы
-  minor+patch (`npm-minor-patch`, `actions-all`) — при зелёном CI, majors
-  конвертируются в задачи очереди. `feature/**` и ручные ветки владельца
+  minor+patch (`npm-minor-patch`, `actions-all`) — при зелёном CI, одиночные
+  PR конвертируются в задачи очереди. Красный dependabot-PR не висит у владельца:
+  свипер просит бота пересобрать ветку (`@dependabot recreate` — лечит протухший
+  `package-lock.json` после чужого мержа), а если и пересобранная красная —
+  заводит задачу очереди. `feature/**` и ручные ветки владельца
   по-прежнему мержатся руками.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
   `2026-08-10-autonomous-issue-cleanup-adr.md` и `2026-08-20-owner-out-of-github`.
