@@ -1129,8 +1129,8 @@ describe('dependabotHealAction', () => {
     expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('to-queue');
   });
 
-  it('пересборки нет сутки — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
-    const comments = [asked(SHA, '2026-08-19T11:00:00Z')];
+  it('пересборки нет дольше порога — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
+    const comments = [asked(SHA, '2026-08-20T08:00:00Z')];
     const res = dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW });
     expect(res.action).toBe('to-queue');
     expect(res.reason).toContain('не ответил');
