@@ -69,6 +69,17 @@ jobs:
       # незадеплоенным. Если PAT нет, деплой добивается явным dispatch ниже
       # (workflow_dispatch — одно из двух событий, которые GITHUB_TOKEN всё же
       # порождает), поэтому отсутствие секрета ничего не ломает.
+      # Лейбл заводит не только эта автоматика: dependabot ставит его своим PR
+      # (`.github/dependabot.yml`) и без существующего лейбла комментирует
+      # «The following labels could not be found» на каждом открытом PR — шум
+      # ровно в том списке, из которого владельца уводим. `|| true` — идемпотентность.
+      - name: Убедиться, что лейбл dependencies существует
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create "dependencies" --color 0366D6 --description "Обновление зависимостей" || true
+
       - name: Sweep mergeable PRs
         id: sweep
         env:

@@ -1147,11 +1147,11 @@ describe('dependabotHealAction', () => {
   });
 });
 
-describe('имена dependabot-групп не разъезжаются по трём файлам', () => {
-  // Одно и то же имя группы живёт в .github/dependabot.yml (кто попадает в
-  // пачку), в DEPENDABOT_AUTOMERGE_GROUPS (кого мержит свипер) и в условии
-  // dependabot-automerge.yml (кого НЕ надо конвертировать в задачу). Разъедутся —
-  // групповой PR начнёт заводить задачи или, хуже, повиснет без хозяина.
+describe('имена dependabot-групп не разъезжаются', () => {
+  // Имя группы живёт ровно в двух местах: .github/dependabot.yml (кто попадает в
+  // пачку) и DEPENDABOT_AUTOMERGE_GROUPS (кого мержит свипер). Разъедутся —
+  // групповой PR повиснет без хозяина. Третьим местом чуть не стал конвертер
+  // одиночных PR; он вместо сверки префикса ветки спрашивает сам dependabot.
   const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
 
   it('группы конфига == DEPENDABOT_AUTOMERGE_GROUPS', () => {
@@ -1159,10 +1159,11 @@ describe('имена dependabot-групп не разъезжаются по т
     expect(declared.sort()).toEqual([...DEPENDABOT_AUTOMERGE_GROUPS].sort());
   });
 
-  it('конвертер одиночных PR исключает ровно эти группы', () => {
+  it('конвертер отличает одиночку по метаданным dependabot, а не по имени ветки', () => {
     const wf = read('.github/workflows/dependabot-automerge.yml');
+    expect(wf).toContain("steps.metadata.outputs.dependency-group == ''");
     for (const group of DEPENDABOT_AUTOMERGE_GROUPS) {
-      expect(wf).toContain(`${group}')`);
+      expect(wf).not.toContain(`startsWith(github.head_ref, 'dependabot/npm_and_yarn/${group}`);
     }
   });
 });

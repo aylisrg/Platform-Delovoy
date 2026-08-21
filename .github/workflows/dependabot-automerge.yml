@@ -14,6 +14,10 @@ name: Dependabot — singles to queue
 # прямо в dependabot-ветку, поставит Closes + вердикты — и PR смержит свипер
 # как обычный PR автоматики.
 #
+# Признак «одиночка» — пустой `dependency-group` из dependabot/fetch-metadata:
+# сам бот знает, собирал он PR из группы или нет, и это не требует держать имена
+# групп синхронными ещё в одном файле.
+#
 # Почему не только majors (как было до #721): prerelease-бампы в группу не
 # попадают — для 5.0.0-beta.31 → 5.0.0-beta.32 версия по семверу не выросла ни
 # в minor, ни в patch, и dependabot режет отдельный PR. Такой PR не мержил
@@ -37,7 +41,7 @@ permissions:
 jobs:
   single-to-queue:
     name: Convert single-package update to queue issue
-    if: github.actor == 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/npm_and_yarn/npm-minor-patch') && !startsWith(github.head_ref, 'dependabot/github_actions/actions-all')
+    if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,10 +51,27 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Группа или одиночка — решает сам dependabot (`dependency-group` пуст у
+      # одиночных PR), а не наша сверка префикса ветки: имя группы тогда пришлось
+      # бы держать синхронным ещё и здесь, третьим местом после dependabot.yml и
+      # DEPENDABOT_AUTOMERGE_GROUPS. Групповые PR мержит свипер, здесь им нечего делать.
       - uses: actions/checkout@v7
+        if: steps.metadata.outputs.dependency-group == ''
       - uses: ./.github/actions/setup-node
+        if: steps.metadata.outputs.dependency-group == ''
+
+      # Задача заводится с лейблом dependencies — он должен существовать в репо
+      # (см. тот же шаг в issue-queue-merge.yml). `|| true` — идемпотентность.
+      - name: Убедиться, что лейбл dependencies существует
+        if: steps.metadata.outputs.dependency-group == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create "dependencies" --color 0366D6 --description "Обновление зависимостей" || true
 
       - name: Create queue issue for the update
+        if: steps.metadata.outputs.dependency-group == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPS: ${{ steps.metadata.outputs.dependency-names }}
