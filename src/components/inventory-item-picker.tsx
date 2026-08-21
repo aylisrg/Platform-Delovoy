@@ -17,17 +17,33 @@ export type BookingItem = {
   quantity: number;
 };
 
+/** Позиция заказа с подтянутыми названием и ценой — для сводки перед оплатой. */
+export type ResolvedBookingItem = {
+  skuId: string;
+  name: string;
+  unit: string;
+  price: number;
+  quantity: number;
+};
+
 interface InventoryItemPickerProps {
   value: BookingItem[];
   onChange: (items: BookingItem[]) => void;
   /** Visual style: "default" for public pages, "compact" for admin forms */
   variant?: "default" | "compact";
+  /**
+   * Отдаёт выбранные позиции с названиями и ценами. Каталог загружает сам
+   * пикер, поэтому сводка «уголь 3 кг — 400 ₽» собирается здесь, а не вторым
+   * запросом к /api/inventory на стороне формы.
+   */
+  onResolvedChange?: (items: ResolvedBookingItem[]) => void;
 }
 
 export function InventoryItemPicker({
   value,
   onChange,
   variant = "default",
+  onResolvedChange,
 }: InventoryItemPickerProps) {
   const [skus, setSkus] = useState<SkuPublic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +63,28 @@ export function InventoryItemPicker({
     (skuId: string) => value.find((i) => i.skuId === skuId)?.quantity ?? 0,
     [value]
   );
+
+  useEffect(() => {
+    if (!onResolvedChange) return;
+    onResolvedChange(
+      value.flatMap((item) => {
+        const sku = skus.find((s) => s.id === item.skuId);
+        if (!sku) return [];
+        return [
+          {
+            skuId: item.skuId,
+            name: sku.name,
+            unit: sku.unit,
+            price: Number(sku.price),
+            quantity: item.quantity,
+          },
+        ];
+      })
+    );
+    // onResolvedChange нарочно не в зависимостях: инлайн-колбэк из родителя
+    // пересоздаётся каждый рендер и зациклил бы эффект.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, skus]);
 
   function setQty(skuId: string, qty: number) {
     const next = value.filter((i) => i.skuId !== skuId);

@@ -6,6 +6,7 @@ import { createBooking, BookingError } from "@/modules/gazebos/service";
 import { createBookingSchema } from "@/modules/gazebos/validation";
 import { InventoryError } from "@/modules/inventory/service";
 import { trackServerGoal } from "@/lib/metrika-server";
+import { getClientIp } from "@/lib/client-ip";
 
 /**
  * Достаёт totalPrice из Booking.metadata (JSON).
@@ -48,7 +49,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const booking = await createBooking(userId, parsed.data);
+    // Обстоятельства акцепта берём из самого запроса, а не из тела: IP и
+    // User-Agent, присланные клиентом, ничего не доказывают. IP — доверенный
+    // X-Real-IP от nginx (Приложение № 3 оферты, п. 3.1).
+    const booking = await createBooking(userId, parsed.data, {
+      ip: getClientIp(request),
+      userAgent: request.headers.get("user-agent"),
+    });
 
     if (userId) {
       await logAudit(userId, "booking.create", "Booking", booking.id, {
@@ -76,7 +83,10 @@ export async function POST(request: NextRequest) {
       price: extractBookingPrice(booking.metadata),
     });
 
-    return apiResponse(booking, undefined, 201);
+    // Сырой токен управления бронью наружу не отдаём — он уходит клиенту
+    // единственным путём, письмом после подтверждения оплаты.
+    const { manageToken: _manageToken, ...publicBooking } = booking;
+    return apiResponse(publicBooking, undefined, 201);
   } catch (error) {
     if (error instanceof BookingError) {
       return apiError(error.code, error.message);

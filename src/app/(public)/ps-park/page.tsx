@@ -8,6 +8,7 @@ import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
 import { CallWidget } from "@/components/public/call-widget";
 import { YandexMap } from "@/components/ui/yandex-map";
 import { Navbar } from "@landing/components/navbar";
+import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
 import { toISODate } from "@/lib/format";
@@ -429,13 +430,18 @@ export default async function PSParkPage() {
 
         {/* ── FOOTER BAR ── */}
         <footer className="border-t border-zinc-800 bg-zinc-900/40">
-          <div className="max-w-6xl mx-auto px-4 py-8 flex items-center justify-between gap-4 flex-wrap">
-            <p className="text-zinc-600 text-sm">
-              Плей Парк · Бизнес-парк Деловой, Селятино
-            </p>
-            <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
-              ← На главную
-            </Link>
+          <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-5">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-zinc-600 text-sm">
+                Плей Парк · Бизнес-парк Деловой, Селятино
+              </p>
+              <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
+                ← На главную
+              </Link>
+            </div>
+            <div className="border-t border-zinc-800 pt-4">
+              <LegalFooterLinks variant="dark" />
+            </div>
           </div>
         </footer>
         </div>

@@ -28,14 +28,23 @@ import { PaymentError } from "@/modules/payments/types";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { applyDiscount, getMaxDiscountPercent } from "@/modules/booking/discount";
+import {
+  DOCUMENT_KEYS,
+  OfferError,
+  buildAcceptance,
+  createManageToken,
+} from "@/modules/booking/offer";
+import { checkRescheduleEligibility, markRescheduleUsed } from "@/modules/booking/manage";
+import { RESCHEDULE_WINDOW_DAYS } from "@/modules/booking/cancellation-summary";
 import { getResourcePricing, computeGazeboPricing } from "./pricing";
 import { formatTime, getMoscowHour, parseMoscowDateTime } from "@/lib/format";
-import { logAudit } from "@/lib/logger";
+import { log, logAudit } from "@/lib/logger";
 import { upsertClientByPhone } from "@/modules/clients/service";
 import type { CheckoutDiscountInput } from "@/modules/booking/validation";
 import type { RescheduleBookingInput } from "./validation";
 import type {
   CreateBookingInput,
+  AcceptanceContext,
   AdminCreateBookingInput,
   CreateResourceInput,
   UpdateResourceInput,
@@ -51,8 +60,12 @@ const MODULE_SLUG = "gazebos";
 
 // Operating hours — дефолты, если в Module.config ничего не настроено
 // (те же значения, что и в дефолтах GET /api/gazebos/settings).
-const DEFAULT_OPEN_HOUR = 8;
-const DEFAULT_CLOSE_HOUR = 23;
+//
+// 11:00–22:30 — режим работы Барбекю Парка по п. 3.4 оферты и Приложению № 1.
+// Слоты часовые, поэтому последний начинается в 21:00 и закрывается в 22:00;
+// закрывающие полчаса — время на уборку и выезд (п. 6.9 оферты).
+const DEFAULT_OPEN_HOUR = 11;
+const DEFAULT_CLOSE_HOUR = 22;
 const SLOT_DURATION_HOURS = 1;
 const DEFAULT_MIN_BOOKING_HOURS = 4;
 const DEFAULT_MAX_BOOKING_HOURS = 8;
@@ -207,7 +220,11 @@ export async function getBooking(id: string) {
   });
 }
 
-export async function createBooking(userId: string | null, input: CreateBookingInput) {
+export async function createBooking(
+  userId: string | null,
+  input: CreateBookingInput,
+  acceptanceContext: AcceptanceContext = { ip: null, userAgent: null }
+) {
   const { resourceId, date, startTime, endTime, guestCount, comment, items, guestName, guestPhone } = input;
 
   // Публичная бронь может быть временно закрыта (админ-бронь не затрагивается).
@@ -226,6 +243,38 @@ export async function createBooking(userId: string | null, input: CreateBookingI
         "GUEST_CONTACTS_REQUIRED",
         "Для бронирования без регистрации укажите имя и телефон"
       );
+    }
+    // E-mail у гостя обязателен: подтверждение бронирования с номером редакции
+    // оферты и ссылкой на управление бронью доставлять больше некуда
+    // (п. 4.6 оферты, ТЗ §7). У залогиненного адрес берётся из профиля.
+    // Гость приходит только с публичной веб-формы — у бота и Mini App
+    // пользователь всегда авторизован.
+    if (!input.email) {
+      throw new BookingError(
+        "GUEST_EMAIL_REQUIRED",
+        "Укажите e-mail — на него придёт подтверждение бронирования"
+      );
+    }
+  }
+
+  // Акцепт собираем ДО создания брони: если действующая редакция сменилась,
+  // пока клиент читал документ, бронь создавать нельзя — он согласился с
+  // условиями, которых больше нет.
+  //
+  // Поверхности без экрана акцепта (бот, Mini App) приходят сюда без него —
+  // бронь заведётся, но ссылки на оплату не получит (см. ниже).
+  let acceptance: Awaited<ReturnType<typeof buildAcceptance>> | null = null;
+  if (input.acceptOffer) {
+    try {
+      acceptance = await buildAcceptance(DOCUMENT_KEYS.gazebosOffer, {
+        offerVersionSlug: input.offerVersionSlug ?? "",
+        acceptMarketing: input.acceptMarketing === true,
+        ip: acceptanceContext.ip,
+        userAgent: acceptanceContext.userAgent,
+      });
+    } catch (err) {
+      if (err instanceof OfferError) throw new BookingError(err.code, err.message);
+      throw err;
     }
   }
 
@@ -343,6 +392,8 @@ export async function createBooking(userId: string | null, input: CreateBookingI
         startTime: start,
         endTime: end,
         status: "PENDING",
+        // Доказательственный слой: что именно клиент принял, когда и откуда.
+        ...(acceptance ?? {}),
         metadata: {
           ...(guestCount && { guestCount }),
           ...(comment && { comment }),
@@ -363,6 +414,25 @@ export async function createBooking(userId: string | null, input: CreateBookingI
     throw err;
   });
 
+  // Токен страницы управления бронью выводится из id брони, поэтому ставится
+  // после вставки. В БД ложится только его SHA-256 — по нему идёт обратный
+  // поиск брони, а сам токен восстанавливается из id и секрета там, где нужен
+  // (письмо-подтверждение, ответ боту).
+  const manageToken = createManageToken(booking.id);
+  if (manageToken) {
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { manageTokenHash: manageToken.hash },
+    });
+  } else {
+    // Секрет самообслуживания не настроен — бронь живёт, ссылка не работает.
+    await log.warn(
+      MODULE_SLUG,
+      "Бронь создана без токена управления: не задан BOOKING_MANAGE_SECRET / AUTH_SECRET",
+      { bookingId: booking.id }
+    );
+  }
+
   enqueueNotification({
     type: "booking.created",
     moduleSlug: MODULE_SLUG,
@@ -376,48 +446,102 @@ export async function createBooking(userId: string | null, input: CreateBookingI
   // Бронь ждёт денег в PENDING: CONFIRMED придёт из вебхука payment.succeeded,
   // неоплаченная бронь отменяется по TTL платежа (reconciliation-cron).
   // Без настроенной ЮKassa работает прежний поток: менеджер подтверждает вручную.
+  //
+  // Без акцепта ссылку на оплату не выдаём ни при каких условиях: оплата и есть
+  // акцепт (п. 4.3 оферты), а акцептовать документ, которого не видел, нельзя.
+  // Такие брони оплачиваются на /booking/[token], где условия показываются.
   let payment: { id: string; confirmationUrl: string | null } | null = null;
-  if (isYooKassaConfigured() && Number(pricing.totalPrice) > 0) {
-    try {
-      const created = await createOnlinePayment({
-        subjectType: "BOOKING",
-        subjectId: booking.id,
-        moduleSlug: MODULE_SLUG,
-        amount: Number(pricing.totalPrice),
-        description: `Беседка: ${resource.name}, ${date} ${startTime}–${endTime}`,
-        userId,
-        customerEmail: paymentContact.email,
-        customerPhone: paymentContact.phone,
-        receiptItems: [
-          {
-            description: `Аренда беседки: ${resource.name}, ${date}`,
-            amount: Number(pricing.totalPrice),
-            paymentMode: "full_prepayment",
-          },
-        ],
-        returnUrl: `${appBaseUrl()}/payments/{paymentId}`,
-        metadata: { bookingId: booking.id },
-      });
-      payment = { id: created.id, confirmationUrl: created.confirmationUrl };
-    } catch (err) {
-      if (err instanceof PaymentError && err.code === "PAYMENT_CREATE_FAILED") {
-        // Провайдер недоступен — бронь остаётся в PENDING, подтвердит менеджер
-        // (graceful degradation, план § 8). Ошибка уже залогирована в payments.
-        payment = null;
-      } else if (err instanceof PaymentError) {
-        // Проблема с данными платежа — бронь без оплаты не имеет смысла.
+  if (acceptance) {
+    payment = await createBookingPayment(booking.id, { cancelOnDataError: true });
+  }
+
+  // Сырой токен наружу отдаём ровно один раз — вызывающий код кладёт его в
+  // письмо-подтверждение. В ответ публичного API он не попадает.
+  return { ...booking, payment, manageToken: manageToken?.token ?? null };
+}
+
+/**
+ * Создаёт платёж ЮKassa по существующей брони.
+ *
+ * Отдельная функция, потому что оплата начинается с двух сторон: сразу после
+ * акцепта в веб-форме и позже — со страницы /booking/[token], куда приходит
+ * клиент с бронью от оператора, бота или Mini App. Цена берётся из снапшота в
+ * `metadata.totalPrice`: она зафиксирована на момент акцепта (п. 5.1 оферты),
+ * пересчитывать её по действующему прайсу нельзя.
+ *
+ * Возвращает `null`, когда платить нечего или провайдер недоступен — бронь
+ * остаётся в PENDING и её подтвердит менеджер (graceful degradation).
+ */
+export async function createBookingPayment(
+  bookingId: string,
+  options: { cancelOnDataError?: boolean } = {}
+): Promise<{ id: string; confirmationUrl: string | null } | null> {
+  if (!isYooKassaConfigured()) return null;
+
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
+  });
+  if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const metadata = (booking.metadata as BookingMetadata | null) ?? {};
+  const amount = Number(metadata.totalPrice ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const resource = await prisma.resource.findUnique({
+    where: { id: booking.resourceId },
+    select: { name: true },
+  });
+  const contact = await resolvePaymentContact(
+    booking.userId,
+    undefined,
+    booking.clientPhone ?? undefined
+  );
+  const date = booking.date.toISOString().split("T")[0];
+  const startTime = formatTime(booking.startTime);
+  const endTime = formatTime(booking.endTime);
+  const resourceName = resource?.name ?? "Беседка";
+
+  try {
+    const created = await createOnlinePayment({
+      subjectType: "BOOKING",
+      subjectId: booking.id,
+      moduleSlug: MODULE_SLUG,
+      amount,
+      description: `Беседка: ${resourceName}, ${date} ${startTime}–${endTime}`,
+      userId: booking.userId,
+      customerEmail: contact.email,
+      customerPhone: contact.phone,
+      receiptItems: [
+        {
+          description: `Аренда беседки: ${resourceName}, ${date}`,
+          amount,
+          paymentMode: "full_prepayment",
+        },
+      ],
+      returnUrl: `${appBaseUrl()}/payments/{paymentId}`,
+      metadata: { bookingId: booking.id },
+    });
+    return { id: created.id, confirmationUrl: created.confirmationUrl };
+  } catch (err) {
+    if (err instanceof PaymentError && err.code === "PAYMENT_CREATE_FAILED") {
+      // Провайдер недоступен — бронь остаётся в PENDING, подтвердит менеджер
+      // (graceful degradation, план § 8). Ошибка уже залогирована в payments.
+      return null;
+    }
+    if (err instanceof PaymentError) {
+      // Проблема с данными платежа. Сразу после создания брони она без оплаты
+      // не имеет смысла — отменяем; на повторной оплате со страницы управления
+      // бронь трогать нельзя, там клиент просто увидит ошибку.
+      if (options.cancelOnDataError) {
         await prisma.booking.update({
           where: { id: booking.id },
           data: { status: "CANCELLED", cancelReason: "Оплата не оформлена" },
         });
-        throw new BookingError(err.code, err.message);
-      } else {
-        throw err;
       }
+      throw new BookingError(err.code, err.message);
     }
+    throw err;
   }
-
-  return { ...booking, payment };
 }
 
 /** Базовый URL приложения для return_url платёжной страницы. */
@@ -1249,9 +1373,18 @@ export async function updateBookingStatus(
   return updated;
 }
 
+/**
+ * Отмена брони клиентом.
+ *
+ * `userId` — владелец брони, от чьего имени идёт отмена. `null` — гостевая
+ * бронь: она никому не принадлежит, и отменить её может только тот, кто
+ * пришёл по токену из письма (авторизация — на уровне роута /api/booking/
+ * [token], который сверяет токен именно с этой строкой). Проверка ниже одна и
+ * та же для обоих случаев: актор должен совпасть с владельцем брони.
+ */
 export async function cancelBooking(
   id: string,
-  userId: string,
+  userId: string | null,
   cancelReason?: string,
   confirmPenalty = false,
   policy: CancellationPolicy = DEFAULT_CANCELLATION_POLICY
@@ -1337,7 +1470,7 @@ export async function cancelBooking(
           metadata: updatedMetadata,
         },
       });
-      await returnBookingItems(tx, id, MODULE_SLUG, items, userId);
+      await returnBookingItems(tx, id, MODULE_SLUG, items, userId ?? "system");
       return b;
     });
   } else {
@@ -1361,7 +1494,7 @@ export async function cancelBooking(
     type: "booking.cancelled",
     moduleSlug: MODULE_SLUG,
     entityId: id,
-    userId,
+    userId: userId ?? undefined,
     actor: "client",
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
@@ -1379,6 +1512,153 @@ export async function cancelBooking(
   }
 
   return { penaltyRequired: false, booking: updated };
+}
+
+// === САМОСТОЯТЕЛЬНЫЙ ПЕРЕНОС БРОНИ КЛИЕНТОМ (п. 7.7 оферты) ===
+
+/**
+ * Перенос брони клиентом со страницы управления.
+ *
+ * Авторизация — на уровне роута по токену из письма; сюда бронь приходит уже
+ * найденной. Проверки права переноса (запас по времени, окно 90 дней,
+ * неизрасходованное право) живут в booking/manage.ts и переиспользуются
+ * страницей, чтобы показанное клиенту и разрешённое сервером не разъезжались.
+ *
+ * Цена пересчитывается по действующему прайсу: разница доплачивается или
+ * возвращается по п. 7.7 оферты. Автоматически деньги здесь не двигаются —
+ * доплату и возврат проводит менеджер, поэтому дельта пишется в metadata и
+ * уходит в уведомление.
+ */
+export async function rescheduleBookingByClient(
+  bookingId: string,
+  input: { date: string; startTime: string; endTime: string }
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, moduleSlug: MODULE_SLUG, deletedAt: null },
+  });
+  if (!booking) throw new BookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+
+  const eligibility = checkRescheduleEligibility(booking);
+  if (!eligibility.allowed) {
+    throw new BookingError("RESCHEDULE_NOT_ALLOWED", eligibility.reason);
+  }
+
+  const newDate = new Date(input.date);
+  const start = parseDatetime(input.date, input.startTime);
+  const end = parseDatetime(input.date, input.endTime);
+
+  if (start >= end) {
+    throw new BookingError("INVALID_TIME_RANGE", "Время начала должно быть раньше окончания");
+  }
+  if (newDate > eligibility.windowEndsAt) {
+    throw new BookingError(
+      "RESCHEDULE_WINDOW_EXCEEDED",
+      `Перенести можно на дату в пределах ${RESCHEDULE_WINDOW_DAYS} дней с даты бронирования`
+    );
+  }
+  if (newDate < new Date(new Date().toISOString().split("T")[0])) {
+    throw new BookingError("DATE_IN_PAST", "Нельзя перенести на прошедшую дату");
+  }
+
+  const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
+  const minHours = await getMinBookingHours();
+  if (durationHours < minHours) {
+    throw new BookingError(
+      "DURATION_BELOW_MIN",
+      `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
+    );
+  }
+
+  const resource = await prisma.resource.findFirst({
+    where: { id: booking.resourceId, moduleSlug: MODULE_SLUG, isActive: true },
+  });
+  if (!resource) throw new BookingError("RESOURCE_NOT_FOUND", "Беседка недоступна");
+
+  const metadata = (booking.metadata as BookingMetadata | null) ?? {};
+  const itemsTotal = Number(metadata.itemsTotal ?? 0);
+  const pricing = computeGazeboPricing(
+    start,
+    end,
+    input.date,
+    resource.metadata,
+    resource.pricePerHour ? Number(resource.pricePerHour) : null,
+    itemsTotal
+  );
+  const priceDelta = Number(pricing.totalPrice) - Number(metadata.totalPrice ?? 0);
+
+  const updated = await prisma
+    .$transaction(async (tx) => {
+      await lockSlot(tx, MODULE_SLUG, booking.resourceId, newDate);
+
+      const conflict = await tx.booking.findFirst({
+        where: {
+          moduleSlug: MODULE_SLUG,
+          deletedAt: null,
+          resourceId: booking.resourceId,
+          id: { not: booking.id },
+          status: { in: ACTIVE_BOOKING_STATUSES },
+          date: newDate,
+          OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+        },
+      });
+      if (conflict) throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+
+      return tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          date: newDate,
+          startTime: start,
+          endTime: end,
+          googleEventId: null,
+          metadata: {
+            ...markRescheduleUsed(metadata),
+            rescheduledFrom: {
+              date: booking.date.toISOString().split("T")[0],
+              startTime: formatTime(booking.startTime),
+              endTime: formatTime(booking.endTime),
+            },
+            basePrice: pricing.basePrice,
+            pricePerHour: pricing.pricePerHour,
+            totalPrice: pricing.totalPrice,
+            ...(priceDelta !== 0 && { reschedulePriceDelta: priceDelta.toFixed(2) }),
+          } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+    })
+    .catch(async (err) => {
+      if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
+        throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
+      }
+      throw err;
+    });
+
+  // Старое событие календаря больше не соответствует брони — снимаем.
+  if (booking.googleEventId) {
+    const cal = await prisma.resource.findUnique({
+      where: { id: booking.resourceId },
+      select: { googleCalendarId: true },
+    });
+    if (cal?.googleCalendarId) {
+      await deleteCalendarEvent(cal.googleCalendarId, booking.googleEventId);
+    }
+  }
+
+  enqueueNotification({
+    type: "booking.rescheduled",
+    moduleSlug: MODULE_SLUG,
+    entityId: booking.id,
+    userId: booking.userId ?? undefined,
+    actor: "client",
+    data: {
+      resourceName: resource.name,
+      date: input.date,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      clientName: booking.clientName ?? "",
+    },
+  });
+
+  return { booking: updated, priceDelta };
 }
 
 // === CHECK-IN ===

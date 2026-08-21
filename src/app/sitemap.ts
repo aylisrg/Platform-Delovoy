@@ -42,5 +42,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.5,
     },
+    // Юридические документы. Архивные редакции (/oferta/v/*, /oferta/archive)
+    // в карту не идут — они noindex, в поиске должна быть одна действующая.
+    {
+      url: `${APP_URL}/oferta`,
+      lastModified: now,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    {
+      url: `${APP_URL}/privacy`,
+      lastModified: now,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
   ];
 }

@@ -6,6 +6,19 @@ import { createBooking, BookingError } from "@/modules/gazebos/service";
 import { createBooking as createPSBooking, PSBookingError } from "@/modules/ps-park/service";
 
 /**
+ * Ссылка на страницу управления бронью.
+ *
+ * Бот и Mini App своего экрана акцепта не имеют, поэтому бронь оттуда
+ * заводится без акцепта и без ссылки на оплату. Оплатить её клиент может на
+ * этой странице — там показаны сводка, условия отмены и отметка о согласии
+ * с офертой (тот же порядок, что для брони по телефону, ТЗ §5.4).
+ */
+function manageBookingUrl(token: string): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return `${base}/booking/${token}`;
+}
+
+/**
  * POST /api/webapp/book — create a booking from Telegram Mini App.
  * Protected by Mini App JWT.
  */
@@ -24,8 +37,12 @@ export async function POST(request: NextRequest) {
     }
 
     let booking;
+    let manageUrl: string | null = null;
     if (moduleSlug === "gazebos") {
-      booking = await createBooking(user.id, { resourceId, date, startTime, endTime });
+      const created = await createBooking(user.id, { resourceId, date, startTime, endTime });
+      const { manageToken, ...rest } = created;
+      booking = rest;
+      manageUrl = manageToken ? manageBookingUrl(manageToken) : null;
     } else if (moduleSlug === "ps-park") {
       booking = await createPSBooking(user.id, { resourceId, date, startTime, endTime });
     } else {
@@ -42,7 +59,7 @@ export async function POST(request: NextRequest) {
       endTime,
     });
 
-    return apiResponse(booking, undefined, 201);
+    return apiResponse({ ...booking, manageUrl }, undefined, 201);
   } catch (error) {
     if (error instanceof BookingError || error instanceof PSBookingError) {
       return apiError(error.code, error.message);
