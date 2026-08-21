@@ -20,8 +20,12 @@ test.describe("Бронирование беседки", () => {
     await page.locator("#booking-date").fill(futureDateInput(3));
     await page.getByRole("button", { name: "Показать доступность" }).click();
 
+    // Ищем внутри виджета бронирования: тем же <h3>{name}</h3> подписаны
+    // карточки беседок в маркетинговом блоке выше, и локатор по всей странице
+    // резолвится в два элемента.
+    const flow = page.getByTestId("booking-flow");
     // Card container: <h3>{name}</h3> is two ancestor <div>s below the card root.
-    const heading = page.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
+    const heading = flow.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
     await expect(heading).toBeVisible();
     const card = heading.locator("xpath=ancestor::div[2]");
 
@@ -103,7 +107,8 @@ test.describe("Бронирование беседки", () => {
     await page.locator("#booking-date").fill(futureDateInput(4));
     await page.getByRole("button", { name: "Показать доступность" }).click();
 
-    const heading = page.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
+    const flow = page.getByTestId("booking-flow");
+    const heading = flow.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
     await expect(heading).toBeVisible();
     const card = heading.locator("xpath=ancestor::div[2]");
 
