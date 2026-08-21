@@ -13,6 +13,7 @@ import {
   autoMergeSkipReason,
   claimJitterSeconds,
   classifyMergeGate,
+  claimedByQueue,
   countAttempts,
   countBackpressurePrs,
   dependabotHealAction,
@@ -1088,6 +1089,19 @@ describe('isDependabotAutoMergeBranch', () => {
 
   it('не-dependabot ветка — нет, даже с похожим сегментом', () => {
     expect(isDependabotAutoMergeBranch('claude/issue-1-npm-minor-patch')).toBe(false);
+  });
+});
+
+describe('claimedByQueue', () => {
+  it('issue в очереди — PR взят: судят гейт и вердикты, а не правила для ботов', () => {
+    expect(claimedByQueue(['wip'])).toBe(true);
+    expect(claimedByQueue(['ready'])).toBe(true);
+    expect(claimedByQueue(['review'])).toBe(true);
+  });
+
+  it('без issue очереди — PR ничей', () => {
+    expect(claimedByQueue([])).toBe(false);
+    expect(claimedByQueue(['epic', 'parked'])).toBe(false);
   });
 });
 

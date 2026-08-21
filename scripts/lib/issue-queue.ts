@@ -686,6 +686,17 @@ export interface SweepPr {
 }
 
 /**
+ * Взял ли PR кто-то из очереди: он закрывает issue, которая живёт в очереди
+ * (`auto:wip|ready|review`). Отдельная функция, потому что решает не только
+ * «чей PR» в `autoMergeSkipReason`, но и судьбу чужих веток: dependabot-PR,
+ * в который воркер дописал адаптацию, перестаёт быть PR бота и должен судиться
+ * гейтом и вердиктами, а не правилами для ботов.
+ */
+export function claimedByQueue(lanes: Lane[]): boolean {
+  return lanes.some((l) => l === 'wip' || l === 'ready' || l === 'review');
+}
+
+/**
  * Почему подметальщик не трогает этот PR. `null` — PR можно рассматривать;
  * решение всё равно принимают гейт и CI, эта функция только отсекает чужое.
  *
@@ -709,9 +720,7 @@ export function autoMergeSkipReason(pr: SweepPr, config: QueueConfig, now: Date)
   // release-please и dependabot-группы обрабатываются ДО этой функции своими
   // код-путями (releasePrGate / isDependabotAutoMergeBranch); `feature/**` и
   // ручные ветки владельца сюда не попадают и мержатся по-прежнему руками.
-  const ownedByAgent =
-    AGENT_BRANCH_RE.test(pr.branch) ||
-    pr.issueLanes.some((l) => l === 'wip' || l === 'ready' || l === 'review');
+  const ownedByAgent = AGENT_BRANCH_RE.test(pr.branch) || claimedByQueue(pr.issueLanes);
   if (!ownedByAgent) return 'не PR автоматики — ни ветки агента, ни связанной issue очереди';
   // Тишина: живая сессия может дописывать PR прямо сейчас, и зелёный CI на
   // промежуточном коммите — не признак готовности. Ждём паузы в обновлениях,

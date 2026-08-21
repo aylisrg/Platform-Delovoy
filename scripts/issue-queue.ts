@@ -73,6 +73,7 @@ import {
   autoMergeSkipReason,
   claimJitterSeconds,
   classifyMergeGate,
+  claimedByQueue,
   countAttempts,
   countBackpressurePrs,
   dependabotHealAction,
@@ -834,13 +835,11 @@ function cmdPrMerge(prNumber: number): void {
  * merge-коммите («lock file out of sync»). Свипер мержит только зелёное,
  * auto-rebase.yml ветки ботов не трогает — и PR висел у владельца, пока тот не
  * разгребал руками. Ровно это случилось с #714 и #721.
+ *
+ * Вызывается только для PR, которых очередь ещё не взяла (`claimedByQueue` у
+ * вызывающего): пересборка ветки снесла бы коммиты адаптации воркера.
  */
-function healDependabotPr(pr: RawPr, closes: number[], dryRun: boolean, now: Date): Record<string, unknown> | null {
-  // PR уже взят очередью: воркер дописал `Closes #N` и, возможно, коммиты
-  // адаптации. Пересборка снесла бы его работу — дальше это обычный PR
-  // автоматики, и красный CI чинит сессия.
-  if (closes.length > 0) return null;
-
+function healDependabotPr(pr: RawPr, dryRun: boolean, now: Date): Record<string, unknown> | null {
   const checks = summarizeChecks(checksFor(pr.number));
   const ci = checks.green ? 'green' : checks.done ? 'red' : 'pending';
   const comments = allComments(pr.number).map((c) => ({ body: c.body, createdAt: c.created_at }));
@@ -913,6 +912,7 @@ function cmdAutoMerge(dryRun: boolean): void {
 
   for (const pr of prs) {
     const closes = closedIssueNumbers(pr);
+    const lanes = closes.map((n) => laneByNumber.get(n)).filter((l): l is Lane => l !== undefined);
     // Лейблы PR живут в /issues/{n} — у PR-ов и issues общее пространство номеров.
     const prLabels = gh<{ labels: { name: string }[] }>(`/repos/${REPO}/issues/${pr.number}`).labels.map(
       (l) => l.name,
@@ -954,7 +954,12 @@ function cmdAutoMerge(dryRun: boolean): void {
     // задаёт dependabot.yml, а мерж под PAT свипера рождает настоящие события
     // (deploy и auto-rebase стартуют без Kick). Одиночные PR (majors) ждут
     // конверсии в задачу очереди (dependabot-automerge.yml) и здесь пропускаются.
-    if (DEPENDABOT_BRANCH_RE.test(pr.head.ref)) {
+    // `claimedByQueue` — граница: пока PR ничей, он живёт по правилам ботов
+    // (лечение, группы, конверсия в задачу). Как только воркер дописал в ветку
+    // адаптацию и `Closes #N`, это обычный PR автоматики — его судят гейт и
+    // вердикты ревью, иначе он не мержился бы никогда: одиночная ветка не группа,
+    // и правило ниже отправляло такой PR в вечный пропуск.
+    if (DEPENDABOT_BRANCH_RE.test(pr.head.ref) && !claimedByQueue(lanes)) {
       if (prLabels.includes('needs-owner')) {
         results.push({ pr: pr.number, merged: false, skipped: 'needs-owner — ждёт решения владельца' });
         continue;
@@ -967,7 +972,7 @@ function cmdAutoMerge(dryRun: boolean): void {
       // Лечим до проверки на группу, потому что гниют одинаково и групповые, и
       // одиночные: у первых после мержа соседней пачки протухает lock, вторые
       // ждут воркера, который на красный CI всё равно наткнётся.
-      const heal = healDependabotPr(pr, closes, dryRun, now);
+      const heal = healDependabotPr(pr, dryRun, now);
       if (heal) {
         results.push({ pr: pr.number, merged: false, ...heal });
         continue;
@@ -992,7 +997,7 @@ function cmdAutoMerge(dryRun: boolean): void {
         prNumber: pr.number,
         branch: pr.head.ref,
         labels: prLabels,
-        issueLanes: closes.map((n) => laneByNumber.get(n)).filter((l): l is Lane => l !== undefined),
+        issueLanes: lanes,
         updatedAt: pr.updated_at,
       },
       config,
