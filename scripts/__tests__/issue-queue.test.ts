@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   CODE_REVIEWER_PASS_MARKER,
   DEFAULT_CONFIG,
+  DEPENDABOT_AUTOMERGE_GROUPS,
+  DEPENDABOT_ESCALATED_MARKER,
   GIVEUP_MARKER,
   QA_ENGINEER_PASS_MARKER,
   STALE_MARKER,
@@ -11,6 +15,8 @@ import {
   classifyMergeGate,
   countAttempts,
   countBackpressurePrs,
+  dependabotHealAction,
+  dependabotRecreateMarker,
   destructiveSqlIn,
   graceElapsed,
   isDependabotAutoMergeBranch,
@@ -1082,6 +1088,68 @@ describe('isDependabotAutoMergeBranch', () => {
 
   it('не-dependabot ветка — нет, даже с похожим сегментом', () => {
     expect(isDependabotAutoMergeBranch('claude/issue-1-npm-minor-patch')).toBe(false);
+  });
+});
+
+describe('dependabotHealAction', () => {
+  const NOW = new Date('2026-08-20T12:00:00Z');
+  const SHA = 'cb99589';
+  const asked = (sha: string, createdAt: string) => ({ body: dependabotRecreateMarker(sha), createdAt });
+
+  it('зелёный или идущий CI — лечить нечего', () => {
+    expect(dependabotHealAction({ ci: 'green', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
+    expect(dependabotHealAction({ ci: 'pending', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
+  });
+
+  it('первый красный CI — просим пересобрать ветку от свежего main', () => {
+    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments: [], now: NOW }).action).toBe('recreate');
+  });
+
+  it('просьба отправлена, head тот же — ждём, второй просьбы не шлём', () => {
+    const comments = [asked(SHA, '2026-08-20T11:30:00Z')];
+    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
+  });
+
+  it('ветка пересобрана (head сменился) и всё равно красная — задача в очередь', () => {
+    const comments = [asked('oldsha1', '2026-08-20T11:30:00Z')];
+    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('to-queue');
+  });
+
+  it('пересборки нет сутки — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
+    const comments = [asked(SHA, '2026-08-19T11:00:00Z')];
+    const res = dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW });
+    expect(res.action).toBe('to-queue');
+    expect(res.reason).toContain('не ответил');
+  });
+
+  it('уже отдан в очередь — больше ничего не делаем', () => {
+    const comments = [asked('oldsha1', '2026-08-20T11:00:00Z'), { body: DEPENDABOT_ESCALATED_MARKER, createdAt: '2026-08-20T11:05:00Z' }];
+    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('none');
+  });
+
+  it('решает свежая просьба, а не первая: после пересборки красный head ждёт нового цикла', () => {
+    const comments = [asked('oldsha1', '2026-08-19T09:00:00Z'), asked(SHA, '2026-08-20T11:50:00Z')];
+    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
+  });
+});
+
+describe('имена dependabot-групп не разъезжаются по трём файлам', () => {
+  // Одно и то же имя группы живёт в .github/dependabot.yml (кто попадает в
+  // пачку), в DEPENDABOT_AUTOMERGE_GROUPS (кого мержит свипер) и в условии
+  // dependabot-automerge.yml (кого НЕ надо конвертировать в задачу). Разъедутся —
+  // групповой PR начнёт заводить задачи или, хуже, повиснет без хозяина.
+  const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
+
+  it('группы конфига == DEPENDABOT_AUTOMERGE_GROUPS', () => {
+    const declared = [...read('.github/dependabot.yml').matchAll(/^ {6}([a-z0-9-]+):$/gm)].map((m) => m[1]);
+    expect(declared.sort()).toEqual([...DEPENDABOT_AUTOMERGE_GROUPS].sort());
+  });
+
+  it('конвертер одиночных PR исключает ровно эти группы', () => {
+    const wf = read('.github/workflows/dependabot-automerge.yml');
+    for (const group of DEPENDABOT_AUTOMERGE_GROUPS) {
+      expect(wf).toContain(`${group}')`);
+    }
   });
 });
 
