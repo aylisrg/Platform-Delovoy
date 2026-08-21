@@ -1610,10 +1610,22 @@ function executeDecision(d: DecisionWire, config: QueueConfig, now: Date, dryRun
     }
     if (d.decision === 'reject') {
       if (issueNumber) {
-        comment(issueNumber, `Владелец (Telegram): нет${d.note ? ` — ${d.note}` : ''}. Остаётся в \`auto:blocked\`.`);
+        // «Нет» — терминальный ответ: задача уезжает в auto:parked (вне очереди,
+        // как замороженные направления #461) и ВЫПАДАЕТ из выборки A2 — иначе
+        // reconcile переспрашивал бы тот же вопрос каждые 15 минут (ревью
+        // раунда 2). Зеркально merge-hold-reject, где PR закрывается. Вернуть
+        // задачу к жизни можно лейблом руками или новой «идеей».
+        const issue = gh<RawIssue>(`/repos/${REPO}/issues/${issueNumber}`);
+        if (issue.state === 'open') {
+          setLabels(issueNumber, swapLane(issue.labels.map((l) => l.name), 'auto:parked'));
+        }
+        comment(
+          issueNumber,
+          `Владелец (Telegram): нет${d.note ? ` — ${d.note}` : ''}. Задача снята с очереди (\`auto:parked\`); повторно вопрос не задаётся.`,
+        );
       }
-      patchDecision(d.id, 'EXECUTED', 'отклонено');
-      return { ...base, executed: true };
+      patchDecision(d.id, 'EXECUTED', 'отклонено — issue → auto:parked');
+      return { ...base, executed: true, parked: issueNumber ?? undefined };
     }
   }
 
@@ -1706,7 +1718,8 @@ function cmdDecisionsSync(dryRun: boolean): void {
   // трогает прод) раньше висели только в GitHub-дашборде — «инбокс», который
   // ADR 2026-08-20 упраздняет. Теперь тот же reconcile-upsert: один живой
   // вопрос на (kind, issue), «да» возвращает задачу в auto:ready (и при
-  // payload.dispatchWorkflow диспатчит ops-workflow), «нет» оставляет blocked.
+  // payload.dispatchWorkflow диспатчит ops-workflow), «нет» уводит её в
+  // auto:parked — задача выпадает из этой выборки, вопрос не переспрашивается.
   for (const lane of ['auto:blocked', 'auto:prod-apply']) {
     let blockedIssues: RawIssue[] = [];
     try {

@@ -117,6 +117,7 @@ function buildDecisionMessage(row: DecisionRow): {
     text:
       `❓ <b>Нужно твоё решение${subject ? ` (${subject})` : ''}</b>\n` +
       `${escapeHtml(row.title)}\n${detail}${link}\n\n` +
+      `«Да» вернёт задачу в работу, «Нет» заморозит её (вопрос больше не задаётся). ` +
       `Детали можно дописать реплаем на это сообщение — текст уйдёт исполнителю.`,
     keyboard: [
       [
