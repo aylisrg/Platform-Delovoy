@@ -33,6 +33,7 @@ import {
   pickNext,
   priorityOf,
   shouldHeartbeat,
+  shouldRerunParkedRun,
   snapshot,
   staleWipIssues,
   staleWipWithPr,
@@ -1089,6 +1090,37 @@ describe('isDependabotAutoMergeBranch', () => {
 
   it('не-dependabot ветка — нет, даже с похожим сегментом', () => {
     expect(isDependabotAutoMergeBranch('claude/issue-1-npm-minor-patch')).toBe(false);
+  });
+});
+
+describe('shouldRerunParkedRun', () => {
+  const parked = (over: Record<string, unknown> = {}) => ({
+    id: 1,
+    headBranch: 'release-please--branches--main--components--platform-delovoy',
+    runAttempt: 1,
+    conclusion: 'action_required',
+    sameRepo: true,
+    ...over,
+  });
+
+  it('запаркованный прогон ветки бота — будим', () => {
+    expect(shouldRerunParkedRun(parked())).toBe(true);
+    expect(shouldRerunParkedRun(parked({ headBranch: 'dependabot/npm_and_yarn/next-auth-5.0.0-beta.32' }))).toBe(true);
+    expect(shouldRerunParkedRun(parked({ headBranch: 'claude/issue-1-fix' }))).toBe(true);
+  });
+
+  it('вторая попытка не будится — предохранитель от петли, если перезапуск снова запаркуют', () => {
+    expect(shouldRerunParkedRun(parked({ runAttempt: 2 }))).toBe(false);
+  });
+
+  it('форк не трогаем: ручной аппрув там и защищает', () => {
+    expect(shouldRerunParkedRun(parked({ sameRepo: false }))).toBe(false);
+  });
+
+  it('чужая ветка и не запаркованный прогон — мимо', () => {
+    expect(shouldRerunParkedRun(parked({ headBranch: 'feature/manual' }))).toBe(false);
+    expect(shouldRerunParkedRun(parked({ conclusion: 'failure' }))).toBe(false);
+    expect(shouldRerunParkedRun(parked({ conclusion: null }))).toBe(false);
   });
 });
 

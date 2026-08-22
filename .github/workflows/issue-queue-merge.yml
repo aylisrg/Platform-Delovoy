@@ -80,6 +80,18 @@ jobs:
         run: |
           gh label create "dependencies" --color 0366D6 --description "Обновление зависимостей" || true
 
+      # Запаркованные (`action_required`) прогоны ботов: без PAT GitHub не даёт им
+      # стартовать, и свипер ниже видит «CI не стартовал» — вечно. Будим их сами,
+      # по одному разу на прогон. continue-on-error: нет прав на actions:write —
+      # мерж всё равно должен идти своим чередом.
+      - name: Разбудить запаркованные CI-прогоны ботов
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/issue-queue.ts unpark ${{ inputs.dry_run && '--dry-run' || '' }}
+
       - name: Sweep mergeable PRs
         id: sweep
         env:
