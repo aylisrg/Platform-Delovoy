@@ -31,6 +31,9 @@ export interface RecurringIncident {
   issues: number[];
 }
 
+/** Лейбл, которым помечена сама root-cause issue (не живой инцидент). */
+export const ROOT_CAUSE_LABEL = 'root-cause';
+
 /**
  * Какие инцидент-лейблы зациклились: >= minCycles закрытий за окно.
  * На вход — закрытые issues одного лейбла или свалкой; фильтрует сам.
@@ -47,6 +50,13 @@ export function recurringIncidents(
   for (const label of incidentLabels) {
     const cycles = closed.filter((i) => {
       if (!i.labels.includes(label)) return false;
+      // root-cause issue несёт тот же инцидент-лейбл, что и живые инциденты,
+      // которые она описывает. Без этого исключения её собственное закрытие
+      // (авто-закрытие при восстановлении CI до ADR 2026-08-20, или ручное
+      // после фикса) засчитывалось как ещё один цикл инцидента — эскалация
+      // считала сама себя и не останавливалась, даже когда новых падений не было
+      // (issue #698: 3→4→5 «циклов» подряд без единого нового CI-инцидента).
+      if (i.labels.includes(ROOT_CAUSE_LABEL)) return false;
       if (!i.closedAt) return false;
       const t = new Date(i.closedAt).getTime();
       return !Number.isNaN(t) && t >= cutoffMs && t <= now.getTime();
@@ -69,7 +79,7 @@ export function rootCauseIssue(
   const cycleList = incident.issues.map((n) => `- #${n}`).join('\n');
   return {
     title: `Root cause: ${incident.label} — ${incident.count} цикла(ов) за ${opts.windowDays} дней`,
-    labels: ['root-cause', incident.label, 'prio:P1', 'auto:ready'],
+    labels: [ROOT_CAUSE_LABEL, incident.label, 'prio:P1', 'auto:ready'],
     body: `## Повторяющийся инцидент \`${incident.label}\`
 
 За последние ${opts.windowDays} дней инцидент открывался и закрывался ${incident.count} раз(а):

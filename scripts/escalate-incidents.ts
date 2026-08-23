@@ -13,6 +13,7 @@ import { REPO, ghApi } from './lib/gh-api';
 import { INCIDENT_LABELS } from './lib/issue-queue';
 import {
   DEFAULT_ESCALATION_OPTIONS,
+  ROOT_CAUSE_LABEL,
   recurringIncidents,
   rootCauseIssue,
   type ClosedIssueLite,
@@ -57,7 +58,7 @@ function main(): void {
     // должна остаться в одной ветке. Именно open-only дедуп дал 6 подряд дублей
     // «notifications-down» (#487→#506→#535→#603→#637→#678).
     const all = ghApi<(RawIssue & { state: string })[]>(
-      `/repos/${REPO}/issues?state=all&labels=${encodeURIComponent(`root-cause,${incident.label}`)}&since=${since}&per_page=10`,
+      `/repos/${REPO}/issues?state=all&labels=${encodeURIComponent(`${ROOT_CAUSE_LABEL},${incident.label}`)}&since=${since}&per_page=10`,
     ).filter((i) => !i.pull_request);
     const open = all.find((i) => i.state === 'open');
     const closedRecent = all.find((i) => i.state === 'closed');
