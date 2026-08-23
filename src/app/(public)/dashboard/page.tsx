@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Navbar } from "@landing/components/navbar";
+import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
@@ -378,6 +379,12 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </main>
+
+      <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-6">
+        <div className="mx-auto max-w-[1200px] text-center md:text-left">
+          <LegalFooterLinks />
+        </div>
+      </footer>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
 
 type PublicStatus = {
   id: string;
@@ -90,7 +91,8 @@ export default function PaymentWaitPage() {
   }, [isCafe, state?.status]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 text-center">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col px-4 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center">
       {notFound ? (
         <>
           <div className="text-5xl">🤔</div>
@@ -220,6 +222,13 @@ export default function PaymentWaitPage() {
           </p>
         </>
       )}
+      </div>
+
+      {/* Реквизиты исполнителя обязаны быть и на странице оплаты: именно здесь
+          потребитель расстаётся с деньгами (ст. 9 ЗоЗПП). */}
+      <footer className="border-t border-black/[0.06] py-5">
+        <LegalFooterLinks />
+      </footer>
     </main>
   );
 }

@@ -39,6 +39,11 @@ function matches(row: Row, where: WhereCondition): boolean {
         if (!(obj.in as unknown[]).includes(row[k])) return false;
         continue;
       }
+      // Prisma's `{ field: { not: value } }` filter.
+      if ("not" in obj && Object.keys(obj).length === 1) {
+        if (row[k] === obj.not) return false;
+        continue;
+      }
       // Composite-key shortcut: { building_floor_number: { ... } }
       const allMatch = Object.entries(obj).every(
         ([ck, cv]) => row[ck] === cv,
@@ -84,6 +89,10 @@ interface ModelDelegate {
     create: Record<string, unknown>;
     update: Record<string, unknown>;
   }) => Promise<Row>;
+  updateMany: (args: {
+    where: WhereCondition;
+    data: Record<string, unknown>;
+  }) => Promise<{ count: number }>;
   count: () => Promise<number>;
   __store: ModelStore;
 }
@@ -160,6 +169,16 @@ function makeDelegate(uniqueKeys: string[][]): ModelDelegate {
       }
       return this.create({ data: { ...flat, ...create } });
     },
+    async updateMany({ where, data }) {
+      const flat = flattenWhere(where);
+      let count = 0;
+      store.rows = store.rows.map((r) => {
+        if (!matches(r, flat)) return r;
+        count += 1;
+        return { ...r, ...data } as Row;
+      });
+      return { count };
+    },
     async count() {
       return store.rows.length;
     },
@@ -178,6 +197,7 @@ export interface FakePrisma {
   taskCategory: ModelDelegate;
   moduleAssignment: ModelDelegate;
   adminPermission: ModelDelegate;
+  offerVersion: ModelDelegate;
 }
 
 export function createFakePrisma(): FakePrisma {
@@ -193,6 +213,10 @@ export function createFakePrisma(): FakePrisma {
     taskCategory: makeDelegate([["slug"]]),
     moduleAssignment: makeDelegate([["userId", "moduleId"]]),
     adminPermission: makeDelegate([["userId", "section"]]),
+    offerVersion: makeDelegate([
+      ["documentKey", "number"],
+      ["documentKey", "slug"],
+    ]),
   };
 }
 

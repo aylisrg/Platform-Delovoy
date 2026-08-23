@@ -6,6 +6,15 @@ import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import { EVENT_SOURCES } from "@/lib/event-sources";
+import { log } from "@/lib/logger";
+import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
+import {
+  bookingReceiptHtml,
+  bookingReceiptText,
+  type BookingReceiptData,
+} from "@/modules/notifications/email-templates";
+import { bookingNumber, manageTokenFor } from "@/modules/booking/offer";
+import { buildCancellationSummary } from "@/modules/booking/cancellation-summary";
 
 /**
  * Доменные эффекты платежей с subjectType=BOOKING.
@@ -138,6 +147,22 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
     });
   }
 
+  // Письмо-подтверждение с номером редакции оферты и ссылкой на управление
+  // бронью (ТЗ §7). Только gazebos: у ps-park своя оферта и своё письмо.
+  if (booking.moduleSlug === "gazebos") {
+    try {
+      await sendBookingReceipt(payment, booking, resource?.name ?? "Беседка", times);
+    } catch (err) {
+      // Деньги приняты, бронь подтверждена — несостоявшееся письмо это
+      // инцидент, а не повод ронять обработку платежа.
+      await log.error(EVENT_SOURCES.PAYMENTS, "Подтверждение бронирования не отправлено", {
+        bookingId: booking.id,
+        paymentId: payment.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // Канал-only событие «бронь оплачена» — для обоих модулей. Заменяет
   // premature booking.created в выделенном Telegram-канале: шлётся строго
   // после успешной онлайн-оплаты и несёт ссылку на бронь в админке
@@ -159,6 +184,90 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
       bookingId: booking.id,
     },
   });
+}
+
+/**
+ * Письмо-подтверждение бронирования (ТЗ §7).
+ *
+ * Шлётся напрямую, а не через очередь уведомлений: очередь доставляет по
+ * подпискам пользователя, а у гостя учётной записи нет — адрес известен только
+ * из платежа (он же адрес чека 54-ФЗ). Идемпотентность обеспечивает вебхук:
+ * повторная доставка того же payment.succeeded до `afterBookingPaymentSucceeded`
+ * не доходит.
+ *
+ * Ошибка отправки не роняет обработку платежа — деньги уже приняты, бронь уже
+ * подтверждена; несостоявшееся письмо это инцидент, а не повод откатывать
+ * оплату.
+ */
+async function sendBookingReceipt(
+  payment: Payment,
+  booking: { id: string; metadata: unknown; offerVersionId: string | null },
+  resourceName: string,
+  times: { date: string; startTime: string; endTime: string }
+): Promise<void> {
+  const to = payment.customerEmail;
+  if (!to) return;
+
+  const metadata = (booking.metadata as Record<string, unknown> | null) ?? {};
+  const offerVersion = booking.offerVersionId
+    ? await prisma.offerVersion.findUnique({
+        where: { id: booking.offerVersionId },
+        select: { number: true, slug: true },
+      })
+    : null;
+  if (!offerVersion) {
+    // Без редакции письмо теряет смысл: его главный груз — ссылка на условия,
+    // на которых заключён договор.
+    await log.warn(EVENT_SOURCES.PAYMENTS, "Бронь оплачена без привязки к редакции оферты", {
+      bookingId: booking.id,
+      paymentId: payment.id,
+    });
+    return;
+  }
+
+  const manageToken = manageTokenFor(booking.id);
+  const items = (metadata.items ?? []) as { name?: string; quantity?: number; price?: string | number }[];
+  const basePrice = Number(metadata.basePrice ?? 0);
+  const total = Number(metadata.totalPrice ?? payment.amount);
+  const summary = buildCancellationSummary();
+
+  const data: BookingReceiptData = {
+    bookingNumber: bookingNumber(booking.id),
+    resourceName,
+    date: times.date,
+    startTime: times.startTime,
+    endTime: times.endTime,
+    lines: [
+      { label: `Аренда беседки «${resourceName}»`, amount: basePrice },
+      ...items.map((item) => ({
+        label: `${item.name ?? "Позиция"} × ${Number(item.quantity ?? 0)}`,
+        amount: Number(item.price ?? 0) * Number(item.quantity ?? 0),
+      })),
+    ],
+    total,
+    offerNumber: offerVersion.number,
+    offerSlug: offerVersion.slug,
+    cancellationTitle: summary.title,
+    cancellationLines: summary.lines,
+    manageUrl: manageToken
+      ? `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/booking/${manageToken}`
+      : null,
+  };
+
+  const result = await sendTransactionalEmail({
+    to,
+    subject: `Бронирование ${data.bookingNumber} оплачено — Барбекю Парк`,
+    html: bookingReceiptHtml(data),
+    text: bookingReceiptText(data),
+  });
+
+  if (!result.success) {
+    await log.error(EVENT_SOURCES.PAYMENTS, "Не отправлено подтверждение бронирования", {
+      bookingId: booking.id,
+      paymentId: payment.id,
+      error: result.error,
+    });
+  }
 }
 
 export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promise<void> {

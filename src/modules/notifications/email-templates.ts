@@ -147,6 +147,162 @@ export function bookingConfirmationText(data: TemplateData): string {
   return `Бронирование подтверждено!\n\n${data.resourceName}\nДата: ${data.date}\nВремя: ${data.startTime} — ${data.endTime}`;
 }
 
+// ─── Booking: оплачено (подтверждение бронирования, ТЗ §7) ───────────────────
+
+export type BookingReceiptData = {
+  bookingNumber: string;
+  resourceName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  lines: { label: string; amount: number }[];
+  total: number;
+  /** Номер и slug редакции оферты, на условиях которой заключён договор. */
+  offerNumber: number;
+  offerSlug: string;
+  /** Краткие условия отмены — те же строки, что на экране оплаты. */
+  cancellationTitle: string;
+  cancellationLines: string[];
+  /** Персональная ссылка на управление бронью; null — самообслуживание не настроено. */
+  manageUrl: string | null;
+};
+
+const PARK_ADDRESS = "Московская обл., Наро-Фоминский г. о., рп Селятино, ул. Промышленная, вл. 1";
+const PARK_MAP_URL = "https://yandex.ru/maps/?text=Селятино%20Промышленная%20вл.1";
+
+function escapeEmailHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function money(amount: number): string {
+  return `${amount.toLocaleString("ru-RU")} ₽`;
+}
+
+/**
+ * Подтверждение бронирования после успешной оплаты.
+ *
+ * Ссылка на оферту ведёт на КОНКРЕТНУЮ редакцию (`/oferta/v/vN`), а не на
+ * `/oferta`: через год действующая редакция будет другой, а договор заключён
+ * на условиях этой (п. 13.3 оферты, ТЗ §7).
+ */
+export function bookingReceiptHtml(data: BookingReceiptData): string {
+  const accent = moduleAccent("gazebos");
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+
+  const itemRows = data.lines
+    .map(
+      (line) => `<tr>
+        <td style="padding:6px 0;font-size:13px;color:#1d1d1f;">${escapeEmailHtml(line.label)}</td>
+        <td style="padding:6px 0;font-size:13px;color:#1d1d1f;font-weight:500;text-align:right;white-space:nowrap;">${money(line.amount)}</td>
+      </tr>`
+    )
+    .join("");
+
+  const cancellation = data.cancellationLines
+    .map(
+      (line) =>
+        `<p style="margin:0 0 6px;font-size:13px;color:#1d1d1f;line-height:1.6;">${escapeEmailHtml(line)}</p>`
+    )
+    .join("");
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
+      Бронирование ${escapeEmailHtml(data.bookingNumber)} оплачено
+    </h2>
+    <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
+      Договор заключён, беседка за вами. Ждём вас!
+    </p>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
+      <tbody>
+        ${infoRow("Номер брони", escapeEmailHtml(data.bookingNumber))}
+        ${infoRow("Беседка", escapeEmailHtml(data.resourceName))}
+        ${infoRow("Дата", escapeEmailHtml(data.date))}
+        ${infoRow("Время", `${escapeEmailHtml(data.startTime)} — ${escapeEmailHtml(data.endTime)}`)}
+      </tbody>
+    </table>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:16px;">
+      <tbody>
+        ${itemRows}
+        <tr>
+          <td style="padding:10px 0 0;border-top:1px solid #e5e5e5;font-size:14px;color:#1d1d1f;font-weight:700;">Итого</td>
+          <td style="padding:10px 0 0;border-top:1px solid #e5e5e5;font-size:14px;color:#1d1d1f;font-weight:700;text-align:right;">${money(data.total)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    ${
+      data.manageUrl
+        ? `${primaryButton("Управлять бронированием", data.manageUrl, accent)}
+    <p style="margin:8px 0 0;font-size:12px;color:#86868b;line-height:1.6;">
+      По этой ссылке можно перенести или отменить бронь без звонка оператору.
+    </p>`
+        : `<p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
+      Отменить или перенести бронь можно по телефону <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>.
+    </p>`
+    }
+
+    <div style="margin-top:24px;padding:16px 20px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;">
+      <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#1d1d1f;">${escapeEmailHtml(data.cancellationTitle)}</p>
+      ${cancellation}
+      <p style="margin:8px 0 0;font-size:13px;color:#1d1d1f;line-height:1.6;">
+        Подробно — в <a href="${appUrl}/oferta/v/${escapeEmailHtml(data.offerSlug)}#p-7" style="color:${accent};">п. 7 оферты</a>.
+      </p>
+    </div>
+
+    <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
+      Договор заключён на условиях
+      <a href="${appUrl}/oferta/v/${escapeEmailHtml(data.offerSlug)}" style="color:${accent};">редакции № ${data.offerNumber} публичной оферты</a>.
+      Кассовый чек придёт отдельным письмом не позднее следующего рабочего дня.
+    </p>
+
+    <p style="margin:16px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
+      ${escapeEmailHtml(PARK_ADDRESS)}<br>
+      <a href="${PARK_MAP_URL}" style="color:${accent};">Посмотреть на карте</a>
+      &nbsp;·&nbsp;
+      <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+    </p>
+  `;
+
+  return emailLayout(content, {
+    accentColor: accent,
+    title: `Бронирование ${data.bookingNumber} оплачено`,
+  });
+}
+
+export function bookingReceiptText(data: BookingReceiptData): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+  const lines = data.lines.map((l) => `  ${l.label} — ${money(l.amount)}`).join("\n");
+
+  return [
+    `Бронирование ${data.bookingNumber} оплачено`,
+    "",
+    `Беседка: ${data.resourceName}`,
+    `Дата: ${data.date}`,
+    `Время: ${data.startTime} — ${data.endTime}`,
+    "",
+    lines,
+    `  Итого — ${money(data.total)}`,
+    "",
+    data.cancellationTitle,
+    ...data.cancellationLines,
+    `Подробно — ${appUrl}/oferta/v/${data.offerSlug}#p-7`,
+    "",
+    data.manageUrl
+      ? `Управление бронированием: ${data.manageUrl}`
+      : "Отменить или перенести бронь можно по телефону +7 (499) 677-48-88",
+    `Договор заключён на условиях редакции № ${data.offerNumber} публичной оферты: ${appUrl}/oferta/v/${data.offerSlug}`,
+    "",
+    PARK_ADDRESS,
+    "Телефон: +7 (499) 677-48-88",
+  ].join("\n");
+}
+
 // ─── Booking: Cancelled ───────────────────────────────────────────────────────
 
 export function bookingCancellationHtml(data: TemplateData): string {

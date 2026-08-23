@@ -102,11 +102,11 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `auth` | ✅ | NextAuth, magic-link, providers |
 | `monitoring` | ✅ | Health checks, SystemEvent logging |
 | `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry`; Центр уведомлений в Mini App (`catalog.ts`, `webapp-center.ts` — персональные подписки сотрудников по типам событий); идемпотентный релиз-анонс `system.release` (`ReleaseAnnouncement`, `release-notify.ts`) — ADR `2026-08-13-miniapp-role-rebuild` |
-| `gazebos` | ✅ | Gazebo bookings |
+| `gazebos` | ✅ | Gazebo bookings; публичная оферта и акцепт перед оплатой — PRD `2026-08-21` |
 | `ps-park` | ✅ | PlayStation Park bookings |
 | `cafe` | ✅ | Menu CRUD (+фото), заказы, гостевой QR-чекаут с онлайн-оплатой (ЮKassa, `PaymentSubjectType.ORDER`), статистика продаж — PRD `2026-07-22` |
 | `parking` | ✅ | Parking info page |
-| `booking` | ✅ | Shared booking core |
+| `booking` | ✅ | Shared booking core; редакции юридических документов (`offer.ts`), краткие условия отмены (`cancellation-summary.ts`), самообслуживание по токену (`manage.ts`) |
 | `rental` | ✅ | Office rental B2B (park: Деловой) — park-aware, parkSlug discriminator |
 | `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
 | `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
@@ -126,6 +126,19 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `owner-decisions` | ✅ (infrastructure-only) | Решения владельца Telegram-кнопками (merge-hold PR, blocked-вопросы, идеи, ротация PAT); API только для свипера очереди (секрет) и бота — ADR `2026-08-20-owner-out-of-github` |
 | `backups` | ✅ | Backup logging (`BackupLog`); approved in project memory |
 | `payments` | ✅ | Online acquiring (YooKassa): `Payment`/`PaymentRefund`, webhook c re-fetch-верификацией, reconciliation-cron, авто/ручные возвраты — PRD `2026-07-09`, план `docs/architecture/2026-07-08-yookassa-integration-plan.md` |
+
+**Юридические документы (не модуль):** тексты редакций — неизменяемые файлы
+`content/legal/<documentKey>/vN.md`, публикуются в `OfferVersion` сидером
+`scripts/seeds/legal.ts`. Правка опубликованной редакции невозможна: сидер падает
+при расхождении хеша — только новая редакция `vN+1`. Рендер — `src/lib/legal/`
+(парсер) + `src/components/legal/` (страницы `/oferta`, `/oferta/archive`,
+`/oferta/v/[version]`, `/privacy`). Акцепт хранится колонками на `Booking`
+(`offerVersionId`, `offerContentHash`, `acceptedOfferAt`, `acceptedIp`,
+`acceptedUserAgent`, `acceptedMarketing`) и пишется ТОЛЬКО из тела запроса.
+**Ссылку на онлайн-оплату брони без акцепта не выдаёт ни одна поверхность** —
+бот и Mini App отдают клиенту `/booking/[token]`, где он видит условия и
+подтверждает их сам. Детали и открытые юридические вопросы — PRD
+`docs/requirements/2026-08-21-oferta-acceptance-prd.md`.
 
 **Integrations (not modules):**
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
@@ -179,8 +192,10 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 - **Мерж** — `.github/workflows/issue-queue-merge.yml` (каждые 15 минут, без AI)
   домерживает PR-ы, где гейт вернул `auto` и CI зелёный. Он же мержит
   release-please PR (ночное окно 00–02 UTC + whitelist релизных файлов) и
-  недельные dependabot-группы minor+patch; majors конвертируются в задачи
-  очереди (`dependabot-automerge.yml`).
+  недельные dependabot-группы minor+patch; одиночные PR (majors и prerelease-бампы
+  вне группы) конвертируются в задачи очереди (`dependabot-automerge.yml`), а
+  красный dependabot-PR свипер сначала лечит `@dependabot recreate` (протухший
+  lock после чужого мержа) и только потом отдаёт задачей.
 - **Решения владельца** — контур owner-decisions: свипер reconcile'ом заводит
   запрос на сайте (`OWNER_DECISIONS_SECRET`), сайт шлёт владельцу личное
   Telegram-сообщение с кнопками «Мержить/Отклонить/Позже», бот записывает ответ
@@ -295,8 +310,11 @@ pull-requests write, actions write) читают `auto-rebase.yml`,
   просто из-за имени ветки. Плюс два класса чужих PR, которые свипер мержит по
   своим правилам: `release-please--*` — ночью (00–02 UTC) и только при диффе
   целиком из `{CHANGELOG.md, package.json, package-lock.json}`; dependabot-группы
-  minor+patch (`npm-minor-patch`, `actions-all`) — при зелёном CI, majors
-  конвертируются в задачи очереди. `feature/**` и ручные ветки владельца
+  minor+patch (`npm-minor-patch`, `actions-all`) — при зелёном CI, одиночные
+  PR конвертируются в задачи очереди. Красный dependabot-PR не висит у владельца:
+  свипер просит бота пересобрать ветку (`@dependabot recreate` — лечит протухший
+  `package-lock.json` после чужого мержа), а если и пересобранная красная —
+  заводит задачу очереди. `feature/**` и ручные ветки владельца
   по-прежнему мержатся руками.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
   `2026-08-10-autonomous-issue-cleanup-adr.md` и `2026-08-20-owner-out-of-github`.

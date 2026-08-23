@@ -5,9 +5,15 @@ import { useSession } from "next-auth/react";
 import { reachGoal } from "@/lib/metrika";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
-import { InventoryItemPicker, type BookingItem, itemsToPayload } from "@/components/inventory-item-picker";
+import {
+  InventoryItemPicker,
+  itemsToPayload,
+  type BookingItem,
+  type ResolvedBookingItem,
+} from "@/components/inventory-item-picker";
 import { pickRandom, TOAST_BOOKING_SUCCESS } from "@/lib/easter-eggs";
 import { formatDate as formatDateUnified } from "@/lib/format";
+import { OfferAcceptance, type SummaryLine } from "@/components/public/offer-acceptance";
 
 type TimeSlot = {
   startTime: string;
@@ -55,8 +61,10 @@ export function BookingFlow() {
   const [guestCount, setGuestCount] = useState("");
   const [comment, setComment] = useState("");
   const [selectedItems, setSelectedItems] = useState<BookingItem[]>([]);
+  const [resolvedItems, setResolvedItems] = useState<ResolvedBookingItem[]>([]);
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+  const [guestEmail, setGuestEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
@@ -168,7 +176,10 @@ export function BookingFlow() {
     };
   }
 
-  async function submitBooking() {
+  async function submitBooking(acceptance: {
+    acceptMarketing: boolean;
+    offerVersionSlug: string;
+  }) {
     const timeRange = getTimeRange();
     if (!selectedResourceId || !timeRange) return;
     setSubmitting(true);
@@ -185,7 +196,16 @@ export function BookingFlow() {
           ...(guestCount && { guestCount: parseInt(guestCount, 10) }),
           ...(comment && { comment }),
           items: itemsToPayload(selectedItems),
-          ...(!isAuthenticated && { guestName: guestName.trim(), guestPhone: guestPhone.trim() }),
+          ...(!isAuthenticated && {
+            guestName: guestName.trim(),
+            guestPhone: guestPhone.trim(),
+            email: guestEmail.trim(),
+          }),
+          // Акцепт: отметка, редакция, которую видел клиент, и отдельное
+          // согласие на рекламу. IP и user-agent проставит сервер.
+          acceptOffer: true,
+          offerVersionSlug: acceptance.offerVersionSlug,
+          acceptMarketing: acceptance.acceptMarketing,
         }),
       });
       const data = await res.json();
@@ -217,16 +237,57 @@ export function BookingFlow() {
     setGuestCount("");
     setComment("");
     setSelectedItems([]);
+    setResolvedItems([]);
     setAvailability([]);
     setGuestName("");
     setGuestPhone("");
+    setGuestEmail("");
   }
 
   const selectedResource = getSelectedResource();
   const timeRange = getTimeRange();
   const breakdown = getPriceBreakdown();
   const totalPrice = breakdown?.total ?? 0;
+  const itemsTotal = resolvedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const fmtRub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
+
+  /**
+   * Сводка заказа построчно (ТЗ §5.1.1): аренда и каждая доп. услуга своей
+   * строкой с ценой. Итог считает сам блок акцепта — из тех же чисел, что
+   * уезжают на сервер.
+   */
+  function summaryLines(): SummaryLine[] {
+    const lines: SummaryLine[] = [];
+    if (selectedResource && timeRange) {
+      lines.push({
+        label: `${selectedResource.resource.name} · ${formatDate(date)} · ${timeRange.startTime}–${timeRange.endTime}`,
+        value: "",
+        muted: true,
+      });
+    }
+    if (breakdown) {
+      lines.push({
+        label: breakdown.appliedDayRate
+          ? `Аренда, дневной тариф (${breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})`
+          : `Аренда, ${breakdown.hours} ч × ${fmtRub(breakdown.hourRate)} (${breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})`,
+        value: fmtRub(breakdown.total),
+      });
+      if (breakdown.appliedDayRate && breakdown.savings > 0) {
+        lines.push({
+          label: "Экономия против почасового тарифа",
+          value: `−${fmtRub(breakdown.savings)}`,
+          muted: true,
+        });
+      }
+    }
+    for (const item of resolvedItems) {
+      lines.push({
+        label: `${item.name} × ${item.quantity} ${item.unit}`,
+        value: fmtRub(item.price * item.quantity),
+      });
+    }
+    return lines;
+  }
 
   return (
     <>
@@ -442,7 +503,8 @@ export function BookingFlow() {
           {/* Step 3: Form */}
           {step === "form" && selectedResource && timeRange && (
             <div className="space-y-5">
-              {/* Summary */}
+              {/* Параметры брони. Цены — ниже, в сводке над кнопкой оплаты:
+                  итог должен считаться там же, где клиент подтверждает заказ. */}
               <div className="rounded-2xl border border-black/[0.08] p-5 space-y-2">
                 {[
                   ["Беседка", selectedResource.resource.name],
@@ -454,45 +516,14 @@ export function BookingFlow() {
                     <span className="text-[#1d1d1f] font-medium">{val}</span>
                   </div>
                 ))}
-                {breakdown && breakdown.total > 0 && (
-                  <div className="pt-2 border-t border-black/[0.04] mt-2 space-y-1.5 font-[family-name:var(--font-inter)] text-sm">
-                    {breakdown.appliedDayRate ? (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-[#86868b]">
-                            Дневной тариф{" "}
-                            <span className="text-[#86868b]/60 text-xs">
-                              ({breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})
-                            </span>
-                          </span>
-                          <span className="text-[#1d1d1f] font-medium">{fmtRub(breakdown.dayRate)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-[#86868b]/70 line-through">
-                            {breakdown.hours} ч × {fmtRub(breakdown.hourRate)}
-                          </span>
-                          <span style={{ color: ACCENT }} className="font-medium">
-                            экономия {fmtRub(breakdown.savings)}
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex justify-between">
-                        <span className="text-[#86868b]">
-                          {breakdown.hours} ч × {fmtRub(breakdown.hourRate)}{" "}
-                          <span className="text-[#86868b]/60 text-xs">
-                            ({breakdown.isWeekend ? "Пт–Вс" : "Пн–Чт"})
-                          </span>
-                        </span>
-                        <span className="text-[#1d1d1f] font-medium">{fmtRub(breakdown.total)}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Inventory item picker */}
-              <InventoryItemPicker value={selectedItems} onChange={setSelectedItems} />
+              <InventoryItemPicker
+                value={selectedItems}
+                onChange={setSelectedItems}
+                onResolvedChange={setResolvedItems}
+              />
 
               {/* Guest count */}
               <div>
@@ -544,7 +575,7 @@ export function BookingFlow() {
                         Бронирование без регистрации
                       </p>
                       <p className="text-[#86868b] text-xs mt-0.5 font-[family-name:var(--font-inter)]">
-                        Администратор свяжется с вами по телефону для подтверждения
+                        На e-mail придёт подтверждение брони и ссылка на её отмену или перенос
                       </p>
                     </div>
                     <button
@@ -592,33 +623,43 @@ export function BookingFlow() {
                         className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
                       />
                     </div>
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="guest-email"
+                        className="block text-[#86868b] text-xs font-[family-name:var(--font-inter)] mb-1.5"
+                      >
+                        E-mail
+                      </label>
+                      <input
+                        id="guest-email"
+                        type="email"
+                        value={guestEmail}
+                        onChange={(e) => setGuestEmail(e.target.value)}
+                        placeholder="ivan@example.com"
+                        required
+                        autoComplete="email"
+                        className="w-full bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] placeholder-[#86868b]/50 text-sm font-[family-name:var(--font-inter)] focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 transition-colors"
+                      />
+                      <p className="text-[#86868b]/70 text-xs mt-1.5 font-[family-name:var(--font-inter)]">
+                        Сюда придут подтверждение бронирования и кассовый чек.
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Actions */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep("slots")}
-                  className="bg-[#1d1d1f]/[0.06] hover:bg-[#1d1d1f]/[0.1] text-[#1d1d1f] text-sm px-6 py-3 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium"
-                >
-                  Назад
-                </button>
-                <button
-                  onClick={submitBooking}
-                  disabled={
-                    submitting ||
-                    (!isAuthenticated && (!guestName.trim() || !guestPhone.trim()))
-                  }
-                  className="bg-[#0071e3] text-white font-medium text-sm py-3 px-6 rounded-full hover:bg-[#0077ED] transition-all disabled:opacity-50 font-[family-name:var(--font-inter)]"
-                >
-                  {submitting ? "Отправка..." : "Забронировать"}
-                </button>
-              </div>
-
-              <p className="text-[#86868b]/60 text-xs font-[family-name:var(--font-inter)]">
-                После отправки заявки администратор подтвердит бронирование.
-              </p>
+              {/* Акцепт оферты — сводка, условия отмены, отметки, оплата */}
+              <OfferAcceptance
+                lines={summaryLines()}
+                total={totalPrice + itemsTotal}
+                submitting={submitting}
+                disabled={
+                  !isAuthenticated &&
+                  (!guestName.trim() || !guestPhone.trim() || !guestEmail.trim())
+                }
+                onSubmit={submitBooking}
+                onBack={() => setStep("slots")}
+              />
             </div>
           )}
 

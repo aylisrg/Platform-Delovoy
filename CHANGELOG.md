@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.17.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.16.0...v2.17.0) (2026-08-21)
+
+
+### Features
+
+* **payments:** НДС 5% (vat_code 7) во всех чеках ЮKassa ([#709](https://github.com/aylisrg/Platform-Delovoy/issues/709)) ([9dd517c](https://github.com/aylisrg/Platform-Delovoy/commit/9dd517c9de4433f596c3453cbcfb399bebbd4457))
+* **queue:** владелец вне GitHub — зонтики мелочи, деплой-трейн, решения в Telegram ([#710](https://github.com/aylisrg/Platform-Delovoy/issues/710)) ([b003768](https://github.com/aylisrg/Platform-Delovoy/commit/b0037683e65faa97b8648c37a4a2452cf633b60a))
+
+
+### Bug Fixes
+
+* **queue:** reject blocked-question паркует задачу — переспрос-петля исключена ([#715](https://github.com/aylisrg/Platform-Delovoy/issues/715)) ([263954d](https://github.com/aylisrg/Platform-Delovoy/commit/263954db29d76c9fc4943eb3f90c6fd5579d4109))
+* **queue:** красный dependabot-PR лечится сам, одиночные бампы уходят в очередь ([#724](https://github.com/aylisrg/Platform-Delovoy/issues/724)) ([69b4a0f](https://github.com/aylisrg/Platform-Delovoy/commit/69b4a0fdf58d80cc9bd7eb4bb74ca4e12e33e5f4))
+
 ## [2.16.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.15.0...v2.16.0) (2026-08-18)
 
 
