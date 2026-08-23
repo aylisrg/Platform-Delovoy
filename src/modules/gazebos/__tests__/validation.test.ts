@@ -88,6 +88,10 @@ describe("createBookingSchema", () => {
     date: "2030-06-15",
     startTime: "10:00",
     endTime: "11:00",
+    // Акцепт оферты — обязательная часть публичной формы: договор
+    // заключается оплатой, а оплата без отметки о согласии невозможна.
+    acceptOffer: true as const,
+    offerVersionSlug: "v1",
   };
 
   it("accepts valid booking input", () => {
@@ -114,6 +118,46 @@ describe("createBookingSchema", () => {
     if (!result.success) {
       expect(result.error.issues.some((i) => i.path.includes("endTime"))).toBe(true);
     }
+  });
+
+  it("отклоняет бронь без отметки о согласии с офертой", () => {
+    const { acceptOffer: _omit, ...withoutAccept } = validInput;
+    const result = createBookingSchema.safeParse(withoutAccept);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.includes("acceptOffer"))).toBe(true);
+    }
+  });
+
+  it("отклоняет явно снятую отметку — false это не согласие", () => {
+    const result = createBookingSchema.safeParse({ ...validInput, acceptOffer: false });
+    expect(result.success).toBe(false);
+  });
+
+  it("отклоняет бронь без указания редакции оферты", () => {
+    const { offerVersionSlug: _omit, ...withoutVersion } = validInput;
+    expect(createBookingSchema.safeParse(withoutVersion).success).toBe(false);
+  });
+
+  it("по умолчанию НЕ даёт согласия на рекламу", () => {
+    const result = createBookingSchema.safeParse(validInput);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.acceptMarketing).toBe(false);
+    }
+  });
+
+  it("принимает явное согласие на рекламу", () => {
+    const result = createBookingSchema.safeParse({ ...validInput, acceptMarketing: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.acceptMarketing).toBe(true);
+    }
+  });
+
+  it("отклоняет некорректный e-mail", () => {
+    const result = createBookingSchema.safeParse({ ...validInput, email: "не-почта" });
+    expect(result.success).toBe(false);
   });
 
   it("rejects when endTime equals startTime", () => {

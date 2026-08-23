@@ -9,6 +9,7 @@
  * Состав:
  *   - seedCore  — справочные данные ядра (modules, resources, menu, offices, recurring expenses)
  *   - seedTasks — модуль задач (board, columns, categories)
+ *   - seedLegalDocuments — редакции публичной оферты и политики обработки ПД
  *
  * Все доменные сидеры идемпотентны (см. ADR-0001 §"Идемпотентность").
  * Порядок: core → tasks (Module rows должны существовать до зависимых).
@@ -21,6 +22,7 @@ import { PrismaClient } from "@prisma/client";
 import { seedParks } from "./seeds/parks";
 import { seedCore } from "./seeds/core";
 import { seedTasks } from "./seeds/tasks";
+import { seedLegalDocuments } from "./seeds/legal";
 import { seedNedelovoyGrants } from "./seeds/nedelovoy-grants";
 import { seedDevOverlay } from "./seeds/dev-overlay";
 
@@ -31,6 +33,7 @@ async function main(): Promise<void> {
     await seedParks(prisma); // Parks must exist before Module grants that reference them
     await seedCore(prisma);
     await seedTasks(prisma);
+    await seedLegalDocuments(prisma); // редакции оферты и политики ПД
     await seedNedelovoyGrants(prisma); // After seedCore — Module records must exist
     if (process.env.DEV_OVERLAY === "1") {
       await seedDevOverlay(prisma);

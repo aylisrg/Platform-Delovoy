@@ -39,12 +39,14 @@ const validBody = {
   date: "2026-06-15",
   startTime: "10:00",
   endTime: "12:00",
+  acceptOffer: true,
+  offerVersionSlug: "v1",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
-  mockCreateBooking.mockResolvedValue({ id: "bk-1", metadata: {} });
+  mockCreateBooking.mockResolvedValue({ id: "bk-1", metadata: {}, manageToken: "raw-token" });
 });
 
 describe("POST /api/gazebos/book", () => {
@@ -54,7 +56,11 @@ describe("POST /api/gazebos/book", () => {
 
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
-    expect(mockCreateBooking).toHaveBeenCalledWith("user-1", expect.objectContaining({ resourceId: "res-1" }));
+    expect(mockCreateBooking).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ resourceId: "res-1" }),
+      expect.any(Object)
+    );
     expect(mockLogAudit).toHaveBeenCalledWith("user-1", "booking.create", "Booking", "bk-1", expect.any(Object));
     expect(mockLogInfo).not.toHaveBeenCalled();
   });
@@ -67,7 +73,11 @@ describe("POST /api/gazebos/book", () => {
 
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
-    expect(mockCreateBooking).toHaveBeenCalledWith(null, expect.objectContaining({ guestName: "Иван" }));
+    expect(mockCreateBooking).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ guestName: "Иван" }),
+      expect.any(Object)
+    );
     // Гостевые брони не привязаны к User — в AuditLog не попадают, только SystemEvent info.
     expect(mockLogAudit).not.toHaveBeenCalled();
     expect(mockLogInfo).toHaveBeenCalledWith("gazebos", "Guest booking created", expect.any(Object));
@@ -136,5 +146,55 @@ describe("POST /api/gazebos/book", () => {
 
     expect(res.status).toBe(500);
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+});
+
+describe("POST /api/gazebos/book — акцепт оферты", () => {
+  function requestWithHeaders(body: unknown, headers: Record<string, string>) {
+    return new NextRequest("http://localhost/api/gazebos/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("отклоняет бронь без отметки о согласии", async () => {
+    const { acceptOffer: _omit, ...withoutAccept } = validBody;
+    const res = await POST(makeRequest(withoutAccept));
+    const body = await res.json();
+
+    // apiValidationError → 422, как у всех схемных отказов в проекте.
+    expect(res.status).toBe(422);
+    expect(body.success).toBe(false);
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  it("отклоняет явно снятую отметку", async () => {
+    const res = await POST(makeRequest({ ...validBody, acceptOffer: false }));
+    expect(res.status).toBe(422);
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  it("берёт IP и user-agent из запроса, а не из тела", async () => {
+    await POST(
+      requestWithHeaders(
+        { ...validBody, acceptedIp: "1.2.3.4", acceptedUserAgent: "подделка" },
+        { "x-real-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (real)" }
+      )
+    );
+
+    expect(mockCreateBooking).toHaveBeenCalledWith("user-1", expect.any(Object), {
+      ip: "203.0.113.7",
+      userAgent: "Mozilla/5.0 (real)",
+    });
+  });
+
+  it("не отдаёт наружу сырой токен управления бронью", async () => {
+    const res = await POST(makeRequest(validBody));
+    const body = await res.json();
+
+    expect(body.success).toBe(true);
+    expect(body.data.manageToken).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("raw-token");
   });
 });

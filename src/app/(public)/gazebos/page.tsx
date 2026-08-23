@@ -45,8 +45,9 @@ const jsonLd = {
         {
           "@type": "OpeningHoursSpecification",
           dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-          opens: "10:00",
-          closes: "22:00",
+          // Режим работы по п. 3.4 оферты и Приложению № 1.
+          opens: "11:00",
+          closes: "22:30",
         },
       ],
       hasOfferCatalog: {

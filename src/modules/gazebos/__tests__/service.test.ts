@@ -65,6 +65,9 @@ vi.mock("@/lib/db", () => ({
     module: {
       findUnique: vi.fn().mockResolvedValue({ config: { maxDiscountPercent: 30, minBookingHours: 4 } }),
     },
+    offerVersion: {
+      findFirst: vi.fn(),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       // Delegate tx calls to the top-level prisma mocks so existing assertions work
       const { prisma: p } = await import("@/lib/db");
@@ -140,6 +143,28 @@ const validBookingInput = {
   date: FUTURE_DATE,
   startTime: "10:00",
   endTime: "14:00", // 4 hours — meets minimum
+};
+
+/** Действующая редакция оферты — её резолвит buildAcceptance(). */
+const CURRENT_OFFER = {
+  id: "ov-1",
+  documentKey: "gazebos-offer",
+  number: 1,
+  slug: "v1",
+  title: "Публичная оферта",
+  body: "# ПУБЛИЧНАЯ ОФЕРТА\n",
+  contentHash: "hash-v1",
+  publishedAt: new Date("2026-08-21T00:00:00Z"),
+  effectiveAt: new Date("2026-08-22T00:00:00Z"),
+  isCurrent: true,
+};
+
+/** Ввод публичной веб-формы: там акцепт обязателен. */
+const acceptedBookingInput = {
+  ...validBookingInput,
+  acceptOffer: true as const,
+  offerVersionSlug: "v1",
+  acceptMarketing: false,
 };
 
 beforeEach(() => {
@@ -330,7 +355,7 @@ describe("createBooking", () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
 
     await expect(
-      createBooking("user-1", { ...validBookingInput, startTime: "08:00", endTime: "18:00" }) // 10h > 8h
+      createBooking("user-1", { ...validBookingInput, startTime: "11:00", endTime: "21:00" }) // 10h > 8h
     ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
   });
 
@@ -387,6 +412,7 @@ describe("createBooking", () => {
       ...validBookingInput,
       guestName: "Иван",
       guestPhone: "+79001234567",
+      email: "ivan@example.com",
     });
 
     expect(prisma.booking.create).toHaveBeenCalledWith(
@@ -808,14 +834,15 @@ describe("cancelBooking", () => {
 // ===== getAvailability =====
 
 describe("getAvailability", () => {
-  it("returns 15 slots per resource (8:00–23:00)", async () => {
+  it("returns 11 slots per resource (11:00–22:00)", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]); // no bookings
 
     const result = await getAvailability(FUTURE_DATE);
 
     expect(result.resources).toHaveLength(1);
-    expect(result.resources[0].slots).toHaveLength(15); // hours 8,9,10,...,22 = 15 slots
+    // Режим работы Барбекю Парка по п. 3.4 оферты: часы 11,12,…,21 = 11 слотов.
+    expect(result.resources[0].slots).toHaveLength(11);
   });
 
   it("includes minBookingHours in response", async () => {
@@ -840,30 +867,30 @@ describe("getAvailability", () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       mockBooking({
-        // 10:00–11:00 Moscow = 07:00Z–08:00Z (stored in UTC).
-        startTime: new Date(`${FUTURE_DATE}T07:00:00.000Z`),
-        endTime: new Date(`${FUTURE_DATE}T08:00:00.000Z`),
+        // 12:00–13:00 Moscow = 09:00Z–10:00Z (stored in UTC).
+        startTime: new Date(`${FUTURE_DATE}T09:00:00.000Z`),
+        endTime: new Date(`${FUTURE_DATE}T10:00:00.000Z`),
         status: "CONFIRMED",
       }),
     ] as never);
 
     const result = await getAvailability(FUTURE_DATE);
-    const slot10 = result.resources[0].slots.find((s) => s.startTime === "10:00");
+    const slot12 = result.resources[0].slots.find((s) => s.startTime === "12:00");
 
-    expect(slot10?.isAvailable).toBe(false);
+    expect(slot12?.isAvailable).toBe(false);
   });
 
-  it("returns correct slot time labels (first: 08:00, last: 22:00)", async () => {
+  it("returns correct slot time labels (first: 11:00, last: 21:00)", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
 
     const result = await getAvailability(FUTURE_DATE);
     const slots = result.resources[0].slots;
 
-    expect(slots[0].startTime).toBe("08:00");
-    expect(slots[0].endTime).toBe("09:00");
-    expect(slots[slots.length - 1].startTime).toBe("22:00");
-    expect(slots[slots.length - 1].endTime).toBe("23:00");
+    expect(slots[0].startTime).toBe("11:00");
+    expect(slots[0].endTime).toBe("12:00");
+    expect(slots[slots.length - 1].startTime).toBe("21:00");
+    expect(slots[slots.length - 1].endTime).toBe("22:00");
   });
 
   it("filters by resourceId when provided", async () => {
@@ -914,15 +941,15 @@ describe("getAvailability уважает openHour/closeHour/maxBookingHours из
     expect(result.maxBookingHours).toBe(6);
   });
 
-  it("падает обратно на 8–23, если openHour/closeHour не настроены", async () => {
+  it("падает обратно на 11–22 (режим работы из оферты), если openHour/closeHour не настроены", async () => {
     vi.mocked(prisma.resource.findMany).mockResolvedValue([mockResource()] as never);
     vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
     vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
 
     const result = await getAvailability(FUTURE_DATE);
 
-    expect(result.openHour).toBe(8);
-    expect(result.closeHour).toBe(23);
+    expect(result.openHour).toBe(11);
+    expect(result.closeHour).toBe(22);
   });
 });
 
@@ -1017,7 +1044,7 @@ describe("createAdminBooking", () => {
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
 
     await expect(
-      createAdminBooking("admin-1", { ...validAdminInput, startTime: "08:00", endTime: "18:00" }) // 10h > 8h
+      createAdminBooking("admin-1", { ...validAdminInput, startTime: "11:00", endTime: "21:00" }) // 10h > 8h
     ).rejects.toMatchObject({ code: "DURATION_ABOVE_MAX" });
   });
 
@@ -1194,9 +1221,9 @@ describe("getTimeline", () => {
     expect(result.date).toBe(FUTURE_DATE);
     expect(result.resources).toHaveLength(2);
     expect(result.bookings).toHaveLength(1);
-    expect(result.hours).toHaveLength(15); // 08:00 to 22:00
-    expect(result.hours[0]).toBe("08:00");
-    expect(result.hours[14]).toBe("22:00");
+    expect(result.hours).toHaveLength(11); // 11:00 … 21:00
+    expect(result.hours[0]).toBe("11:00");
+    expect(result.hours[10]).toBe("21:00");
     expect(result.bookings[0]).toMatchObject({
       id: "b1",
       resourceId: "r1",
@@ -1494,6 +1521,15 @@ const priceListResource = () =>
   });
 
 describe("rescheduleBooking", () => {
+  // Часы работы эти тесты не проверяют — фиксируем широкое окно, чтобы
+  // фикстуры на 09:00–16:00 не упирались в дефолт 11–22 из оферты.
+  // Сам дефолт покрыт отдельным тестом в describe("getAvailability…").
+  beforeEach(() => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 8, closeHour: 23, maxDiscountPercent: 30, minBookingHours: 4 },
+    } as never);
+  });
+
   it("recomputes weekend price on a time change and writes an audit record", async () => {
     const booking = mockBooking({
       status: "CONFIRMED",
@@ -1578,7 +1614,7 @@ describe("rescheduleBooking", () => {
     );
     vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
     vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      config: { minBookingHours: 1, maxBookingHours: 5 },
+      config: { minBookingHours: 1, maxBookingHours: 5, openHour: 8, closeHour: 23 },
     } as never);
 
     await expect(
@@ -1593,6 +1629,15 @@ describe("rescheduleBooking", () => {
 // ни одного enqueueNotification — после переноса времени событие GCal оставалось
 // на старом слоте, клиент и Telegram-канал не узнавали об изменении.
 describe("перенос синхронизирует Google Calendar и уведомляет (#433)", () => {
+  // Часы работы эти тесты не проверяют — фиксируем широкое окно, чтобы
+  // фикстуры на 09:00–16:00 не упирались в дефолт 11–22 из оферты.
+  // Сам дефолт покрыт отдельным тестом в describe("getAvailability…").
+  beforeEach(() => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 8, closeHour: 23, maxDiscountPercent: 30, minBookingHours: 4 },
+    } as never);
+  });
+
   it("патчит то же событие в календаре при переносе времени на том же ресурсе", async () => {
     // +03:00 явно: формат "10:00" без офсета парсится как UTC, а не Moscow, и
     // 2ч между таким "10:00" и Moscow-инстантом "15:00" не проходят DURATION_BELOW_MIN.
@@ -2151,5 +2196,124 @@ describe("soft-delete filter (deletedAt: null) в чтениях (#423)", () => 
         where: expect.objectContaining({ deletedAt: null }),
       })
     );
+  });
+});
+
+// === АКЦЕПТ ОФЕРТЫ ===
+
+describe("createBooking — фиксация акцепта", () => {
+  beforeEach(() => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+    vi.mocked(prisma.offerVersion.findFirst).mockResolvedValue(CURRENT_OFFER as never);
+  });
+
+  it("пишет редакцию, хеш, момент, IP и user-agent", async () => {
+    const before = Date.now();
+    await createBooking("user-1", acceptedBookingInput, {
+      ip: "203.0.113.7",
+      userAgent: "Mozilla/5.0 (тест)",
+    });
+
+    const data = vi.mocked(prisma.booking.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.offerVersionId).toBe("ov-1");
+    expect(data.offerContentHash).toBe("hash-v1");
+    expect(data.acceptedIp).toBe("203.0.113.7");
+    expect(data.acceptedUserAgent).toBe("Mozilla/5.0 (тест)");
+    expect((data.acceptedOfferAt as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("не выдумывает согласие на рекламу", async () => {
+    await createBooking("user-1", acceptedBookingInput);
+    const data = vi.mocked(prisma.booking.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.acceptedMarketing).toBe(false);
+  });
+
+  it("пишет согласие на рекламу, когда оно пришло из тела запроса", async () => {
+    await createBooking("user-1", { ...acceptedBookingInput, acceptMarketing: true });
+    const data = vi.mocked(prisma.booking.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.acceptedMarketing).toBe(true);
+  });
+
+  it("НЕ пишет акцепт, если его не было в запросе (бот, Mini App)", async () => {
+    await createBooking("user-1", validBookingInput);
+    const data = vi.mocked(prisma.booking.create).mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.acceptedOfferAt).toBeUndefined();
+    expect(data.offerVersionId).toBeUndefined();
+    expect(data.offerContentHash).toBeUndefined();
+    expect(data.acceptedMarketing).toBeUndefined();
+  });
+
+  it("отказывает, если редакция сменилась, пока клиент читал документ", async () => {
+    vi.mocked(prisma.offerVersion.findFirst).mockResolvedValue({
+      ...CURRENT_OFFER,
+      slug: "v2",
+    } as never);
+
+    await expect(
+      createBooking("user-1", acceptedBookingInput)
+    ).rejects.toMatchObject({ code: "OFFER_VERSION_STALE" });
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("отказывает, если оферта ещё не опубликована", async () => {
+    vi.mocked(prisma.offerVersion.findFirst).mockResolvedValue(null as never);
+
+    await expect(
+      createBooking("user-1", acceptedBookingInput)
+    ).rejects.toMatchObject({ code: "OFFER_NOT_PUBLISHED" });
+    expect(prisma.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("кладёт в бронь хеш токена управления, а не сам токен", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    const result = await createBooking("user-1", acceptedBookingInput);
+
+    // Токен выводится из id брони, поэтому хеш проставляется отдельным update
+    // после вставки — на create его ещё нет.
+    const update = vi
+      .mocked(prisma.booking.update)
+      .mock.calls.find((c) => "manageTokenHash" in (c[0].data as object));
+    expect(update).toBeDefined();
+    const hash = (update![0].data as Record<string, unknown>).manageTokenHash;
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.manageToken).toBeTruthy();
+    expect(hash).not.toBe(result.manageToken);
+  });
+
+  it("без секрета самообслуживания бронь всё равно создаётся", async () => {
+    const auth = process.env.AUTH_SECRET;
+    const nextAuth = process.env.NEXTAUTH_SECRET;
+    const manage = process.env.BOOKING_MANAGE_SECRET;
+    delete process.env.AUTH_SECRET;
+    delete process.env.NEXTAUTH_SECRET;
+    delete process.env.BOOKING_MANAGE_SECRET;
+
+    const result = await createBooking("user-1", acceptedBookingInput);
+
+    expect(result.id).toBeTruthy();
+    expect(result.manageToken).toBeNull();
+    expect(
+      vi.mocked(prisma.booking.update).mock.calls.some(
+        (c) => "manageTokenHash" in (c[0].data as object)
+      )
+    ).toBe(false);
+
+    if (auth) process.env.AUTH_SECRET = auth;
+    if (nextAuth) process.env.NEXTAUTH_SECRET = nextAuth;
+    if (manage) process.env.BOOKING_MANAGE_SECRET = manage;
+  });
+
+  it("требует e-mail у гостя — иначе подтверждение доставить некуда", async () => {
+    await expect(
+      createBooking(null, {
+        ...acceptedBookingInput,
+        guestName: "Иван",
+        guestPhone: "+79001234567",
+      })
+    ).rejects.toMatchObject({ code: "GUEST_EMAIL_REQUIRED" });
   });
 });

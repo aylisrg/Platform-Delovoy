@@ -70,3 +70,27 @@ describe("authorized(): платёжный контур", () => {
     await expectAnon401(await authorize("POST", "/api/payments/clxyz/refund"));
   });
 });
+
+describe("authorized(): юридические документы и управление бронью", () => {
+  it("анонимный GET /api/legal/current проходит — форма должна знать редакцию", async () => {
+    expect(await authorize("GET", "/api/legal/current")).toBe(true);
+  });
+
+  it("анонимный GET /api/booking/{token} проходит — страница работает без входа", async () => {
+    expect(await authorize("GET", "/api/booking/AbCdEf0123456789")).toBe(true);
+  });
+
+  it("анонимный POST /api/booking/{token} проходит — отмена и перенос по токену", async () => {
+    expect(await authorize("POST", "/api/booking/AbCdEf0123456789")).toBe(true);
+  });
+
+  it("голый /api/booking (без токена) остаётся за сессией", async () => {
+    await expectAnon401(await authorize("GET", "/api/booking"));
+    await expectAnon401(await authorize("POST", "/api/booking"));
+  });
+
+  it("админские роуты броней анонимно не открываются", async () => {
+    await expectAnon401(await authorize("GET", "/api/gazebos/bookings"));
+    await expectAnon401(await authorize("GET", "/api/gazebos/timeline"));
+  });
+});

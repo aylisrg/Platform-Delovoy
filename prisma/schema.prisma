@@ -212,6 +212,23 @@ model Booking {
   deletedAt DateTime?
   callLogs  CallLog[]
   orders    Order[]   @relation("OrderBooking")
+
+  // === АКЦЕПТ ПУБЛИЧНОЙ ОФЕРТЫ ===
+  // Доказательственный слой: чем именно клиент себя связал, когда и откуда.
+  // Все поля nullable — брони до публикации оферты и админ-брони (акцепт за
+  // клиента не проставляется, ТЗ §5.4) остаются валидными без них.
+  // Хеш редакции лежит рядом с FK намеренно: ссылки на номер редакции мало,
+  // хеш доказывает, что показанный клиенту текст не правили задним числом.
+  offerVersion      OfferVersion? @relation(fields: [offerVersionId], references: [id])
+  offerVersionId    String?
+  offerContentHash  String?
+  acceptedOfferAt   DateTime?
+  acceptedMarketing Boolean       @default(false)
+  acceptedIp        String?
+  acceptedUserAgent String?
+  // SHA-256 от токена страницы /booking/[token]. Сырой токен уходит только в
+  // письмо и в БД не хранится — по номеру брони он невосстановим (ТЗ §8).
+  manageTokenHash   String?       @unique
   // EXCLUDE-констрейнт против двойного бронирования — DB-backstop поверх
   // advisory-lock (slot-lock.ts, #429). Prisma не умеет EXCLUDE; см. raw SQL:
   //   ALTER TABLE "Booking" ADD CONSTRAINT booking_no_overlap
@@ -223,6 +240,7 @@ model Booking {
   @@index([userId])
   @@index([resourceId])
   @@index([deletedAt])
+  @@index([offerVersionId])
 }
 
 enum BookingStatus {
@@ -2219,4 +2237,36 @@ model PaymentRefund {
   updatedAt        DateTime @updatedAt
 
   @@index([paymentId])
+}
+
+// === ЮРИДИЧЕСКИЕ ДОКУМЕНТЫ (публичная оферта, политика обработки ПД) ===
+
+/// Редакция публикуемого юридического документа.
+///
+/// Опубликованная редакция НЕИЗМЕНЯЕМА: правка текста = новая запись с новым
+/// номером (ТЗ §4.1, требование #6). Содержание должно быть восстановимо
+/// ровно в том виде, в каком его видел конкретный клиент год назад, поэтому
+/// `body` — снапшот текста, а не ссылка на файл; `contentHash` считается один
+/// раз при публикации и копируется в бронь при акцепте.
+///
+/// `number`/`slug` уникальны в пределах `documentKey`, а не глобально: у
+/// оферты Плей Парка будет своя «редакция № 1».
+model OfferVersion {
+  id          String   @id @default(cuid())
+  documentKey String // "gazebos-offer" | "privacy-policy"
+  number      Int // 1, 2, 3…
+  slug        String // "v1"
+  title       String
+  body        String   @db.Text // полный текст редакции (markdown)
+  contentHash String // SHA-256 от body
+  publishedAt DateTime // дата размещения на Сайте
+  effectiveAt DateTime // дата вступления в силу
+  isCurrent   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  bookings Booking[]
+
+  @@unique([documentKey, number])
+  @@unique([documentKey, slug])
+  @@index([documentKey, isCurrent])
 }

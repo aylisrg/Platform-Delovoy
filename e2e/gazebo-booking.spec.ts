@@ -20,8 +20,12 @@ test.describe("Бронирование беседки", () => {
     await page.locator("#booking-date").fill(futureDateInput(3));
     await page.getByRole("button", { name: "Показать доступность" }).click();
 
+    // Ищем внутри виджета бронирования: тем же <h3>{name}</h3> подписаны
+    // карточки беседок в маркетинговом блоке выше, и локатор по всей странице
+    // резолвится в два элемента.
+    const flow = page.getByTestId("booking-flow");
     // Card container: <h3>{name}</h3> is two ancestor <div>s below the card root.
-    const heading = page.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
+    const heading = flow.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
     await expect(heading).toBeVisible();
     const card = heading.locator("xpath=ancestor::div[2]");
 
@@ -58,7 +62,16 @@ test.describe("Бронирование беседки", () => {
     }
 
     await page.getByRole("button", { name: "Продолжить →" }).click();
-    await page.getByRole("button", { name: "Забронировать", exact: true }).click();
+
+    // Блок акцепта: без отметки оплата недоступна (ТЗ §5.2).
+    const submit = page.getByTestId("offer-accept-submit");
+    await expect(submit).toBeVisible();
+    await expect(submit).toHaveAttribute("aria-disabled", "true");
+
+    await page.getByRole("checkbox", { name: /ознакомлен/i }).check();
+    await expect(submit).toHaveAttribute("aria-disabled", "false");
+    await submit.click();
+
     await expect(page.getByRole("heading", { name: "Заявка отправлена!" })).toBeVisible({
       timeout: 15_000,
     });
@@ -75,5 +88,64 @@ test.describe("Бронирование беседки", () => {
     expect(booking).not.toBeNull();
     expect(booking!.status).toBe("PENDING");
     expect(booking!.userId).toBe(userId);
+
+    // Акцепт зафиксирован на сервере: редакция, хеш её текста, момент, IP и
+    // user-agent (ТЗ §6.2, требование #7).
+    expect(booking!.acceptedOfferAt).not.toBeNull();
+    expect(booking!.offerVersionId).not.toBeNull();
+    expect(booking!.offerContentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(booking!.acceptedUserAgent).toBeTruthy();
+    // Согласие на рекламу отдельное и по умолчанию не дано.
+    expect(booking!.acceptedMarketing).toBe(false);
+  });
+
+  test("обе отметки при загрузке сняты и не восстанавливаются после перезагрузки", async ({
+    page,
+  }) => {
+    await loginAs(page, "user@local", "user");
+    await page.goto("/gazebos");
+    await page.locator("#booking-date").fill(futureDateInput(4));
+    await page.getByRole("button", { name: "Показать доступность" }).click();
+
+    const flow = page.getByTestId("booking-flow");
+    const heading = flow.getByRole("heading", { level: 3, name: GAZEBO_NAME, exact: true });
+    await expect(heading).toBeVisible();
+    const card = heading.locator("xpath=ancestor::div[2]");
+
+    const minHoursText = await page.getByText(/^Минимум \d+ ч\.$/).textContent();
+    const minHours = Number(minHoursText?.match(/\d+/)?.[0] ?? 1);
+
+    const slots = card.getByRole("button", { name: /^\d{2}:\d{2}–\d{2}:\d{2}$/ });
+    await expect(slots.first()).toBeVisible();
+    const total = await slots.count();
+    let startIdx = -1;
+    for (let i = 0; i <= total - minHours; i++) {
+      let free = true;
+      for (let j = 0; j < minHours; j++) {
+        if (!(await slots.nth(i + j).isEnabled())) {
+          free = false;
+          break;
+        }
+      }
+      if (free) {
+        startIdx = i;
+        break;
+      }
+    }
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    for (let i = startIdx; i < startIdx + minHours; i++) await slots.nth(i).click();
+    await page.getByRole("button", { name: "Продолжить →" }).click();
+
+    const offer = page.getByRole("checkbox", { name: /ознакомлен/i });
+    const marketing = page.getByRole("checkbox", { name: /рекламные сообщения/i });
+    await expect(offer).not.toBeChecked();
+    await expect(marketing).not.toBeChecked();
+
+    await offer.check();
+    await marketing.check();
+
+    // После перезагрузки отметки обязаны быть сняты снова (требование #9.1).
+    await page.reload();
+    await expect(page.getByRole("checkbox", { name: /ознакомлен/i })).toHaveCount(0);
   });
 });

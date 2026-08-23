@@ -154,7 +154,17 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/payments/") ||
         // Reconciliation-cron ходит из crontab без сессии; роут сам проверяет
         // CRON_SECRET (timingSafeEqual) и отвечает 401 без него.
-        pathname === "/api/cron/payments-reconcile";
+        pathname === "/api/cron/payments-reconcile" ||
+        // Действующая редакция оферты — метаданные (номер, slug, дата) для
+        // формы бронирования. Публично по определению: сам текст лежит на
+        // /oferta и открыт всем.
+        pathname === "/api/legal/current" ||
+        // Управление бронью по ссылке из письма: страница работает без
+        // регистрации (ТЗ §8), капабилити-токен сверяется по SHA-256 в самом
+        // роуте, чужой и несуществующий неразличимы. Trailing slash обязателен —
+        // голого /api/booking не существует, а префикс без него открыл бы
+        // будущие роуты под этим именем.
+        pathname.startsWith("/api/booking/");
       const isPublicPostRoute =
         pathname === "/api/rental/inquiries" ||
         pathname.startsWith("/api/bot/") ||
@@ -168,7 +178,10 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/payments/yookassa/webhook/") ||
         // Public report form (Phase 5.4) — anonymous submission, IP rate-limited
         // (5/hour per IP) inside the route handler.
-        pathname === "/api/tasks/report";
+        pathname === "/api/tasks/report" ||
+        // Отмена, перенос и оплата брони со страницы управления: тот же
+        // капабилити-токен в пути, что и у GET (см. isPublicApiRoute).
+        pathname.startsWith("/api/booking/");
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
       // Webapp (Mini App) routes use their own JWT — not NextAuth sessions

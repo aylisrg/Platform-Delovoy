@@ -21,8 +21,9 @@ export async function GET() {
     if (!moduleRecord) return apiNotFound("Модуль не найден");
 
     const defaults = {
-      openHour: 8,
-      closeHour: 23,
+      // Режим работы по п. 3.4 оферты — 11:00–22:30 (см. gazebos/service.ts).
+      openHour: 11,
+      closeHour: 22,
       minBookingHours: 4,
       maxBookingHours: 8,
       publicBookingEnabled: true,
