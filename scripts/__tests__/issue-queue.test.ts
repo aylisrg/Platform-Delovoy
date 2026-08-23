@@ -33,6 +33,7 @@ import {
   pickNext,
   priorityOf,
   shouldHeartbeat,
+  shouldRerunParkedRun,
   snapshot,
   staleWipIssues,
   staleWipWithPr,
@@ -1092,6 +1093,37 @@ describe('isDependabotAutoMergeBranch', () => {
   });
 });
 
+describe('shouldRerunParkedRun', () => {
+  const parked = (over: Record<string, unknown> = {}) => ({
+    id: 1,
+    headBranch: 'release-please--branches--main--components--platform-delovoy',
+    runAttempt: 1,
+    conclusion: 'action_required',
+    sameRepo: true,
+    ...over,
+  });
+
+  it('запаркованный прогон ветки бота — будим', () => {
+    expect(shouldRerunParkedRun(parked())).toBe(true);
+    expect(shouldRerunParkedRun(parked({ headBranch: 'dependabot/npm_and_yarn/next-auth-5.0.0-beta.32' }))).toBe(true);
+    expect(shouldRerunParkedRun(parked({ headBranch: 'claude/issue-1-fix' }))).toBe(true);
+  });
+
+  it('вторая попытка не будится — предохранитель от петли, если перезапуск снова запаркуют', () => {
+    expect(shouldRerunParkedRun(parked({ runAttempt: 2 }))).toBe(false);
+  });
+
+  it('форк не трогаем: ручной аппрув там и защищает', () => {
+    expect(shouldRerunParkedRun(parked({ sameRepo: false }))).toBe(false);
+  });
+
+  it('чужая ветка и не запаркованный прогон — мимо', () => {
+    expect(shouldRerunParkedRun(parked({ headBranch: 'feature/manual' }))).toBe(false);
+    expect(shouldRerunParkedRun(parked({ conclusion: 'failure' }))).toBe(false);
+    expect(shouldRerunParkedRun(parked({ conclusion: null }))).toBe(false);
+  });
+});
+
 describe('claimedByQueue', () => {
   it('issue в очереди — PR взят: судят гейт и вердикты, а не правила для ботов', () => {
     expect(claimedByQueue(['wip'])).toBe(true);
@@ -1129,8 +1161,8 @@ describe('dependabotHealAction', () => {
     expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('to-queue');
   });
 
-  it('пересборки нет сутки — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
-    const comments = [asked(SHA, '2026-08-19T11:00:00Z')];
+  it('пересборки нет дольше порога — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
+    const comments = [asked(SHA, '2026-08-20T08:00:00Z')];
     const res = dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW });
     expect(res.action).toBe('to-queue');
     expect(res.reason).toContain('не ответил');
@@ -1147,11 +1179,11 @@ describe('dependabotHealAction', () => {
   });
 });
 
-describe('имена dependabot-групп не разъезжаются по трём файлам', () => {
-  // Одно и то же имя группы живёт в .github/dependabot.yml (кто попадает в
-  // пачку), в DEPENDABOT_AUTOMERGE_GROUPS (кого мержит свипер) и в условии
-  // dependabot-automerge.yml (кого НЕ надо конвертировать в задачу). Разъедутся —
-  // групповой PR начнёт заводить задачи или, хуже, повиснет без хозяина.
+describe('имена dependabot-групп не разъезжаются', () => {
+  // Имя группы живёт ровно в двух местах: .github/dependabot.yml (кто попадает в
+  // пачку) и DEPENDABOT_AUTOMERGE_GROUPS (кого мержит свипер). Разъедутся —
+  // групповой PR повиснет без хозяина. Третьим местом чуть не стал конвертер
+  // одиночных PR; он вместо сверки префикса ветки спрашивает сам dependabot.
   const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
 
   it('группы конфига == DEPENDABOT_AUTOMERGE_GROUPS', () => {
@@ -1159,10 +1191,11 @@ describe('имена dependabot-групп не разъезжаются по т
     expect(declared.sort()).toEqual([...DEPENDABOT_AUTOMERGE_GROUPS].sort());
   });
 
-  it('конвертер одиночных PR исключает ровно эти группы', () => {
+  it('конвертер отличает одиночку по метаданным dependabot, а не по имени ветки', () => {
     const wf = read('.github/workflows/dependabot-automerge.yml');
+    expect(wf).toContain("steps.metadata.outputs.dependency-group == ''");
     for (const group of DEPENDABOT_AUTOMERGE_GROUPS) {
-      expect(wf).toContain(`${group}')`);
+      expect(wf).not.toContain(`startsWith(github.head_ref, 'dependabot/npm_and_yarn/${group}`);
     }
   });
 });

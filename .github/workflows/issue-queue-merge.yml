@@ -69,6 +69,29 @@ jobs:
       # незадеплоенным. Если PAT нет, деплой добивается явным dispatch ниже
       # (workflow_dispatch — одно из двух событий, которые GITHUB_TOKEN всё же
       # порождает), поэтому отсутствие секрета ничего не ломает.
+      # Лейбл заводит не только эта автоматика: dependabot ставит его своим PR
+      # (`.github/dependabot.yml`) и без существующего лейбла комментирует
+      # «The following labels could not be found» на каждом открытом PR — шум
+      # ровно в том списке, из которого владельца уводим. `|| true` — идемпотентность.
+      - name: Убедиться, что лейбл dependencies существует
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create "dependencies" --color 0366D6 --description "Обновление зависимостей" || true
+
+      # Запаркованные (`action_required`) прогоны ботов: без PAT GitHub не даёт им
+      # стартовать, и свипер ниже видит «CI не стартовал» — вечно. Будим их сами,
+      # по одному разу на прогон. continue-on-error: нет прав на actions:write —
+      # мерж всё равно должен идти своим чередом.
+      - name: Разбудить запаркованные CI-прогоны ботов
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/issue-queue.ts unpark ${{ inputs.dry_run && '--dry-run' || '' }}
+
       - name: Sweep mergeable PRs
         id: sweep
         env:

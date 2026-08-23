@@ -824,9 +824,16 @@ export type DependabotHealAction = 'none' | 'wait' | 'recreate' | 'to-queue';
 /**
  * Сколько ждать пересборки, прежде чем считать, что `@dependabot recreate` не
  * сработал (бот выключен, лимит, команда проигнорирована), и отдавать PR воркеру.
- * Пересборка обычно занимает минуты; сутки — заведомо «не придёт».
+ *
+ * Пересборка занимает минуты, так что порог — не «сколько нужно боту», а «сколько
+ * терпим, если команда не дошла». Изначально стояли сутки; снижено до трёх часов
+ * после наблюдения на #714/#721: комментарий свипера уходит от
+ * `github-actions[bot]` (AUTOMATION_TOKEN в репозитории сейчас не задан — в логе
+ * прогона `HAS_PAT: no`), и будет ли dependabot исполнять команду от бота —
+ * не гарантировано. Сутки простоя на каждый такой PR — ровно тот залежавшийся
+ * список, из-за которого всё это и делалось.
  */
-export const DEPENDABOT_RECREATE_TIMEOUT_HOURS = 24;
+export const DEPENDABOT_RECREATE_TIMEOUT_HOURS = 3;
 
 export interface DependabotHealInput {
   /** Состояние CI на head-коммите PR. */
@@ -866,6 +873,49 @@ export function dependabotHealAction(input: DependabotHealInput): { action: Depe
 /** Тело маркера просьбы о пересборке: SHA внутри — состояние, а не украшение. */
 export function dependabotRecreateMarker(headSha: string): string {
   return `${DEPENDABOT_RECREATE_MARKER_PREFIX}${headSha} -->`;
+}
+
+// ── Запаркованные CI-прогоны ботов ──────────────────────────────────────────
+//
+// С 11.06.2026 GitHub паркует в `action_required` прогоны, приписанные боту:
+// они не стартуют, пока человек с write-доступом не нажмёт «Approve and run».
+// Без `AUTOMATION_TOKEN` под это правило попадают ровно те PR, которые
+// автоматика обязана домержить сама: release-please PR (автор —
+// `github-actions[bot]`) и ветки после форс-пуша auto-rebase. Чеков у них нет
+// вообще, свипер видит «CI не стартовал» и ждёт вечно.
+//
+// Замерено 22.08.2026: у релизного PR #712 запаркованы ВСЕ прогоны за две
+// недели, а редкие зелёные — это ручные перезапуски владельца (`run_attempt: 2`,
+// triggering_actor — человек). То есть релиз не уезжал сам ни разу.
+//
+// Настоящее лекарство — PAT (пуш приписывается человеку, парковки нет). Пока
+// его нет, свипер будит прогон сам. Гейт «человек одобряет код бота» здесь
+// ничего не охраняет: этот же свипер через 15 минут смержит тот же PR по
+// зелёному CI, а владелец всё равно жал «Approve and run» каждый раз.
+
+/** Ветки, чьи запаркованные прогоны свипер будит сам. Чужие PR и форки — нет. */
+export const PARKED_RERUN_BRANCH_RE = /^(release-please--|dependabot\/|claude\/)/;
+
+export interface ParkedRun {
+  id: number;
+  headBranch: string;
+  /** Номер попытки: 1 — прогон ещё никто не будил. */
+  runAttempt: number;
+  conclusion: string | null;
+  /** Head-ветка живёт в этом же репозитории (не форк). */
+  sameRepo: boolean;
+}
+
+/**
+ * Будить ли этот прогон. `runAttempt === 1` — не украшение, а предохранитель от
+ * петли: если перезапуск снова запаркуется (токен свипера тоже бот), у прогона
+ * станет attempt 2 и второй раз мы его не тронем.
+ */
+export function shouldRerunParkedRun(run: ParkedRun): boolean {
+  if (run.conclusion !== 'action_required') return false;
+  if (run.runAttempt !== 1) return false;
+  if (!run.sameRepo) return false;
+  return PARKED_RERUN_BRANCH_RE.test(run.headBranch);
 }
 
 // ── Owner-decisions: исполнение решений владельца ───────────────────────────

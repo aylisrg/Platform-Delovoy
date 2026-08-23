@@ -268,7 +268,9 @@ pull-requests write, actions write) читают `auto-rebase.yml`,
 `issue-queue-merge.yml` и `release.yml`. Без него очередь работает, но каждый
 авто-ребейз паркует CI ветки в `action_required`: GitHub требует ручного
 «Approve and run» для прогонов, приписанных `github-actions[bot]`. Пуш под PAT
-приписывается человеку, и гейт не срабатывает. Живость PAT сторожит ops-watch:
+приписывается человеку, и гейт не срабатывает. Пока PAT нет, свипер будит такие
+прогоны сам (`issue-queue.ts unpark`, один раз на прогон) — иначе release-please
+PR не уезжает никогда (замерено на #712: две недели парковок подряд). Живость PAT сторожит ops-watch:
 мёртвый/стареющий токен → decision-сообщение владельцу с инструкцией и кнопкой
 «Готово». `OWNER_DECISIONS_SECRET` — общий секрет контура решений (Actions ↔
 `/api/admin/owner-decisions`); деплой сам раскатывает его в `.env` прода. Без

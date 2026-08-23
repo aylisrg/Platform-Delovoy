@@ -42,6 +42,7 @@
  *   pr-ready 463                             снять черновик (GraphQL; в сессии воркера недоступен)
  *   pr-merge 463                             мерж (сам перепроверяет гейт и CI)
  *   automerge [--dry-run]                    крон: домержить все готовые PR очереди
+ *   unpark [--dry-run]                       крон: разбудить запаркованные CI-прогоны ботов
  *   metric 463 branch outcome ciRounds reviewRounds durationMin
  *                                            телеметрия прогона в docs/pipeline-runs/next-issue.jsonl
  *                                            (имя БЕЗ суффикса .metrics.jsonl — иначе коллизия с
@@ -87,6 +88,7 @@ import {
   priorityOf,
   releasePrGate,
   shouldHeartbeat,
+  shouldRerunParkedRun,
   snapshot,
   staleWipIssues,
   staleWipWithPr,
@@ -131,6 +133,15 @@ interface RawIssue {
   state?: string;
   pull_request?: unknown;
   body?: string | null;
+}
+
+interface RawWorkflowRun {
+  id: number;
+  name: string;
+  head_branch: string | null;
+  run_attempt?: number;
+  conclusion: string | null;
+  head_repository?: { full_name: string } | null;
 }
 
 interface RawPr {
@@ -881,6 +892,39 @@ function healDependabotPr(pr: RawPr, dryRun: boolean, now: Date): Record<string,
       `автоочередь задачей #${created.issue}. PR не закрываю: воркер допишет адаптацию сюда же.`,
   );
   return { path: 'dependabot-heal', did: 'to-queue', issue: created.issue, reason };
+}
+
+/**
+ * Разбудить запаркованные CI-прогоны ботов (`action_required`).
+ *
+ * Без PAT GitHub паркует прогоны, приписанные боту, и ждёт ручного
+ * «Approve and run». Под это попадают release-please PR и любые ветки после
+ * форс-пуша auto-rebase — то есть ровно те, которые автоматика обязана
+ * домержить сама; чеков у них нет вообще, и свипер ждёт их вечно. Замерено на
+ * #712 (все прогоны за две недели) и #729.
+ *
+ * Будим один раз на прогон (`runAttempt === 1`): если перезапуск снова
+ * запаркуется, второй попытки не будет — петли не возникает.
+ */
+function cmdUnpark(dryRun: boolean): void {
+  const runs = gh<{ workflow_runs: RawWorkflowRun[] }>(
+    `/repos/${REPO}/actions/runs?status=action_required&per_page=50`,
+  ).workflow_runs;
+
+  const woken: Record<string, unknown>[] = [];
+  for (const run of runs) {
+    const candidate = {
+      id: run.id,
+      headBranch: run.head_branch ?? '',
+      runAttempt: run.run_attempt ?? 1,
+      conclusion: run.conclusion,
+      sameRepo: (run.head_repository?.full_name ?? '') === REPO,
+    };
+    if (!shouldRerunParkedRun(candidate)) continue;
+    if (!dryRun) gh(`/repos/${REPO}/actions/runs/${run.id}/rerun`, 'POST');
+    woken.push({ run: run.id, branch: candidate.headBranch, workflow: run.name });
+  }
+  console.log(JSON.stringify({ woken: woken.length, dryRun, runs: woken }, null, 2));
 }
 
 /**
@@ -1888,12 +1932,13 @@ try {
       );
       break;
     case 'automerge': cmdAutoMerge(rest.includes('--dry-run')); break;
+    case 'unpark': cmdUnpark(rest.includes('--dry-run')); break;
     case 'batch-add': cmdBatchAdd(rest); break;
     case 'batch-result': cmdBatchResult(Number(rest[0]), rest.slice(1)); break;
     case 'decisions-sync': cmdDecisionsSync(rest.includes('--dry-run')); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|batch-add|batch-result|decisions-sync|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric|automerge|ops-watch> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|batch-add|batch-result|decisions-sync|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric|automerge|unpark|ops-watch> [args]',
       );
       process.exitCode = 2;
   }
