@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_ESCALATION_OPTIONS,
+  ROOT_CAUSE_LABEL,
   recurringIncidents,
   rootCauseIssue,
   type ClosedIssueLite,
@@ -62,12 +63,46 @@ describe('recurringIncidents', () => {
     expect(incidents).toHaveLength(1);
     expect(incidents[0].issues).toEqual([3, 4, 5]);
   });
+
+  it('закрытая root-cause issue не считается новым циклом (issue #698: самоэскалация без новых инцидентов)', () => {
+    // Два настоящих инцидента + одна root-cause issue того же лейбла, закрытая
+    // watchdog'ом при восстановлении CI (поведение до фикса ci-watchdog.yml,
+    // ADR 2026-08-20). Без исключения root-cause это дало бы 3 «цикла» и
+    // бесконечную эскалацию на пустом месте.
+    const rootCauseClosed: ClosedIssueLite = {
+      number: 679,
+      labels: ['ci-failure', 'root-cause', 'prio:P1', 'auto:ready'],
+      closedAt: '2026-08-09T06:00:00Z',
+    };
+    const incidents = recurringIncidents(LABELS, [
+      closed(494, 'ci-failure', '2026-08-08T10:00:00Z'),
+      closed(508, 'ci-failure', '2026-08-07T10:00:00Z'),
+      rootCauseClosed,
+    ], now);
+    expect(incidents).toEqual([]);
+  });
+
+  it('три настоящих инцидента эскалируют, даже если рядом закрыта root-cause issue', () => {
+    const rootCauseClosed: ClosedIssueLite = {
+      number: 679,
+      labels: ['ci-failure', 'root-cause', 'prio:P1', 'auto:ready'],
+      closedAt: '2026-08-09T06:00:00Z',
+    };
+    const incidents = recurringIncidents(LABELS, [
+      closed(494, 'ci-failure', '2026-08-09T10:00:00Z'),
+      closed(508, 'ci-failure', '2026-08-08T10:00:00Z'),
+      closed(612, 'ci-failure', '2026-08-07T10:00:00Z'),
+      rootCauseClosed,
+    ], now);
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0].issues).toEqual([494, 508, 612]);
+  });
 });
 
 describe('rootCauseIssue', () => {
   it('issue уходит в очередь: root-cause + инцидент-лейбл + P1 + auto:ready', () => {
     const issue = rootCauseIssue({ label: 'site-down', count: 3, issues: [1, 2, 3] });
-    expect(issue.labels).toEqual(['root-cause', 'site-down', 'prio:P1', 'auto:ready']);
+    expect(issue.labels).toEqual([ROOT_CAUSE_LABEL, 'site-down', 'prio:P1', 'auto:ready']);
     expect(issue.title).toContain('site-down');
     expect(issue.title).toContain(String(DEFAULT_ESCALATION_OPTIONS.windowDays));
     expect(issue.body).toContain('- #1');
