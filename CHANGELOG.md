@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.18.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.17.0...v2.18.0) (2026-08-23)
+
+
+### Features
+
+* **gazebos:** публикация оферты и фиксация акцепта при онлайн-бронировании ([#731](https://github.com/aylisrg/Platform-Delovoy/issues/731)) ([9e1540d](https://github.com/aylisrg/Platform-Delovoy/commit/9e1540dbdec0cb26b49b19b580c841718f9df906))
+
+
+### Bug Fixes
+
+* **ci:** лейбл dependencies заводится автоматикой, конвертер спрашивает dependabot ([#729](https://github.com/aylisrg/Platform-Delovoy/issues/729)) ([01d3d13](https://github.com/aylisrg/Platform-Delovoy/commit/01d3d133f982490150848c4ffbc13721d8301d2c))
+
 ## [2.17.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.16.0...v2.17.0) (2026-08-21)
 
 
