@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.0...v2.18.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **incident-escalation:** root-cause issue closure не считается новым циклом инцидента ([#742](https://github.com/aylisrg/Platform-Delovoy/issues/742)) ([89c716f](https://github.com/aylisrg/Platform-Delovoy/commit/89c716f0c24a61b13ac84770761e41b866a20d9a)), closes [#698](https://github.com/aylisrg/Platform-Delovoy/issues/698)
+
 ## [2.18.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.17.0...v2.18.0) (2026-08-23)
 
 
