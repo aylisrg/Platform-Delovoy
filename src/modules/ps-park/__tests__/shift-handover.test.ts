@@ -224,8 +224,9 @@ describe("recordShiftHandover — исправление записи", () => {
     });
 
     const call = tx.shiftHandover.updateMany.mock.calls[0][0];
-    // Момент самой передачи не сдвигается — исправляем запись, а не передаём заново.
-    expect(call.data.handedOverAt).toEqual(handedOver.handedOverAt);
+    // Момент самой передачи не сдвигается — исправляем запись, а не передаём
+    // заново: поля в `data` нет вовсе, колонку не трогаем.
+    expect(call.data).not.toHaveProperty("handedOverAt");
     expect(call.data).toMatchObject({
       handedOverAmount: 50000,
       handedOverTo: "Петрова А. И.",
@@ -276,6 +277,64 @@ describe("recordShiftHandover — исправление записи", () => {
       })
     ).rejects.toMatchObject({ code: "HANDOVER_CHANGED" });
     expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("вторая коррекция из устаревшего чтения не затирает первую", async () => {
+    // Мок, который реально применяет `where`, а не отдаёт заранее заданный
+    // count: иначе тест проверяет только обработку `count === 0`, но не то,
+    // возникает ли он на практике. Ровно на этом и держалась дыра — сторож,
+    // пришпиленный к неизменному `handedOverAt`, срабатывал бы всегда.
+    const row: Record<string, unknown> = makeShift(handedOver);
+    const stale = makeShift(handedOver); // оба менеджера прочитали ДО записей
+    mp.shiftHandover.findUnique.mockImplementation(async () => ({ ...stale }));
+
+    const sameMoment = (a: unknown, b: unknown) =>
+      a instanceof Date && b instanceof Date
+        ? a.getTime() === b.getTime()
+        : (a ?? null) === (b ?? null);
+
+    const tx = {
+      shiftHandover: {
+        updateMany: vi.fn(
+          async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+            const notNull = (where.handedOverAt as { not?: null } | null)?.not === null;
+            const matches =
+              where.id === row.id &&
+              (notNull ? row.handedOverAt !== null : sameMoment(row.handedOverAt, where.handedOverAt)) &&
+              (!("handoverCorrectedAt" in where) ||
+                sameMoment(row.handoverCorrectedAt, where.handoverCorrectedAt));
+            if (!matches) return { count: 0 };
+            Object.assign(row, data);
+            return { count: 1 };
+          }
+        ),
+        findUniqueOrThrow: vi.fn(async () => ({ ...row })),
+      },
+      auditLog: { create: vi.fn() },
+    };
+    mp.$transaction.mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx));
+
+    const correction = (amount: number, note: string) =>
+      recordShiftHandover("2026-08-14", "mgr-2", "Боря", {
+        amount,
+        recipient: "Иванова О. П.",
+        note,
+        isCorrection: true,
+      });
+
+    await expect(correction(50000, "Пересчитали, было 48 000")).resolves.toBeTruthy();
+
+    // Второй менеджер сохраняет правку, основанную на прочитанных 48 000, —
+    // должен получить отказ, а не тихо вернуть сумму к своей версии.
+    await expect(correction(47000, "Своя правка")).rejects.toMatchObject({
+      code: "HANDOVER_CHANGED",
+    });
+
+    expect(row.handedOverAmount).toBe(50000);
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    // Время передачи денег коррекцией не сдвигается — правим запись, а не
+    // передаём заново.
+    expect(row.handedOverAt).toEqual(handedOver.handedOverAt);
   });
 
   it("нечего исправлять, если передачи ещё не было", async () => {

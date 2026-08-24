@@ -2052,13 +2052,26 @@ export async function recordShiftHandover(
   }
 
   return prisma.$transaction(async (tx) => {
-    // Сторож по handedOverAt: при первой передаче — «ещё не передавали», при
-    // коррекции — «запись не изменилась с момента чтения». И то и другое
-    // защищает от двух одновременных записей о деньгах.
+    // Сторож `updateMany` — единственная защита от двух одновременных записей
+    // о деньгах. Для коррекции его нельзя пинить к `handedOverAt`: это поле
+    // при исправлении намеренно не сдвигается, поэтому условие «оно равно
+    // прочитанному» истинно всегда, как только смена вообще передана. Две
+    // параллельные коррекции прошли бы обе, вторая молча затёрла бы первую —
+    // и в её `previous` уехала бы уже неверная «прежняя» сумма, то есть
+    // журнал денежной операции соврал бы о том, что было до.
+    // Пинимся к `handoverCorrectedAt` — единственному полю, которое меняется
+    // при каждом успешном исправлении (`null` до первого).
+    const guard: Prisma.ShiftHandoverWhereInput = isCorrection
+      ? {
+          id: existing.id,
+          handedOverAt: { not: null },
+          handoverCorrectedAt: existing.handoverCorrectedAt,
+        }
+      : { id: existing.id, handedOverAt: null };
     const res = await tx.shiftHandover.updateMany({
-      where: { id: existing.id, handedOverAt: isCorrection ? existing.handedOverAt : null },
+      where: guard,
       data: {
-        handedOverAt: isCorrection ? existing.handedOverAt : new Date(),
+        ...(isCorrection ? {} : { handedOverAt: new Date() }),
         handedOverAmount: input.amount,
         handedOverById: managerId,
         handedOverByName: managerName,
