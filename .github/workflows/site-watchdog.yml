@@ -230,7 +230,14 @@ jobs:
           BODY+="[Лог run]($RUN_URL)"$'\n\n'
           BODY+="> Создан автоматически Site Watchdog."
 
-          EXISTING=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number --jq '.[0].number // empty')
+          # root-cause issue несёт тот же notifications-down лейбл для дедупа
+          # эскалации (scripts/escalate-incidents.ts), но не является живым
+          # инцидентом — без исключения реальный сбой уходил комментарием в
+          # root-cause issue вместо отдельной закрываемой инцидент-issue
+          # (issue #708: инциденты 2026-08-21/22 осели комментариями на самой
+          # root-cause issue вместо новых закрываемых issues).
+          EXISTING=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number,labels \
+            --jq '[.[] | select((.labels | map(.name) | index("root-cause")) | not)] | .[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
           else
@@ -443,7 +450,11 @@ jobs:
           BODY+='```'$'\n'"${REPORT}"$'\n''```'$'\n\n'"</details>"$'\n\n'
           BODY+="> Создан автоматически Site Watchdog."
 
-          EXISTING=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number --jq '.[0].number // empty')
+          # Тот же паттерн, что у notifications-down выше: root-cause issue
+          # несёт лейбл site-down для дедупа эскалации, но не является живым
+          # инцидентом — исключаем её из поиска issue для комментария.
+          EXISTING=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number,labels \
+            --jq '[.[] | select((.labels | map(.name) | index("root-cause")) | not)] | .[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
           else

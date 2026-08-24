@@ -128,6 +128,33 @@ describe("notificationsHealth", () => {
     expect(result.checks.cron.staleMin).toBeLessThan(5);
   });
 
+  it("probes bot token, admin chat, and owner chat concurrently, not sequentially", async () => {
+    // Issue #708 / #455 п.5: три Telegram-пробы шли по очереди, и при
+    // деградации транспорта (каждая проба до 5с) суммарный бюджет здоровья
+    // подбирался к 15с — почти вплотную к 20с таймауту внешнего watchdog'а.
+    // Если пробы параллельны, все три вызова fetch стартуют, не дожидаясь
+    // резолва предыдущего.
+    let callCount = 0;
+    const releasers: Array<() => void> = [];
+    mockFetch.mockImplementation(() => {
+      callCount++;
+      return new Promise((resolve) => {
+        releasers.push(() => resolve({ json: async () => getMeMock }));
+      });
+    });
+
+    const resultPromise = notificationsHealth();
+
+    // Дать осесть только уже готовым микрозадачам (DB-вызов перед пробами) —
+    // без реальной задержки: если бы пробы шли последовательно, здесь был бы
+    // только 1 вызов fetch, а следующий начался бы лишь после его резолва.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(callCount).toBe(3);
+
+    releasers.forEach((release) => release());
+    await resultPromise;
+  });
+
   it("still returns data when DB is unavailable (queue/cron checks fail gracefully)", async () => {
     setupFetch({ getMe: getMeMock, getChat: getChatMock });
     vi.mocked(prisma.outgoingNotification.count).mockRejectedValue(new Error("DB down"));

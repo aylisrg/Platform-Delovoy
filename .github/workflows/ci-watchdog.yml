@@ -211,12 +211,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO:     ${{ github.repository }}
         run: |
+          # root-cause issue несёт тот же ci-failure лейбл для дедупа эскалации
+          # (scripts/escalate-incidents.ts), но не является живым инцидентом —
+          # без исключения новый сбой CI молча уходил комментарием в root-cause
+          # issue вместо отдельной закрываемой инцидент-issue (issue #708:
+          # тот же паттерн для notifications-down "проглотил" реальные
+          # инциденты 2026-08-21/22 в комментарии root-cause issue #708).
           EXISTING=$(gh issue list \
             --repo "$REPO" \
             --label "ci-failure" \
             --state open \
-            --json number \
-            --jq '.[0].number // empty')
+            --json number,labels \
+            --jq '[.[] | select((.labels | map(.name) | index("root-cause")) | not)] | .[0].number // empty')
           echo "existing=$EXISTING" >> "$GITHUB_OUTPUT"
 
       - name: Create label if missing
