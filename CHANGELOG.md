@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.1...v2.18.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* **watchdog:** root-cause issue не должна ловить комментарии живых инцидентов ([#755](https://github.com/aylisrg/Platform-Delovoy/issues/755)) ([4bbafeb](https://github.com/aylisrg/Platform-Delovoy/commit/4bbafebf7d7f28112f00a49d73d01ce145f9df00))
+
 ## [2.18.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.0...v2.18.1) (2026-08-23)
 
 
