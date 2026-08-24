@@ -8,4 +8,5 @@ ALTER TABLE "ShiftHandover"
   ADD COLUMN "handedOverById"   TEXT,
   ADD COLUMN "handedOverByName" TEXT,
   ADD COLUMN "handedOverTo"     TEXT,
-  ADD COLUMN "handoverNote"     TEXT;
+  ADD COLUMN "handoverNote"     TEXT,
+  ADD COLUMN "handoverCorrectedAt" TIMESTAMP(3);

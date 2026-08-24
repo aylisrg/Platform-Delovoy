@@ -32,6 +32,8 @@ export function ShiftPanel({ date }: { date: string }) {
   const [handoverAmount, setHandoverAmount] = useState("");
   const [handoverTo, setHandoverTo] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
+  /** true — исправляем уже записанную передачу, а не создаём первую. */
+  const [handoverCorrection, setHandoverCorrection] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -98,8 +100,19 @@ export function ShiftPanel({ date }: { date: string }) {
 
   function openHandover(cashTotal: number) {
     setError(null);
+    setHandoverCorrection(false);
     setHandoverAmount(String(Math.round(cashTotal)));
     setHandoverTo("");
+    setHandoverNote("");
+    setHandoverOpen(true);
+  }
+
+  /** Исправление: поля предзаполняем тем, что уже записано. */
+  function openCorrection(current: { amount: number; to: string; note: string | null }) {
+    setError(null);
+    setHandoverCorrection(true);
+    setHandoverAmount(String(Math.round(current.amount)));
+    setHandoverTo(current.to);
     setHandoverNote("");
     setHandoverOpen(true);
   }
@@ -117,6 +130,7 @@ export function ShiftPanel({ date }: { date: string }) {
           amount: parseFloat(handoverAmount) || 0,
           recipient: handoverTo,
           note: handoverNote.trim() || undefined,
+          isCorrection: handoverCorrection,
         }),
       });
       const json = await res.json();
@@ -291,6 +305,25 @@ export function ShiftPanel({ date }: { date: string }) {
                     {shift.handover.note ? ` — ${shift.handover.note}` : ""}
                   </div>
                 )}
+                {shift.handover.correctedAt && (
+                  <div className="mt-1 text-emerald-700">
+                    Запись исправлена {formatTime(shift.handover.correctedAt)} — прежние
+                    значения сохранены в журнале
+                  </div>
+                )}
+                <button
+                  onClick={() =>
+                    openCorrection({
+                      amount: shift.handover!.amount,
+                      to: shift.handover!.to,
+                      note: shift.handover!.note,
+                    })
+                  }
+                  disabled={acting}
+                  className="mt-2 text-xs font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-50"
+                >
+                  Исправить запись
+                </button>
               </div>
             )}
           </div>
@@ -313,12 +346,14 @@ export function ShiftPanel({ date }: { date: string }) {
           />
           <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="text-base font-semibold text-zinc-900">
-              Передать выручку в бухгалтерию
+              {handoverCorrection ? "Исправить запись о передаче" : "Передать выручку в бухгалтерию"}
             </h2>
             <p className="mt-1.5 text-sm text-zinc-600">
               Расчётная сумма наличных за смену —{" "}
               <span className="font-semibold">{formatMoney(data?.shift?.cashTotal ?? 0)}</span>.
-              Впишите, сколько денег передали фактически.
+              {handoverCorrection
+                ? " Прежние значения не пропадут — они останутся в журнале как отдельное событие."
+                : " Впишите, сколько денег передали фактически."}
             </p>
             <p className="mt-1 text-xs text-zinc-400">
               Карта и онлайн-оплата сюда не входят — эти деньги в кассу не попадают.
@@ -370,8 +405,10 @@ export function ShiftPanel({ date }: { date: string }) {
 
               <div>
                 <label htmlFor="handover-note" className="block text-xs font-medium text-zinc-600">
-                  Причина расхождения
-                  {handoverDiff !== 0 && <span className="text-red-500"> *</span>}
+                  {handoverCorrection ? "Что исправляете" : "Причина расхождения"}
+                  {(handoverDiff !== 0 || handoverCorrection) && (
+                    <span className="text-red-500"> *</span>
+                  )}
                 </label>
                 <textarea
                   id="handover-note"
@@ -404,10 +441,18 @@ export function ShiftPanel({ date }: { date: string }) {
               <button
                 type="button"
                 onClick={handleHandover}
-                disabled={acting || handoverTo.trim().length < 2}
+                disabled={
+                  acting ||
+                  handoverTo.trim().length < 2 ||
+                  (handoverCorrection && handoverNote.trim().length === 0)
+                }
                 className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
               >
-                {acting ? "Записываем..." : "Записать передачу"}
+                {acting
+                  ? "Записываем..."
+                  : handoverCorrection
+                    ? "Сохранить исправление"
+                    : "Записать передачу"}
               </button>
             </div>
           </div>

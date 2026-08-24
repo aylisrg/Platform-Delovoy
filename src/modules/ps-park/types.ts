@@ -192,6 +192,8 @@ export type ShiftHandoverRecord = {
   byName: string;
   to: string;
   note: string | null;
+  /** Когда запись исправляли; null — исходная передача. */
+  correctedAt: string | null;
 };
 
 // Bill for session completion

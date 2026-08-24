@@ -38,6 +38,7 @@ function makeShift(overrides: Record<string, unknown> = {}) {
     handedOverByName: null,
     handedOverTo: null,
     handoverNote: null,
+    handoverCorrectedAt: null,
     ...overrides,
   };
 }
@@ -130,7 +131,7 @@ describe("recordShiftHandover", () => {
     ).rejects.toMatchObject({ code: "SHIFT_NOT_CLOSED" });
   });
 
-  it("не даёт передать дважды", async () => {
+  it("не даёт передать дважды без явного исправления", async () => {
     mp.shiftHandover.findUnique.mockResolvedValue(
       makeShift({ handedOverAt: new Date("2026-08-14T23:00:00.000Z") })
     );
@@ -188,5 +189,122 @@ describe("recordShiftHandover", () => {
       to: "Иванова О. П.",
       note: "Недостача",
     });
+  });
+});
+
+// ===== AC-6: коррекция записи о передаче =====
+//
+// Запретить повторную запись насовсем было ошибкой: опечатка в сумме или в
+// имени получателя означала бы правку в БД руками. AC-6 требует не «нельзя
+// переписать», а «переписать нельзя тихо» — исправление возможно, но это
+// отдельное видимое событие с сохранением прежних значений.
+describe("recordShiftHandover — исправление записи", () => {
+  const handedOver = {
+    handedOverAt: new Date("2026-08-14T23:00:00.000Z"),
+    handedOverAmount: 48000,
+    handedOverById: "mgr-1",
+    handedOverByName: "Менеджер Аня",
+    handedOverTo: "Иванова О. П.",
+    handoverNote: "Недостача",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mp.shiftHandover.findUnique.mockResolvedValue(makeShift(handedOver));
+  });
+
+  it("исправляет сумму и получателя, не создавая вторую передачу", async () => {
+    const tx = mockTx();
+
+    await recordShiftHandover("2026-08-14", "mgr-2", "Менеджер Боря", {
+      amount: 50000,
+      recipient: "Петрова А. И.",
+      note: "Ошиблись получателем и суммой",
+      isCorrection: true,
+    });
+
+    const call = tx.shiftHandover.updateMany.mock.calls[0][0];
+    // Момент самой передачи не сдвигается — исправляем запись, а не передаём заново.
+    expect(call.data.handedOverAt).toEqual(handedOver.handedOverAt);
+    expect(call.data).toMatchObject({
+      handedOverAmount: 50000,
+      handedOverTo: "Петрова А. И.",
+    });
+    expect(call.data.handoverCorrectedAt).toBeInstanceOf(Date);
+  });
+
+  it("прежние значения уходят в журнал отдельным событием", async () => {
+    const tx = mockTx();
+
+    await recordShiftHandover("2026-08-14", "mgr-2", "Боря", {
+      amount: 50000,
+      recipient: "Петрова А. И.",
+      note: "Опечатка",
+      isCorrection: true,
+    });
+
+    const audit = tx.auditLog.create.mock.calls[0][0].data;
+    expect(audit.action).toBe("shift.handover.correction");
+    expect(audit.metadata.previous).toMatchObject({
+      handedOverAmount: 48000,
+      recipient: "Иванова О. П.",
+      note: "Недостача",
+    });
+  });
+
+  it("исправление без пояснения не проходит, даже если суммы сошлись", async () => {
+    mockTx();
+
+    await expect(
+      recordShiftHandover("2026-08-14", "mgr-2", "Боря", {
+        amount: 50000,
+        recipient: "Иванова О. П.",
+        isCorrection: true,
+      })
+    ).rejects.toMatchObject({ code: "CORRECTION_NOTE_REQUIRED" });
+  });
+
+  it("сторож ловит параллельное исправление и не пишет событие", async () => {
+    const tx = mockTx(0);
+
+    await expect(
+      recordShiftHandover("2026-08-14", "mgr-2", "Боря", {
+        amount: 50000,
+        recipient: "Иванова О. П.",
+        note: "Опечатка",
+        isCorrection: true,
+      })
+    ).rejects.toMatchObject({ code: "HANDOVER_CHANGED" });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("нечего исправлять, если передачи ещё не было", async () => {
+    mp.shiftHandover.findUnique.mockResolvedValue(makeShift());
+    mockTx();
+
+    await expect(
+      recordShiftHandover("2026-08-14", "mgr-1", "Аня", {
+        ...input,
+        note: "Опечатка",
+        isCorrection: true,
+      })
+    ).rejects.toMatchObject({ code: "NOTHING_TO_CORRECT" });
+  });
+
+  it("отметка об исправлении видна в DTO", async () => {
+    mockTx(1, makeShift({
+      ...handedOver,
+      handedOverAmount: 50000,
+      handoverCorrectedAt: new Date("2026-08-15T09:00:00.000Z"),
+    }));
+
+    const result = await recordShiftHandover("2026-08-14", "mgr-2", "Боря", {
+      amount: 50000,
+      recipient: "Иванова О. П.",
+      note: "Опечатка",
+      isCorrection: true,
+    });
+
+    expect(result.handover?.correctedAt).toBe("2026-08-15T09:00:00.000Z");
   });
 });

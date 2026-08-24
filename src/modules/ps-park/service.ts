@@ -1887,6 +1887,7 @@ function toShiftData(shift: {
   handedOverByName: string | null;
   handedOverTo: string | null;
   handoverNote: string | null;
+  handoverCorrectedAt: Date | null;
 }): ShiftHandoverData {
   const cashTotal = Number(shift.cashTotal);
   return {
@@ -1912,6 +1913,7 @@ function toShiftData(shift: {
           byName: shift.handedOverByName ?? "—",
           to: shift.handedOverTo ?? "—",
           note: shift.handoverNote ?? null,
+          correctedAt: shift.handoverCorrectedAt?.toISOString() ?? null,
         }
       : null,
   };
@@ -1994,7 +1996,7 @@ export async function recordShiftHandover(
   date: string,
   managerId: string,
   managerName: string,
-  input: { amount: number; recipient: string; note?: string }
+  input: { amount: number; recipient: string; note?: string; isCorrection?: boolean }
 ): Promise<ShiftHandoverData> {
   const existing = await prisma.shiftHandover.findUnique({
     where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
@@ -2010,8 +2012,18 @@ export async function recordShiftHandover(
       "Сначала закройте смену — до этого сумма наличных ещё меняется"
     );
   }
-  if (existing.handedOverAt) {
+  // Повторный вызов без явного флага — почти наверняка случайность (двойной
+  // клик, обновлённая вкладка): тихо перезаписывать запись о деньгах нельзя.
+  // Осознанная коррекция приходит с `isCorrection` и требует пояснения.
+  const isCorrection = input.isCorrection === true && existing.handedOverAt !== null;
+  if (existing.handedOverAt && !isCorrection) {
     throw new PSBookingError("ALREADY_HANDED_OVER", "Выручка этой смены уже передана");
+  }
+  if (input.isCorrection === true && !existing.handedOverAt) {
+    throw new PSBookingError(
+      "NOTHING_TO_CORRECT",
+      "Передача по этой смене ещё не записана — исправлять нечего"
+    );
   }
 
   const recipient = input.recipient.trim();
@@ -2030,28 +2042,44 @@ export async function recordShiftHandover(
       `Сумма не сходится с расчётной на ${discrepancy.toLocaleString("ru-RU")} ₽ — укажите причину`
     );
   }
+  // Исправление записи о деньгах без объяснения бессмысленно: через неделю
+  // никто не вспомнит, почему сумма в отчёте изменилась задним числом.
+  if (isCorrection && !note) {
+    throw new PSBookingError(
+      "CORRECTION_NOTE_REQUIRED",
+      "Укажите, что именно исправляете — прежняя запись останется в журнале"
+    );
+  }
 
   return prisma.$transaction(async (tx) => {
-    // Сторож по handedOverAt: два менеджера не запишут передачу дважды.
+    // Сторож по handedOverAt: при первой передаче — «ещё не передавали», при
+    // коррекции — «запись не изменилась с момента чтения». И то и другое
+    // защищает от двух одновременных записей о деньгах.
     const res = await tx.shiftHandover.updateMany({
-      where: { id: existing.id, handedOverAt: null },
+      where: { id: existing.id, handedOverAt: isCorrection ? existing.handedOverAt : null },
       data: {
-        handedOverAt: new Date(),
+        handedOverAt: isCorrection ? existing.handedOverAt : new Date(),
         handedOverAmount: input.amount,
         handedOverById: managerId,
         handedOverByName: managerName,
         handedOverTo: recipient,
-        ...(note && { handoverNote: note }),
+        handoverNote: note ?? null,
+        ...(isCorrection && { handoverCorrectedAt: new Date() }),
       },
     });
     if (res.count === 0) {
-      throw new PSBookingError("ALREADY_HANDED_OVER", "Выручка этой смены уже передана");
+      throw new PSBookingError(
+        isCorrection ? "HANDOVER_CHANGED" : "ALREADY_HANDED_OVER",
+        isCorrection
+          ? "Запись передачи изменил другой администратор — обновите страницу"
+          : "Выручка этой смены уже передана"
+      );
     }
 
     await tx.auditLog.create({
       data: {
         userId: managerId,
-        action: "shift.handover",
+        action: isCorrection ? "shift.handover.correction" : "shift.handover",
         entity: "ShiftHandover",
         entityId: existing.id,
         metadata: {
@@ -2062,6 +2090,17 @@ export async function recordShiftHandover(
           discrepancy,
           recipient,
           ...(note && { note }),
+          // Прежние значения кладём в событие коррекции: строка смены хранит
+          // только актуальное состояние, а «что было до» обязано остаться.
+          ...(isCorrection && {
+            previous: {
+              handedOverAmount: Number(existing.handedOverAmount ?? 0),
+              recipient: existing.handedOverTo,
+              note: existing.handoverNote,
+              at: existing.handedOverAt?.toISOString() ?? null,
+              byName: existing.handedOverByName,
+            },
+          }),
         } as unknown as Prisma.InputJsonValue,
       },
     });

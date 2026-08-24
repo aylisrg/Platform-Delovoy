@@ -162,6 +162,11 @@ export const shiftHandoverSchema = z.object({
     .max(500, "Максимальная длина пояснения — 500 символов")
     .nullish()
     .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  /**
+   * Осознанное исправление уже записанной передачи. Без этого флага повторный
+   * вызов отклоняется: тихо переписать запись о деньгах нельзя.
+   */
+  isCorrection: z.boolean().nullish().transform((v) => v ?? false),
 });
 
 export type ShiftHandoverInput = z.infer<typeof shiftHandoverSchema>;

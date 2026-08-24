@@ -290,6 +290,13 @@ model ShiftHandover {
   handedOverTo     String?
   /** Обязательна при расхождении расчётной и фактической суммы. */
   handoverNote     String?
+  /**
+   * Когда запись передачи последний раз исправляли. Ошибиться в сумме или
+   * имени получателя легко, и запрет на исправление означал бы правку в БД
+   * руками. Прежние значения не теряются — они уходят в `AuditLog`
+   * (`shift.handover.correction`), а здесь остаётся видимая отметка.
+   */
+  handoverCorrectedAt DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 

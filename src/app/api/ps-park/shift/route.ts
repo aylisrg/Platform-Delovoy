@@ -39,9 +39,10 @@ export async function GET(request: NextRequest) {
  * POST /api/ps-park/shift
  * Body:
  *   { action: "open"  | "close", date, notes? }
- *   { action: "handover", date, amount, recipient, note? } — передача
- *     наличной выручки в бухгалтерию; пишет фактически переданную сумму
- *     и расхождение с расчётной.
+ *   { action: "handover", date, amount, recipient, note?, isCorrection? } —
+ *     передача наличной выручки в бухгалтерию; пишет фактически переданную
+ *     сумму и расхождение с расчётной. `isCorrection` — осознанное
+ *     исправление уже записанной передачи (прежние значения уходят в журнал).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -88,10 +89,13 @@ export async function POST(request: NextRequest) {
         "SHIFT_ALREADY_CLOSED",
         "SHIFT_NOT_CLOSED",
         "ALREADY_HANDED_OVER",
+        "HANDOVER_CHANGED",
       ]);
       const unprocessableCodes = new Set([
         "DISCREPANCY_NOTE_REQUIRED",
+        "CORRECTION_NOTE_REQUIRED",
         "RECIPIENT_REQUIRED",
+        "NOTHING_TO_CORRECT",
       ]);
       const status = error.code === "SHIFT_NOT_FOUND"
         ? 404
