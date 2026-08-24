@@ -7,7 +7,7 @@ import {
 const STYLES: Record<BookingPaymentState, string> = {
   PAID: "bg-emerald-600 text-white",
   PARTIAL: "bg-amber-100 text-amber-800 border border-amber-300",
-  UNPAID: "bg-zinc-100 text-zinc-600 border border-zinc-300",
+  UNPAID: "bg-red-100 text-red-800 border border-red-300",
   PENALTY_HELD: "bg-orange-100 text-orange-800 border border-orange-300",
   FREE: "bg-zinc-100 text-zinc-500 border border-zinc-200",
 };
@@ -29,19 +29,34 @@ type Props = {
  * отдельный заметный бейдж, самый контрастный из всех в зелёном.
  */
 const DOT_STYLES: Record<BookingPaymentState, string> = {
-  PAID: "bg-emerald-500 text-white",
-  PARTIAL: "bg-amber-400 text-amber-900",
-  UNPAID: "bg-zinc-200 text-zinc-500",
-  PENALTY_HELD: "bg-orange-400 text-white",
+  PAID: "bg-emerald-600 text-white",
+  PARTIAL: "bg-amber-400 text-amber-950",
+  UNPAID: "bg-red-600 text-white",
+  PENALTY_HELD: "bg-orange-500 text-white",
   FREE: "",
 };
 
 /**
- * Метка оплаты для блока брони в сетке расписания (AC-2).
+ * Символ важнее цвета: первая версия метки рисовала «₽» во всех состояниях и
+ * различала их только оттенком фона, отчего неоплаченная бронь (серый кружок)
+ * на телефоне в разгар смены не читалась вовсе. Теперь у каждого состояния
+ * свой знак — метка остаётся понятной и в чёрно-белой печати расписания, и
+ * при дальтонизме.
+ */
+const DOT_GLYPHS: Record<BookingPaymentState, string> = {
+  PAID: "✓",
+  PARTIAL: "½",
+  UNPAID: "✗",
+  PENALTY_HELD: "!",
+  FREE: "",
+};
+
+/**
+ * Метка оплаты для блока брони в сетке расписания и в мобильной ленте.
  *
- * В сетке нет места на подпись — блок брони бывает шириной в один час, — но
- * менеджеру нужно видеть оплату, не открывая каждую бронь. Отсюда кружок «₽»
- * с подписью в `title`.
+ * Места на подпись нет — блок брони бывает шириной в один час, — но менеджеру
+ * нужно видеть оплату, не открывая каждую бронь. Полная подпись остаётся в
+ * `title`/`aria-label`.
  */
 export function PaymentDot({ booking }: { booking: PaymentSummaryInput }) {
   const summary = getBookingPaymentSummary(booking);
@@ -51,9 +66,9 @@ export function PaymentDot({ booking }: { booking: PaymentSummaryInput }) {
     <span
       title={summary.label}
       aria-label={summary.label}
-      className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none ${DOT_STYLES[summary.state]}`}
+      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none ${DOT_STYLES[summary.state]}`}
     >
-      ₽
+      {DOT_GLYPHS[summary.state]}
     </span>
   );
 }

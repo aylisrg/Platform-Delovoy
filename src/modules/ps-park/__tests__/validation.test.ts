@@ -9,6 +9,7 @@ import {
   timelineQuerySchema,
   analyticsQuerySchema,
   moduleSettingsSchema,
+  shiftHandoverSchema,
   PS_PARK_CHANNEL_EVENT_TYPES,
 } from "@/modules/ps-park/validation";
 
@@ -357,5 +358,30 @@ describe("moduleSettingsSchema", () => {
 
   it("rejects non-positive noShowThresholdMinutes", () => {
     expect(moduleSettingsSchema.safeParse({ noShowThresholdMinutes: 0 }).success).toBe(false);
+  });
+});
+
+// #545: передача наличной выручки смены в бухгалтерию.
+describe("shiftHandoverSchema", () => {
+  it("принимает сумму, получателя и причину", () => {
+    const parsed = shiftHandoverSchema.parse({
+      amount: 48000,
+      recipient: "Иванова О. П.",
+      note: "  Недостача  ",
+    });
+    expect(parsed).toMatchObject({ amount: 48000, recipient: "Иванова О. П.", note: "Недостача" });
+  });
+
+  it("пустая причина не превращается в пустую строку", () => {
+    expect(shiftHandoverSchema.parse({ amount: 100, recipient: "Иванова", note: "   " }).note)
+      .toBeUndefined();
+  });
+
+  it("отклоняет отрицательную сумму", () => {
+    expect(() => shiftHandoverSchema.parse({ amount: -1, recipient: "Иванова" })).toThrow();
+  });
+
+  it("отклоняет пустого получателя — иначе непонятно, кому отдали деньги", () => {
+    expect(() => shiftHandoverSchema.parse({ amount: 100, recipient: "" })).toThrow();
   });
 });

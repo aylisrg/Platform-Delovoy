@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { BookingStatus } from "@prisma/client";
+import type { BookingStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
   formatTime as formatTimeUnified,
@@ -1861,11 +1861,34 @@ export async function getDayReport(date: string): Promise<DayReport> {
   };
 }
 
-export async function getTodayShift(date: string): Promise<ShiftHandoverData | null> {
-  const shift = await prisma.shiftHandover.findUnique({
-    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
-  });
-  if (!shift) return null;
+/**
+ * Единый маппер строки смены в DTO.
+ *
+ * До этого каждая из функций смены собирала объект руками, и добавление поля
+ * означало три одинаковые правки — ровно так поля передачи в бухгалтерию и
+ * потерялись бы в одной из них.
+ */
+function toShiftData(shift: {
+  id: string;
+  date: string;
+  status: "OPEN" | "CLOSED";
+  openedAt: Date;
+  openedById: string;
+  openedByName: string;
+  closedAt: Date | null;
+  closedById: string | null;
+  closedByName: string | null;
+  notes: string | null;
+  cashTotal: Prisma.Decimal;
+  cardTotal: Prisma.Decimal;
+  handedOverAt: Date | null;
+  handedOverAmount: Prisma.Decimal | null;
+  handedOverById: string | null;
+  handedOverByName: string | null;
+  handedOverTo: string | null;
+  handoverNote: string | null;
+}): ShiftHandoverData {
+  const cashTotal = Number(shift.cashTotal);
   return {
     id: shift.id,
     date: shift.date,
@@ -1877,7 +1900,29 @@ export async function getTodayShift(date: string): Promise<ShiftHandoverData | n
     closedById: shift.closedById ?? null,
     closedByName: shift.closedByName ?? null,
     notes: shift.notes ?? null,
+    cashTotal,
+    cardTotal: Number(shift.cardTotal),
+    handover: shift.handedOverAt
+      ? {
+          at: shift.handedOverAt.toISOString(),
+          amount: Number(shift.handedOverAmount ?? 0),
+          discrepancy:
+            Math.round((Number(shift.handedOverAmount ?? 0) - cashTotal) * 100) / 100,
+          byId: shift.handedOverById ?? "",
+          byName: shift.handedOverByName ?? "—",
+          to: shift.handedOverTo ?? "—",
+          note: shift.handoverNote ?? null,
+        }
+      : null,
   };
+}
+
+export async function getTodayShift(date: string): Promise<ShiftHandoverData | null> {
+  const shift = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!shift) return null;
+  return toShiftData(shift);
 }
 
 export async function openShift(
@@ -1900,18 +1945,7 @@ export async function openShift(
       status: "OPEN",
     },
   });
-  return {
-    id: shift.id,
-    date: shift.date,
-    status: shift.status,
-    openedAt: shift.openedAt.toISOString(),
-    openedById: shift.openedById,
-    openedByName: shift.openedByName,
-    closedAt: null,
-    closedById: null,
-    closedByName: null,
-    notes: null,
-  };
+  return toShiftData(shift);
 }
 
 export async function closeShift(
@@ -1943,18 +1977,98 @@ export async function closeShift(
       ...(notes && { notes }),
     },
   });
-  return {
-    id: shift.id,
-    date: shift.date,
-    status: shift.status,
-    openedAt: shift.openedAt.toISOString(),
-    openedById: shift.openedById,
-    openedByName: shift.openedByName,
-    closedAt: shift.closedAt?.toISOString() ?? null,
-    closedById: shift.closedById ?? null,
-    closedByName: shift.closedByName ?? null,
-    notes: shift.notes ?? null,
-  };
+  return toShiftData(shift);
+}
+
+/**
+ * Передача наличной выручки смены в бухгалтерию (инкассация).
+ *
+ * Смысл именно в расхождении: система знает расчётную сумму (`cashTotal`),
+ * менеджер вводит фактически переданную. Раньше второй цифры не было, и
+ * недостача обнаруживалась в лучшем случае через месяц при сверке.
+ *
+ * Карта и онлайн-оплата тут не участвуют: эти деньги в кассу физически не
+ * попадают, передавать нечего.
+ */
+export async function recordShiftHandover(
+  date: string,
+  managerId: string,
+  managerName: string,
+  input: { amount: number; recipient: string; note?: string }
+): Promise<ShiftHandoverData> {
+  const existing = await prisma.shiftHandover.findUnique({
+    where: { moduleSlug_date: { moduleSlug: MODULE_SLUG, date } },
+  });
+  if (!existing) {
+    throw new PSBookingError("SHIFT_NOT_FOUND", "Смена не найдена");
+  }
+  // Передаём только после закрытия: до этого расчётная сумма ещё растёт с
+  // каждой закрытой бронью, и сверять переданное было бы не с чем.
+  if (existing.status !== "CLOSED") {
+    throw new PSBookingError(
+      "SHIFT_NOT_CLOSED",
+      "Сначала закройте смену — до этого сумма наличных ещё меняется"
+    );
+  }
+  if (existing.handedOverAt) {
+    throw new PSBookingError("ALREADY_HANDED_OVER", "Выручка этой смены уже передана");
+  }
+
+  const recipient = input.recipient.trim();
+  if (!recipient) {
+    throw new PSBookingError("RECIPIENT_REQUIRED", "Укажите, кому передали деньги");
+  }
+
+  const cashTotal = Number(existing.cashTotal);
+  const discrepancy = Math.round((input.amount - cashTotal) * 100) / 100;
+  const note = input.note?.trim() || undefined;
+  // Расхождение без объяснения — это молча потерянные деньги. Пояснение
+  // обязательно, иначе через неделю никто не вспомнит, почему сумма не сошлась.
+  if (discrepancy !== 0 && !note) {
+    throw new PSBookingError(
+      "DISCREPANCY_NOTE_REQUIRED",
+      `Сумма не сходится с расчётной на ${discrepancy.toLocaleString("ru-RU")} ₽ — укажите причину`
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // Сторож по handedOverAt: два менеджера не запишут передачу дважды.
+    const res = await tx.shiftHandover.updateMany({
+      where: { id: existing.id, handedOverAt: null },
+      data: {
+        handedOverAt: new Date(),
+        handedOverAmount: input.amount,
+        handedOverById: managerId,
+        handedOverByName: managerName,
+        handedOverTo: recipient,
+        ...(note && { handoverNote: note }),
+      },
+    });
+    if (res.count === 0) {
+      throw new PSBookingError("ALREADY_HANDED_OVER", "Выручка этой смены уже передана");
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: managerId,
+        action: "shift.handover",
+        entity: "ShiftHandover",
+        entityId: existing.id,
+        metadata: {
+          moduleSlug: MODULE_SLUG,
+          date,
+          cashTotal,
+          handedOverAmount: input.amount,
+          discrepancy,
+          recipient,
+          ...(note && { note }),
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    const updated = await tx.shiftHandover.findUniqueOrThrow({ where: { id: existing.id } });
+    return toShiftData(updated);
+  });
 }
 
 // === ANALYTICS ===

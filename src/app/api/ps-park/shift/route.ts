@@ -7,7 +7,8 @@ import {
   requireAdminSection,
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
-import { getDayReport, getTodayShift, openShift, closeShift, PSBookingError } from "@/modules/ps-park/service";
+import { getDayReport, getTodayShift, openShift, closeShift, recordShiftHandover, PSBookingError } from "@/modules/ps-park/service";
+import { shiftHandoverSchema } from "@/modules/ps-park/validation";
 
 /**
  * GET /api/ps-park/shift?date=YYYY-MM-DD
@@ -36,7 +37,11 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/ps-park/shift
- * Body: { action: "open" | "close", date: string, notes?: string }
+ * Body:
+ *   { action: "open"  | "close", date, notes? }
+ *   { action: "handover", date, amount, recipient, note? } — передача
+ *     наличной выручки в бухгалтерию; пишет фактически переданную сумму
+ *     и расхождение с расчётной.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { action, date, notes } = body as {
-      action: "open" | "close";
+      action: "open" | "close" | "handover";
       date: string;
       notes?: string;
     };
@@ -64,12 +69,38 @@ export async function POST(request: NextRequest) {
     } else if (action === "close") {
       const shift = await closeShift(date, session.user.id, managerName, notes);
       return apiResponse(shift);
+    } else if (action === "handover") {
+      const parsed = shiftHandoverSchema.safeParse(body);
+      if (!parsed.success) {
+        return apiError("VALIDATION_ERROR", parsed.error.issues[0].message, 422);
+      }
+      const shift = await recordShiftHandover(date, session.user.id, managerName, parsed.data);
+      return apiResponse(shift);
     } else {
       return apiError("VALIDATION_ERROR", "Неизвестное действие", 422);
     }
   } catch (error) {
     if (error instanceof PSBookingError) {
-      return apiError(error.code, error.message);
+      // Конфликты состояния смены — 409, а не безликий 400: клиент по коду
+      // понимает, что делать (закрыть смену / обновить экран).
+      const conflictCodes = new Set([
+        "SHIFT_ALREADY_OPEN",
+        "SHIFT_ALREADY_CLOSED",
+        "SHIFT_NOT_CLOSED",
+        "ALREADY_HANDED_OVER",
+      ]);
+      const unprocessableCodes = new Set([
+        "DISCREPANCY_NOTE_REQUIRED",
+        "RECIPIENT_REQUIRED",
+      ]);
+      const status = error.code === "SHIFT_NOT_FOUND"
+        ? 404
+        : conflictCodes.has(error.code)
+          ? 409
+          : unprocessableCodes.has(error.code)
+            ? 422
+            : 400;
+      return apiError(error.code, error.message, status);
     }
     return apiServerError();
   }

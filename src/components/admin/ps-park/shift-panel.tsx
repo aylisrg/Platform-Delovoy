@@ -26,6 +26,12 @@ export function ShiftPanel({ date }: { date: string }) {
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
   const [notes, setNotes] = useState("");
+  // Передача наличных в бухгалтерию: сумма предзаполняется расчётной, но
+  // менеджер вводит фактически переданную — ради этой разницы всё и затеяно.
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverAmount, setHandoverAmount] = useState("");
+  const [handoverTo, setHandoverTo] = useState("");
+  const [handoverNote, setHandoverNote] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -90,6 +96,43 @@ export function ShiftPanel({ date }: { date: string }) {
     }
   }
 
+  function openHandover(cashTotal: number) {
+    setError(null);
+    setHandoverAmount(String(Math.round(cashTotal)));
+    setHandoverTo("");
+    setHandoverNote("");
+    setHandoverOpen(true);
+  }
+
+  async function handleHandover() {
+    setActing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ps-park/shift", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "handover",
+          date,
+          amount: parseFloat(handoverAmount) || 0,
+          recipient: handoverTo,
+          note: handoverNote.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setHandoverOpen(false);
+        await load();
+      } else {
+        setError(json.error?.message ?? "Ошибка");
+      }
+    } catch {
+      setError("Не удалось записать передачу");
+    } finally {
+      setActing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 mb-6 animate-pulse h-32" />
@@ -101,6 +144,9 @@ export function ShiftPanel({ date }: { date: string }) {
   const isOpen = shift?.status === "OPEN";
   const isClosed = shift?.status === "CLOSED";
   const noShift = !shift;
+  /** Разница «передано минус расчётное»: отрицательная — недостача. */
+  const handoverDiff =
+    Math.round(((parseFloat(handoverAmount) || 0) - (shift?.cashTotal ?? 0)) * 100) / 100;
 
   return (
     <>
@@ -215,6 +261,38 @@ export function ShiftPanel({ date }: { date: string }) {
                 Примечание: {shift.notes}
               </div>
             )}
+
+            {/* Передача наличных в бухгалтерию — только у закрытой смены:
+                пока смена открыта, расчётная сумма ещё растёт. */}
+            {isClosed && !shift.handover && (
+              <button
+                onClick={() => openHandover(shift.cashTotal)}
+                disabled={acting}
+                className="mt-3 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50 sm:w-auto"
+              >
+                Передать в бухгалтерию · {formatMoney(shift.cashTotal)}
+              </button>
+            )}
+
+            {isClosed && shift.handover && (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+                <div className="font-semibold">
+                  Передано в бухгалтерию: {formatMoney(shift.handover.amount)}
+                </div>
+                <div className="mt-0.5 text-emerald-700">
+                  {shift.handover.to} · {shift.handover.byName} ·{" "}
+                  {formatTime(shift.handover.at)}
+                </div>
+                {shift.handover.discrepancy !== 0 && (
+                  <div className="mt-1 rounded bg-amber-100 px-2 py-1 text-amber-900">
+                    Расхождение с расчётной суммой:{" "}
+                    {shift.handover.discrepancy > 0 ? "+" : ""}
+                    {formatMoney(shift.handover.discrepancy)}
+                    {shift.handover.note ? ` — ${shift.handover.note}` : ""}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -226,6 +304,116 @@ export function ShiftPanel({ date }: { date: string }) {
       </div>
 
       {/* Logout prompt after shift close */}
+      {/* Передача наличных в бухгалтерию */}
+      {handoverOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setHandoverOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-base font-semibold text-zinc-900">
+              Передать выручку в бухгалтерию
+            </h2>
+            <p className="mt-1.5 text-sm text-zinc-600">
+              Расчётная сумма наличных за смену —{" "}
+              <span className="font-semibold">{formatMoney(data?.shift?.cashTotal ?? 0)}</span>.
+              Впишите, сколько денег передали фактически.
+            </p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Карта и онлайн-оплата сюда не входят — эти деньги в кассу не попадают.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label htmlFor="handover-amount" className="block text-xs font-medium text-zinc-600">
+                  Передано наличными <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="handover-amount"
+                  type="number"
+                  min={0}
+                  step={1}
+                  autoFocus
+                  value={handoverAmount}
+                  onChange={(e) => setHandoverAmount(e.target.value)}
+                  disabled={acting}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="handover-to" className="block text-xs font-medium text-zinc-600">
+                  Кому передали <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="handover-to"
+                  type="text"
+                  value={handoverTo}
+                  onChange={(e) => setHandoverTo(e.target.value)}
+                  disabled={acting}
+                  placeholder="Фамилия и имя бухгалтера"
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                />
+              </div>
+
+              {handoverDiff !== 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Сумма расходится с расчётной на{" "}
+                  <span className="font-semibold tabular-nums">
+                    {handoverDiff > 0 ? "+" : ""}
+                    {formatMoney(handoverDiff)}
+                  </span>
+                  . Укажите причину — без неё передачу не записать.
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="handover-note" className="block text-xs font-medium text-zinc-600">
+                  Причина расхождения
+                  {handoverDiff !== 0 && <span className="text-red-500"> *</span>}
+                </label>
+                <textarea
+                  id="handover-note"
+                  rows={2}
+                  maxLength={500}
+                  value={handoverNote}
+                  onChange={(e) => setHandoverNote(e.target.value)}
+                  disabled={acting}
+                  placeholder="Разменяли, недостача, сдача с утра…"
+                  className="mt-1 w-full resize-none rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                />
+              </div>
+
+              {error && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </p>
+              )}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setHandoverOpen(false)}
+                disabled={acting}
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50"
+              >
+                Не сейчас
+              </button>
+              <button
+                type="button"
+                onClick={handleHandover}
+                disabled={acting || handoverTo.trim().length < 2}
+                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {acting ? "Записываем..." : "Записать передачу"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLogoutPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div

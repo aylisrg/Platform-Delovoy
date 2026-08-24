@@ -13,6 +13,7 @@ import {
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { formatTime } from "@/lib/format";
+import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
 function toHHMM(iso: string): string {
   return formatTime(iso);
@@ -226,8 +227,13 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
                               {activeBooking.startHHMM}–{activeBooking.endHHMM}
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-semibold text-zinc-900">
-                                {activeBooking.booking.clientName ?? "Без имени"}
+                              <span className="flex items-center gap-1.5">
+                                <span className="min-w-0 truncate text-sm font-semibold text-zinc-900">
+                                  {activeBooking.booking.clientName ?? "Без имени"}
+                                </span>
+                                {/* Оплата видна прямо в ленте: до этого на
+                                    телефоне признака не было вовсе. */}
+                                <PaymentDot booking={activeBooking.booking} />
                               </span>
                               <span
                                 className={`text-xs font-medium ${

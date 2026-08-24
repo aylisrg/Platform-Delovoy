@@ -170,6 +170,28 @@ export type ShiftHandoverData = {
   closedById: string | null;
   closedByName: string | null;
   notes: string | null;
+  /** Расчётная выручка смены: считается из финансового журнала при закрытии. */
+  cashTotal: number;
+  cardTotal: number;
+  /** Передача наличных в бухгалтерию; null — ещё не передавали. */
+  handover: ShiftHandoverRecord | null;
+};
+
+/**
+ * Факт передачи наличной выручки в бухгалтерию.
+ *
+ * `amount` — сколько реально отдали, а не сколько насчитала система: именно
+ * ради этой разницы поле и заведено. `discrepancy` = переданное минус
+ * расчётное (отрицательное — недостача).
+ */
+export type ShiftHandoverRecord = {
+  at: string;
+  amount: number;
+  discrepancy: number;
+  byId: string;
+  byName: string;
+  to: string;
+  note: string | null;
 };
 
 // Bill for session completion

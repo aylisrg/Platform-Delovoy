@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "./booking-actions";
 import { AddItemsButton } from "./add-items-button";
 import { CallButton } from "@/components/admin/telephony/call-button";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import type { BookingStatus } from "@prisma/client";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified } from "@/lib/format";
 
@@ -36,6 +37,10 @@ export type MobileBookingRow = {
   // Guest bookings have no linked User row.
   user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
+  // Деньги брони — нужны бейджу оплаты; на телефоне его не было вовсе.
+  metadata?: unknown;
+  cashAmount?: number | string | { toString(): string } | null;
+  cardAmount?: number | string | { toString(): string } | null;
 };
 
 type BookingListMobileProps = {
@@ -90,7 +95,10 @@ export function BookingListMobile({
                   {formatTime(b.endTime)}
                 </p>
               </div>
-              <Badge variant={statusVariant[b.status]}>{statusLabel[b.status]}</Badge>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                <Badge variant={statusVariant[b.status]}>{statusLabel[b.status]}</Badge>
+                <PaymentBadge booking={{ status: b.status, cashAmount: b.cashAmount, cardAmount: b.cardAmount, metadata: b.metadata }} />
+              </div>
             </div>
 
             {phone && (
