@@ -11,6 +11,7 @@ import {
 } from "@/lib/booking-time";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
 import { formatTime } from "@/lib/format";
+import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
 function toHHMM(iso: string): string {
   return formatTime(iso);
@@ -159,8 +160,13 @@ export function MobileTimeline({ initialData, initialDate }: Props) {
                               : "border-emerald-300 bg-emerald-50 text-emerald-800"
                           }`}
                         >
-                          <span className="truncate max-w-[200px]">
-                            {activeBooking.booking.clientName ?? "—"}
+                          <span className="flex max-w-[200px] items-center gap-1">
+                            <span className="truncate">
+                              {activeBooking.booking.clientName ?? "—"}
+                            </span>
+                            {/* Оплата видна прямо в ленте: до этого на
+                                телефоне признака не было вовсе. */}
+                            <PaymentDot booking={activeBooking.booking} />
                           </span>
                           <span className="tabular-nums text-[10px] opacity-70">
                             {activeBooking.startHHMM}–{activeBooking.endHHMM}

@@ -139,3 +139,34 @@ export const sessionEndingAlertSchema = z.object({
   clientName: z.string().max(200).nullish(),
   remainingMinutes: z.number().int().min(0).max(600).nullish(),
 });
+
+
+/**
+ * Передача наличной выручки смены в бухгалтерию (инкассация).
+ *
+ * `recipient` — свободный текст: у бухгалтера нет входа в систему, поэтому
+ * подтверждать приём внутри платформы некому. Обязательность пояснения при
+ * расхождении проверяет сервис — там известна расчётная сумма.
+ */
+export const shiftHandoverSchema = z.object({
+  amount: z
+    .number()
+    .min(0, "Сумма не может быть отрицательной")
+    .max(100_000_000, "Сумма слишком велика"),
+  recipient: z
+    .string()
+    .min(2, "Укажите, кому передали деньги")
+    .max(200, "Слишком длинное имя получателя"),
+  note: z
+    .string()
+    .max(500, "Максимальная длина пояснения — 500 символов")
+    .nullish()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  /**
+   * Осознанное исправление уже записанной передачи. Без этого флага повторный
+   * вызов отклоняется: тихо переписать запись о деньгах нельзя.
+   */
+  isCorrection: z.boolean().nullish().transform((v) => v ?? false),
+});
+
+export type ShiftHandoverInput = z.infer<typeof shiftHandoverSchema>;

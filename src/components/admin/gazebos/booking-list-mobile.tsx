@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { BookingActions } from "./booking-actions";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
 import type { BookingStatus } from "@prisma/client";
 import { formatDate as formatDateUnified, formatTime as formatTimeUnified, toISODate } from "@/lib/format";
@@ -33,6 +34,9 @@ export type GazeboMobileBookingRow = {
   user: { name: string | null; email: string | null; phone: string | null } | null;
   resourceId: string;
   metadata?: unknown;
+  // Деньги, принятые на месте — нужны бейджу оплаты.
+  cashAmount?: number | string | { toString(): string } | null;
+  cardAmount?: number | string | { toString(): string } | null;
   paymentStatus?: BookingPaymentStatus;
 };
 
@@ -83,7 +87,15 @@ export function GazeboBookingListMobile({ bookings, resourceMap, emphasizePendin
                 <Badge variant={statusVariant[b.status] ?? "default"}>
                   {statusLabel[b.status] ?? b.status}
                 </Badge>
-                <BookingPaymentBadge status={b.paymentStatus} />
+                {/* Деньги целиком: касса + карта + онлайн. Онлайн-бейдж
+                    остаётся только там, где он знает то, чего не знает
+                    сумма: возврат и ожидание оплаты. */}
+                <PaymentBadge booking={{ status: b.status, cashAmount: b.cashAmount, cardAmount: b.cardAmount, metadata: b.metadata }} />
+                {(b.paymentStatus === "REFUNDED" ||
+                  b.paymentStatus === "PARTIALLY_REFUNDED" ||
+                  b.paymentStatus === "AWAITING") && (
+                  <BookingPaymentBadge status={b.paymentStatus} />
+                )}
               </div>
             </div>
 
