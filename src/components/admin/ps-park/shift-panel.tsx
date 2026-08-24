@@ -305,6 +305,13 @@ export function ShiftPanel({ date }: { date: string }) {
                     {shift.handover.note ? ` — ${shift.handover.note}` : ""}
                   </div>
                 )}
+                {/* Пояснение обязательно и при коррекции со сошедшимися
+                    суммами — но баннер расхождения тогда не рисуется, и текст
+                    пропадал с экрана, оставаясь только в журнале. Показываем
+                    его отдельной строкой. */}
+                {shift.handover.discrepancy === 0 && shift.handover.note && (
+                  <div className="mt-1 text-emerald-700">{shift.handover.note}</div>
+                )}
                 {shift.handover.correctedAt && (
                   <div className="mt-1 text-emerald-700">
                     Запись исправлена {formatTime(shift.handover.correctedAt)} — прежние
