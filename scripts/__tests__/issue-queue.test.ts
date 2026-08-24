@@ -18,7 +18,6 @@ import {
   countBackpressurePrs,
   dependabotHealAction,
   dependabotRecreateMarker,
-  destructiveSqlIn,
   graceElapsed,
   isDependabotAutoMergeBranch,
   isEligible,
@@ -28,7 +27,6 @@ import {
   releasePrGate,
   laneOf,
   missedAutoCloseIssues,
-  moduleOf,
   orderQueue,
   pickNext,
   priorityOf,
@@ -282,57 +280,6 @@ describe('DEFAULT_CONFIG', () => {
   });
 });
 
-describe('moduleOf', () => {
-  it('вытаскивает модуль из путей modules / api / admin', () => {
-    expect(moduleOf('src/modules/booking/service.ts')).toBe('booking');
-    expect(moduleOf('src/app/api/gazebos/route.ts')).toBe('gazebos');
-    expect(moduleOf('src/app/(admin)/admin/cafe/page.tsx')).toBe('cafe');
-  });
-
-  it('возвращает null для файлов вне модулей', () => {
-    expect(moduleOf('src/lib/db.ts')).toBeNull();
-    expect(moduleOf('README.md')).toBeNull();
-  });
-});
-
-describe('destructiveSqlIn', () => {
-  const added = (sql: string) => sql.split('\n').map((l) => `+${l}`).join('\n');
-
-  it.each([
-    ['DROP TABLE "Booking";', 'DROP TABLE'],
-    ['ALTER TABLE "Booking" DROP COLUMN "note";', 'DROP COLUMN'],
-    ['TRUNCATE "Booking";', 'TRUNCATE'],
-    ['DELETE FROM "Booking" WHERE id = 1;', 'DELETE FROM'],
-    ['ALTER TYPE "Status" RENAME TO "OldStatus";', 'ALTER TYPE'],
-    ['ALTER TABLE "Booking" ALTER COLUMN "x" SET NOT NULL;', 'SET NOT NULL'],
-    ['ALTER TABLE "Booking" DROP CONSTRAINT "fk";', 'DROP CONSTRAINT'],
-  ])('ловит %s', (sql, expected) => {
-    expect(destructiveSqlIn(added(sql))).toContain(expected);
-  });
-
-  it.each([
-    'CREATE TABLE "Blackout" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));',
-    'ALTER TABLE "Booking" ADD COLUMN "note" TEXT;',
-    'CREATE INDEX "Booking_date_idx" ON "Booking"("date");',
-    'CREATE UNIQUE INDEX "u" ON "Booking"("id");',
-  ])('пропускает аддитивное: %s', (sql) => {
-    expect(destructiveSqlIn(added(sql))).toEqual([]);
-  });
-
-  it('регистр не важен', () => {
-    expect(destructiveSqlIn(added('drop table "X";'))).toContain('DROP TABLE');
-  });
-
-  // NOT NULL в CREATE TABLE — это объявление колонки, а не ALTER существующей.
-  it('NOT NULL внутри CREATE TABLE не считается деструктивным', () => {
-    expect(destructiveSqlIn(added('CREATE TABLE "X" ("id" TEXT NOT NULL);'))).toEqual([]);
-  });
-
-  it('удалённые строки не считаются — важно только то, что добавили', () => {
-    expect(destructiveSqlIn('-DROP TABLE "Booking";\n+CREATE INDEX "i" ON "X"("y");')).toEqual([]);
-  });
-});
-
 describe('classifyMergeGate', () => {
   it('обычный код приложения мержится автоматически', () => {
     const gate = classifyMergeGate(
@@ -381,94 +328,10 @@ describe('classifyMergeGate', () => {
     expect(classifyMergeGate(['.github/workflows/issue-templates.yml'], config(), PASSING_VERDICTS).tier).toBe('auto');
   });
 
-  // Правило ширины PR (v2, под зонтики мелочи): жёсткий hold с 8 модулей;
-  // коридор 5-7 модулей открыт только компактным диффам (≤400 строк, ≤25 файлов);
-  // отсутствие метрик диффа в этом коридоре — консервативный hold.
-  const moduleFile = (slug: string, lines = 20) => ({
-    filename: `src/modules/${slug}/service.ts`,
-    additions: lines,
-    deletions: 0,
-  });
-
-  it('компактный батч по 5-7 модулям проходит — типичный зонтик мелочи', () => {
-    const gate = classifyMergeGate(
-      ['booking', 'gazebos', 'cafe', 'rental', 'clients', 'tasks'].map((s) => moduleFile(s, 40)),
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('auto');
-  });
-
-  it('5-7 модулей с диффом >400 строк — hold (широкая свалка, а не батч)', () => {
-    const gate = classifyMergeGate(
-      ['booking', 'gazebos', 'cafe', 'rental', 'clients'].map((s) => moduleFile(s, 120)),
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('scope creep');
-  });
-
-  it('5-7 модулей и >25 файлов — hold независимо от строк', () => {
-    const files = Array.from({ length: 26 }, (_, i) => ({
-      filename: `src/modules/${['booking', 'gazebos', 'cafe', 'rental', 'clients'][i % 5]}/f${i}.ts`,
-      additions: 2,
-      deletions: 0,
-    }));
-    expect(classifyMergeGate(files, config(), PASSING_VERDICTS).tier).toBe('hold');
-  });
-
-  it('5-7 модулей БЕЗ метрик диффа — консервативный hold (нет данных ≠ можно)', () => {
-    const gate = classifyMergeGate(
-      [
-        'src/modules/booking/service.ts',
-        'src/modules/gazebos/service.ts',
-        'src/modules/cafe/service.ts',
-        'src/modules/rental/service.ts',
-        'src/modules/clients/service.ts',
-      ],
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('метрики диффа недоступны');
-    expect(gate.modules).toHaveLength(5);
-  });
-
-  it('8+ модулей — hold всегда, даже компактные', () => {
-    const gate = classifyMergeGate(
-      ['booking', 'gazebos', 'cafe', 'rental', 'clients', 'tasks', 'users', 'analytics'].map((s) => moduleFile(s, 5)),
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('scope creep');
-  });
-
-  it('4 модуля проходят как раньше — правило ширины их не трогает', () => {
-    const gate = classifyMergeGate(
-      [
-        'src/modules/booking/service.ts',
-        'src/modules/gazebos/service.ts',
-        'src/modules/cafe/service.ts',
-        'src/modules/rental/service.ts',
-      ],
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('auto');
-  });
-
-  it('аддитивная миграция мержится сама', () => {
-    const gate = classifyMergeGate(
-      [{ filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+ALTER TABLE "Booking" ADD COLUMN "note" TEXT;' }],
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('auto');
-  });
-
-  it('деструктивная миграция держит PR — потеря данных необратима', () => {
+  // ADR 2026-08-24-remove-migration-width-holds: владелец решил убрать оба
+  // оставшихся hold-класса про необратимость (миграции, ширина PR) — теперь их
+  // держат только CI и вердикты ревью-агентов, как и остальной код.
+  it('деструктивная миграция мержится сама — риск принят владельцем явно (ADR 2026-08-24)', () => {
     const gate = classifyMergeGate(
       [
         { filename: 'src/modules/booking/service.ts' },
@@ -477,29 +340,23 @@ describe('classifyMergeGate', () => {
       config(),
       PASSING_VERDICTS,
     );
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('DROP COLUMN');
+    expect(gate.tier).toBe('auto');
   });
 
-  // F6 аудита: раньше «нет patch» молча значило «безопасно» — деструктивный SQL в
-  // файле, слишком большом для GitHub-диффа, проскакивал бы незамеченным.
-  it('миграция без доступного диффа держит PR — ручная проверка вместо угадывания', () => {
-    const gate = classifyMergeGate(
-      [{ filename: 'prisma/migrations/20260811_x/migration.sql' }],
-      config(),
-      PASSING_VERDICTS,
-    );
-    expect(gate.tier).toBe('hold');
-    expect(gate.reasons.join(' ')).toContain('diff миграции');
-    expect(gate.reasons.join(' ')).toContain('недоступен');
-  });
-
-  it('деструктивный SQL вне prisma/migrations гейт не трогает', () => {
-    const gate = classifyMergeGate(
-      [{ filename: 'scripts/seeds/cleanup.ts', patch: '+await prisma.$executeRaw`DROP TABLE tmp`;' }],
-      config(),
-      PASSING_VERDICTS,
-    );
+  it('широкий PR на 10+ модулей мержится сам — порог ширины убран (ADR 2026-08-24)', () => {
+    const files = [
+      'booking',
+      'gazebos',
+      'cafe',
+      'rental',
+      'clients',
+      'tasks',
+      'users',
+      'analytics',
+      'inventory',
+      'management',
+    ].map((s) => ({ filename: `src/modules/${s}/service.ts`, additions: 500, deletions: 100 }));
+    const gate = classifyMergeGate(files, config(), PASSING_VERDICTS);
     expect(gate.tier).toBe('auto');
   });
 
@@ -511,18 +368,15 @@ describe('classifyMergeGate', () => {
 
   it('собирает все причины сразу, а не только первую', () => {
     const gate = classifyMergeGate(
-      [
-        { filename: '.github/issue-queue.json' },
-        { filename: 'prisma/migrations/20260811_x/migration.sql', patch: '+DROP TABLE "Booking";' },
-      ],
+      [{ filename: '.github/issue-queue.json' }],
       config({ autoMerge: false }),
-      PASSING_VERDICTS,
+      [],
     );
     expect(gate.reasons.length).toBeGreaterThanOrEqual(3);
     const joined = gate.reasons.join(' ');
     expect(joined).toContain('выключен');
     expect(joined).toContain('рубильники');
-    expect(joined).toContain('DROP TABLE');
+    expect(joined).toContain('вердиктов ревью-агентов');
   });
 
   // #580, F5 аудита: «PASS от ревью-агентов» раньше была конвенцией промпта, не
