@@ -56,34 +56,41 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     adminChatId = adminChatEnv || "";
   }
 
-  // Bot token check
-  let botCheck: NotificationsHealthCheck["checks"]["botToken"];
-  if (!token) {
-    botCheck = { ok: false, reason: "TELEGRAM_BOT_TOKEN not set" };
-  } else {
-    botCheck = await probeBot(token);
-  }
-
-  // Admin chat check
-  let adminChatCheck: NotificationsHealthCheck["checks"]["adminChat"];
-  if (!token) {
-    adminChatCheck = { ok: false, reason: "bot token missing" };
-  } else if (!adminChatId) {
-    adminChatCheck = { ok: false, reason: "TELEGRAM_ADMIN_CHAT_ID not set" };
-  } else {
-    adminChatCheck = await probeChat(token, adminChatId);
-  }
-
-  // Owner chat check
-  let ownerChatCheck: NotificationsHealthCheck["checks"]["ownerChat"];
-  if (!token) {
-    ownerChatCheck = { ok: false, reason: "bot token missing" };
-  } else if (!ownerChatId) {
-    ownerChatCheck = { ok: false, reason: "TELEGRAM_OWNER_CHAT_ID not set" };
-  } else {
-    const probe = await probeChat(token, ownerChatId);
-    ownerChatCheck = { ok: probe.ok, reason: probe.reason };
-  }
+  // Три Telegram-пробы независимы — гоняем их параллельно, а не по очереди.
+  // При деградации транспорта (fallback на прямой api.telegram.org —
+  // src/lib/telegram/client.ts) каждая проба может занять до своего полного
+  // таймаута (5с), и три последовательных прогона подбирались к 15с — почти
+  // вплотную к 20-секундному таймауту внешнего probe в site-watchdog.yml.
+  // Сам health-чек становился источником ложного HTTP 000 (issue #708,
+  // issue #455 п.5), а не только реальная деградация сети.
+  const [botCheck, adminChatCheck, ownerProbe] = await Promise.all([
+    !token
+      ? Promise.resolve<NotificationsHealthCheck["checks"]["botToken"]>({
+          ok: false,
+          reason: "TELEGRAM_BOT_TOKEN not set",
+        })
+      : probeBot(token),
+    !token
+      ? Promise.resolve<NotificationsHealthCheck["checks"]["adminChat"]>({
+          ok: false,
+          reason: "bot token missing",
+        })
+      : !adminChatId
+        ? Promise.resolve<NotificationsHealthCheck["checks"]["adminChat"]>({
+            ok: false,
+            reason: "TELEGRAM_ADMIN_CHAT_ID not set",
+          })
+        : probeChat(token, adminChatId),
+    !token
+      ? Promise.resolve({ ok: false, reason: "bot token missing" })
+      : !ownerChatId
+        ? Promise.resolve({ ok: false, reason: "TELEGRAM_OWNER_CHAT_ID not set" })
+        : probeChat(token, ownerChatId),
+  ]);
+  const ownerChatCheck: NotificationsHealthCheck["checks"]["ownerChat"] = {
+    ok: ownerProbe.ok,
+    reason: ownerProbe.reason,
+  };
 
   // Queue stats
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
