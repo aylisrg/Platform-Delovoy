@@ -1,0 +1,129 @@
+name: Merge Gate Check
+
+# issue #745 — вторая линия защиты поверх block-native-automerge.yml.
+#
+# block-native-automerge.yml отключает нативный auto-merge на claude/** PR
+# сразу же, как только он включён, — но это гонка (событие → job → API-вызов),
+# и если она когда-нибудь проиграна (простой GitHub Actions, изменение events),
+# нативный auto-merge всё ещё смотрит только на required CI checks.
+#
+# Эта джоба сама становится проверяемым GitHub-чеком: публикует commit status
+# `merge-gate/verdicts` по machine-гейту (`classifyMergeGate` — issue #580, тот
+# же код, что и `npx tsx scripts/issue-queue.ts gate <PR>`). Если владелец
+# добавит `merge-gate/verdicts` в required status checks branch protection main
+# (Settings → Branches → main → Require status checks to pass → добавить
+# `merge-gate/verdicts`), нативный auto-merge физически не сможет смержить
+# claude/** PR раньше гейта ни при каком обходе первой линии защиты — это
+# инфраструктурная repo-настройка, отдельная от кода в этом PR (см. PR #745).
+#
+# ⚠️ Прежде чем включать required check: `pr-merge`/`automerge`/decisions-sync
+# мержат hold-PR (в т.ч. needs-owner после аппрува владельца) через прямой
+# `PUT /pulls/{n}/merge` под AUTOMATION_TOKEN — этот чек для таких PR тоже
+# красный (гейт сам вернул hold). GitHub required status checks блокируют ЛЮБОЙ
+# мерж, включая API, если у актора нет прав обхода branch protection. Нужно
+# либо дать AUTOMATION_TOKEN/его актору bypass в branch protection, либо этот
+# путь мержа сломается вместе с обходом, который он должен исполнять легитимно.
+#
+# Не PR агента (dependabot/release-please/feature/**/ручные ветки владельца) —
+# джоба всегда репортит success и гейт не проверяет: у них свои легитимные
+# пути мержа, не classifyMergeGate (releasePrGate/isDependabotAutoMergeBranch/
+# ручной мерж владельцем), и заставлять их постить вердикты-маркеры было бы
+# ложным требованием.
+#
+# on: issue_comment нужен потому, что вердикты (#580) публикуются комментарием
+# ПОСЛЕ открытия PR, без нового коммита — pull_request:synchronize на них не
+# сработает, и без ре-запуска чек навсегда остался бы красным с момента
+# открытия PR, даже после того как оба вердикта появились.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [main]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  statuses: write
+
+concurrency:
+  group: merge-gate-check-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Merge Gate — verdicts & hold rules
+    # issue_comment фильтруется тут же: событие общее для issues и PR, а
+    # обычные issue-комментарии этот гейт не касаются.
+    if: github.event_name == 'pull_request' || github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+
+      - name: Determine PR number, head SHA and head ref
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            NUM="${{ github.event.pull_request.number }}"
+            SHA="${{ github.event.pull_request.head.sha }}"
+            REF="${{ github.event.pull_request.head.ref }}"
+          else
+            NUM="${{ github.event.issue.number }}"
+            SHA=$(gh api "repos/${{ github.repository }}/pulls/$NUM" --jq .head.sha)
+            REF=$(gh api "repos/${{ github.repository }}/pulls/$NUM" --jq .head.ref)
+          fi
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Skip — not an agent PR (own legitimate merge path)
+        if: ${{ !startsWith(steps.pr.outputs.ref, 'claude/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ steps.pr.outputs.sha }}" -X POST \
+            -f state=success \
+            -f context="merge-gate/verdicts" \
+            -f description="n/a — не PR агента (claude/**), гейт классификатора не применяется"
+
+      - name: Run merge gate (classifyMergeGate, scripts/lib/issue-queue.ts)
+        id: gate
+        if: startsWith(steps.pr.outputs.ref, 'claude/')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          npx tsx scripts/issue-queue.ts gate "${{ steps.pr.outputs.number }}" | tee gate.json
+
+      - name: Post commit status (required-check target)
+        if: startsWith(steps.pr.outputs.ref, 'claude/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.gate.outcome }}" = "success" ]; then
+            STATE=success
+            DESC="auto — гейт разрешает мерж"
+          else
+            STATE=failure
+            DESC="hold — гейт держит PR (нет вердиктов и/или другая причина hold), см. job log"
+          fi
+          gh api "repos/${{ github.repository }}/statuses/${{ steps.pr.outputs.sha }}" -X POST \
+            -f state="$STATE" \
+            -f context="merge-gate/verdicts" \
+            -f description="$DESC" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Fail job if gate held
+        if: startsWith(steps.pr.outputs.ref, 'claude/') && steps.gate.outcome != 'success'
+        run: |
+          cat gate.json 2>/dev/null || true
+          echo "::error::Merge gate returned hold — native GitHub auto-merge must not merge this PR."
+          exit 1

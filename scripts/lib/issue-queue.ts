@@ -508,6 +508,12 @@ export const HOLD_PATTERNS: RegExp[] = [
   // (каждый синк модулей), а механику мержа не задаёт — асимметрия зафиксирована
   // в ADR 2026-08-20-owner-out-of-github.
   /^\.claude\/commands\/next-issue\.md$/,
+  // Защита от обхода гейта нативным GitHub auto-merge (issue #745): без этого
+  // правки самих файлов защиты (отключение auto-merge на claude/** и/или
+  // required-check гейта) могли бы уехать тем же обходом, который они должны
+  // предотвращать — циклическая дыра, как и у остальных рубильников выше.
+  /^\.github\/workflows\/block-native-automerge\.yml$/,
+  /^\.github\/workflows\/merge-gate-check\.yml$/,
 ];
 
 /**

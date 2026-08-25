@@ -1,0 +1,74 @@
+name: Block native GitHub auto-merge on agent PRs
+
+# issue #745: нативный GitHub auto-merge (`gh pr merge --auto` / GraphQL
+# `enablePullRequestAutoMerge`) мержит PR по одним только required CI checks —
+# он не знает про машинный гейт двойного вердикта (`classifyMergeGate`,
+# scripts/lib/issue-queue.ts, issue #580), который требует маркеров
+# `code-reviewer`+`qa-engineer` PASS в комментариях PR. Так смержился PR #743
+# без единого комментария/review, и (найдено ретроспективным аудитом #745)
+# ещё минимум три PR (#634, #677, #710) — включая #710, который правил сами
+# рубильники автоматики (`.claude/commands/next-issue.md`,
+# `.github/issue-queue.json`, `issue-queue-merge.yml`, `auto-rebase.yml`).
+#
+# Ни один workflow/скрипт в этом репозитории не вызывает
+# enablePullRequestAutoMerge/`gh pr merge --auto` (проверено #745) — источник
+# включения внешний (репозиторная настройка `allow_auto_merge: true` разрешает
+# это любому с write-доступом; кто конкретно жмёт кнопку/зовёт API — не
+# устанавливается средствами самого репозитория, см. QA-отчёт issue-745).
+# Чинить «источник» нечем; чиним последствие: PR-ы `claude/**` мержит
+# ИСКЛЮЧИТЕЛЬНО issue-queue-merge.yml → attemptMerge/pr-merge, который сам
+# перепроверяет гейт перед каждым мержом. Нативный auto-merge им просто не
+# нужен, поэтому он отключается на таких PR принудительно и безусловно, кем бы
+# и когда бы он ни был включён — до того, как required CI checks успеют
+# позеленеть и он самостоятельно смержит PR.
+
+on:
+  pull_request:
+    types: [auto_merge_enabled]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  # Один PR — одно решение за раз; повторное включение тем же/другим актором
+  # не должно гоняться само с собой.
+  group: block-native-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  disable:
+    name: Disable native auto-merge — queue owns the merge decision
+    # AGENT_BRANCH_RE в scripts/lib/issue-queue.ts: claude/** — это все ветки
+    # агента, не только claude/issue-*. feature/** и ручные ветки владельца
+    # не PR автоматики (CLAUDE.md) — их нативный auto-merge не наш вопрос.
+    if: startsWith(github.event.pull_request.head.ref, 'claude/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Disable native auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh pr merge "${{ github.event.pull_request.number }}" --disable-auto
+
+      - name: Explain why (comment on PR)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --body "$(cat <<'EOF'
+          🔒 Нативный GitHub auto-merge отключён автоматически (issue #745).
+
+          PR-ы веток `claude/**` мержит только подметальщик очереди
+          (`.github/workflows/issue-queue-merge.yml` → `attemptMerge`/`pr-merge`),
+          который перед каждым мержом сам проверяет машинный гейт двойного
+          вердикта (`classifyMergeGate`, issue #580). Нативный GitHub auto-merge
+          смотрит только на required CI checks и ничего не знает про этот гейт —
+          им нельзя мержить PR-ы автоматики напрямую, иначе гейт обходится
+          полностью (так смержился PR #743, задним числом найдены и другие).
+
+          Если этот PR готов — гейт (`npx tsx scripts/issue-queue.ts gate <PR>`)
+          подметальщик проверит сам в течение 15 минут после зелёного CI.
+          EOF
+          )"
