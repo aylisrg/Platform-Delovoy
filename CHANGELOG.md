@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.19.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.2...v2.19.0) (2026-08-25)
+
+
+### Features
+
+* **booking:** передача кассы в бухгалтерию и внятный признак оплаты ([#754](https://github.com/aylisrg/Platform-Delovoy/issues/754)) ([f645cba](https://github.com/aylisrg/Platform-Delovoy/commit/f645cbab4103c454e22eed7cb422280711556d5d))
+
+
+### Bug Fixes
+
+* **ci:** конвертер dependabot-singles падает на npm ci содержимого PR — мажоры остаются без задач ([#767](https://github.com/aylisrg/Platform-Delovoy/issues/767)) ([7bab0f2](https://github.com/aylisrg/Platform-Delovoy/commit/7bab0f29ca79197e5236482cc666dab9090c9f65))
+* **ci:** конвертер dependabot-singles падает на npm ci содержимого PR — мажоры остаются без задач ([#769](https://github.com/aylisrg/Platform-Delovoy/issues/769)) ([152ae48](https://github.com/aylisrg/Platform-Delovoy/commit/152ae486b45e189ccea25845ca03fa62723cc3ab))
+
 ## [2.18.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.1...v2.18.2) (2026-08-24)
 
 
