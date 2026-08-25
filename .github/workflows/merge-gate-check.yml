@@ -141,9 +141,19 @@ jobs:
             -f description="$DESC" \
             -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-      - name: Fail job if gate held
+      # Джоба намеренно НЕ падает на hold (никакого exit 1 здесь). `pr-wait`/
+      # `automerge` (scripts/lib/issue-queue.ts: summarizeChecks) читают ВСЕ
+      # check-run'ы для SHA через /check-runs — упавшая джоба стала бы для них
+      # красным CI навсегда: PR открывается ДО вердиктов (шаг 6 next-issue.md:
+      # pr-open → verdict), значит первый прогон на pull_request:opened всегда
+      # ловит hold, а verdict приходит issue_comment'ом, который НЕ триггерит
+      # pull_request и не создаёт новый check-run — обновляется только явный
+      # commit status ниже. Красный статус здесь означал бы «CI никогда не
+      # позеленеет ни у одного claude/** PR». Сигнал hold/auto живёт
+      # ИСКЛЮЧИТЕЛЬНО в commit status `merge-gate/verdicts` (шаг выше) — именно
+      # его владелец добавляет в required checks, а не имя этой джобы.
+      - name: Log gate result
         if: startsWith(steps.pr.outputs.ref, 'claude/') && steps.gate.outcome != 'success'
         run: |
           cat gate.json 2>/dev/null || true
-          echo "::error::Merge gate returned hold — native GitHub auto-merge must not merge this PR."
-          exit 1
+          echo "::warning::Merge gate returned hold — see merge-gate/verdicts commit status, not this job's own conclusion."
