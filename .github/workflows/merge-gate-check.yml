@@ -16,6 +16,14 @@ name: Merge Gate Check
 # claude/** PR раньше гейта ни при каком обходе первой линии защиты — это
 # инфраструктурная repo-настройка, отдельная от кода в этом PR (см. PR #745).
 #
+# Checkout ниже намеренно пинится к `main`, а не к дефолтному merge-ref PR:
+# без этого PR, меняющий сам `classifyMergeGate`/`HOLD_PATTERNS` (ровно
+# сценарий #710 из ретроспективного аудита), на `pull_request:synchronize`
+# выполнял бы гейт из СВОЕГО ЖЕ ослабленного кода и мог бы сам себя пропустить.
+# Файл PR всё равно проверяется по существу — `cmdGate` тянет его дифф и
+# комментарии через GitHub API (доверенные данные), а не из локального
+# чекаута; выполняется только логика гейта, и она должна быть доверенной.
+#
 # ⚠️ Прежде чем включать required check: `pr-merge`/`automerge`/decisions-sync
 # мержат hold-PR (в т.ч. needs-owner после аппрува владельца) через прямой
 # `PUT /pulls/{n}/merge` под AUTOMATION_TOKEN — этот чек для таких PR тоже
@@ -61,7 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # ref: main — не мержить/чекаутить код самого PR. См. коммент выше.
       - uses: actions/checkout@v7
+        with:
+          ref: main
       - uses: ./.github/actions/setup-node
 
       - name: Determine PR number, head SHA and head ref
