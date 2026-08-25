@@ -238,6 +238,21 @@ describe('ownerDecide', () => {
     const res = await ownerDecide({ decisionId: 'dec1', action: 'approve', telegramUserId: '694696' });
     expect(res.ok).toBe(false);
   });
+
+  it('approve merge-hold: подтверждение не доставлено — само решение уже записано, но log.warn фиксирует курьез', async () => {
+    mocked.findUnique.mockResolvedValue(ROW as never);
+    mocked.update.mockResolvedValue({ ...ROW, status: 'APPROVED', decision: 'approve', decidedAt: new Date() } as never);
+    mockTelegramApi.mockResolvedValue({ ok: false, description: 'Forbidden: bot was blocked by the user' });
+
+    const res = await ownerDecide({ decisionId: 'dec1', action: 'approve', telegramUserId: '694696' });
+
+    expect(res.ok).toBe(true); // решение записано независимо от доставки подтверждения
+    expect(log.warn).toHaveBeenCalledWith(
+      'owner-decisions',
+      'подтверждение аппрува не доставлено',
+      expect.objectContaining({ decisionId: 'dec1', error: 'Forbidden: bot was blocked by the user' }),
+    );
+  });
 });
 
 describe('createOwnerIdea', () => {
@@ -268,6 +283,21 @@ describe('markExecutor / listDecisions', () => {
       expect.objectContaining({ data: expect.objectContaining({ status: 'EXECUTED', executedAt: expect.any(Date) }) }),
     );
     expect(JSON.stringify(mockTelegramApi.mock.calls.at(-1))).toContain('677');
+  });
+
+  it('EXECUTED: подтверждение не доставлено — исполнение уже записано, но log.warn фиксирует курьез', async () => {
+    mocked.findUnique.mockResolvedValue(ROW as never);
+    mocked.update.mockResolvedValue(ROW as never);
+    mockTelegramApi.mockResolvedValue({ ok: false, description: 'chat not found' });
+
+    const res = await markExecutor({ id: 'dec1', status: 'EXECUTED', executorNote: 'смержен' });
+
+    expect(res.ok).toBe(true); // исполнение записано независимо от доставки подтверждения
+    expect(log.warn).toHaveBeenCalledWith(
+      'owner-decisions',
+      'подтверждение исполнения не доставлено',
+      expect.objectContaining({ decisionId: 'dec1', status: 'EXECUTED', error: 'chat not found' }),
+    );
   });
 
   it('decided = APPROVED|REJECTED', async () => {

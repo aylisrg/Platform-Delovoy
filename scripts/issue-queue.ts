@@ -1484,21 +1484,31 @@ function cmdOpsWatch(dryRun: boolean): void {
 function postPatRotationDecision(title: string): Record<string, unknown> {
   if (!process.env.OWNER_DECISIONS_SECRET) return { posted: false, reason: 'OWNER_DECISIONS_SECRET не задан' };
   try {
-    const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
-      kind: 'pat-rotation',
-      subjectType: 'none',
-      subjectNumber: null,
-      headSha: null,
-      title,
-      payload: {
-        instructions:
-          'GitHub → Settings → Developer settings → Fine-grained tokens → Generate new: ' +
-          'repo Platform-Delovoy, permissions Contents (write) + Pull requests (write) + Actions (write), 90 дней. ' +
-          'Значение вставить в Settings → Secrets and variables → Actions → AUTOMATION_TOKEN. ' +
-          'После — кнопка «Готово» здесь.',
+    const res = siteApi<{ id: string; created: boolean; delivered: boolean; deliveryError?: string }>(
+      DECISIONS_API,
+      'POST',
+      {
+        kind: 'pat-rotation',
+        subjectType: 'none',
+        subjectNumber: null,
+        headSha: null,
+        title,
+        payload: {
+          instructions:
+            'GitHub → Settings → Developer settings → Fine-grained tokens → Generate new: ' +
+            'repo Platform-Delovoy, permissions Contents (write) + Pull requests (write) + Actions (write), 90 дней. ' +
+            'Значение вставить в Settings → Secrets and variables → Actions → AUTOMATION_TOKEN. ' +
+            'После — кнопка «Готово» здесь.',
+        },
       },
-    });
-    return { posted: true, id: res.id, created: res.created };
+    );
+    return {
+      posted: true,
+      id: res.id,
+      created: res.created,
+      delivered: res.delivered,
+      ...(res.deliveryError ? { deliveryError: res.deliveryError } : {}),
+    };
   } catch (err) {
     return { posted: false, reason: String(err).slice(0, 200) };
   }
