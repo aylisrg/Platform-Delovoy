@@ -55,8 +55,18 @@ jobs:
       # одиночных PR), а не наша сверка префикса ветки: имя группы тогда пришлось
       # бы держать синхронным ещё и здесь, третьим местом после dependabot.yml и
       # DEPENDABOT_AUTOMERGE_GROUPS. Групповые PR мержит свипер, здесь им нечего делать.
+      #
+      # ref: main — намеренно НЕ merge-ref самого PR (дефолт actions/checkout на
+      # pull_request). `issue-queue.ts create` ниже читает только scripts/ и
+      # зависимости — содержимое PR ему не нужно вообще, метаданные уже пришли
+      # из dependabot/fetch-metadata. Чекаут PR тянул за собой его package.json/
+      # lockfile: если сам апдейт ломает `npm ci` (ERESOLVE/EUSAGE — типичный
+      # случай для мажоров), джоба падала ДО создания задачи, и конвертер молча
+      # пропускал именно те PR, для которых задача нужнее всего (#747/#748/#749).
       - uses: actions/checkout@v7
         if: steps.metadata.outputs.dependency-group == ''
+        with:
+          ref: main
       - uses: ./.github/actions/setup-node
         if: steps.metadata.outputs.dependency-group == ''
 
