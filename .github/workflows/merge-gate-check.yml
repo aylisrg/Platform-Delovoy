@@ -79,14 +79,23 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVT_NAME: ${{ github.event_name }}
+          # Ветка PR — untrusted string (git позволяет в имени ветки почти любые
+          # символы, включая шелл-метасимволы): передаём через env, а не прямой
+          # ${{ }}-интерполяцией в тело run — иначе имя ветки могло бы
+          # исполниться как шелл-код с правами GH_TOKEN этой джобы.
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_REF: ${{ github.event.pull_request.head.ref }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            NUM="${{ github.event.pull_request.number }}"
-            SHA="${{ github.event.pull_request.head.sha }}"
-            REF="${{ github.event.pull_request.head.ref }}"
+          if [ "$EVT_NAME" = "pull_request" ]; then
+            NUM="$PR_NUM"
+            SHA="$PR_SHA"
+            REF="$PR_REF"
           else
-            NUM="${{ github.event.issue.number }}"
+            NUM="$ISSUE_NUM"
             SHA=$(gh api "repos/${{ github.repository }}/pulls/$NUM" --jq .head.sha)
             REF=$(gh api "repos/${{ github.repository }}/pulls/$NUM" --jq .head.ref)
           fi
