@@ -36,7 +36,14 @@ beforeEach(() => {
 
   vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
   vi.mocked(prisma.outgoingNotification.count).mockResolvedValue(0);
-  vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
+  // Общий мок для cron- и owner-decisions-heartbeat (оба читают
+  // SystemEvent.findFirst, различаясь только `where.source`) — по умолчанию
+  // свежее событие, чтобы существующие тесты не знали про owner-decisions
+  // check; кто хочет протухший/отсутствующий heartbeat — переопределяет сам.
+  vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
+    id: "ev0",
+    createdAt: new Date(),
+  } as never);
 });
 
 describe("notificationsHealth", () => {
@@ -166,5 +173,56 @@ describe("notificationsHealth", () => {
     expect(result.checks.queue.pending).toBe(0);
     expect(result.checks.queue.failedLastHour).toBe(0);
     expect(result.checks.cron.lastRunAt).toBeNull();
+  });
+
+  describe("owner-decisions heartbeat (ADR 2026-08-24)", () => {
+    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID unset → ok:true (не настроено — не должно шуметь)", async () => {
+      delete process.env.TELEGRAM_OWNER_CHAT_ID;
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(true);
+      expect(result.checks.ownerDecisions.lastHeartbeatAt).toBeNull();
+    });
+
+    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID set → ok:false (контур включён, но ни разу не отчитался)", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(false);
+      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat/);
+      expect(result.ok).toBe(false);
+    });
+
+    it("свежий heartbeat → ok:true", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
+        id: "ev1",
+        createdAt: new Date(Date.now() - 5 * 60_000),
+      } as never);
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(true);
+      expect(result.ok).toBe(true);
+    });
+
+    it("протухший heartbeat (>40 мин) → ok:false", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
+        id: "ev1",
+        createdAt: new Date(Date.now() - 60 * 60_000),
+      } as never);
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(false);
+      expect(result.checks.ownerDecisions.staleMin).toBeGreaterThanOrEqual(40);
+      expect(result.ok).toBe(false);
+    });
   });
 });

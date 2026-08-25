@@ -27,7 +27,7 @@ vi.mock('@/lib/telegram/client', () => ({
 }));
 
 import { prisma } from '@/lib/db';
-import { logAudit } from '@/lib/logger';
+import { log, logAudit } from '@/lib/logger';
 import {
   createDecisionRequest,
   createOwnerIdea,
@@ -74,7 +74,21 @@ describe('createDecisionRequest', () => {
       headSha: 'abc123def456',
       title: 'x',
     });
-    expect(res).toEqual({ id: 'dec1', created: false });
+    expect(res).toEqual({ id: 'dec1', created: false, delivered: true });
+    expect(mocked.create).not.toHaveBeenCalled();
+    expect(mockTelegramApi).not.toHaveBeenCalled();
+  });
+
+  it('идемпотентное попадание с telegramMessageId: null честно репортит delivered:false — исходная отправка не удалась и не ретраится', async () => {
+    mocked.findUnique.mockResolvedValue({ ...ROW, telegramMessageId: null } as never);
+    const res = await createDecisionRequest({
+      kind: 'merge-hold',
+      subjectType: 'pr',
+      subjectNumber: 677,
+      headSha: 'abc123def456',
+      title: 'x',
+    });
+    expect(res).toEqual({ id: 'dec1', created: false, delivered: false });
     expect(mocked.create).not.toHaveBeenCalled();
     expect(mockTelegramApi).not.toHaveBeenCalled();
   });
@@ -95,6 +109,7 @@ describe('createDecisionRequest', () => {
     });
 
     expect(res.created).toBe(true);
+    expect(res.delivered).toBe(true);
     expect(mocked.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ NOT: { headSha: 'newsha0000' } }),
@@ -106,6 +121,57 @@ describe('createDecisionRequest', () => {
     expect(JSON.stringify(payload)).toContain('ownerdec:dec2:approve');
   });
 
+  it('sendMessage падает: строка всё равно создаётся, delivered:false, ошибка идёт в SystemEvent (log.error)', async () => {
+    mocked.findUnique.mockResolvedValue(null as never);
+    mocked.updateMany.mockResolvedValue({ count: 0 } as never);
+    mocked.create.mockResolvedValue({ ...ROW, id: 'dec3', headSha: 'newsha1111', telegramMessageId: null } as never);
+    mockTelegramApi.mockResolvedValue({ ok: false, description: 'Forbidden: bot was blocked by the user' });
+
+    const res = await createDecisionRequest({
+      kind: 'merge-hold',
+      subjectType: 'pr',
+      subjectNumber: 678,
+      headSha: 'newsha1111',
+      title: 'x',
+    });
+
+    expect(res).toEqual({
+      id: 'dec3',
+      created: true,
+      delivered: false,
+      deliveryError: 'Forbidden: bot was blocked by the user',
+    });
+    expect(mocked.update).not.toHaveBeenCalled(); // telegramMessageId не пишем без messageId
+    expect(log.error).toHaveBeenCalledWith(
+      'owner-decisions',
+      'Telegram-уведомление владельцу не доставлено',
+      expect.objectContaining({ decisionId: 'dec3', error: 'Forbidden: bot was blocked by the user' }),
+    );
+  });
+
+  it('TELEGRAM_OWNER_CHAT_ID не задан: delivered:false с понятной причиной', async () => {
+    vi.stubEnv('TELEGRAM_OWNER_CHAT_ID', '');
+    mocked.findUnique.mockResolvedValue(null as never);
+    mocked.updateMany.mockResolvedValue({ count: 0 } as never);
+    mocked.create.mockResolvedValue({ ...ROW, id: 'dec4', headSha: 'newsha2222', telegramMessageId: null } as never);
+
+    const res = await createDecisionRequest({
+      kind: 'merge-hold',
+      subjectType: 'pr',
+      subjectNumber: 679,
+      headSha: 'newsha2222',
+      title: 'x',
+    });
+
+    expect(res).toEqual({
+      id: 'dec4',
+      created: true,
+      delivered: false,
+      deliveryError: 'TELEGRAM_OWNER_CHAT_ID не задан',
+    });
+    expect(mockTelegramApi).not.toHaveBeenCalled();
+  });
+
   it('kind без subject (pat-rotation) дедупится по живому PENDING того же kind', async () => {
     mocked.findFirst.mockResolvedValue({ ...ROW, id: 'rot1', kind: 'pat-rotation' } as never);
     const res = await createDecisionRequest({
@@ -115,7 +181,7 @@ describe('createDecisionRequest', () => {
       headSha: null,
       title: 'ротация',
     });
-    expect(res).toEqual({ id: 'rot1', created: false });
+    expect(res).toEqual({ id: 'rot1', created: false, delivered: true });
     expect(mocked.create).not.toHaveBeenCalled();
   });
 

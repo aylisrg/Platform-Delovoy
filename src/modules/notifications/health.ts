@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import { telegramApi } from "@/lib/telegram/client";
+
+/** Сколько 15-минутных тиков свипера пропустить, прежде чем считать контур молчащим — 2-3 тика + запас на джиттер расписания GitHub Actions. */
+const OWNER_DECISIONS_STALE_MINUTES = 40;
 
 export type NotificationsHealthCheck = {
   ok: boolean;
@@ -9,6 +13,7 @@ export type NotificationsHealthCheck = {
     ownerChat: { ok: boolean; reason?: string };
     queue: { pending: number; failedLastHour: number };
     cron: { lastRunAt: string | null; staleMin: number };
+    ownerDecisions: { ok: boolean; lastHeartbeatAt: string | null; staleMin: number; reason?: string };
   };
 };
 
@@ -135,11 +140,63 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     // non-critical
   }
 
+  // Owner-decisions heartbeat — свипер шлёт GET ?status=decided на каждом
+  // проходе (decisions-sync), независимо от того, есть ли needs-owner PR.
+  // Без этой проверки контур может молчать неделями незамеченным: сама
+  // отправка Telegram-кнопок владельцу не проходит ни через один cron/queue
+  // check выше (инцидент 2026-08-24 — OWNER_DECISIONS_SECRET не был задан
+  // 4 дня, ни один существующий чек этого не поймал).
+  let ownerDecisionsCheck: NotificationsHealthCheck["checks"]["ownerDecisions"] = {
+    ok: true,
+    lastHeartbeatAt: null,
+    staleMin: 9999,
+  };
+  try {
+    if (!ownerChatId) {
+      // Контур осознанно ещё не настроен (TELEGRAM_OWNER_CHAT_ID не задан) —
+      // не должен шуметь до того, как его вообще включили.
+      ownerDecisionsCheck = { ok: true, lastHeartbeatAt: null, staleMin: 9999 };
+    } else {
+      const last = await prisma.systemEvent.findFirst({
+        where: { source: EVENT_SOURCES.OWNER_DECISIONS, message: "sweeper heartbeat" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (last) {
+        const staleMin = Math.floor((Date.now() - last.createdAt.getTime()) / 60_000);
+        ownerDecisionsCheck = {
+          ok: staleMin < OWNER_DECISIONS_STALE_MINUTES,
+          lastHeartbeatAt: last.createdAt.toISOString(),
+          staleMin,
+        };
+      } else {
+        ownerDecisionsCheck = {
+          ok: false,
+          lastHeartbeatAt: null,
+          staleMin: 9999,
+          reason: "heartbeat ни разу не зафиксирован",
+        };
+      }
+    }
+  } catch {
+    // non-critical
+  }
+
   const ok =
     botCheck.ok &&
     adminChatCheck.ok &&
     ownerChatCheck.ok &&
-    queueCheck.failedLastHour === 0;
+    queueCheck.failedLastHour === 0 &&
+    ownerDecisionsCheck.ok;
 
-  return { ok, checks: { botToken: botCheck, adminChat: adminChatCheck, ownerChat: ownerChatCheck, queue: queueCheck, cron: cronCheck } };
+  return {
+    ok,
+    checks: {
+      botToken: botCheck,
+      adminChat: adminChatCheck,
+      ownerChat: ownerChatCheck,
+      queue: queueCheck,
+      cron: cronCheck,
+      ownerDecisions: ownerDecisionsCheck,
+    },
+  };
 }
