@@ -151,3 +151,4 @@
 | unknown | issue-680-681-684-qa-report.md | 2 | rbac, api, tests, scope_creep |
 | unknown | issue-669-qa-report.md | 0 | rbac, api, typescript, tests |
 | 2026-08-14 | 2026-08-14-booking-cash-handover-comment-payment-visibility-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-753-qa-report.md | 1 | rbac, api, typescript, tests |
