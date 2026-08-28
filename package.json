@@ -45,7 +45,7 @@
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
     "framer-motion": "^13.1.1",
-    "googleapis": "^171.4.0",
+    "googleapis": "^176.0.0",
     "grammy": "^1.45.1",
     "https-proxy-agent": "^9.1.0",
     "ioredis": "^6.0.0",
