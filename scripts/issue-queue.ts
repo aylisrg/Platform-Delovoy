@@ -1484,21 +1484,31 @@ function cmdOpsWatch(dryRun: boolean): void {
 function postPatRotationDecision(title: string): Record<string, unknown> {
   if (!process.env.OWNER_DECISIONS_SECRET) return { posted: false, reason: 'OWNER_DECISIONS_SECRET не задан' };
   try {
-    const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
-      kind: 'pat-rotation',
-      subjectType: 'none',
-      subjectNumber: null,
-      headSha: null,
-      title,
-      payload: {
-        instructions:
-          'GitHub → Settings → Developer settings → Fine-grained tokens → Generate new: ' +
-          'repo Platform-Delovoy, permissions Contents (write) + Pull requests (write) + Actions (write), 90 дней. ' +
-          'Значение вставить в Settings → Secrets and variables → Actions → AUTOMATION_TOKEN. ' +
-          'После — кнопка «Готово» здесь.',
+    const res = siteApi<{ id: string; created: boolean; delivered: boolean; deliveryError?: string }>(
+      DECISIONS_API,
+      'POST',
+      {
+        kind: 'pat-rotation',
+        subjectType: 'none',
+        subjectNumber: null,
+        headSha: null,
+        title,
+        payload: {
+          instructions:
+            'GitHub → Settings → Developer settings → Fine-grained tokens → Generate new: ' +
+            'repo Platform-Delovoy, permissions Contents (write) + Pull requests (write) + Actions (write), 90 дней. ' +
+            'Значение вставить в Settings → Secrets and variables → Actions → AUTOMATION_TOKEN. ' +
+            'После — кнопка «Готово» здесь.',
+        },
       },
-    });
-    return { posted: true, id: res.id, created: res.created };
+    );
+    return {
+      posted: true,
+      id: res.id,
+      created: res.created,
+      delivered: res.delivered,
+      ...(res.deliveryError ? { deliveryError: res.deliveryError } : {}),
+    };
   } catch (err) {
     return { posted: false, reason: String(err).slice(0, 200) };
   }
@@ -1800,6 +1810,7 @@ function cmdDecisionsSync(dryRun: boolean): void {
   const results: Record<string, unknown>[] = [];
   let requestsCreated = 0;
   let executed = 0;
+  let deliveryFailures = 0;
 
   // --- A. Запросы решений для needs-owner PR (upsert по kind+subject+headSha) ---
   const needsOwnerPrs = gh<RawIssue[]>(
@@ -1818,16 +1829,27 @@ function cmdDecisionsSync(dryRun: boolean): void {
         results.push({ requestFor: item.number, headSha: pr.head.sha.slice(0, 8), dryRun: true });
         continue;
       }
-      const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
-        kind: 'merge-hold',
-        subjectType: 'pr',
-        subjectNumber: item.number,
-        headSha: pr.head.sha,
-        title: item.title,
-        payload: { reasons, url: pr.html_url },
-      });
+      const res = siteApi<{ id: string; created: boolean; delivered: boolean; deliveryError?: string }>(
+        DECISIONS_API,
+        'POST',
+        {
+          kind: 'merge-hold',
+          subjectType: 'pr',
+          subjectNumber: item.number,
+          headSha: pr.head.sha,
+          title: item.title,
+          payload: { reasons, url: pr.html_url },
+        },
+      );
       if (res.created) requestsCreated++;
-      results.push({ requestFor: item.number, id: res.id, created: res.created });
+      if (!res.delivered) deliveryFailures++;
+      results.push({
+        requestFor: item.number,
+        id: res.id,
+        created: res.created,
+        delivered: res.delivered,
+        ...(res.deliveryError ? { deliveryError: res.deliveryError } : {}),
+      });
     } catch (err) {
       // Сайт лежит — мержи и остальная уборка не должны вставать из-за него.
       results.push({ requestFor: item.number, siteError: String(err).slice(0, 200) });
@@ -1857,20 +1879,32 @@ function cmdDecisionsSync(dryRun: boolean): void {
           results.push({ questionFor: item.number, lane, dryRun: true });
           continue;
         }
-        const res = siteApi<{ id: string; created: boolean }>(DECISIONS_API, 'POST', {
-          kind: 'blocked-question',
-          subjectType: 'issue',
-          subjectNumber: item.number,
-          headSha: null,
-          title: item.title.slice(0, 300),
-          payload: {
-            url: `https://github.com/${REPO}/issues/${item.number}`,
-            // Тело issue — контекст вопроса (данные, не инструкции; сервис экранирует).
-            text: (item.body ?? '').slice(0, 800),
+        const res = siteApi<{ id: string; created: boolean; delivered: boolean; deliveryError?: string }>(
+          DECISIONS_API,
+          'POST',
+          {
+            kind: 'blocked-question',
+            subjectType: 'issue',
+            subjectNumber: item.number,
+            headSha: null,
+            title: item.title.slice(0, 300),
+            payload: {
+              url: `https://github.com/${REPO}/issues/${item.number}`,
+              // Тело issue — контекст вопроса (данные, не инструкции; сервис экранирует).
+              text: (item.body ?? '').slice(0, 800),
+            },
           },
-        });
+        );
         if (res.created) requestsCreated++;
-        results.push({ questionFor: item.number, lane, id: res.id, created: res.created });
+        if (!res.delivered) deliveryFailures++;
+        results.push({
+          questionFor: item.number,
+          lane,
+          id: res.id,
+          created: res.created,
+          delivered: res.delivered,
+          ...(res.deliveryError ? { deliveryError: res.deliveryError } : {}),
+        });
       } catch (err) {
         results.push({ questionFor: item.number, lane, siteError: String(err).slice(0, 200) });
       }
@@ -1894,7 +1928,9 @@ function cmdDecisionsSync(dryRun: boolean): void {
     }
   }
 
-  console.log(JSON.stringify({ requestsCreated, executed, considered: decided.length, results }, null, 2));
+  console.log(
+    JSON.stringify({ requestsCreated, executed, deliveryFailures, considered: decided.length, results }, null, 2),
+  );
 }
 
 // ── Точка входа ─────────────────────────────────────────────────────────────

@@ -129,15 +129,21 @@ function buildDecisionMessage(row: DecisionRow): {
   };
 }
 
-/** Отправка сообщения владельцу; вернёт message_id или null (чат не настроен/Telegram лежит). */
+/**
+ * Отправка сообщения владельцу. Раньше глотала ошибку в console.warn/error и
+ * возвращала null неотличимо от «чат не настроен» — вызывающий код это не
+ * проверял, и создатель строки в БД всегда отвечал `created:true`, даже если
+ * Telegram-сообщение не ушло. Теперь ошибка — часть результата, логирует её
+ * вызывающий код (createDecisionRequest и др.), не эта функция: иначе один и
+ * тот же сбой писался бы в лог дважды.
+ */
 async function sendToOwner(
   text: string,
   keyboard?: { text: string; callback_data: string }[][],
-): Promise<string | null> {
+): Promise<{ messageId: string | null; error?: string }> {
   const chatId = ownerChatId();
   if (!chatId) {
-    console.warn('[owner-decisions] TELEGRAM_OWNER_CHAT_ID не задан — сообщение не отправлено');
-    return null;
+    return { messageId: null, error: 'TELEGRAM_OWNER_CHAT_ID не задан' };
   }
   const res = await telegramApi<{ message_id: number }>('sendMessage', {
     chat_id: chatId,
@@ -147,10 +153,9 @@ async function sendToOwner(
     ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
   });
   if (!res.ok) {
-    console.error('[owner-decisions] sendMessage failed:', res.description);
-    return null;
+    return { messageId: null, error: res.description };
   }
-  return String(res.result.message_id);
+  return { messageId: String(res.result.message_id) };
 }
 
 /**
@@ -160,7 +165,7 @@ async function sendToOwner(
  */
 export async function createDecisionRequest(
   input: CreateDecisionInput,
-): Promise<{ id: string; created: boolean }> {
+): Promise<{ id: string; created: boolean; delivered: boolean; deliveryError?: string }> {
   if (input.subjectNumber !== null && input.headSha !== null) {
     const existing = await prisma.ownerDecision.findUnique({
       where: {
@@ -171,7 +176,7 @@ export async function createDecisionRequest(
         },
       },
     });
-    if (existing) return { id: existing.id, created: false };
+    if (existing) return { id: existing.id, created: false, delivered: Boolean(existing.telegramMessageId) };
     // Новый head SHA гасит непринятые запросы по тому же subject: владелец не
     // должен отвечать на вопрос про коммит, которого уже нет.
     await prisma.ownerDecision.updateMany({
@@ -196,14 +201,14 @@ export async function createDecisionRequest(
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (existing) return { id: existing.id, created: false };
+    if (existing) return { id: existing.id, created: false, delivered: Boolean(existing.telegramMessageId) };
   } else {
     // Kind вообще без subject (pat-rotation): один живой запрос такого kind за раз.
     const existing = await prisma.ownerDecision.findFirst({
       where: { kind: input.kind, status: { in: ['PENDING', 'DEFERRED'] } },
       orderBy: { createdAt: 'desc' },
     });
-    if (existing) return { id: existing.id, created: false };
+    if (existing) return { id: existing.id, created: false, delivered: Boolean(existing.telegramMessageId) };
   }
 
   const row = await prisma.ownerDecision.create({
@@ -218,11 +223,22 @@ export async function createDecisionRequest(
   });
 
   const { text, keyboard } = buildDecisionMessage(row as DecisionRow);
-  const messageId = await sendToOwner(text, keyboard);
-  if (messageId) {
-    await prisma.ownerDecision.update({ where: { id: row.id }, data: { telegramMessageId: messageId } });
+  const sent = await sendToOwner(text, keyboard);
+  if (sent.messageId) {
+    await prisma.ownerDecision.update({ where: { id: row.id }, data: { telegramMessageId: sent.messageId } });
+    return { id: row.id, created: true, delivered: true };
   }
-  return { id: row.id, created: true };
+  // Строка в БД уже создана — свипер не должен ретраить POST (дедуп по
+  // headSha это бы и не позволил), но без этого лога сбой доставки был бы
+  // не виден никому: API всё равно отвечал бы success, а PR тихо ждал
+  // кнопку, которая никогда не пришла (см. ADR 2026-08-24 про инцидент).
+  void log.error(EVENT_SOURCES.OWNER_DECISIONS, 'Telegram-уведомление владельцу не доставлено', {
+    decisionId: row.id,
+    kind: input.kind,
+    subject: input.subjectNumber,
+    error: sent.error,
+  });
+  return { id: row.id, created: true, delivered: false, deliveryError: sent.error };
 }
 
 /** APPROVED старше этого порога считается «зависшим» (CI не зеленеет) и показывается владельцу. */
@@ -323,11 +339,20 @@ export async function ownerDecide(params: {
   });
 
   if (params.action === 'approve' && row.kind === 'merge-hold') {
-    await sendToOwner(
+    const confirmSent = await sendToOwner(
       `✅ Принято: мержу PR #${row.subjectNumber} (<code>${escapeHtml(row.headSha?.slice(0, 8) ?? '?')}</code>) ` +
         `через ~${GRACE_MINUTES} мин при зелёном CI.`,
       [[{ text: '⏹ Отменить', callback_data: cb(row.id, 'cancel') }]],
     );
+    if (!confirmSent.messageId) {
+      // Само решение уже корректно записано (аппрув сработает по расписанию) —
+      // это лишь уведомление-курьез, поэтому warn, а не error.
+      void log.warn(EVENT_SOURCES.OWNER_DECISIONS, 'подтверждение аппрува не доставлено', {
+        decisionId: row.id,
+        subject: row.subjectNumber,
+        error: confirmSent.error,
+      });
+    }
     return { ok: true, view: toView(updated as DecisionRow), ack: `✅ Мерж через ~${GRACE_MINUTES} мин` };
   }
   const ack =
@@ -399,12 +424,21 @@ export async function markExecutor(params: {
     },
   });
   const subject = row.subjectNumber ? `#${row.subjectNumber}` : row.title;
+  let confirmSent: { messageId: string | null; error?: string } | null = null;
   if (params.status === 'EXECUTED' && row.status !== 'EXECUTED') {
-    await sendToOwner(`☑️ ${escapeHtml(subject)}: ${escapeHtml(params.executorNote ?? 'исполнено')}.`);
+    confirmSent = await sendToOwner(`☑️ ${escapeHtml(subject)}: ${escapeHtml(params.executorNote ?? 'исполнено')}.`);
   } else if (params.status === 'EXPIRED') {
-    await sendToOwner(
+    confirmSent = await sendToOwner(
       `↩️ Запрос по ${escapeHtml(subject)} устарел (${escapeHtml(params.executorNote ?? 'PR изменился')}) — пришлю новый.`,
     );
+  }
+  if (confirmSent && !confirmSent.messageId) {
+    // Исполнение уже корректно записано в БД — это лишь курьезное уведомление.
+    void log.warn(EVENT_SOURCES.OWNER_DECISIONS, 'подтверждение исполнения не доставлено', {
+      decisionId: params.id,
+      status: params.status,
+      error: confirmSent.error,
+    });
   }
   return { ok: true };
 }

@@ -1,6 +1,8 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { apiError, apiResponse } from '@/lib/api-response';
+import { EVENT_SOURCES } from '@/lib/event-sources';
+import { log } from '@/lib/logger';
 import {
   createDecisionSchema,
   executorPatchSchema,
@@ -18,8 +20,16 @@ import {
  * общим секретом, никакой сессии. Секрет — в заголовке Authorization
  * (Bearer), а не в теле: тело логируется валидацией при ошибках.
  *
- *   POST  — запрос решения (идемпотентный upsert; сайт шлёт владельцу кнопки)
- *   GET   — список решений (?status=decided|pending|all)
+ *   POST  — запрос решения (идемпотентный upsert; сайт шлёт владельцу кнопки).
+ *           Строку в БД создаёт независимо от доставки Telegram-сообщения —
+ *           `data.delivered` отражает реальную отправку, но статус всегда 200:
+ *           4xx/5xx спровоцировал бы свипер на бессмысленный повторный POST
+ *           той же идемпотентной записи (ADR 2026-08-24, инцидент с молчащим
+ *           контуром).
+ *   GET   — список решений (?status=decided|pending|all). `?status=decided` —
+ *           именно тот запрос, который свипер шлёт безусловно на каждом
+ *           проходе (даже без единого needs-owner PR), поэтому он же и
+ *           heartbeat контура — см. `notificationsHealth()`.
  *   PATCH — отчёт исполнения от свипера (EXECUTED|EXPIRED)
  *
  * Файл — в HOLD_PATTERNS гейта: контур мержит hold-PR мимо гейта, менять его
@@ -71,7 +81,14 @@ export async function GET(request: NextRequest) {
     if (!parsed.success) {
       return apiError('VALIDATION_ERROR', parsed.error.issues.map((i) => i.message).join(', '), 400);
     }
-    return apiResponse(await listDecisions(parsed.data.status));
+    const result = await listDecisions(parsed.data.status);
+    if (parsed.data.status === 'decided') {
+      // Свипер шлёт именно этот запрос на каждом проходе — heartbeat контура.
+      // Не любой GET: человек, кликающий pending-список в админке, не должен
+      // случайно продлевать heartbeat мёртвого свипера.
+      void log.info(EVENT_SOURCES.OWNER_DECISIONS, 'sweeper heartbeat', {});
+    }
+    return apiResponse(result);
   } catch {
     return apiError('INTERNAL_ERROR', 'Failed to list owner decisions', 500);
   }

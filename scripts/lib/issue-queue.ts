@@ -475,7 +475,11 @@ export function untriagedIssues(issues: QueueIssue[]): QueueIssue[] {
 // уехали в авто-мерж. Защита — CI, два ревью-агента, blue-green, снапшот VPS,
 // бэкап БД, smoke-тесты и автооткат.
 //
-// Тормоз остался ровно на двух классах, и оба — про необратимость.
+// С 2026-08-24 (ADR 2026-08-24-remove-migration-width-holds) владелец решил
+// катить в прод вообще без своего участия: деструктивные миграции и широкие
+// PR тоже мержатся сами, на той же защите (CI + два ревью-агента + автооткат),
+// без стороннего взгляда — это осознанно принятый риск, см. ADR. Тормоз
+// остался ровно на одном классе, и он не про потерю данных, а про цикличность.
 
 /**
  * Пути, которые автоматика не мержит сама: это её собственные рубильники.
@@ -510,69 +514,20 @@ export const HOLD_PATTERNS: RegExp[] = [
   /^\.claude\/commands\/next-issue\.md$/,
 ];
 
-/**
- * SQL, который теряет данные. Код откатывается коммитом, а неудачно выполненный
- * DROP — только восстановлением бэкапа, то есть с окном потерь. Поэтому
- * деструктивные миграции остаются человеку, а аддитивные (CREATE TABLE,
- * ADD COLUMN, CREATE INDEX) мержатся сами.
- */
-const DESTRUCTIVE_SQL: { pattern: RegExp; what: string }[] = [
-  { pattern: /\bDROP\s+TABLE\b/i, what: 'DROP TABLE' },
-  { pattern: /\bDROP\s+COLUMN\b/i, what: 'DROP COLUMN' },
-  { pattern: /\bDROP\s+(?:SCHEMA|DATABASE)\b/i, what: 'DROP SCHEMA/DATABASE' },
-  { pattern: /\bTRUNCATE\b/i, what: 'TRUNCATE' },
-  { pattern: /\bDELETE\s+FROM\b/i, what: 'DELETE FROM' },
-  { pattern: /\bALTER\s+TYPE\b/i, what: 'ALTER TYPE' },
-  { pattern: /\bSET\s+NOT\s+NULL\b/i, what: 'SET NOT NULL' },
-  { pattern: /\bDROP\s+CONSTRAINT\b/i, what: 'DROP CONSTRAINT' },
-];
-
-/**
- * Ищет деструктивный SQL в диффе миграции. На вход — `patch` из GitHub API,
- * поэтому считаются только добавленные строки: удаление старой миграции из
- * истории (строки с `-`) ничего в проде не роняет.
- */
-export function destructiveSqlIn(patch: string): string[] {
-  const added = patch
-    .split('\n')
-    .filter((l) => l.startsWith('+'))
-    .join('\n');
-  return DESTRUCTIVE_SQL.filter(({ pattern }) => pattern.test(added)).map((d) => d.what);
-}
-
 export interface ChangedFile {
   filename: string;
   /** Дифф файла; у бинарных и слишком больших файлов GitHub его не отдаёт. */
   patch?: string;
-  /** Метрики диффа из /pulls/{n}/files — для правила ширины PR. */
-  additions?: number;
-  deletions?: number;
 }
 
 export interface MergeGate {
   tier: 'auto' | 'hold';
   reasons: string[];
-  modules: string[];
-}
-
-/** К какому модулю относится файл — для правила «PR трогает 5+ модулей = scope creep». */
-export function moduleOf(file: string): string | null {
-  const m =
-    /^src\/modules\/([^/]+)\//.exec(file) ??
-    /^src\/app\/api\/([^/]+)\//.exec(file) ??
-    /^src\/app\/\(admin\)\/admin\/([^/]+)\//.exec(file);
-  return m ? m[1] : null;
 }
 
 /**
  * Решение о том, можно ли этот PR мержить автоматически.
  * Строго: любая одна причина из списка переводит PR в `hold`.
- *
- * Принимает и просто имена файлов, и объекты с `patch` — дифф нужен, чтобы
- * отличить аддитивную миграцию от деструктивной. Миграция без доступного
- * диффа (GitHub не отдаёт `patch` для слишком больших файлов) раньше молча
- * считалась безопасной — F6 аудита: деструктивный SQL в большом файле
- * проскакивал бы. Теперь это тоже `hold` — ручная проверка вместо угадывания.
  *
  * `prComments` — тела УЖЕ отфильтрованных по авторству комментариев PR
  * (`isTrustedVerdictAuthor`; issue-комментарии, не review-треды) — вызывающий
@@ -602,62 +557,14 @@ export function classifyMergeGate(
     }
   }
 
-  for (const file of files) {
-    if (!/^prisma\/migrations\//.test(file.filename)) continue;
-    if (!file.patch) {
-      reasons.push(`diff миграции ${file.filename} недоступен (файл слишком большой) — ручная проверка`);
-      continue;
-    }
-    const found = destructiveSqlIn(file.patch);
-    if (found.length > 0) {
-      reasons.push(`деструктивная миграция ${file.filename}: ${found.join(', ')} — потеря данных необратима`);
-    }
-  }
-
   const hasCodeReviewerVerdict = prComments.some((c) => c.includes(CODE_REVIEWER_PASS_MARKER));
   const hasQaEngineerVerdict = prComments.some((c) => c.includes(QA_ENGINEER_PASS_MARKER));
   if (!hasCodeReviewerVerdict || !hasQaEngineerVerdict) {
     reasons.push('нет вердиктов ревью-агентов (маркеры code-reviewer/qa-engineer PASS не найдены в комментариях PR)');
   }
 
-  // Правило ширины PR. Раньше «≥5 модулей → hold» без оговорок; с появлением
-  // зонтиков мелочи (батч P2-фиксов по 5-7 областям × 20-50 строк) это стало бы
-  // ложным срабатыванием на каждом батче. Узкий коридор 5-7 модулей открыт только
-  // компактным PR (вердикты #580 и зелёный CI при этом обязательны как всегда),
-  // взамен появились два стопа, которых не было: жёсткий потолок ≥8 модулей и
-  // лимит файлов — раньше PR на 4 модуля и 3000 строк ехал в auto беспрепятственно.
-  const modules = [...new Set(names.map(moduleOf).filter((m): m is string => m !== null))].sort();
-  if (modules.length >= WIDE_PR_HOLD_MODULES) {
-    reasons.push(
-      `scope creep: затронуто ${modules.length} модулей (${modules.join(', ')}) — шире ${WIDE_PR_HOLD_MODULES - 1} модулей авто-мерж не бывает`,
-    );
-  } else if (modules.length >= WIDE_PR_REVIEW_MODULES) {
-    const metricsKnown = files.every(
-      (f) => typeof f.additions === 'number' && typeof f.deletions === 'number',
-    );
-    const totalLines = files.reduce((sum, f) => sum + (f.additions ?? 0) + (f.deletions ?? 0), 0);
-    if (!metricsKnown) {
-      // Консервативно: вызов с голыми именами файлов (без метрик диффа) не должен
-      // молча ослаблять правило — нет данных, значит ручная проверка.
-      reasons.push(
-        `затронуто ${modules.length} модулей, метрики диффа недоступны — ручная проверка ширины PR`,
-      );
-    } else if (totalLines > WIDE_PR_MAX_LINES || files.length > WIDE_PR_MAX_FILES) {
-      reasons.push(
-        `scope creep: ${modules.length} модулей и ${totalLines} строк в ${files.length} файлах ` +
-          `(лимит для 5-7 модулей: ≤${WIDE_PR_MAX_LINES} строк, ≤${WIDE_PR_MAX_FILES} файлов) — правило CLAUDE.md #5`,
-      );
-    }
-  }
-
-  return { tier: reasons.length === 0 ? 'auto' : 'hold', reasons, modules };
+  return { tier: reasons.length === 0 ? 'auto' : 'hold', reasons };
 }
-
-/** Пороги правила ширины PR — экспортированы для тестов и документации. */
-export const WIDE_PR_HOLD_MODULES = 8;
-export const WIDE_PR_REVIEW_MODULES = 5;
-export const WIDE_PR_MAX_LINES = 400;
-export const WIDE_PR_MAX_FILES = 25;
 
 // ── Подметальщик авто-мержа ─────────────────────────────────────────────────
 //

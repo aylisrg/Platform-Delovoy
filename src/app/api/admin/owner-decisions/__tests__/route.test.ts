@@ -7,12 +7,17 @@ vi.mock('@/modules/owner-decisions/service', () => ({
   markExecutor: vi.fn(),
 }));
 
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), critical: vi.fn() },
+}));
+
 import { GET, PATCH, POST } from '../route';
 import {
   createDecisionRequest,
   listDecisions,
   markExecutor,
 } from '@/modules/owner-decisions/service';
+import { log } from '@/lib/logger';
 
 const SECRET = 'sweeper-secret';
 
@@ -39,7 +44,7 @@ const VALID_CREATE = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('OWNER_DECISIONS_SECRET', SECRET);
-  vi.mocked(createDecisionRequest).mockResolvedValue({ id: 'dec1', created: true });
+  vi.mocked(createDecisionRequest).mockResolvedValue({ id: 'dec1', created: true, delivered: true });
   vi.mocked(listDecisions).mockResolvedValue([]);
   vi.mocked(markExecutor).mockResolvedValue({ ok: true });
 });
@@ -49,8 +54,22 @@ describe('/api/admin/owner-decisions', () => {
     const res = await POST(makeRequest('POST', VALID_CREATE, { secret: SECRET }));
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.data).toEqual({ id: 'dec1', created: true });
+    expect(body.data).toEqual({ id: 'dec1', created: true, delivered: true });
     expect(createDecisionRequest).toHaveBeenCalled();
+  });
+
+  it('POST остаётся 200 даже когда Telegram-доставка не удалась — строка в БД уже создана', async () => {
+    vi.mocked(createDecisionRequest).mockResolvedValue({
+      id: 'dec1',
+      created: true,
+      delivered: false,
+      deliveryError: 'TELEGRAM_OWNER_CHAT_ID не задан',
+    });
+    const res = await POST(makeRequest('POST', VALID_CREATE, { secret: SECRET }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.data.delivered).toBe(false);
+    expect(body.data.deliveryError).toBe('TELEGRAM_OWNER_CHAT_ID не задан');
   });
 
   it('401 при неверном секрете — контур мержа мимо гейта закрыт для посторонних', async () => {
@@ -70,10 +89,24 @@ describe('/api/admin/owner-decisions', () => {
     expect(res.status).toBe(400);
   });
 
-  it('GET ?status=decided отдаёт список для свипера', async () => {
+  it('GET ?status=decided отдаёт список для свипера и пишет heartbeat', async () => {
     const res = await GET(makeRequest('GET', undefined, { secret: SECRET, query: '?status=decided' }));
     expect(res.status).toBe(200);
     expect(listDecisions).toHaveBeenCalledWith('decided');
+    expect(log.info).toHaveBeenCalledTimes(1);
+    expect(log.info).toHaveBeenCalledWith('owner-decisions', 'sweeper heartbeat', {});
+  });
+
+  it('GET ?status=pending не пишет heartbeat — не запрос свипера', async () => {
+    const res = await GET(makeRequest('GET', undefined, { secret: SECRET, query: '?status=pending' }));
+    expect(res.status).toBe(200);
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('GET ?status=all не пишет heartbeat', async () => {
+    const res = await GET(makeRequest('GET', undefined, { secret: SECRET, query: '?status=all' }));
+    expect(res.status).toBe(200);
+    expect(log.info).not.toHaveBeenCalled();
   });
 
   it('PATCH передаёт отчёт исполнения в сервис', async () => {
