@@ -154,3 +154,4 @@
 | unknown | issue-753-qa-report.md | 1 | rbac, api, typescript, tests |
 | unknown | issue-753-telemetry-qa-report.md | 1 | rbac, api, typescript, tests |
 | unknown | issue-745-qa-report.md | 1 | rbac, api, typescript, tests, scope_creep |
+| unknown | pr-747-qa-report.md | 2 | rbac, api, typescript, tests |
