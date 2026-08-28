@@ -324,6 +324,15 @@ PR не уезжает никогда (замерено на #712: две нед
   по-прежнему мержатся руками.
   Проверка — `npx tsx scripts/issue-queue.ts gate <PR>`. Детали — ADR
   `2026-08-10-autonomous-issue-cleanup-adr.md` и `2026-08-20-owner-out-of-github`.
+  **Нативный GitHub auto-merge на PR `claude/**` принудительно выключен**
+  (`.github/workflows/block-native-automerge.yml`, issue #745): он смотрит
+  только на required CI checks и ничего не знает про гейт (#580), поэтому им
+  нельзя мержить PR-ы автоматики — так уже обходился гейт (PR #743 и другие,
+  задним числом найдено аудитом #745). Мерж claude/** — только через
+  подметальщика выше. Опциональный `.github/workflows/merge-gate-check.yml`
+  публикует `classifyMergeGate` как commit status `merge-gate/verdicts` —
+  вторая линия защиты, если его подключить как required check в branch
+  protection main (repo-настройка, не код).
 
 ### Code
 - TypeScript strict mode always; no `any`

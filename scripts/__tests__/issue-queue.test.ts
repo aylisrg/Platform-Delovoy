@@ -867,6 +867,10 @@ describe('HOLD_PATTERNS v2', () => {
     'bot/handlers/owner-decisions.ts',
     // Промпт /next-issue — программа агента с правом мержа (ведёт к вердиктам #580).
     '.claude/commands/next-issue.md',
+    // Защита от обхода гейта нативным GitHub auto-merge (issue #745) — сама
+    // становится рубильником по той же логике, что и остальные выше.
+    '.github/workflows/block-native-automerge.yml',
+    '.github/workflows/merge-gate-check.yml',
   ])('%s — рубильник, автоматика не мержит сама', (file) => {
     expect(classifyMergeGate([file], config(), PASSING_VERDICTS).tier).toBe('hold');
   });
