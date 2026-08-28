@@ -34,6 +34,8 @@ FREED=$(( BEFORE - AFTER ))
 
 if [[ $FREED -gt 0 ]]; then
   echo -e "${GREEN}✅ Cleanup complete. Freed: ~${FREED}% of disk space${NC}"
+elif [[ $FREED -lt 0 ]]; then
+  echo -e "${YELLOW}⚠️  Disk usage grew by ~${FREED#-}% during cleanup (other activity on the box)${NC}"
 else
   echo -e "${YELLOW}⚠️  No significant space freed (already clean)${NC}"
 fi

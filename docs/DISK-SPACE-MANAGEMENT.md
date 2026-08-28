@@ -1,143 +1,69 @@
 # Disk Space Management — Platform Delovoy
 
-## Проблема
+## Уже работает в проде
 
-При каждом `docker compose up --build` создаётся новый image слой поверх существующих. Старые неиспользуемые images и builder-cache остаются на диске и накапливаются со временем, заполняя диск на VPS.
+Прод-образ собирается на GitHub Actions (`docker/build-push-action@v7`, GHA cache) и
+попадает на VPS через `docker pull` (`deploy.yml`) — `docker compose up --build`
+на самом VPS не происходит. Место на VPS всё равно накапливается: старые слои
+образов после `pull`, builder cache от локальных ad-hoc сборок, старые бэкапы,
+логи. Это уже покрыто тремя механизмами:
 
-**Признаки проблемы:**
-- Диск заполняется на 80-90% за несколько недель
-- `docker system df` показывает большое количество неиспользуемого пространства
-- Каждый build занимает всё больше времени
+- **`.github/workflows/docker-cleanup.yml`** — по расписанию (воскресенье
+  22:00 UTC) и **после каждого деплоя** (`workflow_run` на "Deploy to
+  Production"). По SSH на VPS: `docker system prune -af`,
+  `docker builder prune -af`, чистка старых бэкапов БД (оставляет последние 5),
+  старых логов (`*.gz` старше 7 дней, `journalctl --vacuum-size=50M`), `/tmp`
+  старше 3 дней, apt-кэш. Если после очистки диск всё ещё > 85% — Telegram-алерт
+  админ-группе.
+- **`.github/workflows/disk-space-monitor.yml`** — проверка каждые 6 часов.
+  🟡 WARNING от 75%, 🔴 CRITICAL от 90% (прогон падает, чтобы это было видно и
+  в Actions), в CRITICAL-сообщении подсказка `gh workflow run docker-cleanup.yml`.
+- **`timeweb-manage.yml`** сам ставит на VPS eженедельный cron
+  `/etc/cron.d/docker-weekly-cleanup`: `docker image prune -af --filter until=168h`
+  — работает даже если GitHub Actions или SSH из GHA временно недоступны.
 
-## Решение
+## Что добавляет этот документ/PR
 
-### Уровень 1: Автоматическая очистка перед deploy (рекомендуется)
+Локальный ручной набор — **не** триггерится автоматически ни деплоем, ни
+cron, ни workflow. Полезен для диагностики без доступа к GH Actions/VPS SSH,
+или на dev-машине/staging с собственным Docker.
 
-Обновлено: `scripts/post-deploy.sh` вызывает `scripts/docker-cleanup.sh` автоматически перед миграциями.
-
-**Как работает:**
-```bash
-./scripts/post-deploy.sh
-  └─> ./scripts/docker-cleanup.sh  # удаляет старые images и builder-cache
-  └─> prisma db push
-  └─> npm run db:seed
-```
-
-### Уровень 2: Ежедневная автоматическая очистка (cron)
-
-Добавьте в crontab на VPS:
-
-```bash
-crontab -e
-```
-
-Добавьте строку:
-```cron
-# Ежедневная очистка Docker в 2:00 ночи
-0 2 * * * /home/user/Platform-Delovoy/scripts/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1
-```
-
-### Уровень 3: Ручная диагностика и очистка
-
-**Посмотреть текущее использование дискового пространства:**
+**Диагностика:**
 ```bash
 ./scripts/disk-usage-report.sh
 ```
+Выведет: свободное место на `/`, `docker system df`, топ-10 images по размеру,
+volumes/containers по размеру, dangling images/volumes.
 
-Выведет:
-- Размер файловой системы и свободное место
-- Docker system df (images, containers, volumes)
-- Топ-10 самых больших images
-- Данные о dangling (неиспользуемых) images и volumes
-
-**Вручную очистить Docker:**
+**Очистка:**
 ```bash
 ./scripts/docker-cleanup.sh
 ```
+Удаляет: images старше 72ч, остановленные контейнеры, неиспользуемые networks,
+builder cache, orphaned volumes (`docker volume prune` без `-a` — не трогает
+volumes, на которые ссылается хоть один контейнер, даже остановленный).
 
-Что удаляется:
-- Неиспользуемые images (старше 72 часов)
-- Остановленные контейнеры
-- Неиспользуемые networks
-- **Builder cache (самый прожорливый!) — освобождает 500MB-2GB**
-- Orphaned volumes
+`scripts/post-deploy.sh` при ручном запуске сначала вызывает
+`docker-cleanup.sh` (best-effort, `|| true`), затем `prisma db push` и
+`npm run db:seed`. Он **не** часть автодеплоя: `deploy.yml` гоняет миграции
+и сид напрямую (`prisma migrate deploy`, `scripts/seed.ts`) и этот файл не
+вызывает; `docker-entrypoint.sh` тоже explicitly их не делает (см. комментарий
+в файле про инцидент 2026-07-20). `post-deploy.sh` — только для ручного
+прогона.
 
-## Оптимизации в кодовой базе
+## Dockerfile
 
-### 1. Dockerfile (builder stage)
-
-**Было:**
-```dockerfile
-RUN rm -rf .next/cache
-```
-
-**Теперь:**
 ```dockerfile
 RUN rm -rf .next/cache .next/turbo /root/.npm
 ```
 
-**Улучшения:**
-- Дополнительно удаляются `.next/turbo` и `/root/.npm` кэши
-- Более предсказуемый размер image
-
-(`npm install` → `npm ci` в builder stage сделано раньше, отдельно от этого PR.)
-
-### 2. .dockerignore (уже настроен)
-
-```
-node_modules
-.next
-.git
-.github
-.env
-.env.*
-coverage
-*.md
-.DS_Store
-```
-
-Исключает лишние файлы из контекста build, ускоряет сборку.
-
-## Мониторинг
-
-### Встроенный health check
-
-Добавьте в `.env`:
-```bash
-# Запуск проверки диска каждый день в 3:00
-CRON_DISK_CHECK="0 3 * * *"
-```
-
-### Telegram alert при заполнении диска
-
-В администраторской группе в Telegram будет приходить сообщение если диск > 80%:
-
-```
-⚠️ DISK WARNING
-Filesystem: /
-Usage: 85%
-Free: 230GB
-
-Action: Run ./scripts/docker-cleanup.sh
-```
-
-(реализуется в `api/health` на следующей версии)
-
-## Размеры обычно освобождаемых в одной очистке
-
-| Компонент | Типичное освобождение |
-|-----------|----------------------|
-| Builder cache | 500MB–2GB |
-| Dangling images | 100MB–500MB |
-| Stopped containers | 10MB–100MB |
-| Orphaned volumes | 50MB–200MB |
-| **ИТОГО** | **~1-3GB** |
-
-При ежедневной очистке диск останется в здоровом состоянии (40-60% используемо).
+Немного уменьшает builder-стадию образа (доп. к уже стоявшему `.next/cache`).
+Т.к. `COPY --from=builder` в runner-стадию берёт только `.next/standalone` и
+`.next/static`, эти кэши и так не попадали бы в финальный образ — эффект
+только на размер промежуточного builder-слоя в GHA build cache, не на диск
+VPS.
 
 ## Во время разработки локально
-
-Если у вас на локальной машине также накапливается Docker-мусор:
 
 ```bash
 # Одноразовая полная очистка (удалит ВСЁ неиспользуемое)
@@ -149,15 +75,6 @@ docker volume prune
 # Просмотр того что удалится
 docker image prune -a --dry-run
 ```
-
-## Дорожная карта
-
-- [x] Оптимизировать Dockerfile
-- [x] Создать скрипты очистки
-- [x] Интегрировать в post-deploy
-- [ ] Настроить cron на VPS (требует SSH доступ)
-- [ ] Telegram alerts при заполнении диска (Phase 4)
-- [ ] Автоматическое предупреждение в админ-панели
 
 ## Ссылки
 
