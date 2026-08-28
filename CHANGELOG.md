@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.20.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.19.0...v2.20.0) (2026-08-28)
+
+
+### Features
+
+* **gazebos:** бронирование беседки на весь день ([#782](https://github.com/aylisrg/Platform-Delovoy/issues/782)) ([2fccfe1](https://github.com/aylisrg/Platform-Delovoy/commit/2fccfe105bfb611d8a3b8a09a42a58ce9a8a1404))
+
+
+### Bug Fixes
+
+* **gazebos:** часы работы в проде — привести к оферте (11:00–22:00) ([#785](https://github.com/aylisrg/Platform-Delovoy/issues/785)) ([0c41486](https://github.com/aylisrg/Platform-Delovoy/commit/0c414866f40555165568eeb8f06cb237a4d38ce9))
+
 ## [2.19.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.18.2...v2.19.0) (2026-08-25)
 
 
