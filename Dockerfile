@@ -30,8 +30,8 @@ ENV BUILD_TIME=$BUILD_TIME
 
 RUN npm run build
 
-# Clean Next.js build cache to reduce image size
-RUN rm -rf .next/cache
+# Clean up build artifacts and caches to reduce final image size
+RUN rm -rf .next/cache .next/turbo /root/.npm
 
 # Stage 2: Minimal production runner
 FROM node:22-alpine AS runner
