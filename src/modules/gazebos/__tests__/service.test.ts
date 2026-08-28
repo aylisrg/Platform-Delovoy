@@ -2418,3 +2418,63 @@ describe("бронь на весь день и границы рабочего �
     ).rejects.toMatchObject({ code: "OUTSIDE_WORKING_HOURS" });
   });
 });
+
+// ===== Брони, оформленные по старым часам работы =====
+//
+// На проде Module.config держал окно 08:00–23:00 при том, что оферта задаёт
+// 11:00–22:30 (п. 3.4). Расхождение чинится скриптом данных, но на момент
+// сужения часов в базе уже лежали брони на 22:00–23:00. Проверка часов
+// существует, чтобы не дать ПОСТАВИТЬ бронь вне смены, и не должна запирать
+// редактирование того, что оформлено раньше.
+describe("редактирование брони, оформленной по старым часам работы", () => {
+  beforeEach(() => {
+    // Часы уже приведены к оферте.
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { openHour: 11, closeHour: 22, maxDiscountPercent: 30, minBookingHours: 4 },
+    } as never);
+  });
+
+  /** Бронь 22:00–23:00 — вне нового окна, но внутри старого. */
+  function legacyLateBooking() {
+    return mockBooking({
+      status: "CONFIRMED",
+      date: new Date(WEEKEND_DATE),
+      startTime: new Date(`${WEEKEND_DATE}T18:00:00+03:00`),
+      endTime: new Date(`${WEEKEND_DATE}T23:00:00+03:00`),
+      metadata: { totalPrice: "7500.00", basePrice: "7500.00", pricePerHour: "1500.00" },
+    });
+  }
+
+  it("правка без изменения времени проходит, хотя бронь выходит за часы работы", async () => {
+    const booking = legacyLateBooking();
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(booking as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(priceListResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue({ ...booking } as never);
+
+    await expect(
+      rescheduleBooking("booking-1", { clientName: "Петров Пётр" }, "m1")
+    ).resolves.toBeDefined();
+  });
+
+  it("перенос этой же брони на время вне часов работы по-прежнему отклоняется", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(legacyLateBooking() as never);
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(priceListResource() as never);
+
+    await expect(
+      rescheduleBooking("booking-1", { startTime: "17:00", endTime: "23:00" }, "m1")
+    ).rejects.toMatchObject({ code: "OUTSIDE_WORKING_HOURS" });
+  });
+
+  it("перенос внутрь часов работы проходит и пересчитывает цену", async () => {
+    const booking = legacyLateBooking();
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(booking as never)
+      .mockResolvedValueOnce(null as never); // нет конфликта
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(priceListResource() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue({ ...booking } as never);
+
+    await expect(
+      rescheduleBooking("booking-1", { startTime: "17:00", endTime: "22:00" }, "m1")
+    ).resolves.toBeDefined();
+  });
+});

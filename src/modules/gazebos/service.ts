@@ -97,6 +97,25 @@ export async function getOpenCloseHours(): Promise<{ openHour: number; closeHour
   return { openHour, closeHour };
 }
 
+/** Границы рабочего дня как строки `"HH:mm"` для сравнения с полями формы. */
+function workingHoursWindow(openHour: number, closeHour: number) {
+  return {
+    openHHMM: `${String(openHour).padStart(2, "0")}:00`,
+    closeHHMM: `${String(closeHour).padStart(2, "0")}:00`,
+  };
+}
+
+/** Диапазон совпадает с полным рабочим днём — выкуп беседки целиком. */
+function isFullDayRange(
+  startTime: string,
+  endTime: string,
+  openHour: number,
+  closeHour: number
+): boolean {
+  const { openHHMM, closeHHMM } = workingHoursWindow(openHour, closeHour);
+  return startTime === openHHMM && endTime === closeHHMM;
+}
+
 /**
  * Часы работы — единственная верхняя граница брони.
  *
@@ -120,15 +139,14 @@ function assertWithinWorkingHours(
   openHour: number,
   closeHour: number
 ): { fullDay: boolean } {
-  const openHHMM = `${String(openHour).padStart(2, "0")}:00`;
-  const closeHHMM = `${String(closeHour).padStart(2, "0")}:00`;
+  const { openHHMM, closeHHMM } = workingHoursWindow(openHour, closeHour);
   if (startTime < openHHMM || endTime > closeHHMM) {
     throw new BookingError(
       "OUTSIDE_WORKING_HOURS",
       `Время должно быть в пределах ${openHHMM}–${closeHHMM}`
     );
   }
-  return { fullDay: startTime === openHHMM && endTime === closeHHMM };
+  return { fullDay: isFullDayRange(startTime, endTime, openHour, closeHour) };
 }
 
 /**
@@ -843,8 +861,20 @@ export async function rescheduleBooking(
   }
 
   // Часы работы из настроек модуля + начало раньше конца.
+  //
+  // Проверяем часы только когда время или дата действительно меняются. Смысл
+  // проверки — не дать ПОСТАВИТЬ бронь вне смены; наказывать за исторические
+  // данные она не должна. Иначе после сужения часов работы менеджер не смог бы
+  // сохранить даже правку имени гостя в брони, оформленной по старому окну.
+  // Перенос на другую беседку без смены времени проверку тоже не запускает:
+  // бронь уже существует, а заменить сломавшуюся беседку смене нужно уметь.
+  const timeChanged =
+    effDate !== curDate || effStart !== curStart || effEnd !== curEnd;
   const { openHour, closeHour } = await getOpenCloseHours();
-  const { fullDay } = assertWithinWorkingHours(effStart, effEnd, openHour, closeHour);
+  if (timeChanged) {
+    assertWithinWorkingHours(effStart, effEnd, openHour, closeHour);
+  }
+  const fullDay = isFullDayRange(effStart, effEnd, openHour, closeHour);
   if (effStart >= effEnd) {
     throw new BookingError(
       "INVALID_TIME_RANGE",

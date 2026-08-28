@@ -599,6 +599,14 @@ jobs:
                 && echo "✅ Phone config applied" \
                 || echo "⚠️ set-public-phone.ts failed — check manually"
 
+              # Часы работы беседок → режим из оферты (11:00–22:00). Чинит только
+              # известное расхождение 08–23, уехавшее из формы настроек; на любом
+              # другом значении молчит, поэтому осознанные правки админа переживают
+              # деплой. См. scripts/lib/gazebo-working-hours.ts.
+              docker exec "$APP_CONT" npx tsx scripts/set-gazebo-working-hours.ts \
+                && echo "✅ Gazebo working hours checked" \
+                || echo "⚠️ set-gazebo-working-hours.ts failed — check manually"
+
               echo "=== Bot rolling deploy ==="
               # Бот = отдельный сервис, тот же image. --no-deps чтобы не трогать
               # postgres/redis. `up -d` пересоздаст контейнер: старый получит
