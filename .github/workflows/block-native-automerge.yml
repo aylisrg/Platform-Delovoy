@@ -45,13 +45,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # GITHUB_TOKEN (даже с pull-requests: write, как заявлено выше) не может
+      # звать GraphQL-мутацию disablePullRequestAutoMerge — GitHub требует
+      # актора, аутентифицированного как реальный пользователь/PAT, а не
+      # ephemeral installation token workflow'а. Обнаружено вживую на PR #788:
+      # шаг падал с «Resource not accessible by integration
+      # (disablePullRequestAutoMerge)», auto-merge оставался включён, и PR
+      # смержился нативно раньше qa-engineer-вердикта — именно то, от чего
+      # эта защита должна была спасать. Тот же фолбэк-порядок токенов, что и
+      # в issue-queue-merge.yml/auto-rebase.yml.
       - name: Disable native auto-merge
+        id: disable
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.QUEUE_MERGE_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: gh pr merge "${{ github.event.pull_request.number }}" --disable-auto
 
       - name: Explain why (comment on PR)
+        if: steps.disable.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,3 +84,32 @@ jobs:
           подметальщик проверит сам в течение 15 минут после зелёного CI.
           EOF
           )"
+
+      # Даже с фолбэком на PAT отключение может не пройти (секрет не заведён,
+      # у PAT не хватает прав) — тогда PR реально может смержиться в обход
+      # гейта раньше, чем это увидит человек. continue-on-error на первом шаге
+      # был только чтобы дойти досюда; сам job всё равно должен остаться
+      # красным (шаг ниже даёт exit 1) — иначе дыра тихая.
+      - name: Alert — could not disable native auto-merge (gate may be bypassed)
+        if: steps.disable.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --body "$(cat <<'EOF'
+          ⚠️ Не удалось отключить нативный auto-merge (issue #745) — не хватает
+          прав даже с учётом фолбэка на `AUTOMATION_TOKEN`. Пока auto-merge
+          включён, PR может смержиться по одним CI checks в обход машинного
+          гейта двойного вердикта, как только они позеленеют.
+
+          Нужна ручная проверка: `gh pr merge <PR> --disable-auto`, либо
+          Settings → General → Pull Requests → снять «Allow auto-merge» для
+          репозитория целиком (см. `docs/qa-reports/issue-745-qa-report.md`
+          п.4 — там же обсуждался этот вариант как более надёжный).
+          EOF
+          )"
+
+      - name: Fail the job (keep the gap visible, don't let continue-on-error hide it)
+        if: steps.disable.outcome == 'failure'
+        run: exit 1
