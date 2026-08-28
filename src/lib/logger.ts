@@ -3,7 +3,7 @@ import type { EventLevel } from "@prisma/client";
 import { redis, redisAvailable } from "./redis";
 import { sendAlert } from "./notifications";
 import { escapeHtml } from "./telegram/escape";
-import type { EventSource } from "./event-sources";
+import { EVENT_SOURCES, type EventSource } from "./event-sources";
 
 /**
  * Log a system event to the database.
@@ -84,10 +84,22 @@ async function alertCritical(source: EventSource, message: string): Promise<void
   if (!shouldAlert) return;
   try {
     // sendAlert() шлёт с parse_mode:"HTML" и сам не эскейпит — source/message
-    // здесь может содержать данные пользователя (например, имя из фидбека),
+    // здесь может содержать данные пользователя (например, имя из фидбика),
     // непроэкранированный HTML сломает парсинг сообщения в Telegram или
-    // откроет XSS-подобную инъекцию (кликабельные ссылки) в админ-чате.
-    await sendAlert("CRITICAL", escapeHtml(source), escapeHtml(message));
+    // откроет XSS-подобную инъекцию (кликабельные ссылки) в чате.
+    //
+    // owner-decisions — единственный source, где CRITICAL это внутренняя
+    // automation-сантехника (секрет не задан / сайт недоступен свиперу),
+    // касающаяся только владельца — не всей админ-группы. Шлём личным
+    // сообщением в TELEGRAM_OWNER_CHAT_ID (тот же чат, что и кнопки решений),
+    // а не в общий админ-чат; если переменная не задана — молча падаем
+    // обратно в группу, чтобы не терять алерт вовсе.
+    const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID;
+    if (source === EVENT_SOURCES.OWNER_DECISIONS && ownerChatId) {
+      await sendAlert("CRITICAL", escapeHtml(source), escapeHtml(message), ownerChatId);
+    } else {
+      await sendAlert("CRITICAL", escapeHtml(source), escapeHtml(message));
+    }
   } catch (error) {
     console.error(`[CRITICAL alert] Не удалось отправить алерт для ${source}`, error);
   }
