@@ -117,7 +117,11 @@ export const moduleSettingsSchema = z.object({
   openHour: z.number().int().min(0).max(23).optional(),
   closeHour: z.number().int().min(0).max(23).optional(),
   minBookingHours: z.number().int().min(1).max(24).optional(),
-  maxBookingHours: z.number().int().min(1).max(24).optional(),
+  // Максимума длительности здесь нет намеренно: в оферте он не
+  // предусмотрен, а верхняя граница брони — часы работы. Настройка
+  // `maxBookingHours` была артефактом #434 и запрещала выкуп беседки на
+  // весь день. Стухший ключ из старого Module.config zod просто
+  // отбрасывает (strip), запрос из формы настроек не падает.
   maxDiscountPercent: z.number().int().min(1).max(100).optional(),
   // Порог неявки (минут после startTime) — раньше захардкожен `30` (#440).
   noShowThresholdMinutes: z.number().int().min(1).max(1440).optional(),

@@ -14,7 +14,11 @@ function jsonResponse(body: unknown) {
   return { json: async () => body } as Response;
 }
 
-function renderSheet() {
+// Часы работы беседок — 11:00–22:00 (оферта, п. 3.4). Раньше лента предлагала
+// 08:00–23:00 из дефолтов booking-time, взятых у Плей Парка.
+function renderSheet(
+  overrides: Partial<React.ComponentProps<typeof GazeboMobileBookingSheet>> = {}
+) {
   return render(
     <GazeboMobileBookingSheet
       open
@@ -23,9 +27,13 @@ function renderSheet() {
       resourceId="resource-1"
       resourceName="Беседка №1"
       date="2030-06-15"
-      startTime="10:00"
-      maxEndTime="23:00"
+      startTime="11:00"
+      maxEndTime="22:00"
       pricePerHour={500}
+      minBookingHours={4}
+      openTime="11:00"
+      closeTime="22:00"
+      {...overrides}
     />
   );
 }
@@ -115,5 +123,79 @@ describe("GazeboMobileBookingSheet — автокомплит гостя по т
     const nameInput = screen.getByPlaceholderText("Например, Иван") as HTMLInputElement;
     expect(nameInput.value).toBe("Иван Петров");
     expect(phoneInput.value).toBe("+79991234567");
+  });
+});
+
+// ===== Чип «Весь день» =====
+//
+// Мобильная админка — рабочий инструмент смены. До правки список длительностей
+// был захардкожен [4ч…8ч], и выкупить беседку на весь день с телефона было
+// нельзя вообще.
+describe("GazeboMobileBookingSheet — весь день", () => {
+  const weekendPricing = {
+    weekdayHour: 1400,
+    weekdayDay: 13000,
+    weekendHour: 2000,
+    weekendDay: 16000,
+    hourRate: 2000,
+    dayRate: 16000,
+    isWeekend: true,
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it("показывает чип, когда тап пришёлся на первый слот свободного дня", () => {
+    renderSheet();
+    expect(screen.getByRole("button", { name: "Весь день" })).toBeTruthy();
+  });
+
+  it("не показывает чип, когда до конца дня есть чужая бронь", () => {
+    renderSheet({ maxEndTime: "18:00" });
+    expect(screen.queryByRole("button", { name: "Весь день" })).toBeNull();
+  });
+
+  it("отправляет endTime = концу рабочего дня", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: {} }));
+    renderSheet();
+
+    fireEvent.click(screen.getByRole("button", { name: "Весь день" }));
+    fireEvent.change(screen.getByPlaceholderText("Например, Иван"), {
+      target: { value: "Иван" },
+    });
+    fireEvent.click(screen.getByText(/Забронировать/));
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);
+    expect(body.startTime).toBe("11:00");
+    expect(body.endTime).toBe("22:00");
+  });
+
+  it("подпись «мин. N ч.» берётся из настроек, а не из хардкода", () => {
+    renderSheet({ minBookingHours: 3 });
+    expect(screen.getByText(/мин\. 3 ч\./)).toBeTruthy();
+  });
+
+  it("предлагает бесплатный добор, когда дневной тариф уже покрыл выбор", () => {
+    renderSheet({ pricing: weekendPricing });
+
+    // 8 ч × 2000 = 16000 ровно равны дневному тарифу — добор до 11 ч бесплатен.
+    fireEvent.click(screen.getByRole("button", { name: "8ч" }));
+
+    expect(screen.getByRole("button", { name: /Ещё 3 ч — бесплатно/ })).toBeTruthy();
+  });
+
+  it("молчит про добор, когда он платный", () => {
+    renderSheet({ pricing: weekendPricing });
+
+    fireEvent.click(screen.getByRole("button", { name: "5ч" }));
+
+    expect(screen.queryByRole("button", { name: /бесплатно/ })).toBeNull();
   });
 });

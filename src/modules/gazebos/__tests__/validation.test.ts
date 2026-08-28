@@ -360,9 +360,22 @@ describe("moduleSettingsSchema", () => {
       openHour: 8,
       closeHour: 23,
       minBookingHours: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // Максимум длительности снят: в оферте его нет, а верхняя граница брони —
+  // часы работы. Стухший ключ в Module.config остаётся у тех, кто хоть раз
+  // сохранял форму настроек, и форма шлёт PATCH объектом целиком — схема
+  // обязана его молча отбросить, а не 400-ить весь запрос.
+  it("молча отбрасывает снятый maxBookingHours из старого Module.config", () => {
+    const result = moduleSettingsSchema.safeParse({
+      openHour: 11,
+      closeHour: 22,
       maxBookingHours: 8,
     });
     expect(result.success).toBe(true);
+    expect(result.data).not.toHaveProperty("maxBookingHours");
   });
 
   it("accepts partial settings (all optional)", () => {

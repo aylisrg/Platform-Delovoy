@@ -25,7 +25,6 @@ export async function GET() {
       openHour: 11,
       closeHour: 22,
       minBookingHours: 4,
-      maxBookingHours: 8,
       publicBookingEnabled: true,
       telegramChannelEnabled: false,
       telegramChannelName: "",

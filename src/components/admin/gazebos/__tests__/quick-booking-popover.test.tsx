@@ -19,18 +19,26 @@ afterEach(() => {
   cleanup();
 });
 
-function renderPopover(minBookingHours: number) {
+// Часы работы беседок — 11:00–22:00 (оферта, п. 3.4). Раньше попап предполагал
+// 08:00–23:00 хардкодом; теперь границы приходят пропами из сетки.
+function renderPopover(
+  minBookingHours: number,
+  overrides: Partial<React.ComponentProps<typeof GazeboQuickBookingPopover>> = {}
+) {
   const { container } = render(
     <GazeboQuickBookingPopover
       resourceId="resource-1"
       resourceName="Беседка №1"
       date="2030-06-15"
-      startTime="10:00"
-      maxEndTime="23:00"
+      startTime="11:00"
+      maxEndTime="22:00"
       pricePerHour={500}
       minBookingHours={minBookingHours}
+      openHour={11}
+      closeHour={22}
       onClose={vi.fn()}
       onCreated={vi.fn()}
+      {...overrides}
     />
   );
   const timeInputs = container.querySelectorAll<HTMLInputElement>('input[type="time"]');
@@ -40,17 +48,17 @@ function renderPopover(minBookingHours: number) {
 describe("GazeboQuickBookingPopover minBookingHours", () => {
   it("defaults the end time to start + minBookingHours (2h), not a hardcoded 4h", () => {
     const { endInput } = renderPopover(2);
-    expect(endInput.value).toBe("12:00");
+    expect(endInput.value).toBe("13:00");
   });
 
   it("defaults the end time to start + minBookingHours (1h) when configured to 1", () => {
     const { endInput } = renderPopover(1);
-    expect(endInput.value).toBe("11:00");
+    expect(endInput.value).toBe("12:00");
   });
 
   it("sets the end input's min attribute to start + minBookingHours (6h)", () => {
     const { endInput } = renderPopover(6);
-    expect(endInput.min).toBe("16:00");
+    expect(endInput.min).toBe("17:00");
   });
 });
 
@@ -186,5 +194,72 @@ describe("GazeboQuickBookingPopover — автокомплит гостя по �
       expect.stringContaining("/api/gazebos/guests/search?phone=99912"),
       expect.anything()
     );
+  });
+});
+
+// ===== Кнопка «Весь день» =====
+//
+// Инцидент: клиента, просившего беседку на весь день, записали на 6 часов —
+// максимум длительности не дал больше, а хвост дня система продала другому.
+// Кнопка делает намерение «весь день» выразимым в один клик.
+describe("GazeboQuickBookingPopover — весь день", () => {
+  const weekendPricing = {
+    weekdayHour: 1400,
+    weekdayDay: 13000,
+    weekendHour: 2000,
+    weekendDay: 16000,
+    hourRate: 2000,
+    dayRate: 16000,
+    isWeekend: true,
+  };
+
+  it("показывает кнопку, когда клик пришёлся на первый слот свободного дня", () => {
+    renderPopover(4);
+    expect(screen.getByRole("button", { name: /Весь день/ })).toBeTruthy();
+  });
+
+  it("не показывает кнопку, когда до конца дня есть чужая бронь", () => {
+    renderPopover(4, { maxEndTime: "18:00" });
+    expect(screen.queryByRole("button", { name: /Весь день/ })).toBeNull();
+  });
+
+  it("клик по кнопке проставляет полный рабочий день", () => {
+    const { startInput, endInput } = renderPopover(4);
+
+    fireEvent.click(screen.getByRole("button", { name: /Весь день/ }));
+
+    expect(startInput.value).toBe("11:00");
+    expect(endInput.value).toBe("22:00");
+  });
+
+  it("берёт границы времени из часов работы, а не из хардкода 08:00/23:00", () => {
+    const { startInput, endInput } = renderPopover(4);
+    expect(startInput.min).toBe("11:00");
+    expect(endInput.max).toBe("22:00");
+  });
+
+  it("считает цену дня по дневному тарифу", () => {
+    // 11 ч × 2000 = 22000 по часам против дневного 16000.
+    renderPopover(4, { pricing: weekendPricing });
+    // \s, а не пробел: toLocaleString("ru-RU") разделяет разряды неразрывным пробелом.
+    expect(screen.getByRole("button", { name: /Весь день.*16\s000\s₽/ })).toBeTruthy();
+  });
+
+  it("предлагает добрать день, когда оставшиеся часы бесплатны", () => {
+    const { endInput } = renderPopover(4, { pricing: weekendPricing });
+
+    // 9 ч × 2000 = 18000 → потолок 16000; весь день стоит те же 16000.
+    fireEvent.change(endInput, { target: { value: "20:00" } });
+
+    expect(screen.getByRole("button", { name: /Ещё 2 ч — бесплатно/ })).toBeTruthy();
+  });
+
+  it("молчит про добор, когда он платный", () => {
+    const { endInput } = renderPopover(4, { pricing: weekendPricing });
+
+    // 5 ч × 2000 = 10000 — взять весь день за 16000 дороже.
+    fireEvent.change(endInput, { target: { value: "16:00" } });
+
+    expect(screen.queryByRole("button", { name: /бесплатно/ })).toBeNull();
   });
 });

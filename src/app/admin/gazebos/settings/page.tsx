@@ -8,7 +8,6 @@ const FIELDS = [
   { key: "openHour", label: "Час открытия", type: "number" as const, min: 0, max: 23 },
   { key: "closeHour", label: "Час закрытия", type: "number" as const, min: 0, max: 23 },
   { key: "minBookingHours", label: "Минимальная длительность (часы)", type: "number" as const, min: 1, max: 24 },
-  { key: "maxBookingHours", label: "Максимальная длительность (часы)", type: "number" as const, min: 1, max: 24 },
   { key: "noShowThresholdMinutes", label: "Порог неявки (минут после начала)", type: "number" as const, min: 1, max: 1440 },
 ];
 

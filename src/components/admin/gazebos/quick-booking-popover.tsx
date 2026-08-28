@@ -2,7 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { calcBookingPrice, type ResourcePricing } from "@/modules/gazebos/pricing";
+import {
+  calcBookingPrice,
+  freeHoursToFullDay,
+  type ResourcePricing,
+} from "@/modules/gazebos/pricing";
 
 type GazeboQuickBookingPopoverProps = {
   resourceId: string;
@@ -19,11 +23,16 @@ type GazeboQuickBookingPopoverProps = {
   pricing?: ResourcePricing | null;
   /** Из настроек модуля (Module.config.minBookingHours), не хардкод (#523). */
   minBookingHours: number;
+  /**
+   * Часы работы модуля (Module.config → TimelineData.hours → сетка). Обязательные:
+   * раньше попап предполагал 08:00–23:00 хардкодом и предлагал менеджеру время,
+   * которое сервер отвергал.
+   */
+  openHour: number;
+  closeHour: number;
   onClose: () => void;
   onCreated: () => void;
 };
-
-const CLOSE_TIME = "23:00";
 
 type GuestMatch = { name: string; phone: string };
 
@@ -43,12 +52,14 @@ function durationHours(startHHMM: string, endHHMM: string): number {
   return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
 }
 
+// Чистая: клампом занимаются места вызова — у них под рукой реальный
+// maxEndTime (до следующей брони или до закрытия). Раньше здесь был зашит
+// потолок 23:00, не имевший отношения к часам работы беседок.
 function addHours(hhmm: string, hours: number): string {
   const [h, m] = hhmm.split(":").map(Number);
   const totalMinutes = h * 60 + m + hours * 60;
   const nh = Math.floor(totalMinutes / 60);
   const nm = totalMinutes % 60;
-  if (nh >= 23) return CLOSE_TIME;
   return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
 }
 
@@ -61,10 +72,16 @@ export function GazeboQuickBookingPopover({
   pricePerHour,
   pricing,
   minBookingHours,
+  openHour,
+  closeHour,
   onClose,
   onCreated,
 }: GazeboQuickBookingPopoverProps) {
   const router = useRouter();
+
+  const openHHMM = `${String(openHour).padStart(2, "0")}:00`;
+  const closeHHMM = `${String(closeHour).padStart(2, "0")}:00`;
+  const fullDayHours = closeHour - openHour;
 
   const defaultEnd = addHours(startTime, minBookingHours) <= maxEndTime
     ? addHours(startTime, minBookingHours)
@@ -124,8 +141,32 @@ export function GazeboQuickBookingPopover({
           : null
       : null;
   const duration = durationLabel(startInput, endInput);
-  const minEnd = addHours(startInput, minBookingHours);
-  const isValid = startInput < endInput && endInput <= maxEndTime && durationHours(startInput, endInput) >= minBookingHours;
+  const rawMinEnd = addHours(startInput, minBookingHours);
+  const minEnd = rawMinEnd <= maxEndTime ? rawMinEnd : maxEndTime;
+  const isValid =
+    startInput >= openHHMM &&
+    startInput < endInput &&
+    endInput <= maxEndTime &&
+    durationHours(startInput, endInput) >= minBookingHours;
+
+  // Выкуп дня возможен, только если клик пришёлся на первый слот и до закрытия
+  // нет чужой брони: maxEndTime уже посчитан «до следующей брони или до конца дня».
+  const canFullDay = startTime === openHHMM && maxEndTime === closeHHMM;
+  const isFullDaySelected = startInput === openHHMM && endInput === closeHHMM;
+  const fullDayPrice = pricing
+    ? Math.round(calcBookingPrice(pricing, fullDayHours).total)
+    : pricePerHour
+      ? Math.round(fullDayHours * pricePerHour)
+      : null;
+  // После точки безубыточности лишние часы стоят 0 ₽ — предлагаем добрать день,
+  // чтобы «огрызок» не ушёл другому клиенту.
+  const freeHours =
+    canFullDay && pricing && hours > 0 ? freeHoursToFullDay(pricing, hours, fullDayHours) : 0;
+
+  function selectFullDay() {
+    setStartInput(openHHMM);
+    setEndInput(closeHHMM);
+  }
 
   useEffect(() => {
     if (endInput <= startInput || durationHours(startInput, endInput) < minBookingHours) {
@@ -184,13 +225,29 @@ export function GazeboQuickBookingPopover({
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">✕</button>
         </div>
 
+        {canFullDay && (
+          <button
+            type="button"
+            onClick={selectFullDay}
+            className={`w-full mb-3 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+              isFullDaySelected
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+            }`}
+          >
+            Весь день · {openHHMM}–{closeHHMM}
+            {fullDayPrice !== null && ` · ${fullDayPrice.toLocaleString("ru-RU")} ₽`}
+          </button>
+        )}
+
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label className="block text-xs font-medium text-zinc-500 mb-1">Начало</label>
             <input
               type="time"
               value={startInput}
-              min="08:00"
+              min={openHHMM}
+              max={closeHHMM}
               onChange={(e) => setStartInput(e.target.value)}
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
@@ -224,6 +281,16 @@ export function GazeboQuickBookingPopover({
               </span>
             )}
           </div>
+        )}
+
+        {freeHours > 0 && (
+          <button
+            type="button"
+            onClick={selectFullDay}
+            className="w-full mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:border-emerald-300"
+          >
+            Ещё {freeHours} ч — бесплатно. Взять весь день до {closeHHMM} →
+          </button>
         )}
 
         {startInput >= endInput ? (

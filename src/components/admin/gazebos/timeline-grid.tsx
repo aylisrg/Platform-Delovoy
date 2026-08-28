@@ -356,6 +356,8 @@ export function GazeboTimelineGrid({
           pricePerHour={popover.pricePerHour}
           pricing={popover.pricing}
           minBookingHours={data.minBookingHours}
+          openHour={openHour}
+          closeHour={closeHour}
           onClose={() => setPopover(null)}
           onCreated={handleBookingCreated}
         />
