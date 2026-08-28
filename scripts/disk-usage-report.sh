@@ -14,6 +14,12 @@ echo ""
 echo "=== Root filesystem ==="
 df -h / | tail -1
 
+if ! docker info >/dev/null 2>&1; then
+  echo ""
+  echo "Docker daemon unavailable — skipping Docker-specific sections."
+  exit 0
+fi
+
 echo ""
 echo "=== Docker system usage ==="
 docker system df

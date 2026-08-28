@@ -32,8 +32,9 @@ cron, ни workflow. Полезен для диагностики без дос�
 ```bash
 ./scripts/disk-usage-report.sh
 ```
-Выведет: свободное место на `/`, `docker system df`, топ-10 images по размеру,
-volumes/containers по размеру, dangling images/volumes.
+Выведет: свободное место на `/`, `docker system df`, топ-20 images и
+containers по размеру, топ-10 volumes по размеру, dangling images/volumes.
+Если Docker-демон недоступен — печатает только раздел про диск и выходит.
 
 **Очистка:**
 ```bash
