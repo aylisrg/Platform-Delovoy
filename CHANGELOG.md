@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.20.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.0...v2.20.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **ci:** block-native-automerge.yml can't actually disable auto-merge ([f169d27](https://github.com/aylisrg/Platform-Delovoy/commit/f169d273ad77205e095b589b413cc715ec4d7fff))
+* **notifications:** route owner-decisions CRITICAL alerts to owner DM, not admin group ([#788](https://github.com/aylisrg/Platform-Delovoy/issues/788)) ([6f11fa8](https://github.com/aylisrg/Platform-Delovoy/commit/6f11fa82907c35b6e98d34400027a44bc0816999))
+
 ## [2.20.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.19.0...v2.20.0) (2026-08-28)
 
 
