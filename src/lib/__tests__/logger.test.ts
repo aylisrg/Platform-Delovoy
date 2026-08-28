@@ -27,6 +27,7 @@ import { log } from "../logger";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   createMock.mockResolvedValue(undefined);
   redisSetMock.mockResolvedValue("OK");
   sendAlertMock.mockResolvedValue(true);
@@ -142,6 +143,42 @@ describe("log.critical", () => {
     await vi.waitFor(() => expect(sendAlertMock).toHaveBeenCalledOnce());
 
     expect(sendAlertMock).toHaveBeenCalledWith("CRITICAL", "payments", "инцидент");
+  });
+
+  it("owner-decisions + TELEGRAM_OWNER_CHAT_ID задан: шлёт в личку владельца, не в админ-группу", async () => {
+    vi.stubEnv("TELEGRAM_OWNER_CHAT_ID", "694696");
+
+    await log.critical("owner-decisions", "Контур решений владельца молчит 9999 мин");
+    await vi.waitFor(() => expect(sendAlertMock).toHaveBeenCalledOnce());
+
+    expect(sendAlertMock).toHaveBeenCalledWith(
+      "CRITICAL",
+      "owner-decisions",
+      "Контур решений владельца молчит 9999 мин",
+      "694696"
+    );
+  });
+
+  it("owner-decisions + TELEGRAM_OWNER_CHAT_ID не задан: падает обратно в админ-группу (не теряет алерт)", async () => {
+    await log.critical("owner-decisions", "Контур решений владельца молчит 9999 мин");
+    await vi.waitFor(() => expect(sendAlertMock).toHaveBeenCalledOnce());
+
+    // Тот же 3-аргументный вызов, что и для остальных source — sendAlert()
+    // сам упадёт обратно на TELEGRAM_ADMIN_CHAT_ID.
+    expect(sendAlertMock).toHaveBeenCalledWith(
+      "CRITICAL",
+      "owner-decisions",
+      "Контур решений владельца молчит 9999 мин"
+    );
+  });
+
+  it("другие source не задевает TELEGRAM_OWNER_CHAT_ID — всё равно уходит в админ-группу", async () => {
+    vi.stubEnv("TELEGRAM_OWNER_CHAT_ID", "694696");
+
+    await log.critical("payments", "webhook подписи не совпали");
+    await vi.waitFor(() => expect(sendAlertMock).toHaveBeenCalledOnce());
+
+    expect(sendAlertMock).toHaveBeenCalledWith("CRITICAL", "payments", "webhook подписи не совпали");
   });
 });
 
