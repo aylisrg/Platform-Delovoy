@@ -28,6 +28,12 @@ export type BookingMetadata = {
   basePrice?: string;       // decimal string: pricePerHour × hours
   pricePerHour?: string;    // snapshot of pricePerHour at booking creation
   totalPrice?: string;      // basePrice + itemsTotal
+  // Беседки: цена ушла по дневному тарифу вместо почасового (потолок
+  // min(часы × час, день) в gazebos/pricing.ts).
+  appliedDayRate?: boolean;
+  // Беседки: беседка выкуплена на весь рабочий день (openHour–closeHour).
+  // Отличает намеренный выкуп дня от случайно набранных всех часов.
+  fullDay?: boolean;
 
   // Phase 1A: check-in
   checkedInAt?: string;     // ISO datetime

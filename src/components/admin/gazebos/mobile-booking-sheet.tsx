@@ -11,10 +11,20 @@ import {
   parseHHMM,
   selectedChip,
 } from "@/lib/booking-time";
-import { calcBookingPrice, type ResourcePricing } from "@/modules/gazebos/pricing";
+import {
+  calcBookingPrice,
+  freeHoursToFullDay,
+  type ResourcePricing,
+} from "@/modules/gazebos/pricing";
 
-// Gazebo minimum is 4 hours — chips start at 240 min
-const GAZEBO_DURATION_CHIPS_MIN = [240, 300, 360, 420, 480];
+/**
+ * Пять часовых шагов от минимальной длительности. Раньше список был захардкожен
+ * как [240…480] — с телефона нельзя было выбрать больше 8 часов независимо от
+ * настроек, и выкуп беседки на весь день был недоступен в принципе.
+ */
+function durationChips(minBookingHours: number): number[] {
+  return Array.from({ length: 5 }, (_, i) => (minBookingHours + i) * 60);
+}
 
 type GuestMatch = { name: string; phone: string };
 
@@ -30,6 +40,11 @@ export type GazeboMobileBookingSheetProps = {
   pricePerHour: number | null;
   /** Прайсинг на выбранную дату (будни/выходные + дневной тариф). */
   pricing?: ResourcePricing | null;
+  /** Из настроек модуля (Module.config.minBookingHours), не хардкод. */
+  minBookingHours: number;
+  /** Часы работы модуля, "HH:MM" — из TimelineData.hours. */
+  openTime: string;
+  closeTime: string;
 };
 
 export function GazeboMobileBookingSheet({
@@ -43,17 +58,22 @@ export function GazeboMobileBookingSheet({
   maxEndTime,
   pricePerHour,
   pricing,
+  minBookingHours,
+  openTime,
+  closeTime,
 }: GazeboMobileBookingSheetProps) {
   const router = useRouter();
 
+  const chips = useMemo(() => durationChips(minBookingHours), [minBookingHours]);
   const availableChips = useMemo(() => {
     const cap = maxDurationMin(startTime, maxEndTime);
-    return GAZEBO_DURATION_CHIPS_MIN.filter((d) => d <= cap);
-  }, [startTime, maxEndTime]);
+    return chips.filter((d) => d <= cap);
+  }, [chips, startTime, maxEndTime]);
 
-  const defaultChip = availableChips.includes(240)
-    ? 240
-    : availableChips[0] ?? 240;
+  const minChip = minBookingHours * 60;
+  const defaultChip = availableChips.includes(minChip)
+    ? minChip
+    : availableChips[0] ?? minChip;
 
   const [durationMin, setDurationMin] = useState<number>(defaultChip);
   const [clientName, setClientName] = useState("");
@@ -109,7 +129,15 @@ export function GazeboMobileBookingSheet({
   }
 
   const endTime = endTimeFromDuration(startTime, durationMin, maxEndTime);
-  const actualChip = selectedChip(startTime, endTime);
+  // Свои чипы, а не дефолтные из booking-time: там список Плей Парка, из-за
+  // чего подсветка гасла на всём длиннее 4 часов.
+  const actualChip = selectedChip(startTime, endTime, chips);
+
+  // Выкуп дня возможен, только когда тап пришёлся на первый слот и до закрытия
+  // нет чужой брони.
+  const fullDayMin = parseHHMM(closeTime) - parseHHMM(openTime);
+  const canFullDay = startTime === openTime && maxEndTime === closeTime;
+  const isFullDaySelected = canFullDay && endTime === closeTime;
   const actualDuration = parseHHMM(endTime) - parseHHMM(startTime);
   const billed = billedHours(startTime, endTime);
   // Прайсинг даты (выходные дороже + дневной тариф-кэп); fallback — будний час.
@@ -127,6 +155,13 @@ export function GazeboMobileBookingSheet({
     actualDuration > 0 &&
     parseHHMM(endTime) <= parseHHMM(maxEndTime) &&
     clientName.trim().length > 0;
+
+  // После точки безубыточности лишние часы стоят 0 ₽ — предлагаем добрать день,
+  // чтобы остаток не ушёл другому клиенту.
+  const freeHours =
+    canFullDay && pricing && billed > 0 && !isFullDaySelected
+      ? freeHoursToFullDay(pricing, billed, fullDayMin / 60)
+      : 0;
 
   async function handleSubmit() {
     if (!isValid || submitting) return;
@@ -186,7 +221,9 @@ export function GazeboMobileBookingSheet({
         <div>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">
             Длительность
-            <span className="ml-2 normal-case text-amber-600 font-normal">мин. 4 ч.</span>
+            <span className="ml-2 normal-case text-amber-600 font-normal">
+              мин. {minBookingHours} ч.
+            </span>
           </label>
           <div className="flex flex-wrap gap-2">
             {availableChips.map((d) => (
@@ -203,7 +240,29 @@ export function GazeboMobileBookingSheet({
                 {d < 60 ? `${d}м` : d % 60 === 0 ? `${d / 60}ч` : `${Math.floor(d / 60)}ч ${d % 60}м`}
               </button>
             ))}
+            {canFullDay && (
+              <button
+                type="button"
+                onClick={() => setDurationMin(fullDayMin)}
+                className={`h-11 rounded-lg border px-3 text-sm font-semibold transition-colors ${
+                  isFullDaySelected
+                    ? "border-blue-600 bg-blue-50 text-blue-700"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+                }`}
+              >
+                Весь день
+              </button>
+            )}
           </div>
+          {freeHours > 0 && (
+            <button
+              type="button"
+              onClick={() => setDurationMin(fullDayMin)}
+              className="mt-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs font-medium text-emerald-700"
+            >
+              Ещё {freeHours} ч — бесплатно. Взять весь день до {closeTime} →
+            </button>
+          )}
         </div>
 
         <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-4 py-3 text-sm">

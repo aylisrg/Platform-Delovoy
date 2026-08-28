@@ -255,3 +255,28 @@ export function calcBookingPrice(
     savings: useDayRate ? hourlyTotal - pricing.dayRate : 0,
   };
 }
+
+/**
+ * Сколько часов можно добрать до полного дня, не увеличив счёт.
+ *
+ * Цена — потолок `min(часы × hourRate, dayRate)`, поэтому после точки
+ * безубыточности каждый следующий час стоит 0 ₽. На этом строится подсказка
+ * «ещё N ч — бесплатно, возьмите весь день»: она закрывает «огрызок дня» —
+ * остаток, который иначе уходит в продажу другому клиенту.
+ *
+ * Проверяется дельта цены, а не флаг `appliedDayRate`: у Беседки № 5 в выходные
+ * 8 ч × 2000 ₽ ровно равны дневным 16 000 ₽, флаг при этом `false` (сравнение в
+ * `calcBookingPrice` строгое), а добор до дня всё равно бесплатен.
+ *
+ * Возвращает 0, когда добор платный или добирать уже нечего — тогда подсказки нет.
+ */
+export function freeHoursToFullDay(
+  pricing: ResourcePricing,
+  selectedHours: number,
+  fullDayHours: number
+): number {
+  if (selectedHours >= fullDayHours) return 0;
+  const current = calcBookingPrice(pricing, selectedHours).total;
+  const full = calcBookingPrice(pricing, fullDayHours).total;
+  return full <= current ? fullDayHours - selectedHours : 0;
+}

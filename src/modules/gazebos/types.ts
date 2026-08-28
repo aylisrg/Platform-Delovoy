@@ -108,7 +108,6 @@ export type DayAvailability = {
 export type AvailabilityResponse = {
   resources: DayAvailability[];
   minBookingHours: number;
-  maxBookingHours: number;
   openHour: number;
   closeHour: number;
 };
@@ -160,5 +159,4 @@ export type GazeboModuleConfig = {
   openHour: number;
   closeHour: number;
   minBookingHours: number;
-  maxBookingHours: number;
 };

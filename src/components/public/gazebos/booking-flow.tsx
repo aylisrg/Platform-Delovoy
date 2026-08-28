@@ -14,21 +14,16 @@ import {
 import { pickRandom, TOAST_BOOKING_SUCCESS } from "@/lib/easter-eggs";
 import { formatDate as formatDateUnified } from "@/lib/format";
 import { OfferAcceptance, type SummaryLine } from "@/components/public/offer-acceptance";
+import {
+  calcBookingPrice,
+  freeHoursToFullDay,
+  type ResourcePricing,
+} from "@/modules/gazebos/pricing";
 
 type TimeSlot = {
   startTime: string;
   endTime: string;
   isAvailable: boolean;
-};
-
-type ResourcePricing = {
-  weekdayHour: number;
-  weekdayDay: number;
-  weekendHour: number;
-  weekendDay: number;
-  hourRate: number;
-  dayRate: number;
-  isWeekend: boolean;
 };
 
 type ResourceAvailability = {
@@ -122,6 +117,22 @@ export function BookingFlow() {
     });
   }
 
+  /**
+   * Выкуп беседки на весь рабочий день одним кликом.
+   *
+   * Берём ВСЕ слоты дня, а не только свободные: при дырке посередине набор
+   * свернулся бы в диапазон поверх чужой брони и сервер ответил бы
+   * BOOKING_CONFLICT. Поэтому кнопка активна только на полностью свободном дне.
+   */
+  function selectFullDay(resourceId: string, slotStarts: string[]) {
+    setSelectedResourceId(resourceId);
+    setSelectedSlots((prev) =>
+      selectedResourceId === resourceId && prev.length === slotStarts.length
+        ? []
+        : [...slotStarts]
+    );
+  }
+
   function getAvailableSlots(resourceId: string): string[] {
     return availability.find((a) => a.resource.id === resourceId)
       ?.slots.filter((s) => s.isAvailable).map((s) => s.startTime) ?? [];
@@ -145,21 +156,9 @@ export function BookingFlow() {
     const hours = selectedSlots.length;
     if (!resource || hours === 0) return null;
     const pricing = resource.pricing;
-    if (pricing) {
-      const hourlyTotal = hours * pricing.hourRate;
-      const useDayRate = pricing.dayRate > 0 && pricing.dayRate < hourlyTotal;
-      const total = useDayRate ? pricing.dayRate : hourlyTotal;
-      return {
-        hours,
-        hourRate: pricing.hourRate,
-        dayRate: pricing.dayRate,
-        isWeekend: pricing.isWeekend,
-        hourlyTotal,
-        total,
-        appliedDayRate: useDayRate,
-        savings: useDayRate ? hourlyTotal - pricing.dayRate : 0,
-      };
-    }
+    // Один расчёт с сервером: раньше формула потолка была скопирована сюда
+    // посимвольно и могла разъехаться с pricing.ts.
+    if (pricing) return calcBookingPrice(pricing, hours);
     // Fallback for resources without priceList
     if (!resource.resource.pricePerHour) return null;
     const rate = Number(resource.resource.pricePerHour);
@@ -248,6 +247,20 @@ export function BookingFlow() {
   const timeRange = getTimeRange();
   const breakdown = getPriceBreakdown();
   const totalPrice = breakdown?.total ?? 0;
+
+  // Выбран ли рабочий день целиком — от этого зависят подписи «весь день».
+  const daySlotCount = selectedResource?.slots.length ?? 0;
+  const isFullDay = daySlotCount > 0 && selectedSlots.length === daySlotCount;
+  // Сколько часов можно добрать до полного дня бесплатно. Дневной тариф —
+  // потолок цены, поэтому после точки безубыточности лишние часы стоят 0 ₽.
+  // Это и закрывает «огрызок дня», который иначе уходит другому клиенту.
+  const freeHours =
+    selectedResource?.pricing &&
+    !isFullDay &&
+    selectedSlots.length > 0 &&
+    selectedResource.slots.every((s) => s.isAvailable)
+      ? freeHoursToFullDay(selectedResource.pricing, selectedSlots.length, daySlotCount)
+      : 0;
   const itemsTotal = resolvedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const fmtRub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 
@@ -377,6 +390,18 @@ export function BookingFlow() {
               {availability.map((item) => {
                 const isSelected = selectedResourceId === item.resource.id;
                 const hasAvailable = item.slots.some((s) => s.isAvailable);
+                // Весь день доступен, только когда свободен весь день целиком —
+                // иначе выбор лёг бы поверх чужой брони.
+                const dayFullyFree =
+                  item.slots.length > 0 && item.slots.every((s) => s.isAvailable);
+                const firstBusy = item.slots.find((s) => !s.isAvailable)?.startTime;
+                const dayStart = item.slots[0]?.startTime;
+                const dayEnd = item.slots[item.slots.length - 1]?.endTime;
+                const fullDayPrice = item.pricing
+                  ? calcBookingPrice(item.pricing, item.slots.length).total
+                  : null;
+                const fullDayPicked =
+                  isSelected && item.slots.length > 0 && selectedSlots.length === item.slots.length;
 
                 return (
                   <div
@@ -425,6 +450,33 @@ export function BookingFlow() {
                       )}
                     </div>
 
+                    {item.slots.length > 0 && (
+                      <button
+                        disabled={!dayFullyFree}
+                        onClick={() =>
+                          selectFullDay(
+                            item.resource.id,
+                            item.slots.map((s) => s.startTime)
+                          )
+                        }
+                        className={`w-full mb-3 rounded-xl px-4 py-3 min-h-[44px] text-sm font-medium transition-all font-[family-name:var(--font-inter)] border ${
+                          fullDayPicked
+                            ? "bg-[#16A34A] text-white border-[#16A34A] shadow-lg shadow-[#16A34A]/20"
+                            : dayFullyFree
+                              ? "bg-white text-[#1d1d1f] border-[#16A34A]/40 hover:border-[#16A34A]"
+                              : "bg-[#f5f5f7]/50 text-[#1d1d1f]/30 border-black/[0.04] cursor-not-allowed"
+                        }`}
+                      >
+                        Весь день · {dayStart}–{dayEnd}
+                        {fullDayPrice !== null && ` · ${fmtRub(fullDayPrice)}`}
+                        {!dayFullyFree && firstBusy && (
+                          <span className="block text-xs font-normal mt-0.5">
+                            занято с {firstBusy}
+                          </span>
+                        )}
+                      </button>
+                    )}
+
                     <div className="flex flex-wrap gap-2">
                       {item.slots.map((slot) => {
                         const isSlotSelected = isSelected && selectedSlots.includes(slot.startTime);
@@ -466,7 +518,11 @@ export function BookingFlow() {
                     <span className="text-[#86868b] mx-2">·</span>
                     <span className={selectedSlots.length < minBookingHours ? "text-amber-600 font-medium" : "text-[#86868b]"}>
                       {timeRange.startTime}–{timeRange.endTime}{" "}
-                      ({selectedSlots.length} из {minBookingHours} ч.)
+                      {selectedSlots.length < minBookingHours
+                        ? `(${selectedSlots.length} из ${minBookingHours} ч.)`
+                        : isFullDay
+                          ? "(весь день)"
+                          : `(${selectedSlots.length} ч.)`}
                     </span>
                     {totalPrice > 0 && selectedSlots.length >= minBookingHours && (
                       <>
@@ -483,6 +539,19 @@ export function BookingFlow() {
                       </>
                     )}
                   </div>
+                  {freeHours > 0 && selectedResource && (
+                    <button
+                      onClick={() =>
+                        selectFullDay(
+                          selectedResource.resource.id,
+                          selectedResource.slots.map((s) => s.startTime)
+                        )
+                      }
+                      className="w-full sm:w-auto text-xs font-medium px-4 py-2 rounded-full border border-[#16A34A]/40 text-[#16A34A] hover:bg-[#16A34A]/[0.06] transition-colors font-[family-name:var(--font-inter)]"
+                    >
+                      Ещё {freeHours} ч — бесплатно. Взять весь день →
+                    </button>
+                  )}
                   <button
                     onClick={() => setStep("form")}
                     disabled={selectedSlots.length < minBookingHours}
@@ -509,7 +578,12 @@ export function BookingFlow() {
                 {[
                   ["Беседка", selectedResource.resource.name],
                   ["Дата", formatDate(date)],
-                  ["Время", `${timeRange.startTime}–${timeRange.endTime} (${selectedSlots.length} ч.)`],
+                  [
+                    "Время",
+                    `${timeRange.startTime}–${timeRange.endTime} (${
+                      isFullDay ? "весь день" : `${selectedSlots.length} ч.`
+                    })`,
+                  ],
                 ].map(([label, val]) => (
                   <div key={label} className="flex justify-between text-sm font-[family-name:var(--font-inter)]">
                     <span className="text-[#86868b]">{label}</span>

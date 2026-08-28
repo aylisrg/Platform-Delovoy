@@ -4,6 +4,7 @@ import {
   isWeekendDate,
   getResourcePricing,
   calcBookingPrice,
+  freeHoursToFullDay,
   buildPublicPriceRows,
 } from "../pricing";
 
@@ -172,5 +173,77 @@ describe("buildPublicPriceRows", () => {
   it("does not group gazebos with different pricing", () => {
     const rows = buildPublicPriceRows([gazebo1, gazebo5]);
     expect(rows).toHaveLength(2);
+  });
+});
+
+// ===== Полный рабочий день на реальных ценах из прайса =====
+//
+// Рабочее окно 11:00–22:00 = 11 часов (оферта, п. 3.4). До снятия максимума
+// длительности (8 ч) ни одна бронь до дневного тарифа не дотягивала — ветка
+// была мёртвой в проде.
+describe("дневной тариф на полном дне (11 ч)", () => {
+  const rate = (hourRate: number, dayRate: number, isWeekend: boolean) => ({
+    weekdayHour: hourRate,
+    weekdayDay: dayRate,
+    weekendHour: hourRate,
+    weekendDay: dayRate,
+    hourRate,
+    dayRate,
+    isWeekend,
+  });
+
+  it("Беседка №1, будни: 11 × 1100 = 12100 → дневной 11000", () => {
+    const r = calcBookingPrice(rate(1100, 11000, false), 11);
+    expect(r.total).toBe(11000);
+    expect(r.appliedDayRate).toBe(true);
+    expect(r.savings).toBe(1100);
+  });
+
+  it("Беседка №5, выходные: 11 × 2000 = 22000 → дневной 16000", () => {
+    const r = calcBookingPrice(rate(2000, 16000, true), 11);
+    expect(r.total).toBe(16000);
+    expect(r.savings).toBe(6000);
+  });
+
+  it("Беседка №2, будни: 11 × 800 = 8800 → дневной 7000", () => {
+    expect(calcBookingPrice(rate(800, 7000, false), 11).total).toBe(7000);
+  });
+});
+
+describe("freeHoursToFullDay", () => {
+  const weekendGazebo5 = {
+    weekdayHour: 1400,
+    weekdayDay: 13000,
+    weekendHour: 2000,
+    weekendDay: 16000,
+    hourRate: 2000,
+    dayRate: 16000,
+    isWeekend: true,
+  };
+
+  it("даёт добор, когда дневной тариф уже покрыл выбор", () => {
+    // 10 ч × 2000 = 20000 → потолок 16000; весь день стоит те же 16000.
+    expect(freeHoursToFullDay(weekendGazebo5, 10, 11)).toBe(1);
+  });
+
+  it("считает бесплатным добор и при точном равенстве часовой и дневной цены", () => {
+    // 8 ч × 2000 = 16000 ровно равны дневному: appliedDayRate ещё false
+    // (сравнение строгое), но добор до дня не дорожает — подсказка нужна.
+    expect(calcBookingPrice(weekendGazebo5, 8).appliedDayRate).toBe(false);
+    expect(freeHoursToFullDay(weekendGazebo5, 8, 11)).toBe(3);
+  });
+
+  it("молчит, когда добор платный", () => {
+    // 5 ч × 2000 = 10000 против 16000 за день — брать день дороже.
+    expect(freeHoursToFullDay(weekendGazebo5, 5, 11)).toBe(0);
+  });
+
+  it("молчит, когда день уже выбран целиком", () => {
+    expect(freeHoursToFullDay(weekendGazebo5, 11, 11)).toBe(0);
+  });
+
+  it("молчит, когда дневного тарифа нет", () => {
+    const noDayRate = { ...weekendGazebo5, dayRate: 0, weekendDay: 0 };
+    expect(freeHoursToFullDay(noDayRate, 10, 11)).toBe(0);
   });
 });

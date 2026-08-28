@@ -15,6 +15,10 @@ import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pric
 import { formatTime } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
+// Запасные границы — только если бэкенд не прислал часы (пустой data.hours).
+const FALLBACK_OPEN_HHMM = "08:00";
+const FALLBACK_CLOSE_HHMM = "23:00";
+
 function toHHMM(iso: string): string {
   return formatTime(iso);
 }
@@ -44,7 +48,15 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
     initialData.resources[0]?.id ?? null,
   );
 
-  const slots = generateHalfHourSlots();
+  // Границы ленты — из data.hours (бэкенд считает их из Module.config), а не
+  // из дефолтов booking-time (08:00–23:00, они от Плей Парка). Раньше мобильная
+  // админка предлагала менеджеру слоты вне часов работы беседок: до включения
+  // проверки часов такие брони проходили, теперь сервер бы их отклонял.
+  const openHHMM = data.hours[0] ?? FALLBACK_OPEN_HHMM;
+  const closeHHMM = data.hours.length
+    ? `${String(parseInt(data.hours[data.hours.length - 1].split(":")[0], 10) + 1).padStart(2, "0")}:00`
+    : FALLBACK_CLOSE_HHMM;
+  const slots = generateHalfHourSlots(openHHMM, closeHHMM);
 
   const loadTimeline = useCallback(async (newDate: string) => {
     setDate(newDate);
@@ -101,7 +113,7 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
       resourceId,
       resourceName: resource.name,
       startTime: startHHMM,
-      maxEndTime: getMaxEndFromBookings(startHHMM, bookings),
+      maxEndTime: getMaxEndFromBookings(startHHMM, bookings, closeHHMM),
       pricePerHour,
       pricing: getResourcePricing(resource.metadata, pricePerHour, date),
     });
@@ -295,6 +307,9 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
           maxEndTime={slot.maxEndTime}
           pricePerHour={slot.pricePerHour}
           pricing={slot.pricing}
+          minBookingHours={data.minBookingHours}
+          openTime={openHHMM}
+          closeTime={closeHHMM}
         />
       )}
 

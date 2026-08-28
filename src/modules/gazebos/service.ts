@@ -68,7 +68,6 @@ const DEFAULT_OPEN_HOUR = 11;
 const DEFAULT_CLOSE_HOUR = 22;
 const SLOT_DURATION_HOURS = 1;
 const DEFAULT_MIN_BOOKING_HOURS = 4;
-const DEFAULT_MAX_BOOKING_HOURS = 8;
 
 function pluralHours(n: number): string {
   const mod10 = n % 10;
@@ -86,18 +85,6 @@ export async function getMinBookingHours(): Promise<number> {
 }
 
 /**
- * Максимальная длительность брони (часов). Форма настроек её валидировала и
- * сохраняла, но ни один сервис её не читал (#434) — бронь любой длины внутри
- * часов работы проходила.
- */
-export async function getMaxBookingHours(): Promise<number> {
-  const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
-  const config = moduleRecord?.config as Record<string, unknown> | null;
-  const val = config?.maxBookingHours;
-  return typeof val === "number" && val > 0 ? val : DEFAULT_MAX_BOOKING_HOURS;
-}
-
-/**
  * Часы работы модуля из настроек (Module.config.openHour/closeHour). Раньше
  * везде был захардкожен `OPEN_HOUR=8/CLOSE_HOUR=23` — форма настроек значения
  * сохраняла, но их никто не читал (#434).
@@ -108,6 +95,40 @@ export async function getOpenCloseHours(): Promise<{ openHour: number; closeHour
   const openHour = typeof config?.openHour === "number" ? config.openHour : DEFAULT_OPEN_HOUR;
   const closeHour = typeof config?.closeHour === "number" ? config.closeHour : DEFAULT_CLOSE_HOUR;
   return { openHour, closeHour };
+}
+
+/**
+ * Часы работы — единственная верхняя граница брони.
+ *
+ * Максимума длительности больше нет. В оферте его никогда и не было: п. 1.1
+ * Приложения № 1 задаёт только минимальный период (4 часа). `maxBookingHours`
+ * был техническим артефактом — настройкой, которую форма сохраняла, а ни один
+ * сервис не читал; #434 включила её в проверку, и дефолт `8` при рабочем окне
+ * 11:00–22:00 молча запретил выкуп беседки на весь день. Это привело к
+ * двойному бронированию: клиенту оформили 6 часов вместо дня, а хвост дня
+ * система считала свободным и продала другому. Дневной тариф из прайса
+ * (`pricing.ts`) сам служит потолком цены, поэтому длинная бронь больше не
+ * нуждается в отдельном ограничении.
+ *
+ * Сравнение строк `"HH:mm"` лексикографическое — `timeRegex` в `validation.ts`
+ * гарантирует ведущий ноль. Сравнивать `Date` здесь нельзя: `parseDatetime`
+ * уже сдвинул их в UTC, и сверка с локальным часом дала бы сдвиг на 3 часа.
+ */
+function assertWithinWorkingHours(
+  startTime: string,
+  endTime: string,
+  openHour: number,
+  closeHour: number
+): { fullDay: boolean } {
+  const openHHMM = `${String(openHour).padStart(2, "0")}:00`;
+  const closeHHMM = `${String(closeHour).padStart(2, "0")}:00`;
+  if (startTime < openHHMM || endTime > closeHHMM) {
+    throw new BookingError(
+      "OUTSIDE_WORKING_HOURS",
+      `Время должно быть в пределах ${openHHMM}–${closeHHMM}`
+    );
+  }
+  return { fullDay: startTime === openHHMM && endTime === closeHHMM };
 }
 
 /**
@@ -320,20 +341,18 @@ export async function createBooking(
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
-  // Enforce minimum/maximum booking duration
+  // Единственная верхняя граница — часы работы. Раньше не проверялись нигде,
+  // кроме переноса: через API проходила бронь хоть на 03:00.
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const { fullDay } = assertWithinWorkingHours(startTime, endTime, openHour, closeHour);
+
+  // Минимальная длительность брони (п. 1.1 Приложения № 1 оферты).
   const minHours = await getMinBookingHours();
   const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
   if (durationHours < minHours) {
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
-    );
-  }
-  const maxHours = await getMaxBookingHours();
-  if (durationHours > maxHours) {
-    throw new BookingError(
-      "DURATION_ABOVE_MAX",
-      `Максимальное бронирование — ${maxHours} ${pluralHours(maxHours)}`
     );
   }
 
@@ -404,6 +423,10 @@ export async function createBooking(
           basePrice: pricing.basePrice,
           pricePerHour: pricing.pricePerHour,
           totalPrice: pricing.totalPrice,
+          // Считалось и выбрасывалось. Без этих двух флагов «весь день» и
+          // «применён дневной тариф» постфактум неотличимы от обычной брони.
+          appliedDayRate: pricing.appliedDayRate,
+          fullDay,
         },
       },
     });
@@ -598,20 +621,23 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
     throw new BookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
   }
 
-  // Enforce minimum/maximum booking duration
+  // Часы работы — та же граница, что и у публичной брони. Менеджеру послаблений
+  // не даём: смысл проверки в том, чтобы беседку нельзя было занять вне смены.
+  const { openHour: openHourAdmin, closeHour: closeHourAdmin } = await getOpenCloseHours();
+  const { fullDay: fullDayAdmin } = assertWithinWorkingHours(
+    startTime,
+    endTime,
+    openHourAdmin,
+    closeHourAdmin
+  );
+
+  // Минимальная длительность брони (п. 1.1 Приложения № 1 оферты).
   const minHoursAdmin = await getMinBookingHours();
   const durationHoursAdmin = (end.getTime() - start.getTime()) / 3_600_000;
   if (durationHoursAdmin < minHoursAdmin) {
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHoursAdmin} ${pluralHours(minHoursAdmin)}`
-    );
-  }
-  const maxHoursAdmin = await getMaxBookingHours();
-  if (durationHoursAdmin > maxHoursAdmin) {
-    throw new BookingError(
-      "DURATION_ABOVE_MAX",
-      `Максимальное бронирование — ${maxHoursAdmin} ${pluralHours(maxHoursAdmin)}`
     );
   }
 
@@ -719,6 +745,8 @@ export async function createAdminBooking(adminId: string, input: AdminCreateBook
           basePrice: adminPricing.basePrice,
           pricePerHour: adminPricing.pricePerHour,
           totalPrice: adminPricing.totalPrice,
+          appliedDayRate: adminPricing.appliedDayRate,
+          fullDay: fullDayAdmin,
         },
       },
     });
@@ -816,14 +844,7 @@ export async function rescheduleBooking(
 
   // Часы работы из настроек модуля + начало раньше конца.
   const { openHour, closeHour } = await getOpenCloseHours();
-  const openHHMM = `${String(openHour).padStart(2, "0")}:00`;
-  const closeHHMM = `${String(closeHour).padStart(2, "0")}:00`;
-  if (effStart < openHHMM || effEnd > closeHHMM) {
-    throw new BookingError(
-      "OUTSIDE_WORKING_HOURS",
-      `Время должно быть в пределах ${openHHMM}–${closeHHMM}`
-    );
-  }
+  const { fullDay } = assertWithinWorkingHours(effStart, effEnd, openHour, closeHour);
   if (effStart >= effEnd) {
     throw new BookingError(
       "INVALID_TIME_RANGE",
@@ -840,13 +861,6 @@ export async function rescheduleBooking(
     throw new BookingError(
       "DURATION_BELOW_MIN",
       `Минимальное бронирование — ${minHours} ${pluralHours(minHours)}`
-    );
-  }
-  const maxHours = await getMaxBookingHours();
-  if (durationHours > maxHours) {
-    throw new BookingError(
-      "DURATION_ABOVE_MAX",
-      `Максимальное бронирование — ${maxHours} ${pluralHours(maxHours)}`
     );
   }
 
@@ -903,6 +917,8 @@ export async function rescheduleBooking(
       basePrice: pricing.basePrice,
       pricePerHour: pricing.pricePerHour,
       totalPrice: pricing.totalPrice,
+      appliedDayRate: pricing.appliedDayRate,
+      fullDay,
     }),
     edits: [
       ...prevEdits,
@@ -1560,6 +1576,17 @@ export async function rescheduleBookingByClient(
     throw new BookingError("DATE_IN_PAST", "Нельзя перенести на прошедшую дату");
   }
 
+  // Самоперенос по токену — тоже в пределах смены. Без этой проверки страница
+  // /booking/[token] осталась бы единственным входом, через который бронь
+  // уезжает за часы работы.
+  const { openHour, closeHour } = await getOpenCloseHours();
+  const { fullDay } = assertWithinWorkingHours(
+    input.startTime,
+    input.endTime,
+    openHour,
+    closeHour
+  );
+
   const durationHours = (end.getTime() - start.getTime()) / 3_600_000;
   const minHours = await getMinBookingHours();
   if (durationHours < minHours) {
@@ -1620,6 +1647,8 @@ export async function rescheduleBookingByClient(
             basePrice: pricing.basePrice,
             pricePerHour: pricing.pricePerHour,
             totalPrice: pricing.totalPrice,
+            appliedDayRate: pricing.appliedDayRate,
+            fullDay,
             ...(priceDelta !== 0 && { reschedulePriceDelta: priceDelta.toFixed(2) }),
           } as unknown as import("@prisma/client").Prisma.InputJsonValue,
         },
@@ -1790,9 +1819,8 @@ export async function getAvailability(
   date: string,
   resourceId?: string
 ): Promise<import("./types").AvailabilityResponse> {
-  const [minBookingHours, maxBookingHours, { openHour, closeHour }, resources] = await Promise.all([
+  const [minBookingHours, { openHour, closeHour }, resources] = await Promise.all([
     getMinBookingHours(),
-    getMaxBookingHours(),
     getOpenCloseHours(),
     resourceId
       ? prisma.resource.findMany({
@@ -1848,7 +1876,7 @@ export async function getAvailability(
     return { date, resource, slots, pricing };
   });
 
-  return { resources: resourcesData, minBookingHours, maxBookingHours, openHour, closeHour };
+  return { resources: resourcesData, minBookingHours, openHour, closeHour };
 }
 
 // === TIMELINE ===
