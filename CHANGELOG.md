@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.1...v2.20.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **auth:** exempt /api/admin/owner-decisions from NextAuth session gate ([#790](https://github.com/aylisrg/Platform-Delovoy/issues/790)) ([f6fef68](https://github.com/aylisrg/Platform-Delovoy/commit/f6fef6821672d8dd05404ce8bc4d7569e4ae0cff))
+
 ## [2.20.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.0...v2.20.1) (2026-08-28)
 
 
