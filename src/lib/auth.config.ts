@@ -184,6 +184,10 @@ export const authConfig: NextAuthConfig = {
         pathname.startsWith("/api/booking/");
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
+      // Owner-decisions sweeper (issue-queue-merge.yml, no session — Bearer
+      // OWNER_DECISIONS_SECRET checked in route.ts). Same shape as isCiWebhook
+      // above, but the route itself uses GET/POST/PATCH, not just POST.
+      const isOwnerDecisionsRoute = pathname === "/api/admin/owner-decisions";
       // Webapp (Mini App) routes use their own JWT — not NextAuth sessions
       const isWebappRoute = pathname.startsWith("/api/webapp/");
       // Bot-internal endpoints use x-bot-token header auth
@@ -193,6 +197,7 @@ export const authConfig: NextAuthConfig = {
       if (isPublicApiRoute && request.method === "GET") return true;
       if (isPublicPostRoute && request.method === "POST") return true;
       if (isCiWebhook && request.method === "POST") return true;
+      if (isOwnerDecisionsRoute) return true;
       // Webapp and bot-internal routes handle their own auth (JWT / x-bot-token)
       if (isWebappRoute || isBotInternalRoute) return true;
 
