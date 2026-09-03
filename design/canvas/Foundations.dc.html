@@ -1,0 +1,231 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #ffffff; color: #1d1d1f; font-family: Inter, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #0071e3; text-decoration: none; } a:hover { color: #0077ed; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: #6e6e73; }
+  </style>
+</helmet>
+<div style="width: 1440px; background: #ffffff; padding: 72px 120px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 72px;">
+
+  <!-- Title -->
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; background: rgba(0,113,227,0.08); color: #1d1d1f; font-size: 12px; font-weight: 500;"><span style="width: 6px; height: 6px; border-radius: 999px; background: #0071e3;"></span>Foundations</span>
+      <span class="mono">design-tokens.json · тема light · v2.0</span>
+    </div>
+    <h1 style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 56px; line-height: 1; letter-spacing: -1.7px;">Деловой Парк — токены</h1>
+    <p style="margin: 0; max-width: 720px; font-size: 17px; line-height: 1.5; color: #6e6e73;">Светлая система на белом и сером, один синий акцент, Manrope для заголовков и Inter для текста. Всё, что на лендинге, собирается только из этих значений.</p>
+  </div>
+
+  <!-- COLOR -->
+  <div style="display: flex; flex-direction: column; gap: 28px;">
+    <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+      <h2 style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 28px; letter-spacing: -0.8px;">Цвет</h2>
+      <span class="mono">color.*</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px;">
+      <!-- surface -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="margin: 0; font-size: 13px; font-weight: 500; color: #1d1d1f;">Поверхности</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08);"></div><div><p style="margin: 0; font-size: 13px;">surface.0</p><p class="mono" style="margin: 0;">#ffffff · страница, карточки</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #f5f5f7;"></div><div><p style="margin: 0; font-size: 13px;">surface.1</p><p class="mono" style="margin: 0;">#f5f5f7 · секции, серые карточки</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #e8e8ed;"></div><div><p style="margin: 0; font-size: 13px;">surface.2</p><p class="mono" style="margin: 0;">#e8e8ed · hover серых, чипсы</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #1d1d1f;"></div><div><p style="margin: 0; font-size: 13px;">surface.inverse</p><p class="mono" style="margin: 0;">#1d1d1f · только тосты и тултипы</p></div></div>
+        </div>
+      </div>
+      <!-- text -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="margin: 0; font-size: 13px; font-weight: 500; color: #1d1d1f;">Текст</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #1d1d1f;"></div><div><p style="margin: 0; font-size: 13px;">text.primary</p><p class="mono" style="margin: 0;">#1d1d1f · 16.1:1</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #6e6e73;"></div><div><p style="margin: 0; font-size: 13px;">text.secondary</p><p class="mono" style="margin: 0;">#6e6e73 · 5.2:1 белый · 4.7:1 серый</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #86868b;"></div><div><p style="margin: 0; font-size: 13px;">text.tertiary</p><p class="mono" style="margin: 0;">#86868b · только ≥15px, подписи</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08);"></div><div><p style="margin: 0; font-size: 13px;">text.onAccent</p><p class="mono" style="margin: 0;">#ffffff · на синем и модульных</p></div></div>
+        </div>
+      </div>
+      <!-- accent -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="margin: 0; font-size: 13px; font-weight: 500; color: #1d1d1f;">Акцент</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #0071e3;"></div><div><p style="margin: 0; font-size: 13px;">accent.default</p><p class="mono" style="margin: 0;">#0071e3 · кнопки, ссылки, фокус</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #0077ed;"></div><div><p style="margin: 0; font-size: 13px;">accent.hover</p><p class="mono" style="margin: 0;">#0077ed</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #0066cc;"></div><div><p style="margin: 0; font-size: 13px;">accent.active</p><p class="mono" style="margin: 0;">#0066cc</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: rgba(0,113,227,0.08); border: 1px solid rgba(0,113,227,0.12);"></div><div><p style="margin: 0; font-size: 13px;">accent.subtle</p><p class="mono" style="margin: 0;">accent 8% · фон иконок, выделения</p></div></div>
+        </div>
+      </div>
+      <!-- border -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="margin: 0; font-size: 13px; font-weight: 500; color: #1d1d1f;">Границы и фокус</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid rgba(0,0,0,0.04); box-shadow: 0 0 0 1px rgba(0,0,0,0.04);"></div><div><p style="margin: 0; font-size: 13px;">border.subtle</p><p class="mono" style="margin: 0;">black 4% · разделители</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08);"></div><div><p style="margin: 0; font-size: 13px;">border.default</p><p class="mono" style="margin: 0;">black 8% · инпуты, карточки</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid rgba(0,0,0,0.12);"></div><div><p style="margin: 0; font-size: 13px;">border.strong</p><p class="mono" style="margin: 0;">black 12% · hover</p></div></div>
+          <div style="display: flex; align-items: center; gap: 12px;"><div style="width: 56px; height: 40px; border-radius: 10px; background: #ffffff; border: 1px solid #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.24);"></div><div><p style="margin: 0; font-size: 13px;">focus.ring</p><p class="mono" style="margin: 0;">accent 24% · 3px, только :focus-visible</p></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- module + brand -->
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;">
+      <div style="background: #f5f5f7; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Модульные акценты</p><span class="mono">color.module.*</span></div>
+        <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 64px; border-radius: 12px; background: #0071e3;"></div><p style="margin: 0; font-size: 13px;">Офисы</p><p class="mono" style="margin: 0;">rental #0071e3</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 64px; border-radius: 12px; background: #15803d;"></div><p style="margin: 0; font-size: 13px;">Барбекю Парк</p><p class="mono" style="margin: 0;">gazebos #15803d</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 64px; border-radius: 12px; background: #7c3aed;"></div><p style="margin: 0; font-size: 13px;">Плей Парк</p><p class="mono" style="margin: 0;">psPark #7c3aed</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 64px; border-radius: 12px; background: #c2410c;"></div><p style="margin: 0; font-size: 13px;">Кафе</p><p class="mono" style="margin: 0;">cafe #c2410c</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 64px; border-radius: 12px; background: #0e7490;"></div><p style="margin: 0; font-size: 13px;">Автостоянка</p><p class="mono" style="margin: 0;">parking #0e7490</p></div>
+        </div>
+        <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #6e6e73;">Модульный цвет живёт только внутри карточки своего модуля: тег на фото, кнопка, иконка на тинте 8%. Никогда не заменяет accent в навигации, формах и ссылках.</p>
+      </div>
+      <div style="background: #f5f5f7; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Рейтинг, партнёры, статусы</p><span class="mono">color.rating · brand.* · status.*</span></div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #fbc02d;"></div><p class="mono" style="margin: 0;">rating #fbc02d</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #fc3f1d;"></div><p class="mono" style="margin: 0;">yandex #fc3f1d</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #00b140;"></div><p class="mono" style="margin: 0;">twoGis #00b140</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #229ed9;"></div><p class="mono" style="margin: 0;">telegram #229ed9</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #25d366;"></div><p class="mono" style="margin: 0;">whatsapp #25d366</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #15803d;"></div><p class="mono" style="margin: 0;">success #15803d</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #b45309;"></div><p class="mono" style="margin: 0;">warning #b45309</p></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;"><div style="height: 48px; border-radius: 12px; background: #dc2626;"></div><p class="mono" style="margin: 0;">danger #dc2626</p></div>
+        </div>
+        <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #6e6e73;">Цвета партнёров — только в их логотипах и кнопках перехода. Статусы — формы, тосты, бейдж «Сдан» (warning).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TYPOGRAPHY -->
+  <div style="display: flex; flex-direction: column; gap: 28px;">
+    <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+      <h2 style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 28px; letter-spacing: -0.8px;">Типографика</h2>
+      <span class="mono">font.* · Manrope 600 для заголовков, Inter 400/500 для текста · self-hosted, latin + cyrillic</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">display.hero</p><p class="mono" style="margin: 0;">Manrope 600 · 96/0.9 · −0.04em</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 96px; line-height: 0.9; letter-spacing: -3.84px;">Бизнес-парк, которому <span style="color: #0071e3;">доверяют.</span></p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 48/0.92 · −2px</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">display.section</p><p class="mono" style="margin: 0;">Manrope 600 · 64/1 · −0.03em</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 64px; line-height: 1; letter-spacing: -1.92px;">Всё для работы и отдыха.</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 40/1 · −1.2px</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">heading.lg</p><p class="mono" style="margin: 0;">Manrope 600 · 32/1.1 · −1px</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 32px; line-height: 1.1; letter-spacing: -1px;">Лист ожидания</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 28/1.1 · −0.8px</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">heading.md</p><p class="mono" style="margin: 0;">Manrope 600 · 24/1.15 · −0.5px</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 24px; line-height: 1.15; letter-spacing: -0.5px;">Барбекю Парк</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 22/1.15</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">heading.sm</p><p class="mono" style="margin: 0;">Manrope 600 · 20/1.2 · −0.4px</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 20px; line-height: 1.2; letter-spacing: -0.4px;">Парковка 100+ мест</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 18/1.25</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">stat</p><p class="mono" style="margin: 0;">Manrope 600 · 40/1.1 · −1.2px · tabular-nums</p></div>
+      <p style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 40px; line-height: 1.1; letter-spacing: -1.2px; font-variant-numeric: tabular-nums;">280+ · 5.0 · 100+ · 30 км</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 32/1.1</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">body.lg</p><p class="mono" style="margin: 0;">Inter 400 · 18/1.5</p></div>
+      <p style="margin: 0; font-size: 18px; line-height: 1.5; color: #6e6e73; max-width: 640px;">Каждый отзыв — 5 звёзд. Это не случайность, это то, как мы работаем каждый день.</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 17/1.5</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">body.md</p><p class="mono" style="margin: 0;">Inter 400 · 15/1.6</p></div>
+      <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #6e6e73; max-width: 640px;">Уютные беседки с мангалом и террасой на природе. Идеально для командного обеда, встречи с партнёрами или просто отдыха на свежем воздухе.</p>
+      <p class="mono" style="margin: 0; text-align: right;">mobile 15/1.6</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(0,0,0,0.04); padding-bottom: 20px;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">body.sm</p><p class="mono" style="margin: 0;">Inter 400 · 14/1.5</p></div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6e6e73; max-width: 640px;">Бесплатно для арендаторов и гостей, без ограничений по времени.</p>
+      <p class="mono" style="margin: 0; text-align: right;">text.secondary обязателен (не tertiary)</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 24px; align-items: end;">
+      <div><p style="margin: 0; font-size: 13px; font-weight: 500;">caption · label · button</p><p class="mono" style="margin: 0;">Inter 400 13/1.4 · 500 12/1.4 · 500 15/1</p></div>
+      <div style="display: flex; align-items: center; gap: 24px;">
+        <span style="font-size: 13px; line-height: 1.4; color: #6e6e73;">Арендатор, 3 года</span>
+        <span style="font-size: 12px; line-height: 1.4; font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; color: #6e6e73;">Телефон</span>
+        <span style="font-size: 15px; line-height: 1; font-weight: 500;">Записаться в лист ожидания</span>
+      </div>
+      <p class="mono" style="margin: 0; text-align: right;">min 12px; uppercase только label</p>
+    </div>
+  </div>
+
+  <!-- SPACE / RADIUS / SHADOW / MOTION -->
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+        <h2 style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 28px; letter-spacing: -0.8px;">Отступы и сетка</h2>
+        <span class="mono">space.* · база 4px</span>
+      </div>
+      <div style="display: flex; align-items: flex-end; gap: 10px; height: 96px;">
+        <div style="width: 4px; height: 4px; background: #0071e3; border-radius: 2px;"></div>
+        <div style="width: 8px; height: 8px; background: #0071e3; border-radius: 2px;"></div>
+        <div style="width: 12px; height: 12px; background: #0071e3; border-radius: 3px;"></div>
+        <div style="width: 16px; height: 16px; background: #0071e3; border-radius: 3px;"></div>
+        <div style="width: 20px; height: 20px; background: #0071e3; border-radius: 4px;"></div>
+        <div style="width: 24px; height: 24px; background: #0071e3; border-radius: 4px;"></div>
+        <div style="width: 32px; height: 32px; background: #0071e3; border-radius: 5px;"></div>
+        <div style="width: 40px; height: 40px; background: #0071e3; border-radius: 6px;"></div>
+        <div style="width: 48px; height: 48px; background: #0071e3; border-radius: 6px;"></div>
+        <div style="width: 64px; height: 64px; background: #0071e3; border-radius: 8px;"></div>
+        <div style="width: 96px; height: 96px; background: #0071e3; border-radius: 10px;"></div>
+      </div>
+      <p class="mono" style="margin: 0;">1 · 2 · 3 · 4 · 5 · 6 · 8 · 10 · 12 · 16 · 24 (×4px)</p>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+        <div style="background: #f5f5f7; border-radius: 12px; padding: 16px;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Секция</p><p class="mono" style="margin: 4px 0 0;">padding-y 96 desktop · 64 mobile</p></div>
+        <div style="background: #f5f5f7; border-radius: 12px; padding: 16px;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Контейнер</p><p class="mono" style="margin: 4px 0 0;">1200 max · gutter 24 · 16 mobile</p></div>
+        <div style="background: #f5f5f7; border-radius: 12px; padding: 16px;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Заголовок → сетка</p><p class="mono" style="margin: 4px 0 0;">56 desktop · 40 mobile</p></div>
+        <div style="background: #f5f5f7; border-radius: 12px; padding: 16px;"><p style="margin: 0; font-size: 13px; font-weight: 500;">Карточки</p><p class="mono" style="margin: 4px 0 0;">gap 16 · 20 для крупных · padding 24</p></div>
+      </div>
+      <p class="mono" style="margin: 0;">Брейкпоинты Tailwind: sm 640 · md 768 · lg 1024 · xl 1280. Сетка 3 → 2 → 1, офисы 4 → 2 → 1.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+        <h2 style="margin: 0; font-family: Manrope, Inter, sans-serif; font-weight: 600; font-size: 28px; letter-spacing: -0.8px;">Радиусы, тени, motion</h2>
+        <span class="mono">radius.* · shadow.* · motion.*</span>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: flex-end;">
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;"><div style="width: 64px; height: 64px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 8px;"></div><span class="mono">sm 8 · тег</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;"><div style="width: 64px; height: 64px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;"></div><span class="mono">md 12 · инпут</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;"><div style="width: 64px; height: 64px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 16px;"></div><span class="mono">lg 16 · карточка</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;"><div style="width: 64px; height: 64px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 24px;"></div><span class="mono">xl 24 · hero-панель</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;"><div style="width: 64px; height: 64px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 999px;"></div><span class="mono">full · кнопки</span></div>
+      </div>
+      <div style="display: flex; gap: 20px; padding: 8px 0 12px;">
+        <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;"><div style="width: 120px; height: 72px; background: #ffffff; border-radius: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04);"></div><span class="mono">sm · карточка на сером</span></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;"><div style="width: 120px; height: 72px; background: #ffffff; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></div><span class="mono">md · hover, дропдаун</span></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;"><div style="width: 120px; height: 72px; background: #ffffff; border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,0.12);"></div><span class="mono">lg · модалка, ховер услуги</span></div>
+      </div>
+      <div style="background: #f5f5f7; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 6px;">
+        <p style="margin: 0; font-size: 13px; font-weight: 500;">Motion</p>
+        <p class="mono" style="margin: 0;">ease: cubic-bezier(0.2, 0.8, 0.2, 1) · fast 150ms (цвет, рамка) · base 250ms (тень, сдвиг)</p>
+        <p class="mono" style="margin: 0;">reveal: opacity 0→1, translateY 16→0, 500ms, threshold 0.15, один раз</p>
+        <p class="mono" style="margin: 0;">hover карточки: translateY −4px + shadow.lg · фото scale 1.04 за 500ms</p>
+        <p class="mono" style="margin: 0;">prefers-reduced-motion: всё → opacity 0→1 за 150ms, без сдвигов и scale</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
