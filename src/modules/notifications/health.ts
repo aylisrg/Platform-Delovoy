@@ -1,9 +1,36 @@
 import { prisma } from "@/lib/db";
 import { EVENT_SOURCES } from "@/lib/event-sources";
+import { redis, redisAvailable } from "@/lib/redis";
 import { telegramApi } from "@/lib/telegram/client";
 
-/** Сколько 15-минутных тиков свипера пропустить, прежде чем считать контур молчащим — 2-3 тика + запас на джиттер расписания GitHub Actions. */
-const OWNER_DECISIONS_STALE_MINUTES = 40;
+/**
+ * Через сколько минут без heartbeat свипера контур owner-decisions считается
+ * молчащим.
+ *
+ * Heartbeat шлёт `issue-queue-merge.yml` по cron раз в 15 минут, но cron в GitHub
+ * Actions — best-effort: под нагрузкой планировщик задерживает и пропускает
+ * тики, причём для всех workflow репозитория разом. Замер по 799 прогонам
+ * свипера за 2026-08-22..09-03: 41 дыра ≥40 мин, 21 ≥1 ч, 11 ≥2 ч,
+ * максимум 261 мин (27–28 августа тики шли раз в 3–4 часа весь день);
+ * site-watchdog (cron раз в 5 минут) в те же ночные часы молчал синхронно — значит,
+ * это планировщик GitHub, а не наш workflow. Прежний порог 40 мин («2–3 тика»)
+ * давал ложный CRITICAL владельцу почти каждую ночь (инцидент 2026-09-03,
+ * docs/incidents/2026-09-03-owner-decisions-false-stale-alerts.md).
+ *
+ * 6 часов — худшая наблюдавшаяся дыра ×1.4. Реальная поломка контура
+ * (секрет не задан, сайт недоступен из Actions) длится днями, пока её не
+ * починят, так что обнаружение за 6 ч вместо 40 мин ничего не теряет.
+ */
+export const OWNER_DECISIONS_STALE_MINUTES = 6 * 60;
+
+/**
+ * Как часто напоминать о продолжающемся молчании. Первый CRITICAL уходит
+ * сразу при пересечении порога; пока heartbeat тот же (эпизод не кончился),
+ * повтор — не чаще раза в этот интервал. Без этого каждый опрос health
+ * (site-watchdog раз в 5 мин) плодил бы по алерту в личку владельца —
+ * троттлинг `log.critical()` только 300 с.
+ */
+const OWNER_DECISIONS_ALERT_REPEAT_SECONDS = 6 * 60 * 60;
 
 export type NotificationsHealthCheck = {
   ok: boolean;
@@ -163,10 +190,14 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
       });
       if (last) {
         const staleMin = Math.floor((Date.now() - last.createdAt.getTime()) / 60_000);
+        const ok = staleMin < OWNER_DECISIONS_STALE_MINUTES;
         ownerDecisionsCheck = {
-          ok: staleMin < OWNER_DECISIONS_STALE_MINUTES,
+          ok,
           lastHeartbeatAt: last.createdAt.toISOString(),
           staleMin,
+          ...(ok
+            ? {}
+            : { reason: `heartbeat старше ${OWNER_DECISIONS_STALE_MINUTES} мин` }),
         };
       } else {
         ownerDecisionsCheck = {
@@ -199,4 +230,30 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
       ownerDecisions: ownerDecisionsCheck,
     },
   };
+}
+
+/**
+ * Слать ли CRITICAL о молчащем контуре именно сейчас. Один алерт на эпизод
+ * молчания (ключ — последний heartbeat: новый эпизод → новый ключ → алерт
+ * сразу), повтор того же эпизода — раз в OWNER_DECISIONS_ALERT_REPEAT_SECONDS.
+ * Redis недоступен или упал — fail-open: лучше лишний алерт, чем потерянный
+ * инцидент; шторм тогда всё равно ограничен троттлингом `log.critical()`.
+ */
+export async function shouldAlertOwnerDecisionsSilence(
+  check: NotificationsHealthCheck["checks"]["ownerDecisions"]
+): Promise<boolean> {
+  if (check.ok) return false;
+  if (!redisAvailable) return true;
+  try {
+    const acquired = await redis.set(
+      `owner-decisions:silence-alert:${check.lastHeartbeatAt ?? "never"}`,
+      "1",
+      "EX",
+      OWNER_DECISIONS_ALERT_REPEAT_SECONDS,
+      "NX"
+    );
+    return acquired !== null;
+  } catch {
+    return true;
+  }
 }
