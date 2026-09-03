@@ -157,3 +157,4 @@
 | unknown | pr-747-qa-report.md | 2 | rbac, api, typescript, tests |
 | unknown | pr-790-qa-report.md | 1 | rbac, api, tests |
 | 2026-09-03 | 2026-09-03-owner-decisions-false-stale-alerts-qa-report.md | 4 | rbac, api, typescript, tests, scope_creep |
+| 2026-09-03 | 2026-09-03-landing-design-system-qa-report.md | 3 | rbac, api, tests, scope_creep |
