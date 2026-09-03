@@ -1,0 +1,238 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #ffffff; color: #1d1d1f; font-family: Inter, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #0071e3; text-decoration: none; } a:hover { color: #0077ed; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: #6e6e73; }
+    .lbl { font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; color: #6e6e73; }
+    .h { font-family: Manrope, Inter, sans-serif; font-weight: 600; }
+  </style>
+</helmet>
+<div style="width: 1440px; background: #ffffff; padding: 72px 120px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 64px;">
+
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span style="display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; background: rgba(0,113,227,0.08); color: #0071e3; font-size: 12px; font-weight: 500;">Components</span>
+      <span class="mono">src/components/ui · публичный вариант</span>
+    </div>
+    <h1 class="h" style="margin: 0; font-size: 56px; line-height: 1; letter-spacing: -1.7px;">Компоненты и состояния</h1>
+    <p style="margin: 0; max-width: 720px; font-size: 17px; line-height: 1.5; color: #6e6e73;">Каждый элемент — в default, hover, focus-visible, active и disabled. На touch зона нажатия не меньше 44px, CTA во всю ширину; размер sm 36px и чипы 40px — только для desktop-навигации и фильтров.</p>
+  </div>
+
+  <!-- BUTTONS -->
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+      <h2 class="h" style="margin: 0; font-size: 28px; letter-spacing: -0.8px;">Button</h2>
+      <span class="mono">radius.full · Inter 500 · height 44 md / 52 lg / 36 sm</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 140px repeat(5, minmax(0, 1fr)); gap: 16px; align-items: center;">
+      <span class="lbl"></span>
+      <span class="lbl">default</span><span class="lbl">hover</span><span class="lbl">focus-visible</span><span class="lbl">active</span><span class="lbl">disabled</span>
+
+      <span style="font-size: 13px; font-weight: 500;">primary</span>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 15px; font-weight: 500;">Записаться</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: #0077ed; color: #ffffff; font-size: 15px; font-weight: 500;">Записаться</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 15px; font-weight: 500; box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px rgba(0,113,227,0.4);">Записаться</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: #0066cc; color: #ffffff; font-size: 15px; font-weight: 500; transform: scale(0.98);">Записаться</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 15px; font-weight: 500; opacity: 0.4;">Записаться</span></div>
+
+      <span style="font-size: 13px; font-weight: 500;">secondary</span>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: rgba(29,29,31,0.06); color: #1d1d1f; font-size: 15px; font-weight: 500;">Услуги</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: rgba(29,29,31,0.10); color: #1d1d1f; font-size: 15px; font-weight: 500;">Услуги</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: rgba(29,29,31,0.06); color: #1d1d1f; font-size: 15px; font-weight: 500; box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px rgba(0,113,227,0.4);">Услуги</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: rgba(29,29,31,0.14); color: #1d1d1f; font-size: 15px; font-weight: 500; transform: scale(0.98);">Услуги</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 52px; padding: 0 32px; border-radius: 999px; background: rgba(29,29,31,0.06); color: #1d1d1f; font-size: 15px; font-weight: 500; opacity: 0.4;">Услуги</span></div>
+
+      <span style="font-size: 13px; font-weight: 500;">ghost</span>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; color: #0071e3; font-size: 15px; font-weight: 500;">Все отзывы →</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; background: rgba(0,113,227,0.08); color: #0071e3; font-size: 15px; font-weight: 500;">Все отзывы →</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; color: #0071e3; font-size: 15px; font-weight: 500; box-shadow: 0 0 0 3px rgba(0,113,227,0.24);">Все отзывы →</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; background: rgba(0,113,227,0.12); color: #0066cc; font-size: 15px; font-weight: 500;">Все отзывы →</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; color: #0071e3; font-size: 15px; font-weight: 500; opacity: 0.4;">Все отзывы →</span></div>
+
+      <span style="font-size: 13px; font-weight: 500;">module</span>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; background: #16a34a; color: #ffffff; font-size: 14px; font-weight: 500;">Забронировать <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg></span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; background: #7c3aed; color: #ffffff; font-size: 14px; font-weight: 500;">Забронировать <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg></span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; background: #ea580c; color: #ffffff; font-size: 14px; font-weight: 500;">Заказать <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg></span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; background: #0891b2; color: #ffffff; font-size: 14px; font-weight: 500;">Подробнее <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg></span></div>
+      <p class="mono" style="margin: 0;">hover: цвет темнее на 6% L · только внутри карточки модуля</p>
+
+      <span style="font-size: 13px; font-weight: 500;">loading · sm · mobile</span>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 52px; padding: 0 32px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 15px; font-weight: 500; opacity: 0.8;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2a10 10 0 0 1 10 10"></path></svg>Отправляем…</span></div>
+      <div><span style="display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 13px; font-weight: 500;">Оставить заявку</span></div>
+      <div style="grid-column: span 3;"><span style="display: flex; align-items: center; justify-content: center; height: 52px; width: 358px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 15px; font-weight: 500;">Записаться в лист ожидания</span></div>
+    </div>
+  </div>
+
+  <!-- INPUTS -->
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+      <h2 class="h" style="margin: 0; font-size: 28px; letter-spacing: -0.8px;">Input · Textarea · Checkbox</h2>
+      <span class="mono">radius.md · height 48 · border.default → accent on focus · 16px текст на мобильных (без zoom iOS)</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span class="lbl">default</span>
+        <label style="font-size: 12px; font-weight: 500; color: #6e6e73;">Имя</label>
+        <div style="display: flex; align-items: center; height: 48px; padding: 0 16px; border-radius: 12px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); font-size: 15px; color: #86868b;">Ваше имя</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span class="lbl">focus</span>
+        <label style="font-size: 12px; font-weight: 500; color: #6e6e73;">Телефон</label>
+        <div style="display: flex; align-items: center; height: 48px; padding: 0 16px; border-radius: 12px; background: #ffffff; border: 1px solid #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.24); font-size: 15px; color: #1d1d1f;">+7 (9|</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span class="lbl">error</span>
+        <label style="font-size: 12px; font-weight: 500; color: #6e6e73;">Телефон</label>
+        <div style="display: flex; align-items: center; height: 48px; padding: 0 16px; border-radius: 12px; background: #ffffff; border: 1px solid #dc2626; font-size: 15px; color: #1d1d1f;">+7 (9</div>
+        <span style="font-size: 12px; color: #dc2626;">Введите номер полностью</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span class="lbl">disabled</span>
+        <label style="font-size: 12px; font-weight: 500; color: #86868b;">E-mail</label>
+        <div style="display: flex; align-items: center; height: 48px; padding: 0 16px; border-radius: 12px; background: #f5f5f7; border: 1px solid rgba(0,0,0,0.04); font-size: 15px; color: #86868b;">Не обязательно</div>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 20px; align-items: start;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span class="lbl">textarea</span>
+        <div style="height: 96px; padding: 12px 16px; border-radius: 12px; background: #ffffff; border: 1px solid rgba(0,0,0,0.08); font-size: 15px; line-height: 1.5; color: #86868b; box-sizing: border-box;">Комментарий — площадь, сроки, пожелания</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <span class="lbl">checkbox</span>
+        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; color: #6e6e73;"><span style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.16); background: #ffffff;"></span>Согласен на обработку персональных данных</label>
+        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; color: #1d1d1f;"><span style="flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: #0071e3;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg></span>Согласен на обработку персональных данных</label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <span class="lbl">form success</span>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; background: rgba(22,163,74,0.08);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 999px; background: #16a34a;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg></span>
+          <div><p style="margin: 0; font-size: 14px; font-weight: 500;">Заявка принята</p><p style="margin: 0; font-size: 12px; color: #6e6e73;">Перезвоним в рабочее время</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARDS -->
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+      <h2 class="h" style="margin: 0; font-size: 28px; letter-spacing: -0.8px;">Card</h2>
+      <span class="mono">radius.lg · padding 24 · белая на surface.1, серая на surface.0</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span class="lbl">gray · default</span>
+        <div style="background: #f5f5f7; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; min-height: 176px; box-sizing: border-box;">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: rgba(0,113,227,0.08); color: #0071e3;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><path d="M16 8h4l3 3v5h-7V8z"></path><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></span>
+          <p class="h" style="margin: 0; font-size: 20px; letter-spacing: -0.4px;">Парковка 100+ мест</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6e6e73;">Бесплатно для арендаторов и гостей, без ограничений по времени.</p>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span class="lbl">gray · hover</span>
+        <div style="background: #e8e8ed; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; min-height: 176px; box-sizing: border-box;">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: rgba(0,113,227,0.08); color: #0071e3;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><path d="M16 8h4l3 3v5h-7V8z"></path><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></span>
+          <p class="h" style="margin: 0; font-size: 20px; letter-spacing: -0.4px;">Парковка 100+ мест</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6e6e73;">Бесплатно для арендаторов и гостей, без ограничений по времени.</p>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span class="lbl">highlight (accent.subtle)</span>
+        <div style="background: rgba(0,113,227,0.04); border: 1px solid rgba(0,113,227,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; min-height: 176px; box-sizing: border-box;">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: rgba(251,192,45,0.16); color: #fbc02d;"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg></span>
+          <p class="h" style="margin: 0; font-size: 20px; letter-spacing: -0.4px;">280+ отзывов</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6e6e73;">Рейтинг 5.0 на Яндекс Картах — лучший среди бизнес-центров района.</p>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span class="lbl">white on gray · hover lifted</span>
+        <div style="background: #f5f5f7; border-radius: 20px; padding: 16px; box-sizing: border-box;">
+          <div style="background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,0.12); transform: translateY(-4px); display: flex; flex-direction: column;">
+            <div style="position: relative; height: 96px; background: #e8e8ed;"><img src="gazebo.jpg" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;"><span style="position: absolute; left: 10px; bottom: 10px; padding: 4px 10px; border-radius: 999px; background: rgba(22,163,74,0.85); color: #ffffff; font-size: 12px; font-weight: 600;">Беседки · Мангал</span></div>
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 6px;"><p class="h" style="margin: 0; font-size: 17px; letter-spacing: -0.3px;">Барбекю Парк</p><p style="margin: 0; font-size: 13px; color: #6e6e73;">translateY −4 · shadow.lg · фото scale 1.04</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BADGES / CHIPS / LINKS / NAV -->
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+        <h2 class="h" style="margin: 0; font-size: 28px; letter-spacing: -0.8px;">Badge · Chip · Tag</h2>
+        <span class="mono">radius.full · Inter 500 11–13px</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+        <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: rgba(0,113,227,0.08); color: #0071e3; font-size: 12px; font-weight: 500;">Бесплатно</span>
+        <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: rgba(22,163,74,0.08); color: #16a34a; font-size: 12px; font-weight: 500;">Круглосуточно</span>
+        <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: rgba(124,58,237,0.08); color: #7c3aed; font-size: 12px; font-weight: 500;">Оптоволокно</span>
+        <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: rgba(234,88,12,0.08); color: #ea580c; font-size: 12px; font-weight: 500;">Киевское ш.</span>
+        <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: #d97706; color: #ffffff; font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;">Сдан</span>
+        <span style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 999px; background: #f5f5f7; color: #1d1d1f; font-size: 13px; font-weight: 500;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #d97706;"></span>Все места заняты</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+        <span style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 999px; background: #1d1d1f; color: #ffffff; font-size: 13px; font-weight: 500;">Все</span>
+        <span style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 999px; background: #f5f5f7; color: #1d1d1f; font-size: 13px; font-weight: 500;">Мини-офис</span>
+        <span style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 999px; background: #e8e8ed; color: #1d1d1f; font-size: 13px; font-weight: 500;">Стандарт</span>
+        <span style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 999px; background: #f5f5f7; color: #1d1d1f; font-size: 13px; font-weight: 500;">Большой</span>
+        <span class="mono">чип-фильтр: selected · default · hover</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="display: inline-flex; align-items: center; gap: 12px; padding: 10px 20px 10px 12px; border-radius: 16px; background: #ffffff; border: 1px solid rgba(0,0,0,0.04); box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; background: #fc3f1d;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M13.63 21h2.05V3h-3.07c-3.2 0-4.88 1.62-4.88 4.02 0 1.93.89 3.14 2.72 4.38L7.39 17.4h2.2l3.33-6.54-1.15-.77c-1.47-1-2.19-1.88-2.19-3.24 0-1.56 1.06-2.55 2.83-2.55h1.22V21z" fill="#ffffff"></path></svg></span>
+          <span style="display: flex; flex-direction: column; gap: 2px;">
+            <span style="display: flex; align-items: center; gap: 6px;"><span class="h" style="font-size: 18px; line-height: 1;">5.0</span><span style="display: flex; gap: 1px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbc02d"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbc02d"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbc02d"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbc02d"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbc02d"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg></span></span>
+            <span style="font-size: 12px; color: #6e6e73;">280+ отзывов на Яндекс Картах</span>
+          </span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#86868b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg>
+        </span>
+        <span class="mono">rating badge · ссылка на Яндекс, hover → shadow.md</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 14px;">
+        <h2 class="h" style="margin: 0; font-size: 28px; letter-spacing: -0.8px;">Nav · Link · Toast</h2>
+        <span class="mono">navbar 56 · blur 20 · white 80%</span>
+      </div>
+      <div style="height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-radius: 12px; background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.04); box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+        <span class="h" style="font-size: 17px; letter-spacing: -0.4px; white-space: nowrap;">Деловой Парк</span>
+        <div style="display: flex; align-items: center; gap: 20px; font-size: 13px; font-weight: 500; white-space: nowrap;">
+          <span style="color: rgba(29,29,31,0.7);">О парке</span><span style="color: #1d1d1f; border-bottom: 1.5px solid #1d1d1f; padding-bottom: 2px;">Офисы</span><span style="color: rgba(29,29,31,0.7);">Кафе</span>
+        </div>
+        <span style="display: inline-flex; align-items: center; height: 40px; padding: 0 20px; border-radius: 999px; background: #0071e3; color: #ffffff; font-size: 13px; font-weight: 500; white-space: nowrap;">Оставить заявку</span>
+      </div>
+      <p class="mono" style="margin: 0;">над hero-видео: фон прозрачный, ссылки text.primary 70% на белом тумане; после 24px скролла — белый 80% + border.subtle</p>
+      <div style="display: flex; align-items: center; gap: 24px; font-size: 15px;">
+        <span style="color: #0071e3;">Все отзывы на Яндекс Картах →</span>
+        <span style="color: #0077ed; text-decoration: underline; text-underline-offset: 3px;">hover</span>
+        <span style="color: #1d1d1f; font-weight: 500;">inline-ссылка в тексте: <span style="color: #0071e3;">30 км от Москвы</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; width: 340px; padding: 14px 16px; border-radius: 14px; background: #1d1d1f; color: #ffffff; box-shadow: 0 12px 32px rgba(0,0,0,0.2);">
+        <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; background: #16a34a;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg></span>
+        <span style="font-size: 14px; font-weight: 500;">Заявка отправлена</span>
+        <span style="margin-left: auto; font-size: 13px; color: rgba(255,255,255,0.6);">Закрыть</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; padding: 24px; border-radius: 16px; background: #f5f5f7; border: 1px dashed rgba(0,0,0,0.12); align-items: center; text-align: center;">
+        <span style="display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 999px; background: #ffffff; color: #86868b;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg></span>
+        <p style="margin: 0; font-size: 14px; font-weight: 500;">Отзывы временно недоступны</p>
+        <p style="margin: 0; font-size: 13px; color: #6e6e73;">Их всегда можно посмотреть на Яндекс Картах</p>
+        <span style="color: #0071e3; font-size: 14px; font-weight: 500;">Открыть отзывы →</span>
+        <span class="mono">empty / error state секции отзывов</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
