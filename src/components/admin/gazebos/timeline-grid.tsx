@@ -344,7 +344,11 @@ export function GazeboTimelineGrid({
   }
 
   // Клик по свободной ячейке недели → дневной вид на этот день (US-5 AC-6).
+  // Открытая из недели карточка закрывается: иначе она «переезжает» в день
+  // с чужой датой (находка QA 2026-09-03).
   function handleWeekEmptyCellClick(day: string) {
+    setSelectedBooking(null);
+    setSelectedResourceOverride(null);
     setView("day");
     void loadTimeline(day);
   }

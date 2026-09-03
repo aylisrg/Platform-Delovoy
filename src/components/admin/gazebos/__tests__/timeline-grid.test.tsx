@@ -148,6 +148,20 @@ describe("GazeboTimelineGrid — недельный вид (issue #740)", () => 
     expect(screen.getByTestId("detail-card").textContent).toBe("CARD:b-1:Беседка у пруда");
   });
 
+  it("клик по свободной ячейке закрывает карточку, открытую из недели (находка QA)", async () => {
+    renderGrid();
+    fireEvent.click(screen.getByRole("button", { name: "Неделя" }));
+    const onBookingClick = weekProps.current?.onBookingClick as (b: unknown, r: unknown) => void;
+    const onEmptyCellClick = weekProps.current?.onEmptyCellClick as (d: string, r: string) => void;
+    act(() => onBookingClick({ ...BOOKING, date: "2030-06-19" }, { id: "r-1", name: "Беседка №1", pricePerHour: null }));
+    expect(screen.getByTestId("detail-card")).toBeTruthy();
+
+    act(() => onEmptyCellClick("2030-06-20", "r-2"));
+
+    expect(screen.queryByTestId("detail-card")).toBeNull();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/gazebos/timeline?date=2030-06-20"));
+  });
+
   it("клик по свободной ячейке недели переводит в дневной вид на этот день (AC-6)", async () => {
     renderGrid();
     fireEvent.click(screen.getByRole("button", { name: "Неделя" }));

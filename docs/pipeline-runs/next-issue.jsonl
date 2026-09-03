@@ -2,3 +2,4 @@
 {"ts":"2026-08-25T04:09:13.168Z","issue":753,"branch":"claude/issue-753-checkout-main-for-single-to-queue","outcome":"merged","ci_fix_rounds":0,"review_rounds":1,"duration_min":24}
 {"ts":"2026-08-25T05:02:50.751Z","issue":745,"branch":"claude/issue-745-block-native-automerge","outcome":"parked","ci_fix_rounds":1,"review_rounds":3,"duration_min":77}
 {"ts":"2026-09-03T16:29:25.362Z","issue":835,"branch":"claude/close-prs-resolve-issues-b0wv6m","outcome":"parked","ci_fix_rounds":0,"review_rounds":2,"duration_min":55}
+{"ts":"2026-09-03T17:33:53.493Z","issue":740,"branch":"claude/close-prs-resolve-issues-b0wv6m","outcome":"merged","ci_fix_rounds":0,"review_rounds":1,"duration_min":40}

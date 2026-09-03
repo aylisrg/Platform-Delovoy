@@ -85,5 +85,7 @@ describe("TimelineGrid (ps-park) — недельный вид (issue #740, AC-5
     act(() => onEmptyCellClick("2030-06-20", "t-1"));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/ps-park/timeline?date=2030-06-20"));
     expect(screen.queryByTestId("week-grid")).toBeNull();
+    // карточка, открытая из недели, закрыта — не «переезжает» в день с чужой датой (находка QA)
+    expect(screen.queryByTestId("detail-card")).toBeNull();
   });
 });
