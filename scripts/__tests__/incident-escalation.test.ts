@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_ESCALATION_OPTIONS,
+  PROBE_FLAP_MARKER,
   ROOT_CAUSE_LABEL,
+  isProbeFlap,
   recurringIncidents,
   rootCauseIssue,
   type ClosedIssueLite,
@@ -107,5 +109,61 @@ describe('rootCauseIssue', () => {
     expect(issue.title).toContain(String(DEFAULT_ESCALATION_OPTIONS.windowDays));
     expect(issue.body).toContain('- #1');
     expect(issue.body).toContain('- #3');
+  });
+});
+
+describe('флапы внешней пробы не эскалируются (issue #736)', () => {
+  const LEGACY_FLAP_BODY = `## Сайт был недоступен
+
+**Внешняя проверка:** attempt 3: /api/health=000000(n/a) /=200 (1.04s) chunk=200
+
+\`\`\`
+===== REMEDIATION =====
+T0: no leftover containers
+Public health OK — nothing to fix.
+WATCHDOG_RESULT=healthy
+\`\`\``;
+  const REAL_BODY = `T1: restarting app container
+WATCHDOG_RESULT=recovered`;
+
+  it('isProbeFlap: маркер watchdog или «nothing to fix» + healthy в отчёте', () => {
+    expect(isProbeFlap(`тело ${PROBE_FLAP_MARKER}`)).toBe(true);
+    expect(isProbeFlap(LEGACY_FLAP_BODY)).toBe(true);
+    expect(isProbeFlap(REAL_BODY)).toBe(false);
+    expect(isProbeFlap('WATCHDOG_RESULT=healthy')).toBe(false); // healthy без «nothing to fix» — не флап
+    expect(isProbeFlap(null)).toBe(false);
+    expect(isProbeFlap(undefined)).toBe(false);
+  });
+
+  it('три цикла site-down, все — флапы (#694/#711/#735): root-cause не заводится', () => {
+    const incidents = recurringIncidents(LABELS, [
+      { ...closed(694, 'site-down', '2026-08-09T10:00:00Z'), body: LEGACY_FLAP_BODY },
+      { ...closed(711, 'site-down', '2026-08-08T10:00:00Z'), body: `x ${PROBE_FLAP_MARKER}` },
+      { ...closed(735, 'site-down', '2026-08-07T10:00:00Z'), body: LEGACY_FLAP_BODY },
+    ], now);
+    expect(incidents).toEqual([]);
+  });
+
+  it('настоящие циклы считаются, флапы идут отдельным списком для контекста', () => {
+    const incidents = recurringIncidents(LABELS, [
+      { ...closed(1, 'site-down', '2026-08-09T10:00:00Z'), body: REAL_BODY },
+      { ...closed(2, 'site-down', '2026-08-08T10:00:00Z'), body: REAL_BODY },
+      { ...closed(3, 'site-down', '2026-08-07T10:00:00Z'), body: REAL_BODY },
+      { ...closed(4, 'site-down', '2026-08-06T10:00:00Z'), body: LEGACY_FLAP_BODY },
+    ], now);
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({ count: 3, issues: [1, 2, 3], flaps: [4] });
+    expect(rootCauseIssue(incidents[0]).body).toContain('флапы внешней пробы');
+    expect(rootCauseIssue(incidents[0]).body).toContain('#4');
+  });
+
+  it('issue без тела (старый формат ответа) — обычный цикл', () => {
+    const incidents = recurringIncidents(LABELS, [
+      closed(1, 'site-down', '2026-08-09T10:00:00Z'),
+      closed(2, 'site-down', '2026-08-08T10:00:00Z'),
+      closed(3, 'site-down', '2026-08-07T10:00:00Z'),
+    ], now);
+    expect(incidents[0]).toMatchObject({ count: 3, flaps: [] });
+    expect(rootCauseIssue(incidents[0]).body).not.toContain('флапы');
   });
 });

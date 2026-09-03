@@ -10,8 +10,16 @@ vi.mock("@/lib/db", () => ({
 
 const redisState = { available: true };
 const redisSetMock = vi.fn();
+const redisIncrMock = vi.fn();
+const redisExpireMock = vi.fn();
+const redisDelMock = vi.fn();
 vi.mock("@/lib/redis", () => ({
-  redis: { set: (...args: unknown[]) => redisSetMock(...args) },
+  redis: {
+    set: (...args: unknown[]) => redisSetMock(...args),
+    incr: (...args: unknown[]) => redisIncrMock(...args),
+    expire: (...args: unknown[]) => redisExpireMock(...args),
+    del: (...args: unknown[]) => redisDelMock(...args),
+  },
   get redisAvailable() {
     return redisState.available;
   },
@@ -23,6 +31,7 @@ vi.stubGlobal("fetch", mockFetch);
 import { prisma } from "@/lib/db";
 import {
   OWNER_DECISIONS_STALE_MINUTES,
+  TELEGRAM_TRANSPORT_FLAP_STREAK,
   notificationsHealth,
   shouldAlertOwnerDecisionsSilence,
 } from "../health";
@@ -49,6 +58,12 @@ beforeEach(() => {
 
   redisSetMock.mockReset();
   redisSetMock.mockResolvedValue("OK");
+  redisIncrMock.mockReset();
+  redisIncrMock.mockResolvedValue(1);
+  redisExpireMock.mockReset();
+  redisExpireMock.mockResolvedValue(1);
+  redisDelMock.mockReset();
+  redisDelMock.mockResolvedValue(1);
   redisState.available = true;
 
   vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
@@ -190,6 +205,110 @@ describe("notificationsHealth", () => {
     expect(result.checks.queue.pending).toBe(0);
     expect(result.checks.queue.failedLastHour).toBe(0);
     expect(result.checks.cron.lastRunAt).toBeNull();
+  });
+
+  describe("транспортные флапы Telegram-проб — повтор и гистерезис (issue #708)", () => {
+    /** fetch: URL с ключом из `flaky` падает транспортом первые `times` раз, дальше — как обычно. */
+    function setupFlakyFetch(flaky: Record<string, number>, responses: Record<string, object>) {
+      const left = { ...flaky };
+      mockFetch.mockImplementation(async (url: string) => {
+        for (const key of Object.keys(left)) {
+          if (String(url).includes(key) && left[key] > 0) {
+            left[key]--;
+            throw new TypeError("fetch failed");
+          }
+        }
+        for (const [key, body] of Object.entries(responses)) {
+          if (String(url).includes(key)) return { json: async () => body };
+        }
+        return { json: async () => ({ ok: false, description: "not found" }) };
+      });
+    }
+    const calls = (key: string) => mockFetch.mock.calls.filter(([u]) => String(u).includes(key)).length;
+
+    it("транспортный сбой → одна повторная попытка; успех со второго раза → ok:true, серия сброшена", async () => {
+      setupFlakyFetch({ getMe: 1 }, { getMe: getMeMock, getChat: getChatMock });
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(true);
+      expect(result.degraded).toBeUndefined();
+      expect(result.checks.botToken).toMatchObject({ ok: true, username: "DelovoyPark_bot" });
+      expect(calls("getMe")).toBe(2);
+      expect(redisIncrMock).not.toHaveBeenCalled();
+      expect(redisDelMock).toHaveBeenCalledOnce();
+    });
+
+    it("сбой и после повтора, серия 1 из 3 → ok:true с degraded, проба помечена transportError", async () => {
+      setupFlakyFetch({ getChat: 10 }, { getMe: getMeMock });
+      redisIncrMock.mockResolvedValue(1);
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(true);
+      expect(result.degraded).toMatchObject({ flapStreak: 1, failedProbes: ["adminChat", "ownerChat"] });
+      expect(result.degraded?.reason).toContain("серия 1 из 3");
+      expect(result.checks.adminChat).toMatchObject({ ok: false, transportError: true });
+      expect(result.checks.adminChat.reason).toMatch(/fetch failed/);
+      expect(redisIncrMock).toHaveBeenCalledWith("notifications:health:telegram-transport-flap-streak");
+      expect(redisExpireMock).toHaveBeenCalledWith("notifications:health:telegram-transport-flap-streak", 30 * 60);
+      expect(redisDelMock).not.toHaveBeenCalled();
+    });
+
+    it("серия дошла до порога → ok:false: настоящий обрыв остаётся инцидентом", async () => {
+      setupFlakyFetch({ getMe: 10 }, { getChat: getChatMock });
+      redisIncrMock.mockResolvedValue(TELEGRAM_TRANSPORT_FLAP_STREAK);
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(false);
+      expect(result.degraded).toBeUndefined();
+      expect(result.checks.botToken.ok).toBe(false);
+    });
+
+    it("ошибка API (Unauthorized) — не транспорт: без повтора и без гистерезиса, ok:false сразу", async () => {
+      setupFetch({ getMe: { ok: false, description: "Unauthorized" }, getChat: getChatMock });
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(false);
+      expect(result.checks.botToken.transportError).toBeFalsy();
+      expect(calls("getMe")).toBe(1);
+      expect(redisIncrMock).not.toHaveBeenCalled();
+    });
+
+    it("смешанный отказ (транспорт + «chat not found») — серия не считается, ok:false", async () => {
+      setupFlakyFetch({ getMe: 10 }, { getChat: { ok: false, description: "chat not found" } });
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(false);
+      expect(redisIncrMock).not.toHaveBeenCalled();
+    });
+
+    it("Redis недоступен → гистерезиса нет, поведение прежнее (ok:false)", async () => {
+      redisState.available = false;
+      setupFlakyFetch({ getMe: 10 }, { getChat: getChatMock });
+
+      const result = await notificationsHealth();
+
+      expect(result.ok).toBe(false);
+      expect(redisIncrMock).not.toHaveBeenCalled();
+    });
+
+    it("Redis упал на INCR → ok:false, ошибка не пробрасывается", async () => {
+      redisIncrMock.mockRejectedValue(new Error("ECONNRESET"));
+      setupFlakyFetch({ getMe: 10 }, { getChat: getChatMock });
+
+      await expect(notificationsHealth()).resolves.toMatchObject({ ok: false });
+    });
+
+    it("здоровые пробы при упавшем DEL — ok:true, ошибка Redis проглочена", async () => {
+      redisDelMock.mockRejectedValue(new Error("ECONNRESET"));
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+
+      await expect(notificationsHealth()).resolves.toMatchObject({ ok: true });
+    });
   });
 
   describe("owner-decisions heartbeat (ADR 2026-08-24)", () => {

@@ -372,6 +372,15 @@ jobs:
           printf '%s\n' "$REPORT" > /tmp/report.txt
           RESULT=$(grep -o 'WATCHDOG_RESULT=[a-z]*' /tmp/report.txt | tail -1 | cut -d= -f2 || true)
           echo "WATCHDOG_RESULT=${RESULT:-unknown}" >> "$GITHUB_ENV"
+          # Флап внешней пробы (issue #736): с VPS сайт отвечал, ремедиация
+          # ничего не делала — до сервера не достучался только GitHub-раннер.
+          # Инцидент и алерт остаются, но формулировка честная, а в теле —
+          # маркер, по которому escalate-incidents.ts такой цикл не считает.
+          if [ "${RESULT:-}" = "healthy" ] && grep -q 'nothing to fix' /tmp/report.txt; then
+            echo "PROBE_FLAP=true" >> "$GITHUB_ENV"
+          else
+            echo "PROBE_FLAP=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Telegram alert
         continue-on-error: true
@@ -391,6 +400,8 @@ jobs:
 
           if [ "$MODE" = "force-remediate" ]; then
             HEADER="🧪 <b>Site Watchdog: учебная тревога (drill)</b>"
+          elif [ "$PROBE_FLAP" = "true" ]; then
+            HEADER="⚠️ <b>Site Watchdog: внешняя проба не достучалась, но с VPS сайт здоров</b> — флап пути GitHub-раннер → VPS, ремедиация не понадобилась"
           elif [ "$RECOVERED" = "true" ]; then
             HEADER="🛠 <b>Site Watchdog: сайт упал и был АВТОМАТИЧЕСКИ восстановлен</b>"
           else
@@ -436,7 +447,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           REPORT=$(head -c 55000 /tmp/report.txt)
-          if [ "$RECOVERED" = "true" ]; then
+          if [ "$PROBE_FLAP" = "true" ]; then
+            OUTCOME="ℹ️ С VPS сайт отвечал, ремедиация ничего не меняла (\`${WATCHDOG_RESULT}\`) — до сервера не достучалась только внешняя проба GitHub-раннера (флап пути, см. docs/incidents/2026-09-03-site-down-probe-flaps.md). В эскалацию root-cause такой цикл не считается."
+          elif [ "$RECOVERED" = "true" ]; then
             OUTCOME="✅ Авто-восстановление сработало (\`${WATCHDOG_RESULT}\`)."
           else
             OUTCOME="🚨 Авто-восстановление НЕ помогло (\`${WATCHDOG_RESULT}\`) — нужно ручное вмешательство (например, \`timeweb-manage.yml → server-reboot\`)."
@@ -449,6 +462,10 @@ jobs:
           BODY+="<details><summary>Диагностика и ремедиация</summary>"$'\n\n'
           BODY+='```'$'\n'"${REPORT}"$'\n''```'$'\n\n'"</details>"$'\n\n'
           BODY+="> Создан автоматически Site Watchdog."
+          if [ "$PROBE_FLAP" = "true" ]; then
+            # Маркер читает scripts/lib/incident-escalation.ts (PROBE_FLAP_MARKER).
+            BODY+=$'\n\n'"<!-- watchdog:probe-flap -->"
+          fi
 
           # Тот же паттерн, что у notifications-down выше: root-cause issue
           # несёт лейбл site-down для дедупа эскалации, но не является живым

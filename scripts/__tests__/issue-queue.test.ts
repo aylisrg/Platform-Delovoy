@@ -26,6 +26,7 @@ import {
   isUntriaged,
   releasePrGate,
   laneOf,
+  latestCheckRunsByName,
   missedAutoCloseIssues,
   orderQueue,
   pickNext,
@@ -1001,39 +1002,64 @@ describe('dependabotHealAction', () => {
   const asked = (sha: string, createdAt: string) => ({ body: dependabotRecreateMarker(sha), createdAt });
 
   it('зелёный или идущий CI — лечить нечего', () => {
-    expect(dependabotHealAction({ ci: 'green', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
-    expect(dependabotHealAction({ ci: 'pending', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'green', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'pending', headSha: SHA, comments: [], now: NOW }).action).toBe('none');
   });
 
   it('первый красный CI — просим пересобрать ветку от свежего main', () => {
-    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments: [], now: NOW }).action).toBe('recreate');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments: [], now: NOW }).action).toBe('recreate');
   });
 
   it('просьба отправлена, head тот же — ждём, второй просьбы не шлём', () => {
     const comments = [asked(SHA, '2026-08-20T11:30:00Z')];
-    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
   });
 
   it('ветка пересобрана (head сменился) и всё равно красная — задача в очередь', () => {
     const comments = [asked('oldsha1', '2026-08-20T11:30:00Z')];
-    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('to-queue');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('to-queue');
   });
 
   it('пересборки нет дольше порога — dependabot не ответил, тоже в очередь, а не вечное ожидание', () => {
     const comments = [asked(SHA, '2026-08-20T08:00:00Z')];
-    const res = dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW });
+    const res = dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW });
     expect(res.action).toBe('to-queue');
     expect(res.reason).toContain('не ответил');
   });
 
   it('уже отдан в очередь — больше ничего не делаем', () => {
     const comments = [asked('oldsha1', '2026-08-20T11:00:00Z'), { body: DEPENDABOT_ESCALATED_MARKER, createdAt: '2026-08-20T11:05:00Z' }];
-    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('none');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('none');
   });
 
   it('решает свежая просьба, а не первая: после пересборки красный head ждёт нового цикла', () => {
     const comments = [asked('oldsha1', '2026-08-19T09:00:00Z'), asked(SHA, '2026-08-20T11:50:00Z')];
-    expect(dependabotHealAction({ ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
+  });
+
+  it('без PAT просьбу не шлём: команды от GITHUB_TOKEN dependabot отвергает — сразу задача воркеру (#730)', () => {
+    const res = dependabotHealAction({ canCommandDependabot: false, ci: 'red', headSha: SHA, comments: [], now: NOW });
+    expect(res.action).toBe('to-queue');
+    expect(res.reason).toContain('PAT');
+  });
+
+  it('dependabot ответил «only users with push access» на просьбу — не ждём 3 часа, задача сразу (PR #802)', () => {
+    const comments = [
+      asked(SHA, '2026-08-20T11:50:00Z'),
+      { body: 'Sorry, only users with push access can use that command.', createdAt: '2026-08-20T11:50:02Z' },
+    ];
+    const res = dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW });
+    expect(res.action).toBe('to-queue');
+    expect(res.reason).toContain('отверг');
+  });
+
+  it('отказ бота, оставшийся от СТАРОЙ просьбы (до текущей), не считается: свежую просьбу ждём', () => {
+    const comments = [
+      asked('oldsha1', '2026-08-19T09:00:00Z'),
+      { body: 'Sorry, only users with push access can use that command.', createdAt: '2026-08-19T09:00:02Z' },
+      asked(SHA, '2026-08-20T11:50:00Z'),
+    ];
+    expect(dependabotHealAction({ canCommandDependabot: true, ci: 'red', headSha: SHA, comments, now: NOW }).action).toBe('wait');
   });
 });
 
@@ -1067,5 +1093,61 @@ describe('graceElapsed', () => {
 
   it('окно прошло — можно мержить', () => {
     expect(graceElapsed('2026-08-20T11:44:00Z', NOW, 15)).toBe(true);
+  });
+});
+
+describe('summarizeChecks — один чек-ран на имя, самый свежий (issue #835)', () => {
+  const run = (name: string, status: string, conclusion: string | null, extra: Partial<CheckRun> = {}): CheckRun => ({
+    name,
+    status,
+    conclusion,
+    ...extra,
+  });
+  const GATE = 'Merge Gate — verdicts & hold rules';
+
+  it('cancelled-прогон гейта, перекрытый более свежим success с тем же именем — CI зелёный', () => {
+    // Ровно сценарий #832: два вердикта подряд → concurrency отменяет первый
+    // прогон merge-gate-check, отменённый чек-ран остаётся на head навсегда.
+    const s = summarizeChecks([
+      run(GATE, 'completed', 'cancelled', { id: 100, started_at: '2026-09-03T05:00:00Z' }),
+      run(GATE, 'completed', 'success', { id: 101, started_at: '2026-09-03T05:01:00Z' }),
+      run('Test', 'completed', 'success', { id: 90, started_at: '2026-09-03T04:59:00Z' }),
+    ]);
+    expect(s.green).toBe(true);
+    expect(s.failed).toEqual([]);
+  });
+
+  it('свежий cancelled после старого success — по-прежнему красный: побеждает свежесть, а не «лучший» исход', () => {
+    const s = summarizeChecks([
+      run(GATE, 'completed', 'success', { id: 100, started_at: '2026-09-03T05:00:00Z' }),
+      run(GATE, 'completed', 'cancelled', { id: 101, started_at: '2026-09-03T05:01:00Z' }),
+    ]);
+    expect(s.green).toBe(false);
+    expect(s.failed.map((r) => r.id)).toEqual([101]);
+  });
+
+  it('cancelled + более свежий in_progress того же имени — ждём, а не считаем провалом', () => {
+    const s = summarizeChecks([
+      run(GATE, 'completed', 'cancelled', { id: 100, started_at: '2026-09-03T05:00:00Z' }),
+      run(GATE, 'in_progress', null, { id: 101, started_at: '2026-09-03T05:01:00Z' }),
+    ]);
+    expect(s.done).toBe(false);
+    expect(s.failed).toEqual([]);
+    expect(s.pending.map((r) => r.id)).toEqual([101]);
+  });
+
+  it('без started_at свежесть решает id; без id — последний в списке', () => {
+    expect(latestCheckRunsByName([run('X', 'completed', 'cancelled', { id: 5 }), run('X', 'completed', 'success', { id: 9 })])[0].conclusion).toBe('success');
+    expect(latestCheckRunsByName([run('X', 'completed', 'success', { id: 9 }), run('X', 'completed', 'cancelled', { id: 5 })])[0].conclusion).toBe('success');
+    expect(latestCheckRunsByName([run('X', 'completed', 'cancelled'), run('X', 'completed', 'success')])[0].conclusion).toBe('success');
+  });
+
+  it('разные имена не склеиваются: провал одного джоба не прячется за успехом другого', () => {
+    const s = summarizeChecks([
+      run('Test', 'completed', 'failure', { id: 1, started_at: '2026-09-03T05:00:00Z' }),
+      run('Lint', 'completed', 'success', { id: 2, started_at: '2026-09-03T05:01:00Z' }),
+    ]);
+    expect(s.green).toBe(false);
+    expect(s.failed.map((r) => r.name)).toEqual(['Test']);
   });
 });

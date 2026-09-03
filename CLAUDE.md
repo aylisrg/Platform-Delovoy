@@ -194,7 +194,10 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
   недельные dependabot-группы minor+patch; одиночные PR (majors и prerelease-бампы
   вне группы) конвертируются в задачи очереди (`dependabot-automerge.yml`), а
   красный dependabot-PR свипер сначала лечит `@dependabot recreate` (протухший
-  lock после чужого мержа) и только потом отдаёт задачей.
+  lock после чужого мержа) и только потом отдаёт задачей. Команду принимает
+  только PAT (`HAS_PAT=yes`): от `GITHUB_TOKEN` бот отвечает «only users with
+  push access», поэтому без PAT свипер не ждёт пересборку, а сразу заводит
+  задачу — воркер пересобирает `package-lock.json` в ветке PR сам.
 - **Решения владельца** — контур owner-decisions: свипер reconcile'ом заводит
   запрос на сайте (`OWNER_DECISIONS_SECRET`), сайт шлёт владельцу личное
   Telegram-сообщение с кнопками «Мержить/Отклонить/Позже», бот записывает ответ

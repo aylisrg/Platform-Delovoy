@@ -23,6 +23,7 @@ interface RawIssue {
   number: number;
   labels: { name: string }[];
   closed_at: string | null;
+  body?: string | null;
   pull_request?: unknown;
 }
 
@@ -42,7 +43,7 @@ function main(): void {
     closed.push(
       ...batch
         .filter((i) => !i.pull_request)
-        .map((i) => ({ number: i.number, labels: i.labels.map((l) => l.name), closedAt: i.closed_at })),
+        .map((i) => ({ number: i.number, labels: i.labels.map((l) => l.name), closedAt: i.closed_at, body: i.body })),
     );
   }
 

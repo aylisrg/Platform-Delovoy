@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const logErrorMock = vi.fn();
+const logWarnMock = vi.fn();
 vi.mock("@/lib/logger", () => ({
-  log: { error: (...args: unknown[]) => logErrorMock(...args) },
+  log: {
+    error: (...args: unknown[]) => logErrorMock(...args),
+    warn: (...args: unknown[]) => logWarnMock(...args),
+  },
 }));
 
 const redisState = { available: true };
@@ -27,6 +31,7 @@ function snapshotListeners(event: string) {
 beforeEach(() => {
   delete (globalThis as GuardGlobal).__delovoyProcessGuards;
   logErrorMock.mockReset();
+  logWarnMock.mockReset();
   redisSetMock.mockReset();
   redisSetMock.mockResolvedValue("OK");
   redisState.available = true;
@@ -158,6 +163,55 @@ describe("instrumentation.onRequestError", () => {
     // Раньше оба схлопывались в общий "no-digest" и второй вызов терялся из-за
     // троттлинга по общему ключу — теперь оба должны залогироваться отдельно.
     expect(logErrorMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe("мусорные запросы фреймворка — WARNING, а не ERROR (issue #717)", () => {
+    const publicPage = { ...context, routePath: "/(public)/avtostoyanka/page", routeType: "render" };
+
+    it.each([
+      "The router state header was sent but could not be parsed.",
+      "Invariant: Expected RSC response, got text/plain. This is a bug in Next.js.",
+      'Failed to find Server Action "x". This request might be from an older or newer deployment.',
+    ])("%s → log.warn с classification=client-induced", async (message) => {
+      vi.stubEnv("NEXT_RUNTIME", "nodejs");
+      const err = new Error(message);
+      (err as { digest?: string }).digest = "d42ace09c991";
+
+      await onRequestError(err, { ...request, path: "/avtostoyanka" }, publicPage);
+
+      expect(logErrorMock).not.toHaveBeenCalled();
+      expect(logWarnMock).toHaveBeenCalledOnce();
+      const [source, loggedMessage, metadata] = logWarnMock.mock.calls[0];
+      expect(source).toBe("server-error");
+      expect(loggedMessage).toBe(message);
+      expect(metadata).toMatchObject({
+        digest: "d42ace09c991",
+        route: "/(public)/avtostoyanka/page",
+        statusCode: 500,
+        classification: "client-induced",
+      });
+    });
+
+    it("неизвестная ошибка рендера остаётся ERROR без classification", async () => {
+      vi.stubEnv("NEXT_RUNTIME", "nodejs");
+      await onRequestError(new Error("Cannot read properties of null (reading 'id')"), request, publicPage);
+
+      expect(logWarnMock).not.toHaveBeenCalled();
+      expect(logErrorMock).toHaveBeenCalledOnce();
+      expect(logErrorMock.mock.calls[0][2]).not.toHaveProperty("classification");
+    });
+
+    it("троттлинг по digest работает и для WARNING-класса", async () => {
+      vi.stubEnv("NEXT_RUNTIME", "nodejs");
+      redisSetMock.mockResolvedValueOnce("OK").mockResolvedValueOnce(null);
+      const err = new Error("The router state header was sent but could not be parsed.");
+      (err as { digest?: string }).digest = "same";
+
+      await onRequestError(err, request, publicPage);
+      await onRequestError(err, request, publicPage);
+
+      expect(logWarnMock).toHaveBeenCalledOnce();
+    });
   });
 
   it("не-Error значение (например, throw строки) — тоже обрабатывается", async () => {
