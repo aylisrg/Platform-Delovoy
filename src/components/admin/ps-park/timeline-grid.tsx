@@ -3,9 +3,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { PrintDaySheet } from "@/components/admin/shared/print-day-sheet";
+import { WeekScheduleGrid } from "@/components/admin/shared/week-schedule-grid";
+import { ScheduleViewToggle, type ScheduleView } from "@/components/admin/shared/schedule-view-toggle";
 import { QuickBookingPopover } from "./quick-booking-popover";
 import { BookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/ps-park/types";
+import type { WeekTimelineBooking, WeekTimelineResource } from "@/modules/booking/week-timeline";
 import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
 
@@ -21,6 +24,9 @@ type PopoverState = {
   pricePerHour: number | null;
   maxEndTime: string;
 } | null;
+
+/** Имя/цена ресурса для карточки, открытой из недельного вида (ресурс может не быть в дневных данных). */
+type ResourceOverride = { name: string; pricePerHour: number | null } | null;
 
 // Дефолт на случай пустого grid — реальные границы берутся из data.hours
 // (уже посчитаны бэкендом из настроек модуля, #434).
@@ -49,8 +55,12 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
   const [loading, setLoading] = useState(false);
   const [popover, setPopover] = useState<PopoverState>(null);
   const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(null);
+  const [selectedResourceOverride, setSelectedResourceOverride] = useState<ResourceOverride>(null);
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
   const [showPrint, setShowPrint] = useState(false);
+  // Вид «День / Неделя» — локальное состояние, без ?view= в URL (US-5, ADR §3).
+  const [view, setView] = useState<ScheduleView>("day");
+  const [weekRefreshKey, setWeekRefreshKey] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const hours = data.hours;
@@ -157,13 +167,30 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
 
   function handleBookingClick(booking: TimelineBooking, e: React.MouseEvent) {
     e.stopPropagation();
+    setSelectedResourceOverride(null);
     setSelectedBooking(selectedBooking?.id === booking.id ? null : booking);
     setPopover(null);
   }
 
+  // Недельный вид: та же карточка брони (US-5 AC-3) — WeekTimelineBooking
+  // структурно расширяет TimelineBooking (плюс `date`), адаптер не нужен.
+  function handleWeekBookingClick(booking: WeekTimelineBooking, resource: WeekTimelineResource) {
+    setSelectedResourceOverride({ name: resource.name, pricePerHour: resource.pricePerHour });
+    setSelectedBooking(selectedBooking?.id === booking.id ? null : booking);
+    setPopover(null);
+  }
+
+  // Клик по свободной ячейке недели → дневной вид на этот день (US-5 AC-6).
+  function handleWeekEmptyCellClick(day: string) {
+    setView("day");
+    void loadTimeline(day);
+  }
+
   function handleBookingStatusChanged() {
     setSelectedBooking(null);
+    setSelectedResourceOverride(null);
     loadTimeline(date);
+    setWeekRefreshKey((k) => k + 1);
   }
 
   function getResourceName(resourceId: string): string {
@@ -187,24 +214,46 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <DateNavigator currentDate={date} onChange={loadTimeline} />
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        {view === "day" ? (
+          <DateNavigator currentDate={date} onChange={loadTimeline} />
+        ) : (
+          <span className="text-sm text-zinc-500">Неделя · клик по свободной ячейке откроет день</span>
+        )}
         <div className="flex items-center gap-3">
-          {loading && (
+          {view === "day" && loading && (
             <span className="text-xs text-zinc-400 animate-pulse">
               Загрузка...
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowPrint(true)}
-            className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
-          >
-            Печать
-          </button>
+          {view === "day" && (
+            <button
+              type="button"
+              onClick={() => setShowPrint(true)}
+              className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
+            >
+              Печать
+            </button>
+          )}
+          <ScheduleViewToggle view={view} onChange={setView} />
         </div>
       </div>
 
+      {view === "week" && (
+        <WeekScheduleGrid
+          moduleSlug="ps-park"
+          resourceLabel="Стол"
+          unitLabel="игр."
+          countMetaKey="playerCount"
+          initialDate={date}
+          selectedBookingId={selectedBooking?.id ?? null}
+          refreshKey={weekRefreshKey}
+          onBookingClick={handleWeekBookingClick}
+          onEmptyCellClick={handleWeekEmptyCellClick}
+        />
+      )}
+
+      {view === "day" && (
       <div className="rounded-xl border border-zinc-200 overflow-hidden" ref={gridRef}>
         {/* Header row: hours */}
         <div className="flex border-b border-zinc-200 bg-zinc-50">
@@ -326,13 +375,16 @@ export function TimelineGrid({ initialData, initialDate }: TimelineGridProps) {
           </div>
         )}
       </div>
+      )}
 
       {/* Booking detail card */}
       {selectedBooking && (
         <BookingDetailCard
           booking={selectedBooking}
-          resourceName={getResourceName(selectedBooking.resourceId)}
-          pricePerHour={getResourcePrice(selectedBooking.resourceId)}
+          resourceName={selectedResourceOverride?.name ?? getResourceName(selectedBooking.resourceId)}
+          pricePerHour={
+            selectedResourceOverride ? selectedResourceOverride.pricePerHour : getResourcePrice(selectedBooking.resourceId)
+          }
           isActiveNow={isActiveNow(selectedBooking)}
           onClose={() => setSelectedBooking(null)}
           onStatusChanged={handleBookingStatusChanged}

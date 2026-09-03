@@ -1,14 +1,39 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { DateNavigator } from "@/components/admin/shared/date-navigator";
 import { PrintDaySheet } from "@/components/admin/shared/print-day-sheet";
+import { WeekScheduleGrid } from "@/components/admin/shared/week-schedule-grid";
+import { ScheduleViewToggle, type ScheduleView } from "@/components/admin/shared/schedule-view-toggle";
 import { GazeboQuickBookingPopover } from "./quick-booking-popover";
 import { GazeboBookingDetailCard } from "./booking-detail-card";
 import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
+import type { WeekTimelineBooking, WeekTimelineResource } from "@/modules/booking/week-timeline";
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
-import { getMoscowHour as getMoscowHourUnified, toISODate } from "@/lib/format";
+import { getMoscowHour as getMoscowHourUnified, parseMoscowDateTime, toISODate } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
+import {
+  bookingHourRange,
+  clampToWorkingHours,
+  planDrop,
+  pxDeltaToHours,
+  resizeBookingEnd,
+  shiftBooking,
+  snapHours,
+  type DropPlan,
+  type HourRange,
+} from "@/lib/timeline-drag";
 
 type TimelineGridProps = {
   initialData: TimelineData;
@@ -24,6 +49,20 @@ type PopoverState = {
   pricePerHour: number | null;
   pricing: ResourcePricing | null;
   maxEndTime: string;
+} | null;
+
+/** Имя/цена ресурса для карточки, открытой из недельного вида (ресурс может не быть в дневных данных). */
+type ResourceOverride = { name: string; pricePerHour: number | null } | null;
+
+/**
+ * Активный drag (US-6, ADR 2026-08-23 §5.2): ширина дорожки измеряется один раз
+ * на старте, время считается от сдвига блока (`delta.x`), а не от курсора.
+ */
+type DragState = {
+  kind: "move" | "resize";
+  bookingId: string;
+  trackWidthPx: number;
+  blockWidthPx: number;
 } | null;
 
 // Дефолт на случай пустого grid — реальные границы берутся из data.hours
@@ -47,6 +86,110 @@ function parseMoscowDatetime(date: string, hour: number): Date {
   return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
 }
 
+function parseDragId(id: string | number): { kind: "move" | "resize"; bookingId: string } | null {
+  const s = String(id);
+  if (s.startsWith("move:")) return { kind: "move", bookingId: s.slice(5) };
+  if (s.startsWith("resize:")) return { kind: "resize", bookingId: s.slice(7) };
+  return null;
+}
+
+/**
+ * Дорожка ресурса — droppable-зона переноса (`res:<id>`): 5 зон вместо 75
+ * часовых ячеек, ресурс приходит из `over.id`, вертикаль руками не считается.
+ */
+function ResourceTrack({
+  resourceId,
+  registerTrack,
+  children,
+}: {
+  resourceId: string;
+  registerTrack: (resourceId: string, el: HTMLDivElement | null) => void;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `res:${resourceId}` });
+  return (
+    <div className="flex-1 relative overflow-x-auto">
+      <div
+        ref={(el) => {
+          setNodeRef(el);
+          registerTrack(resourceId, el);
+        }}
+        data-testid={`track-${resourceId}`}
+        className={`relative min-w-[900px] h-16 transition-colors ${isOver ? "bg-blue-50/50" : ""}`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Блок брони: перенос — сам блок (`move:<id>`), растяжение — ручка на правом
+ * крае (`resize:<id>`, свой draggable, pointerdown не всплывает к переносу).
+ * Клик без движения по-прежнему открывает карточку: PointerSensor активирует
+ * drag только после 8 px.
+ */
+function BookingBlock({
+  booking,
+  style,
+  className,
+  title,
+  disabled,
+  dragging,
+  onClick,
+  children,
+}: {
+  booking: TimelineBooking;
+  style: React.CSSProperties;
+  className: string;
+  title: string;
+  disabled: boolean;
+  dragging: boolean;
+  onClick: (e: React.MouseEvent) => void;
+  children: ReactNode;
+}) {
+  const {
+    setNodeRef: setMoveNodeRef,
+    listeners: moveListeners,
+    attributes: moveAttributes,
+  } = useDraggable({ id: `move:${booking.id}`, disabled });
+  const {
+    setNodeRef: setResizeNodeRef,
+    listeners: resizeAllListeners,
+    attributes: resizeAttributes,
+  } = useDraggable({ id: `resize:${booking.id}`, disabled });
+  const { onPointerDown: resizePointerDown, ...resizeListeners } = resizeAllListeners ?? {};
+
+  return (
+    <div
+      ref={setMoveNodeRef}
+      {...moveListeners}
+      {...moveAttributes}
+      data-testid={`booking-${booking.id}`}
+      className={`${className} ${dragging ? "opacity-40" : ""} ${disabled ? "cursor-progress" : ""}`}
+      style={style}
+      title={title}
+      onClick={onClick}
+    >
+      {children}
+      <div
+        ref={setResizeNodeRef}
+        {...resizeListeners}
+        {...resizeAttributes}
+        role="separator"
+        aria-label="Изменить время окончания"
+        data-testid={`resize-${booking.id}`}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          (resizePointerDown as ((ev: React.PointerEvent) => void) | undefined)?.(e);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-0 bottom-0 right-0 w-2 cursor-ew-resize hover:bg-zinc-900/10"
+      />
+    </div>
+  );
+}
+
 export function GazeboTimelineGrid({
   initialData,
   initialDate,
@@ -59,9 +202,20 @@ export function GazeboTimelineGrid({
   const [selectedBooking, setSelectedBooking] = useState<TimelineBooking | null>(
     () => initialData.bookings.find((b) => b.id === initialBookingId) ?? null
   );
+  const [selectedResourceOverride, setSelectedResourceOverride] = useState<ResourceOverride>(null);
   const [currentHourOffset, setCurrentHourOffset] = useState<number | null>(null);
   const [showPrint, setShowPrint] = useState(false);
+  // Вид «День / Неделя» — локальное состояние, без ?view= в URL (US-5, ADR §3).
+  const [view, setView] = useState<ScheduleView>("day");
+  const [weekRefreshKey, setWeekRefreshKey] = useState(0);
+  // Drag-and-drop (US-6): активный drag, бронь с in-flight PATCH, текст ошибки.
+  const [drag, setDrag] = useState<DragState>(null);
+  const [inflightId, setInflightId] = useState<string | null>(null);
+  const [dragError, setDragError] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const trackRefs = useRef(new Map<string, HTMLDivElement>());
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const hours = data.hours;
   // Границы сетки — из data.hours (посчитаны бэкендом из Module.config), а не
@@ -107,6 +261,11 @@ export function GazeboTimelineGrid({
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const registerTrack = useCallback((resourceId: string, el: HTMLDivElement | null) => {
+    if (el) trackRefs.current.set(resourceId, el);
+    else trackRefs.current.delete(resourceId);
   }, []);
 
   function getBookingsForResource(resourceId: string): TimelineBooking[] {
@@ -171,13 +330,30 @@ export function GazeboTimelineGrid({
 
   function handleBookingClick(booking: TimelineBooking, e: React.MouseEvent) {
     e.stopPropagation();
+    setSelectedResourceOverride(null);
     setSelectedBooking(selectedBooking?.id === booking.id ? null : booking);
     setPopover(null);
   }
 
+  // Недельный вид: та же карточка брони (US-5 AC-3) — WeekTimelineBooking
+  // структурно расширяет TimelineBooking (плюс `date`), адаптер не нужен.
+  function handleWeekBookingClick(booking: WeekTimelineBooking, resource: WeekTimelineResource) {
+    setSelectedResourceOverride({ name: resource.name, pricePerHour: resource.pricePerHour });
+    setSelectedBooking(selectedBooking?.id === booking.id ? null : booking);
+    setPopover(null);
+  }
+
+  // Клик по свободной ячейке недели → дневной вид на этот день (US-5 AC-6).
+  function handleWeekEmptyCellClick(day: string) {
+    setView("day");
+    void loadTimeline(day);
+  }
+
   function handleBookingStatusChanged() {
     setSelectedBooking(null);
+    setSelectedResourceOverride(null);
     loadTimeline(date);
+    setWeekRefreshKey((k) => k + 1);
   }
 
   function getResourceName(resourceId: string): string {
@@ -198,26 +374,154 @@ export function GazeboTimelineGrid({
     );
   }
 
+  // ── Drag-and-drop (US-6) ──────────────────────────────────────────────────
+
+  function handleDragStart(e: DragStartEvent) {
+    const parsed = parseDragId(e.active.id);
+    if (!parsed) return;
+    const booking = data.bookings.find((b) => b.id === parsed.bookingId);
+    if (!booking) return;
+    const trackWidthPx = trackRefs.current.get(booking.resourceId)?.getBoundingClientRect().width ?? 0;
+    const widthPercent = parseFloat(getBookingStyle(booking).width);
+    setDragError(null);
+    setDrag({
+      kind: parsed.kind,
+      bookingId: booking.id,
+      trackWidthPx,
+      blockWidthPx: (trackWidthPx * widthPercent) / 100,
+    });
+  }
+
+  function handleDragCancel() {
+    setDrag(null);
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    const current = drag;
+    setDrag(null);
+    const parsed = parseDragId(e.active.id);
+    if (!parsed) return;
+    const booking = data.bookings.find((b) => b.id === parsed.bookingId);
+    if (!booking) return;
+
+    const trackWidthPx = current?.trackWidthPx || trackRefs.current.get(booking.resourceId)?.getBoundingClientRect().width || 0;
+    const deltaHours = snapHours(pxDeltaToHours(e.delta.x, trackWidthPx, openHour, closeHour));
+    const original = bookingHourRange(booking.startTime, booking.endTime);
+
+    let targetResourceId = booking.resourceId;
+    let next: HourRange;
+    if (parsed.kind === "move") {
+      const overId = e.over ? String(e.over.id) : "";
+      if (overId.startsWith("res:")) targetResourceId = overId.slice(4);
+      next = clampToWorkingHours(shiftBooking(original, deltaHours), openHour, closeHour);
+    } else {
+      next = resizeBookingEnd(original, deltaHours);
+      if (next.endHour > closeHour) next = { ...next, endHour: closeHour };
+    }
+
+    // Микро-сдвиг после snap и тот же ресурс — запрос не уходит (ADR §5.3 п.5).
+    const plan = planDrop({ original, next, originalResourceId: booking.resourceId, targetResourceId, date });
+    if (!plan) return;
+    void applyDrop(booking, plan);
+  }
+
+  /**
+   * Тот же PATCH, что шлёт форма редактирования (без `status` → rescheduleBooking:
+   * advisory-lock, конфликт-чек, AuditLog, Google Calendar, уведомление гостю —
+   * всё на сервере). Оптимистичное обновление с откатом и текстом ошибки сервера.
+   */
+  async function applyDrop(booking: TimelineBooking, plan: DropPlan) {
+    const snapshot = data;
+    setInflightId(booking.id);
+    setData((prev) => ({
+      ...prev,
+      bookings: prev.bookings.map((b) =>
+        b.id === booking.id
+          ? {
+              ...b,
+              resourceId: plan.resourceId,
+              startTime: parseMoscowDateTime(plan.date, plan.startTime).toISOString(),
+              endTime: parseMoscowDateTime(plan.date, plan.endTime).toISOString(),
+            }
+          : b
+      ),
+    }));
+    try {
+      const res = await fetch(`/api/gazebos/bookings/${booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(plan),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await loadTimeline(date);
+      } else {
+        setData(snapshot);
+        setDragError(json.error?.message ?? "Не удалось перенести бронь");
+      }
+    } catch {
+      setData(snapshot);
+      setDragError("Не удалось перенести бронь — нет связи с сервером");
+    } finally {
+      setInflightId(null);
+    }
+  }
+
+  const draggedBooking = drag && drag.kind === "move" ? data.bookings.find((b) => b.id === drag.bookingId) ?? null : null;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <DateNavigator currentDate={date} onChange={loadTimeline} />
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        {view === "day" ? (
+          <DateNavigator currentDate={date} onChange={loadTimeline} />
+        ) : (
+          <span className="text-sm text-zinc-500">Неделя · клик по свободной ячейке откроет день</span>
+        )}
         <div className="flex items-center gap-3">
-          {loading && (
+          {view === "day" && dragError && (
+            <span role="alert" className="text-xs text-red-600 max-w-[320px] truncate" title={dragError}>
+              {dragError}
+            </span>
+          )}
+          {view === "day" && loading && (
             <span className="text-xs text-zinc-400 animate-pulse">
               Загрузка...
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowPrint(true)}
-            className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
-          >
-            Печать
-          </button>
+          {view === "day" && (
+            <button
+              type="button"
+              onClick={() => setShowPrint(true)}
+              className="text-xs text-zinc-500 hover:text-zinc-700 font-medium transition-colors"
+            >
+              Печать
+            </button>
+          )}
+          <ScheduleViewToggle view={view} onChange={setView} />
         </div>
       </div>
 
+      {view === "week" && (
+        <WeekScheduleGrid
+          moduleSlug="gazebos"
+          resourceLabel="Беседка"
+          unitLabel="чел."
+          countMetaKey="guestCount"
+          initialDate={date}
+          selectedBookingId={selectedBooking?.id ?? null}
+          refreshKey={weekRefreshKey}
+          onBookingClick={handleWeekBookingClick}
+          onEmptyCellClick={handleWeekEmptyCellClick}
+        />
+      )}
+
+      {view === "day" && (
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
       <div className="rounded-xl border border-zinc-200 overflow-hidden" ref={gridRef}>
         {/* Header row: hours */}
         <div className="flex border-b border-zinc-200 bg-zinc-50">
@@ -254,8 +558,7 @@ export function GazeboTimelineGrid({
                 </div>
               </div>
 
-              <div className="flex-1 relative overflow-x-auto">
-                <div className="relative min-w-[900px] h-16">
+              <ResourceTrack resourceId={resource.id} registerTrack={registerTrack}>
                   <div className="absolute inset-0 flex">
                     {hours.map((h) => {
                       const hour = parseInt(h.split(":")[0], 10);
@@ -283,9 +586,13 @@ export function GazeboTimelineGrid({
                     const guestCount = meta?.guestCount as number | undefined;
 
                     return (
-                      <div
+                      <BookingBlock
                         key={booking.id}
-                        className={`absolute top-1 bottom-1 rounded-lg px-2 py-1 overflow-hidden text-xs leading-tight transition-all cursor-pointer select-none ${
+                        booking={booking}
+                        style={style}
+                        disabled={inflightId === booking.id}
+                        dragging={drag?.kind === "move" && drag.bookingId === booking.id}
+                        className={`absolute top-1 bottom-1 rounded-lg px-2 py-1 overflow-hidden text-xs leading-tight transition-all cursor-grab active:cursor-grabbing select-none ${
                           isSelected
                             ? "bg-blue-100 border-2 border-blue-500 shadow-md ring-2 ring-blue-300/50 z-20"
                             : active
@@ -294,8 +601,7 @@ export function GazeboTimelineGrid({
                             ? "bg-amber-50 border border-dashed border-amber-300 hover:bg-amber-100/70"
                             : "bg-emerald-50 border border-emerald-200 hover:bg-emerald-100/70"
                         }`}
-                        style={style}
-                        title={`${booking.clientName ?? "—"} · Нажмите для подробностей`}
+                        title={`${booking.clientName ?? "—"} · Нажмите для подробностей, тяните для переноса`}
                         onClick={(e) => handleBookingClick(booking, e)}
                       >
                         <div className="flex items-center gap-1">
@@ -310,7 +616,7 @@ export function GazeboTimelineGrid({
                         {guestCount && (
                           <span className="text-zinc-500">{guestCount} чел.</span>
                         )}
-                      </div>
+                      </BookingBlock>
                     );
                   })}
 
@@ -322,8 +628,7 @@ export function GazeboTimelineGrid({
                       <div className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-red-400" />
                     </div>
                   )}
-                </div>
-              </div>
+              </ResourceTrack>
             </div>
           );
         })}
@@ -335,11 +640,27 @@ export function GazeboTimelineGrid({
         )}
       </div>
 
+      {/* Портал поверх overflow-x-auto строк: без него блок обрезается при переносе на соседнюю строку. */}
+      <DragOverlay dropAnimation={null}>
+        {draggedBooking ? (
+          <div
+            style={{ width: drag?.blockWidthPx ? `${drag.blockWidthPx}px` : undefined }}
+            className="h-14 rounded-lg px-2 py-1 text-xs leading-tight bg-emerald-100 border-2 border-emerald-400 shadow-lg cursor-grabbing"
+          >
+            <span className="font-medium text-zinc-900 truncate">{draggedBooking.clientName ?? "—"}</span>
+          </div>
+        ) : null}
+      </DragOverlay>
+      </DndContext>
+      )}
+
       {selectedBooking && (
         <GazeboBookingDetailCard
           booking={selectedBooking}
-          resourceName={getResourceName(selectedBooking.resourceId)}
-          pricePerHour={getResourcePrice(selectedBooking.resourceId)}
+          resourceName={selectedResourceOverride?.name ?? getResourceName(selectedBooking.resourceId)}
+          pricePerHour={
+            selectedResourceOverride ? selectedResourceOverride.pricePerHour : getResourcePrice(selectedBooking.resourceId)
+          }
           isActiveNow={isActiveNow(selectedBooking)}
           onClose={() => setSelectedBooking(null)}
           onStatusChanged={handleBookingStatusChanged}

@@ -151,3 +151,14 @@ export const printScheduleQuerySchema = z.object({
 });
 
 export type PrintScheduleQuery = z.infer<typeof printScheduleQuerySchema>;
+
+/**
+ * Недельный вид расписания (US-5, эпик #442): единственный параметр —
+ * `weekStart`. Окно жёстко 7 дней, любую дату сервер нормализует к
+ * понедельнику; `dateTo`/`days` намеренно отсутствуют — защита от
+ * неограниченного диапазонного скана (ADR 2026-08-23, §7.1).
+ */
+export const weekTimelineQuerySchema = z.object({
+  weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Формат даты: YYYY-MM-DD"),
+});
+export type WeekTimelineQuery = z.infer<typeof weekTimelineQuerySchema>;

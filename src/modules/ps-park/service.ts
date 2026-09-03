@@ -75,7 +75,7 @@ function pluralHours(n: number): string {
  * везде был захардкожен `OPEN_HOUR=8/CLOSE_HOUR=23` — форма настроек значения
  * сохраняла, но их никто не читал (#434).
  */
-async function getOpenCloseHours(): Promise<{ openHour: number; closeHour: number }> {
+export async function getOpenCloseHours(): Promise<{ openHour: number; closeHour: number }> {
   const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
   const config = moduleRecord?.config as Record<string, unknown> | null;
   const openHour = typeof config?.openHour === "number" ? config.openHour : DEFAULT_OPEN_HOUR;
