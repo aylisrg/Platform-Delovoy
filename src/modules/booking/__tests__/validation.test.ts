@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkoutDiscountSchema, updateBookingStatusSchema } from "../validation";
+import { checkoutDiscountSchema, updateBookingStatusSchema, weekTimelineQuerySchema } from "../validation";
 
 describe("checkoutDiscountSchema", () => {
   it("accepts valid discount with reason", () => {
@@ -223,5 +223,23 @@ describe("updateBookingStatusSchema (#432)", () => {
     if (result.success) {
       expect("discountPercent" in result.data).toBe(false);
     }
+  });
+});
+
+describe("weekTimelineQuerySchema (issue #740)", () => {
+  it("принимает дату YYYY-MM-DD — и не обязательно понедельник (нормализует сервер)", () => {
+    expect(weekTimelineQuerySchema.safeParse({ weekStart: "2030-06-19" }).success).toBe(true);
+  });
+
+  it.each(["", "19.06.2030", "2030-6-1", "2030-06-19T00:00:00Z"])("отклоняет формат %j с русским сообщением", (weekStart) => {
+    const res = weekTimelineQuerySchema.safeParse({ weekStart });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.error.issues[0].message).toBe("Формат даты: YYYY-MM-DD");
+  });
+
+  it("не принимает параметры диапазона — окно всегда 7 дней (ADR §7.1)", () => {
+    const res = weekTimelineQuerySchema.safeParse({ weekStart: "2030-06-17", dateTo: "2031-01-01" });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data).toEqual({ weekStart: "2030-06-17" });
   });
 });
