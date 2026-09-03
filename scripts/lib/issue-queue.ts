@@ -756,7 +756,18 @@ export interface DependabotHealInput {
   /** Комментарии PR: тело плюс время — по нему истекает ожидание пересборки. */
   comments: { body: string; createdAt: string }[];
   now: Date;
+  /**
+   * Есть ли у свипера токен, чьи команды dependabot исполняет. Команды принимает
+   * только пользователь с push-доступом: комментарий от `github-actions[bot]`
+   * (GITHUB_TOKEN) бот отвергает «Sorry, only users with push access can use that
+   * command» (PR #802), а из сессий — от `claude[bot]` — игнорирует вовсе
+   * (#730). Без PAT просить пересборку бессмысленно: сразу отдаём воркеру.
+   */
+  canCommandDependabot: boolean;
 }
+
+/** Ответ dependabot на команду от токена без push-доступа. */
+export const DEPENDABOT_COMMAND_REJECTED_RE = /only users with push access/i;
 
 export function dependabotHealAction(input: DependabotHealInput): { action: DependabotHealAction; reason: string } {
   if (input.ci !== 'red') {
@@ -770,11 +781,24 @@ export function dependabotHealAction(input: DependabotHealInput): { action: Depe
   // остаётся), и решение принимает свежий.
   const asked = input.comments.filter((c) => c.body.includes(DEPENDABOT_RECREATE_MARKER_PREFIX)).at(-1);
   if (!asked) {
+    if (!input.canCommandDependabot) {
+      return {
+        action: 'to-queue',
+        reason: 'красный CI, а PAT у свипера нет — команду `@dependabot recreate` бот от GITHUB_TOKEN отвергает, пересборку не прошу',
+      };
+    }
     return { action: 'recreate', reason: 'красный CI — прошу dependabot пересобрать ветку от свежего main' };
   }
   const askedSha = asked.body.split(DEPENDABOT_RECREATE_MARKER_PREFIX)[1]?.split('-->')[0]?.trim() ?? '';
   if (askedSha !== input.headSha) {
     return { action: 'to-queue', reason: 'красный CI и после пересборки — дело в самом обновлении, нужен воркер' };
+  }
+  const askedAt = new Date(asked.createdAt).getTime();
+  const rejected = input.comments.some(
+    (c) => DEPENDABOT_COMMAND_REJECTED_RE.test(c.body) && new Date(c.createdAt).getTime() >= askedAt,
+  );
+  if (rejected) {
+    return { action: 'to-queue', reason: 'dependabot отверг команду пересборки (у токена свипера нет push-доступа) — нужен воркер' };
   }
   const waitedH = (input.now.getTime() - new Date(asked.createdAt).getTime()) / 3_600_000;
   if (waitedH >= DEPENDABOT_RECREATE_TIMEOUT_HOURS) {
@@ -848,10 +872,47 @@ export interface CheckRun {
   name: string;
   status: string;
   conclusion: string | null;
+  /** Идентификатор чек-рана GitHub — монотонный, свежий прогон всегда старше по id. */
+  id?: number;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 /** `skipped`/`neutral` — не провал: джобы CI намеренно пропускаются по условиям в ci.yml. */
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
+
+/**
+ * Один чек-ран на имя — самый свежий (issue #835).
+ *
+ * GitHub хранит на head-коммите ВСЕ чек-раны, включая отменённые: workflow с
+ * `concurrency: cancel-in-progress: true` (merge-gate-check.yml — триггерится
+ * на каждый комментарий, а шаг 6 `/next-issue` шлёт два вердикта подряд)
+ * оставляет рядом с успешным прогоном ещё один-два `cancelled` с тем же именем.
+ * Без дедупа `cancelled` читался как провал, и свипер/`pr-merge` ждали вечно —
+ * с 2026-08-29 ни один `claude/**` PR не был смержен автоматически.
+ *
+ * Свежесть — по `started_at`, затем по `id` (монотонный); без метаданных
+ * побеждает последний в списке. Группировка ровно по имени: отменённый
+ * прогон и его замена — разные workflow-run'ы с разными check_suite, так что
+ * ключ (name, suite) их бы не склеил.
+ */
+export function latestCheckRunsByName(runs: CheckRun[]): CheckRun[] {
+  const byName = new Map<string, CheckRun>();
+  for (const run of runs) {
+    const prev = byName.get(run.name);
+    if (!prev || isNewerCheckRun(run, prev)) byName.set(run.name, run);
+  }
+  return [...byName.values()];
+}
+
+function isNewerCheckRun(a: CheckRun, b: CheckRun): boolean {
+  const ta = Date.parse(a.started_at ?? '');
+  const tb = Date.parse(b.started_at ?? '');
+  if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta > tb;
+  if (a.id !== undefined && b.id !== undefined && a.id !== b.id) return a.id > b.id;
+  // Ни времени, ни id — считаем более поздний элемент списка более свежим.
+  return true;
+}
 
 export interface ChecksSummary {
   pending: CheckRun[];
@@ -862,7 +923,8 @@ export interface ChecksSummary {
   green: boolean;
 }
 
-export function summarizeChecks(runs: CheckRun[]): ChecksSummary {
+export function summarizeChecks(allRuns: CheckRun[]): ChecksSummary {
+  const runs = latestCheckRunsByName(allRuns);
   const pending = runs.filter((r) => r.status !== 'completed');
   const failed = runs.filter(
     (r) => r.status === 'completed' && !PASSING_CONCLUSIONS.has(r.conclusion ?? ''),

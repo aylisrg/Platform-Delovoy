@@ -4,8 +4,11 @@ import type { CancellationPolicy } from "../types";
 
 const policy: CancellationPolicy = { thresholdHours: 2, penaltyPercent: 50 };
 
-const hoursFromNow = (hours: number): Date =>
-  new Date(Date.now() + hours * 60 * 60 * 1000);
+// `from` — общая точка отсчёта для обоих аргументов computeCancellationPenalty:
+// два независимых `new Date()` подряд могут разойтись на миллисекунду, и
+// граничный случай «ровно threshold часов» превращается во флак (#728).
+const hoursFromNow = (hours: number, from: Date = new Date()): Date =>
+  new Date(from.getTime() + hours * 60 * 60 * 1000);
 
 describe("computeCancellationPenalty", () => {
   it("returns no penalty when skipPolicy = true (manager/superadmin)", () => {
@@ -31,9 +34,10 @@ describe("computeCancellationPenalty", () => {
   });
 
   it("returns no penalty when exactly at threshold boundary (2.0h)", () => {
+    const now = new Date();
     const result = computeCancellationPenalty(
-      hoursFromNow(2.0),
-      new Date(),
+      hoursFromNow(2.0, now),
+      now,
       1000,
       policy,
       false

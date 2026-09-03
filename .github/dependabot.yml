@@ -55,3 +55,13 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@prisma/client"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 (нативный Go-компилятор): typescript-eslint его не
+      # поддерживает (eslint-config-next → typescript-eslint падает при загрузке
+      # конфига, апстрим typescript-eslint#10940). Снять, когда typescript-eslint
+      # объявит поддержку TS ≥7 — задача #757.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # nodemailer 9: peer-диапазон next-auth@5.0.0-beta.32 — "^7.0.7 || ^8.0.5".
+      # Снять, когда next-auth поднимет потолок — задача #758.
+      - dependency-name: "nodemailer"
+        update-types: ["version-update:semver-major"]

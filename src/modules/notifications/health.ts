@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { EVENT_SOURCES } from "@/lib/event-sources";
 import { redis, redisAvailable } from "@/lib/redis";
-import { telegramApi } from "@/lib/telegram/client";
+import { telegramApi, type TelegramApiResult } from "@/lib/telegram/client";
 
 /**
  * Через сколько минут без heartbeat свипера контур owner-decisions считается
@@ -32,42 +32,107 @@ export const OWNER_DECISIONS_STALE_MINUTES = 6 * 60;
  */
 const OWNER_DECISIONS_ALERT_REPEAT_SECONDS = 6 * 60 * 60;
 
+/**
+ * Гистерезис транспортных флапов Telegram-проб (issue #708, 37 циклов
+ * `notifications-down` за неделю).
+ *
+ * Замер 2026-09-03 (44 опроса health подряд): в 6 из 44 одна-две из трёх проб
+ * (`getMe`, `getChat` админ-группы, `getChat` владельца — каждый раз разные)
+ * падали транспортом — `Timeout after 2667ms … UND_ERR_CONNECT_TIMEOUT` — при
+ * здоровых БД, очереди и heartbeat. То есть VPS → api.telegram.org рвётся на
+ * секунды с вероятностью ~14 % на пробу, а site-watchdog с двумя попытками через
+ * 10 с регулярно ловил оба окна и заводил инцидент.
+ *
+ * Два слоя защиты: (1) повтор пробы внутри запроса — только после
+ * транспортного сбоя, ошибки API (`Unauthorized`, `chat not found`) не
+ * повторяем, это настоящая поломка; (2) серия подряд опросов, где падали ТОЛЬКО
+ * транспортом, считается в Redis — пока серия короче порога, health отдаёт
+ * 200 c полем `degraded`, а не 503. Настоящий обрыв (минуты и дольше) набирает
+ * порог за ~10 минут опросов watchdog'а и по-прежнему становится инцидентом.
+ * Redis недоступен — гистерезиса нет, поведение прежнее (503 сразу).
+ */
+export const TELEGRAM_TRANSPORT_FLAP_STREAK = 3;
+const TELEGRAM_TRANSPORT_FLAP_STREAK_KEY = "notifications:health:telegram-transport-flap-streak";
+const TELEGRAM_TRANSPORT_FLAP_STREAK_TTL_SECONDS = 30 * 60;
+const TELEGRAM_PROBE_TIMEOUT_MS = 5000;
+/**
+ * Повтор чуть длиннее первой попытки: при кастомном транспорте telegramApi
+ * делит бюджет 8/15 на прокси и остаток на прямой api.telegram.org — у первой
+ * попытки на прямой путь остаётся 2.3 с, и он «почти всегда не успевает».
+ */
+const TELEGRAM_PROBE_RETRY_TIMEOUT_MS = 6000;
+
 export type NotificationsHealthCheck = {
   ok: boolean;
+  /** Telegram-пробы не достучались по транспорту, но серия короче порога — терпим (issue #708). */
+  degraded?: { reason: string; flapStreak: number; failedProbes: string[] };
   checks: {
-    botToken: { ok: boolean; username?: string; reason?: string };
-    adminChat: { ok: boolean; title?: string; reason?: string };
-    ownerChat: { ok: boolean; reason?: string };
+    botToken: { ok: boolean; username?: string; reason?: string; transportError?: boolean };
+    adminChat: { ok: boolean; title?: string; reason?: string; transportError?: boolean };
+    ownerChat: { ok: boolean; reason?: string; transportError?: boolean };
     queue: { pending: number; failedLastHour: number };
     cron: { lastRunAt: string | null; staleMin: number };
     ownerDecisions: { ok: boolean; lastHeartbeatAt: string | null; staleMin: number; reason?: string };
   };
 };
 
+/** Одна повторная попытка — только после транспортного сбоя (таймаут/DNS/обрыв). */
+async function probeWithRetry<T>(
+  call: (timeoutMs: number) => Promise<TelegramApiResult<T>>
+): Promise<TelegramApiResult<T>> {
+  const first = await call(TELEGRAM_PROBE_TIMEOUT_MS);
+  if (first.ok || !first.transportError) return first;
+  return call(TELEGRAM_PROBE_RETRY_TIMEOUT_MS);
+}
+
 async function probeBot(
   token: string
-): Promise<{ ok: boolean; username?: string; reason?: string }> {
-  const res = await telegramApi<{ username?: string }>("getMe", undefined, {
-    botToken: token,
-    timeoutMs: 5000,
-  });
+): Promise<NotificationsHealthCheck["checks"]["botToken"]> {
+  const res = await probeWithRetry((timeoutMs) =>
+    telegramApi<{ username?: string }>("getMe", undefined, { botToken: token, timeoutMs })
+  );
   if (res.ok) return { ok: true, username: res.result?.username };
-  return { ok: false, reason: res.description };
+  return { ok: false, reason: res.description, transportError: res.transportError };
 }
 
 async function probeChat(
   token: string,
   chatId: string
-): Promise<{ ok: boolean; title?: string; reason?: string }> {
-  const res = await telegramApi<{ title?: string; first_name?: string }>(
-    "getChat",
-    { chat_id: chatId },
-    { botToken: token, timeoutMs: 5000 }
+): Promise<NotificationsHealthCheck["checks"]["adminChat"]> {
+  const res = await probeWithRetry((timeoutMs) =>
+    telegramApi<{ title?: string; first_name?: string }>(
+      "getChat",
+      { chat_id: chatId },
+      { botToken: token, timeoutMs }
+    )
   );
   if (res.ok) {
     return { ok: true, title: res.result?.title ?? res.result?.first_name };
   }
-  return { ok: false, reason: res.description };
+  return { ok: false, reason: res.description, transportError: res.transportError };
+}
+
+/** Длина текущей серии опросов с чисто транспортными сбоями; null — Redis недоступен/упал. */
+async function bumpTransportFlapStreak(): Promise<number | null> {
+  if (!redisAvailable) return null;
+  try {
+    const streak = await redis.incr(TELEGRAM_TRANSPORT_FLAP_STREAK_KEY);
+    // TTL обновляем на каждом шаге: серия живёт, пока идут опросы; затихшие
+    // на полчаса опросы = новая серия.
+    await redis.expire(TELEGRAM_TRANSPORT_FLAP_STREAK_KEY, TELEGRAM_TRANSPORT_FLAP_STREAK_TTL_SECONDS);
+    return streak;
+  } catch {
+    return null;
+  }
+}
+
+async function clearTransportFlapStreak(): Promise<void> {
+  if (!redisAvailable) return;
+  try {
+    await redis.del(TELEGRAM_TRANSPORT_FLAP_STREAK_KEY);
+  } catch {
+    // best-effort: следующая здоровая проба попробует снова
+  }
 }
 
 export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
@@ -114,14 +179,18 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
           })
         : probeChat(token, adminChatId),
     !token
-      ? Promise.resolve({ ok: false, reason: "bot token missing" })
+      ? Promise.resolve<NotificationsHealthCheck["checks"]["adminChat"]>({ ok: false, reason: "bot token missing" })
       : !ownerChatId
-        ? Promise.resolve({ ok: false, reason: "TELEGRAM_OWNER_CHAT_ID not set" })
+        ? Promise.resolve<NotificationsHealthCheck["checks"]["adminChat"]>({
+            ok: false,
+            reason: "TELEGRAM_OWNER_CHAT_ID not set",
+          })
         : probeChat(token, ownerChatId),
   ]);
   const ownerChatCheck: NotificationsHealthCheck["checks"]["ownerChat"] = {
     ok: ownerProbe.ok,
     reason: ownerProbe.reason,
+    ...(ownerProbe.transportError ? { transportError: true } : {}),
   };
 
   // Queue stats
@@ -212,15 +281,38 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     // non-critical
   }
 
-  const ok =
-    botCheck.ok &&
-    adminChatCheck.ok &&
-    ownerChatCheck.ok &&
-    queueCheck.failedLastHour === 0 &&
-    ownerDecisionsCheck.ok;
+  // Гистерезис транспортных флапов (см. TELEGRAM_TRANSPORT_FLAP_STREAK):
+  // серия считается только когда ВСЕ упавшие пробы упали транспортом —
+  // любая ошибка API (токен отозван, бот выгнан из чата) валит health сразу.
+  const probes = [
+    { name: "botToken", check: botCheck },
+    { name: "adminChat", check: adminChatCheck },
+    { name: "ownerChat", check: ownerChatCheck },
+  ];
+  const failedProbes = probes.filter((p) => !p.check.ok);
+  let telegramOk = failedProbes.length === 0;
+  let degraded: NotificationsHealthCheck["degraded"];
+  if (telegramOk) {
+    await clearTransportFlapStreak();
+  } else if (failedProbes.every((p) => p.check.transportError)) {
+    const streak = await bumpTransportFlapStreak();
+    if (streak !== null && streak < TELEGRAM_TRANSPORT_FLAP_STREAK) {
+      telegramOk = true;
+      degraded = {
+        reason:
+          `Telegram-проба не достучалась по транспорту (серия ${streak} из ${TELEGRAM_TRANSPORT_FLAP_STREAK}) — ` +
+          "кратковременный обрыв VPS → api.telegram.org, терпим",
+        flapStreak: streak,
+        failedProbes: failedProbes.map((p) => p.name),
+      };
+    }
+  }
+
+  const ok = telegramOk && queueCheck.failedLastHour === 0 && ownerDecisionsCheck.ok;
 
   return {
     ok,
+    ...(degraded ? { degraded } : {}),
     checks: {
       botToken: botCheck,
       adminChat: adminChatCheck,

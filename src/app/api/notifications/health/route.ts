@@ -30,6 +30,14 @@ import {
 export async function GET() {
   try {
     const health = await notificationsHealth();
+    if (health.degraded) {
+      // Флап терпим, но след оставляем: по этим WARNING видно, как часто рвётся
+      // путь VPS → api.telegram.org (issue #708), без инцидента на каждый обрыв.
+      void log.warn(EVENT_SOURCES.NOTIFICATIONS, health.degraded.reason, {
+        flapStreak: health.degraded.flapStreak,
+        failedProbes: health.degraded.failedProbes,
+      });
+    }
     const ownerDecisions = health.checks.ownerDecisions;
     if (!ownerDecisions.ok && (await shouldAlertOwnerDecisionsSilence(ownerDecisions))) {
       const lastHeartbeat = ownerDecisions.lastHeartbeatAt

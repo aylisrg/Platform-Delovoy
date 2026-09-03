@@ -54,19 +54,39 @@ export interface OpenBatch {
   url: string;
 }
 
+/**
+ * Что этот процесс уже создал/дописал, но листинг GitHub мог ещё не отдать.
+ *
+ * Search/list API у GitHub eventually consistent: два `batch-add` одной
+ * области подряд (интейк заводит десяток пунктов за прогон) видели «зонтика
+ * нет» оба и создавали два зонтика (#717/#718 при зачистке 2026-08-20, пункт
+ * зонтика #720). Свежесозданный зонтик и дописанные пункты запоминаем здесь и
+ * подмешиваем к ответу API, пока тот не догонит. Процессы CLI/интейка короткие,
+ * протухнуть кэш не успевает.
+ */
+const createdBatches: OpenBatch[] = [];
+const addedComments = new Map<number, string[]>();
+
+/** Для тестов: забыть всё, что процесс успел создать. */
+export function resetBatchIoCache(): void {
+  createdBatches.length = 0;
+  addedComments.clear();
+}
+
 /** Открытые зонтики (лейбл `batch`), с областью из маркера в теле. */
 export function listOpenBatches(): OpenBatch[] {
   const raw = ghApi<RawIssueLite[]>(
     `/repos/${REPO}/issues?state=open&labels=${encodeURIComponent(BATCH_LABEL)}&per_page=100`,
   ).filter((i) => !i.pull_request);
-  return raw
-    .map((i) => ({
-      number: i.number,
-      area: batchAreaOf(i.body) ?? 'misc',
-      lane: laneOf(i.labels.map((l) => l.name)),
-      url: i.html_url,
-    }))
-    .sort((a, b) => b.number - a.number); // свежие вперёд — добавляем в новейший
+  const fromApi = raw.map((i) => ({
+    number: i.number,
+    area: batchAreaOf(i.body) ?? 'misc',
+    lane: laneOf(i.labels.map((l) => l.name)),
+    url: i.html_url,
+  }));
+  const seen = new Set(fromApi.map((b) => b.number));
+  const notYetListed = createdBatches.filter((b) => !seen.has(b.number));
+  return [...fromApi, ...notYetListed].sort((a, b) => b.number - a.number); // свежие вперёд — добавляем в новейший
 }
 
 export function batchCommentBodies(issueNumber: number): string[] {
@@ -78,7 +98,16 @@ export function batchCommentBodies(issueNumber: number): string[] {
     out.push(...batch.map((c) => c.body));
     if (batch.length < 100) break;
   }
+  for (const body of addedComments.get(issueNumber) ?? []) {
+    if (!out.includes(body)) out.push(body);
+  }
   return out;
+}
+
+function rememberComment(issueNumber: number, body: string): void {
+  const list = addedComments.get(issueNumber) ?? [];
+  list.push(body);
+  addedComments.set(issueNumber, list);
 }
 
 export interface BatchAddInput {
@@ -131,6 +160,7 @@ export function batchAdd(input: BatchAddInput): BatchAddResult {
 
   if (target) {
     ghApi(`/repos/${REPO}/issues/${target.number}/comments`, 'POST', { body: itemComment });
+    rememberComment(target.number, itemComment);
     return { issue: target.number, url: target.url, created: false, deduped: false, dryRun: false };
   }
 
@@ -139,6 +169,8 @@ export function batchAdd(input: BatchAddInput): BatchAddResult {
     body: renderBatchBody(area),
     labels: [BATCH_LABEL, 'prio:P2', 'auto:ready'],
   });
+  createdBatches.push({ number: created.number, area, lane: 'ready', url: created.html_url });
   ghApi(`/repos/${REPO}/issues/${created.number}/comments`, 'POST', { body: itemComment });
+  rememberComment(created.number, itemComment);
   return { issue: created.number, url: created.html_url, created: true, deduped: false, dryRun: false };
 }

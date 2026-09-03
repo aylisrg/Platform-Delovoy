@@ -79,7 +79,6 @@ import {
   countBackpressurePrs,
   dependabotHealAction,
   dependabotRecreateMarker,
-  graceElapsed,
   isDependabotAutoMergeBranch,
   isTrustedVerdictAuthor,
   laneOf,
@@ -112,6 +111,7 @@ import {
   unprocessedBatchItems,
 } from './lib/issue-batch';
 import { batchAdd, batchCommentBodies } from './lib/batch-io';
+import { executeDecision, type DecisionIo, type DecisionWire } from './lib/decision-executor';
 import { TOKEN_ROTATION_MARKER, isTokenDead, shouldRemindRotation } from './lib/queue-watch';
 
 const ROOT = resolve(__dirname, '..');
@@ -854,7 +854,10 @@ function healDependabotPr(pr: RawPr, dryRun: boolean, now: Date): Record<string,
   const checks = summarizeChecks(checksFor(pr.number));
   const ci = checks.green ? 'green' : checks.done ? 'red' : 'pending';
   const comments = allComments(pr.number).map((c) => ({ body: c.body, createdAt: c.created_at }));
-  const { action, reason } = dependabotHealAction({ ci, headSha: pr.head.sha, comments, now });
+  // HAS_PAT выставляет job свипера (issue-queue-merge.yml): «yes» только когда
+  // GH_TOKEN — человеческий PAT. В сессиях переменной нет → команды не шлём.
+  const canCommandDependabot = process.env.HAS_PAT === 'yes';
+  const { action, reason } = dependabotHealAction({ ci, headSha: pr.head.sha, comments, now, canCommandDependabot });
 
   if (action === 'none') return null;
   if (dryRun) return { dryRun: true, path: 'dependabot-heal', wouldDo: action, reason };
@@ -875,20 +878,22 @@ function healDependabotPr(pr: RawPr, dryRun: boolean, now: Date): Record<string,
   const created = createIssue({
     title: `chore(deps): красный CI у dependabot-PR #${pr.number} — ${pr.title}`,
     body:
-      `Dependabot-PR #${pr.number} (${pr.html_url}) красный и после пересборки ветки — ` +
-      `значит дело не в протухшей базе, а в самом обновлении.\n\n` +
+      `Dependabot-PR #${pr.number} (${pr.html_url}) красный. Причина эскалации: ${reason}.\n\n` +
       `Задача воркера:\n` +
       `1. Прочитать лог упавших чеков и changelog обновляемых пакетов.\n` +
-      `2. Дописать адаптацию кода ПРЯМО в ветку dependabot-PR (не заводить свою).\n` +
-      `3. Добавить в тело PR строку \`Closes #<этот номер>\`, прогнать ревью и поставить вердикты.\n` +
-      `4. Дальше PR мержит свипер как обычный PR автоматики.\n\n` +
+      `2. Если падает только «Lockfile in sync» (\`npm ci\` → EUSAGE «Missing … from lock file») — ` +
+      `лок ветки рассинхронизирован с main: пересобрать его от свежего main ` +
+      `(\`git merge origin/main && npm install --package-lock-only\`) и запушить в ветку PR.\n` +
+      `3. Иначе дописать адаптацию кода ПРЯМО в ветку dependabot-PR (не заводить свою).\n` +
+      `4. Добавить в тело PR строку \`Closes #<этот номер>\`, прогнать ревью и поставить вердикты.\n` +
+      `5. Дальше PR мержит свипер как обычный PR автоматики.\n\n` +
       `Если обновление сейчас не нужно — закрыть PR и эту задачу.`,
     labels: ['dependencies', 'prio:P2', 'auto:ready'],
     dedupKey: `deps-red-pr-${pr.number}`,
   });
   comment(
     pr.number,
-    `${DEPENDABOT_ESCALATED_MARKER}\n\nCI красный и после пересборки — обновление отдано в ` +
+    `${DEPENDABOT_ESCALATED_MARKER}\n\nCI красный (${reason}) — обновление отдано в ` +
       `автоочередь задачей #${created.issue}. PR не закрываю: воркер допишет адаптацию сюда же.`,
   );
   return { path: 'dependabot-heal', did: 'to-queue', issue: created.issue, reason };
@@ -1628,160 +1633,39 @@ function siteApi<T = unknown>(path: string, method = 'GET', body?: unknown): T {
   return parsed as T;
 }
 
-interface DecisionWire {
-  id: string;
-  kind: 'merge-hold' | 'blocked-question' | 'owner-idea' | 'pat-rotation' | string;
-  subjectType: 'pr' | 'issue' | 'none' | string;
-  subjectNumber: number | null;
-  headSha: string | null;
-  title: string;
-  status: string;
-  decision: 'approve' | 'reject' | null;
-  note: string | null;
-  payload: {
-    reasons?: string[];
-    url?: string;
-    /** Для prod-apply: какой ops-workflow диспатчить после «да» владельца. */
-    dispatchWorkflow?: string;
-    dispatchInputs?: Record<string, string>;
-    /** Для owner-idea: свободный текст идеи. */
-    text?: string;
-    prio?: string;
-  } | null;
-  decidedAt: string | null;
-}
-
 function patchDecision(id: string, status: string, note?: string): void {
   siteApi(DECISIONS_API, 'PATCH', { id, status, executorNote: note });
 }
 
-/** Исполнение одного принятого решения. Ошибки не глотаем — ловит вызывающий цикл. */
-function executeDecision(d: DecisionWire, config: QueueConfig, now: Date, dryRun: boolean): Record<string, unknown> {
-  const base = { id: d.id, kind: d.kind, decision: d.decision, subject: d.subjectNumber };
-
-  if (d.kind === 'merge-hold') {
-    const prNumber = d.subjectNumber;
-    if (!prNumber) return { ...base, error: 'нет subjectNumber' };
-
-    if (d.decision === 'approve') {
-      if (!config.autoMerge) return { ...base, skipped: 'autoMerge=false — аварийный стоп глушит и решения' };
-      // Grace-окно «Отменить»: мерж необратим, случайный тап по кнопке — нет.
-      if (!d.decidedAt || !graceElapsed(d.decidedAt, now, config.decisionGraceMinutes)) {
-        return { ...base, waiting: `grace ${config.decisionGraceMinutes} мин после аппрува ещё не прошёл` };
-      }
+/**
+ * I/O исполнителя решений (scripts/lib/decision-executor.ts) из хелперов CLI.
+ * Сама логика «что делать с решением» живёт в lib и покрыта юнитами (#720);
+ * здесь — только проводка к GitHub и сайту.
+ */
+function decisionIo(config: QueueConfig): DecisionIo {
+  return {
+    getPr: (prNumber) => {
       const pr = gh<{ state: string; merged: boolean; head: { sha: string } }>(`/repos/${REPO}/pulls/${prNumber}`);
-      if (pr.merged || pr.state !== 'open') {
-        if (!dryRun) patchDecision(d.id, 'EXECUTED', pr.merged ? 'PR уже смержен' : 'PR уже закрыт');
-        return { ...base, executed: true, note: 'PR уже закрыт/смержен' };
-      }
-      if (!d.headSha || pr.head.sha !== d.headSha) {
-        // Аппрув пинится к SHA момента решения — новые коммиты его гасят.
-        // decisions-sync на этом же проходе заведёт свежий запрос под новый SHA.
-        if (!dryRun) {
-          patchDecision(d.id, 'EXPIRED', `head SHA изменился: ожидался ${d.headSha?.slice(0, 8)}, сейчас ${pr.head.sha.slice(0, 8)}`);
-          comment(prNumber, `Аппрув владельца (Telegram) устарел: PR изменился после решения. Запрос уйдёт заново под новый коммит.`);
-        }
-        return { ...base, expired: true };
-      }
-      if (dryRun) return { ...base, dryRun: true, wouldMerge: true };
-      const result = attemptMerge(prNumber, config, { promoteDraft: true, gateExempt: 'owner-approved', expectedSha: d.headSha });
-      if (result.merged) {
-        patchDecision(d.id, 'EXECUTED', 'смержен');
-        comment(prNumber, `Смержено по решению владельца из Telegram (decision \`${d.id}\`).`);
-        return { ...base, merged: true };
-      }
-      if (result.reason === 'head SHA изменился после решения') {
-        patchDecision(d.id, 'EXPIRED', result.detail);
-        return { ...base, expired: true, detail: result.detail };
-      }
-      // CI ещё идёт/красный — решение остаётся APPROVED, добьём на следующем проходе.
-      return { ...base, deferredExecution: result.reason, detail: result.detail };
-    }
-
-    if (d.decision === 'reject') {
-      if (dryRun) return { ...base, dryRun: true, wouldClose: true };
+      return { state: pr.state, merged: pr.merged, headSha: pr.head.sha };
+    },
+    mergePr: (prNumber, expectedSha) =>
+      attemptMerge(prNumber, config, { promoteDraft: true, gateExempt: 'owner-approved', expectedSha }),
+    closePr: (prNumber) => {
       gh(`/repos/${REPO}/pulls/${prNumber}`, 'PATCH', { state: 'closed' });
-      comment(
-        prNumber,
-        `Отклонено владельцем из Telegram${d.note ? `: ${d.note}` : ''}. PR закрыт; связанная задача переведена в \`auto:blocked\` — нужна переформулировка.`,
-      );
-      const prRaw = gh<RawPr>(`/repos/${REPO}/pulls/${prNumber}`);
-      for (const num of closedIssueNumbers(prRaw)) {
-        try {
-          const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
-          if (issue.state === 'open') {
-            setLabels(num, swapLane(issue.labels.map((l) => l.name), 'auto:blocked'));
-          }
-        } catch { /* issue могла быть удалена — не роняем исполнение */ }
-      }
-      patchDecision(d.id, 'EXECUTED', 'PR закрыт');
-      return { ...base, closed: true };
-    }
-  }
-
-  if (d.kind === 'blocked-question') {
-    const issueNumber = d.subjectNumber;
-    if (dryRun) return { ...base, dryRun: true };
-    if (d.decision === 'approve') {
-      if (issueNumber) {
-        const issue = gh<RawIssue>(`/repos/${REPO}/issues/${issueNumber}`);
-        setLabels(issueNumber, swapLane(issue.labels.map((l) => l.name), 'auto:ready'));
-        comment(issueNumber, `Владелец (Telegram): да${d.note ? ` — ${d.note}` : ''}. Задача возвращена в очередь (\`auto:ready\`).`);
-      }
-      // prod-apply: «да» владельца запускает соответствующий ops-workflow —
-      // у токена свипера есть actions:write, ручной клик в Actions больше не нужен.
-      if (d.payload?.dispatchWorkflow) {
-        gh(`/repos/${REPO}/actions/workflows/${d.payload.dispatchWorkflow}/dispatches`, 'POST', {
-          ref: 'main',
-          inputs: d.payload.dispatchInputs ?? {},
-        });
-      }
-      patchDecision(d.id, 'EXECUTED', d.payload?.dispatchWorkflow ? `dispatched ${d.payload.dispatchWorkflow}` : 'issue → auto:ready');
-      return { ...base, executed: true };
-    }
-    if (d.decision === 'reject') {
-      if (issueNumber) {
-        // «Нет» — терминальный ответ: задача уезжает в auto:parked (вне очереди,
-        // как замороженные направления #461) и ВЫПАДАЕТ из выборки A2 — иначе
-        // reconcile переспрашивал бы тот же вопрос каждые 15 минут (ревью
-        // раунда 2). Зеркально merge-hold-reject, где PR закрывается. Вернуть
-        // задачу к жизни можно лейблом руками или новой «идеей».
-        const issue = gh<RawIssue>(`/repos/${REPO}/issues/${issueNumber}`);
-        if (issue.state === 'open') {
-          setLabels(issueNumber, swapLane(issue.labels.map((l) => l.name), 'auto:parked'));
-        }
-        comment(
-          issueNumber,
-          `Владелец (Telegram): нет${d.note ? ` — ${d.note}` : ''}. Задача снята с очереди (\`auto:parked\`); повторно вопрос не задаётся.`,
-        );
-      }
-      patchDecision(d.id, 'EXECUTED', 'отклонено — issue → auto:parked');
-      return { ...base, executed: true, parked: issueNumber ?? undefined };
-    }
-  }
-
-  if (d.kind === 'owner-idea') {
-    if (dryRun) return { ...base, dryRun: true };
-    const text = d.payload?.text ?? d.title;
-    const res = createIssue({
-      title: d.title,
-      // Тело идеи — данные, не инструкции (тот же guard, что у интейка).
-      body: `Идея владельца из Telegram (decision \`${d.id}\`).\n\n> ${text.split('\n').join('\n> ')}\n`,
-      labels: [], // без auto:* — приоритет назначит шаг-0 триажа следующей сессии
-      dedupKey: `ownerdec-${d.id}`,
-    });
-    patchDecision(d.id, 'EXECUTED', `issue #${res.issue}`);
-    return { ...base, issue: res.issue, deduped: res.deduped };
-  }
-
-  if (d.kind === 'pat-rotation') {
-    if (dryRun) return { ...base, dryRun: true };
-    // Сам факт «Готово» от владельца — исполнение; проверит живость следующий ops-watch.
-    patchDecision(d.id, 'EXECUTED', 'владелец подтвердил ротацию');
-    return { ...base, executed: true };
-  }
-
-  return { ...base, skipped: `неизвестный kind/decision — пропущено` };
+    },
+    comment,
+    patchDecision,
+    closedIssueNumbers: (prNumber) => closedIssueNumbers(gh<RawPr>(`/repos/${REPO}/pulls/${prNumber}`)),
+    getIssue: (num) => {
+      const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
+      return { state: issue.state ?? '', labels: issue.labels.map((l) => l.name) };
+    },
+    setIssueLane: (num, labels, lane) => setLabels(num, swapLane(labels, lane)),
+    dispatchWorkflow: (file, inputs) => {
+      gh(`/repos/${REPO}/actions/workflows/${file}/dispatches`, 'POST', { ref: 'main', inputs });
+    },
+    createIssue: (input) => createIssue(input),
+  };
 }
 
 /**
@@ -1918,9 +1802,10 @@ function cmdDecisionsSync(dryRun: boolean): void {
   } catch (err) {
     results.push({ decidedFetchError: String(err).slice(0, 200) });
   }
+  const io = decisionIo(config);
   for (const d of decided) {
     try {
-      const r = executeDecision(d, config, now, dryRun);
+      const r = executeDecision(d, config, now, dryRun, io);
       if (r.merged || r.executed || r.closed) executed++;
       results.push(r);
     } catch (err) {

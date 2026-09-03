@@ -66,6 +66,33 @@ describe("GET /api/notifications/health", () => {
     expect(body.data.ok).toBe(false);
   });
 
+  it("degraded (транспортный флап в пределах серии) → 200 и WARNING со следом, без CRITICAL (issue #708)", async () => {
+    vi.mocked(notificationsHealth).mockResolvedValue({
+      ok: true,
+      degraded: { reason: "Telegram-проба не достучалась по транспорту (серия 1 из 3)", flapStreak: 1, failedProbes: ["adminChat"] },
+      checks: {
+        botToken: { ok: true, username: "bot" },
+        adminChat: { ok: false, reason: "fetch failed (UND_ERR_CONNECT_TIMEOUT)", transportError: true },
+        ownerChat: { ok: true },
+        queue: { pending: 0, failedLastHour: 0 },
+        cron: { lastRunAt: null, staleMin: 9999 },
+        ownerDecisions: { ok: true, lastHeartbeatAt: new Date().toISOString(), staleMin: 1 },
+      },
+    });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.degraded.flapStreak).toBe(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      "notifications",
+      expect.stringContaining("серия 1 из 3"),
+      expect.objectContaining({ flapStreak: 1, failedProbes: ["adminChat"] }),
+    );
+    expect(log.critical).not.toHaveBeenCalled();
+  });
+
   it("returns 503 when notificationsHealth throws", async () => {
     vi.mocked(notificationsHealth).mockRejectedValue(new Error("unexpected"));
 

@@ -88,7 +88,12 @@ export async function onRequestError(
     if (!shouldLog) return;
 
     const { log } = await import("@/lib/logger");
-    await log.error("server-error", err.message || "Unknown server error", {
+    const { isClientInducedFrameworkError } = await import("@/lib/server-error-classify");
+    // Мусорный запрос (бот, устаревший клиент) — WARNING на дашборд, а не ERROR
+    // в Telegram и интейк (issue #717): чинить в приложении там нечего.
+    const clientInduced = isClientInducedFrameworkError(err.message);
+    const write = clientInduced ? log.warn : log.error;
+    await write("server-error", err.message || "Unknown server error", {
       digest,
       route: context.routePath,
       routeType: context.routeType,
@@ -98,6 +103,7 @@ export async function onRequestError(
       // статусом в аргументах хука нет, но по определению он всегда таков.
       statusCode: 500,
       stack,
+      ...(clientInduced ? { classification: "client-induced" } : {}),
     });
   } catch {
     // Логирование ошибки не должно порождать вторую ошибку.
