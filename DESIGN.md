@@ -1,245 +1,171 @@
-# Design System: Apple Light
+# Дизайн-система «Деловой Парк» / Delovoy Park Design System
 
-## 1. Visual Theme & Atmosphere
+> **Источник правды:** `design/tokens.json` (W3C Design Tokens) + канвас Claude Design
+> https://claude.ai/code/artifact/e304994a-9761-479c-b3fe-b86d3e445d34 (артборды в `design/canvas/`).
+> Этот документ — словарь и правила применения; значения токенов здесь только для ориентира,
+> при расхождении прав `tokens.json`. Прежняя редакция «Apple Light» (`#86868b` как secondary,
+> без токенов) и `BRAND_CODE.md` (палитра `#2563EB`/zinc, Bold 700) — устарели.
+> ТЗ и аудит: `docs/product/2026-09-03-landing-design-system-brief.md`.
+>
+> **Source of truth:** `design/tokens.json` + the Claude Design canvas above. This file is the
+> vocabulary and the usage rules; where a value here disagrees with `tokens.json`, the JSON wins.
+> The previous "Apple Light" edition and `BRAND_CODE.md` are superseded. English section below.
 
-The platform adopts Apple's signature design language: a clean, bright, spacious canvas that radiates confidence through restraint. The entire experience is built on pure white and light gray surfaces, where typography and content take center stage. Every element feels grounded, precise, and intentionally placed — nothing competes for attention because the hierarchy does the work.
+Область: публичный лендинг (`src/app/page.tsx`, `landing-delovoy-park.ru/components/*`) и публичные
+примитивы `src/components/ui/*`. Админка (`admin-dark`) и Mini App — вне области, только совместимость
+имён токенов.
 
-The typography is the quiet signature: Manrope for display headings with moderate negative letter-spacing creates headlines that feel confident and modern without being aggressive. The transition to Inter for body text ensures readability and a refined, systematic feel. Apple Blue (`#0071e3`) is deployed sparingly but decisively — as link color, button fills, and focus indicators — creating a calm, trustworthy throughline across the interface.
+---
 
-The overall effect is a premium product experience: bright, precise, welcoming, and unapologetically content-forward. Every section exists to communicate clearly, with the design itself serving as proof of craftsmanship.
+## RU
 
-**Key Characteristics:**
-- Pure white (`#ffffff`) and light gray (`#f5f5f7`) alternating canvas — clean, bright, spacious
-- Manrope display font with moderate negative letter-spacing (-1px to -2px)
-- Apple Blue (`#0071e3`) as the primary accent color — calm, trustworthy, precise
-- Pill-shaped buttons (`rounded-full`) — smooth, approachable interactive elements
-- Content-first layout — typography and whitespace do the heavy lifting
-- Subtle shadows and borders using `border-black/[0.04]` and `border-black/[0.08]`
-- Inter for body text with clean, systematic readability
+### 1. Характер
 
-## 2. Color Palette & Roles
+Светлая, тихая, содержательная система: белый и светло-серый чередуются по секциям, типографика и
+фотографии парка делают всю работу, один синий акцент отмечает только интерактивное. Manrope 600 с
+отрицательным трекингом в заголовках, Inter в тексте. Надёжно · Просто · Рядом · По делу · Современно.
 
-### Primary
-- **Pure White** (`#ffffff`): Primary background, card surfaces, input backgrounds
-- **Near Black** (`#1d1d1f`): Primary text color — headings, body text, high-emphasis content
-- **Apple Blue** (`#0071e3`): Primary accent color — links, buttons, focus states, interactive highlights
+### 2. Цвет (`color.*`)
 
-### Secondary & Accent
-- **Muted Gray** (`#86868b`): Secondary text, subdued labels, descriptions, captions
-- **Light Gray** (`#f5f5f7`): Alternating section backgrounds, secondary surfaces, input backgrounds
+| Токен | Значение | Применение |
+|-------|----------|------------|
+| `surface.0` | `#ffffff` | страница, белые карточки, инпуты |
+| `surface.1` | `#f5f5f7` | чередующиеся секции, серые карточки |
+| `surface.2` | `#e8e8ed` | hover серых карточек, чипы, подложка под фото |
+| `surface.inverse` | `#1d1d1f` | только тосты и тултипы |
+| `text.primary` | `#1d1d1f` | заголовки, основной текст, текст отзывов |
+| `text.secondary` | `#6e6e73` | описания и подписи любого размера (5.2:1 на белом, 4.7:1 на `surface.1`) |
+| `text.tertiary` | `#86868b` | только текст ≥15px и декоративные подписи |
+| `text.onAccent` | `#ffffff` | текст на `accent` и модульных цветах |
+| `accent.default / hover / active` | `#0071e3` / `#0077ed` / `#0066cc` | кнопки, ссылки, фокус, выделенное слово в hero |
+| `accent.subtle` | accent 8% | фон иконок, выделенная карточка |
+| `border.subtle / default / strong` | black 4% / 8% / 12% | разделители / инпуты / hover |
+| `focus.ring` | accent 24%, 3px | только `:focus-visible` |
+| `module.rental` | `#0071e3` | Офисы |
+| `module.gazebos` | `#15803d` | Барбекю Парк |
+| `module.psPark` | `#7c3aed` | Плей Парк |
+| `module.cafe` | `#c2410c` | Кафе |
+| `module.parking` | `#0e7490` | Автостоянка |
+| `rating` | `#fbc02d` | звёзды рейтинга (только заливка иконки) |
+| `brand.yandex / twoGis / telegram / whatsapp` | `#fc3f1d` / `#00b140` / `#229ed9` / `#25d366` | только логотипы и кнопки перехода к партнёру |
+| `status.success / warning / danger` | `#15803d` / `#b45309` / `#dc2626` | формы, тосты, бейдж «Сдан» |
 
-### Surface & Background
-- **White** (`#ffffff`): Page background, primary canvas, card surfaces
-- **Light Gray** (`#f5f5f7`): Section backgrounds, hover states, secondary surfaces
-- **Hover Gray** (`#ebebed`): Hover state for interactive elements on light gray
+Правила:
+- `accent` — единственный интерактивный цвет вне карточек модулей. Никогда как декоративный фон.
+- Модульный цвет живёт только внутри карточки своего модуля: тег на фото, кнопка, иконка на тинте 8%.
+  Все пять дают ≥4.5:1 под белым текстом, поэтому кнопки модулей — белый текст на заливке.
+- Цвета партнёров и `rating` никогда не становятся UI-акцентом или цветом текста.
+- Тёмных фонов для контента нет; `surface.inverse` — только тост и тултип.
 
-### Neutrals & Text
-- **Near Black** (`#1d1d1f`): Heading text, high-emphasis body text
-- **Muted Gray** (`#86868b`): Body text, descriptions, secondary information
-- **Subtle Gray** (`#86868b` at 60% opacity): Tertiary text, helper text, placeholders
+### 3. Типографика (`typography.*`)
 
-### Borders & Dividers
-- **Light Border** (`border-black/[0.04]`): Section dividers, subtle separators
-- **Medium Border** (`border-black/[0.08]`): Input borders, card outlines
-- **Active Border** (`border-black/[0.12]`): Hover state borders
+Manrope 600 для заголовков, статистики и имён; Inter 400/500 для всего остального. Вес 700 не
+используется. Файлы шрифтов self-hosted в `src/app/fonts/` (latin + cyrillic).
 
-### Semantic & Accent
-- **Apple Blue** (`#0071e3`): Links, primary buttons, focus rings
-- **Blue Hover** (`#0077ED`): Hover state for blue buttons
-- **Blue Focus Ring** (`#0071e3` at 20% opacity): Focus ring shadow for inputs
-- **Module Green** (`#16A34A`): Gazebo-specific accent — selected states, success indicators
+| Токен | Desktop | Mobile | Трекинг |
+|-------|---------|--------|---------|
+| `display.hero` | 96 / 0.9 | 48 / 0.92 | −0.04em / −2px |
+| `display.section` | 64 / 1 | 40 / 1 | −0.03em / −1.2px |
+| `heading.lg` | 32 / 1.1 | 28 / 1.1 | −1px / −0.8px |
+| `heading.md` | 24 / 1.15 | 22 / 1.15 | −0.5px |
+| `heading.sm` | 20 / 1.2 | 18 / 1.25 | −0.4px |
+| `heading.xs` | 16 / 1.3 | — | −0.3px |
+| `stat` | 40 / 1.1 | 32 / 1.1 | −1.2px, `tabular-nums` |
+| `body.lg` | 18 / 1.5 | 17 / 1.5 | — |
+| `body.md` | 15 / 1.6 | 15 / 1.6 | — |
+| `body.sm` | 14 / 1.5 | — | только `text.secondary` |
+| `caption` | 13 / 1.4 | — | — |
+| `label` | 12 / 1.4, 500 | — | +0.3px, единственный uppercase |
+| `button` | 15 / 1, 500 | — | — |
+| `input` | 15 / 1.5 | 16 / 1.5 | 16px на мобильных, чтобы iOS не зумил |
 
-### Gradient System
-- No prominent gradient usage — the system relies on flat surfaces with subtle shadows and borders for depth
-- Occasional soft shadows for elevation rather than gradients
+Минимальный размер текста 12px. Длинные слова («Барбекю Парк», «бронирование») переносятся вручную
+через `&shy;`, `hyphens: manual`.
 
-## 3. Typography Rules
+### 4. Отступы, сетка, радиусы, тени, motion
 
-### Font Family
-- **Display**: `Manrope` via `font-[family-name:var(--font-manrope)]` — modern geometric sans-serif, weight 500-600
-- **Body/UI**: `Inter` via `font-[family-name:var(--font-inter)]` — clean, systematic sans-serif for readability
+- База 4px; секция `space.section` 96 desktop / 64 mobile; от заголовка до сетки 56 / 40; карточки gap 16
+  (20 для крупных), padding 24 / 20.
+- Контейнер 1200, gutter 24 / 16. Брейкпоинты Tailwind: sm 640 · md 768 · lg 1024 · xl 1280.
+  Сетки 3 → 2 → 1, офисы 4 → 2 → 1; на мобильных офисы и отзывы — горизонтальная лента со snap.
+- Радиусы: `sm` 8 (теги), `md` 12 (инпуты, иконки), `lg` 16 (карточки), `xl` 24 (панели), `full` (кнопки, чипы).
+- Тени, нейтральные и без цвета: `sm` 0 1 2 / 5% (белая карточка на сером), `md` 0 4 12 / 8% (hover,
+  дропдаун), `lg` 0 12 32 / 12% (модалка, hover карточки услуги).
+- Motion: easing `cubic-bezier(0.2, 0.8, 0.2, 1)`; `fast` 150ms (цвет, рамка), `base` 250ms (тень, сдвиг);
+  reveal при скролле 500ms, opacity 0→1 + translateY 16→0, threshold 0.15, один раз; hover карточки
+  translateY −4 + `shadow.lg`, фото scale 1.04 за 500ms; `prefers-reduced-motion` → только opacity 150ms.
 
-### Hierarchy
+### 5. Компоненты
 
-| Role | Font | Size | Weight | Line Height | Letter Spacing | Notes |
-|------|------|------|--------|-------------|----------------|-------|
-| Display Hero | Manrope | clamp(36px, 5vw, 56px) | 500 | 0.95 | -2px | Confident, not aggressive |
-| Section Display | Manrope | 48px | 600 | 1.00 | -1.5px | Clean section headers |
-| Section Heading | Manrope | 32px | 600 | 1.10 | -1px | Feature section headers |
-| Feature Heading | Manrope | 24px | 600 | 1.15 | -0.5px | Card and subsection headers |
-| Card Title | Manrope | 20px | 600 | 1.20 | -0.4px | Card headers, item titles |
-| Body Large | Inter | 18px | 400 | 1.50 | normal | Intro paragraphs, descriptions |
-| Body | Inter | 15px | 400 | 1.60 | normal | Standard body text |
-| Body Small | Inter | 14px | 400 | 1.50 | normal | Secondary body text |
-| Caption | Inter | 13px | 400 | 1.40 | normal | Labels, metadata |
-| Small | Inter | 12px | 400 | 1.40 | normal | Helper text, fine print |
-| Badge | Inter | 12px | 500 | 1.10 | normal | Tags, status indicators |
+- **Button**: `primary` (синяя пилюля, белый текст), `secondary` (`text.primary` 6% фон), `ghost`
+  (синий текст), `danger`; размеры `lg` 52 (hero, формы), `md` 44, `sm` 36 (только desktop-навигация).
+  Состояния: hover, `focus-visible` (кольцо 3px, на цветном фоне через белый зазор), active (scale
+  0.98, `accent.active`), disabled (opacity 0.4), loading. На мобильных CTA во всю ширину.
+- **Input / Textarea**: 48px, `radius.md`, `border.default` → `accent` + `focus.ring`; ошибка
+  `status.danger` с подписью; disabled на `surface.1`.
+- **Card**: серая на белом (`surface.1`, hover `surface.2`), белая на сером (`surface.0` + `border.subtle`
+  + `shadow.sm`), выделенная (`accent.subtle` + рамка accent 12%), интерактивная с фото (lift + `shadow.lg`).
+- **Badge / Chip / Tag**: `radius.full`, Inter 500 12–13px. Цветной чип — тинт 8% цвета, точка 6px этого
+  цвета и текст `text.primary` (цветной текст на тинте не проходит AA на `surface.1`); чипы-фильтры 40px;
+  бейдж рейтинга — белая карточка с логотипом Яндекса; «Сдан» — `status.warning` с белым uppercase 12px.
+- **Navbar**: 56px; над hero прозрачный, после скролла белый 96% + `border.subtle`, без `backdrop-blur`.
+- **Toast**: `surface.inverse`, белый текст, иконка статуса; **Empty state** отзывов — пунктирная
+  карточка на `surface.1` со ссылкой на Яндекс Карты.
 
-### Principles
-- **Restraint as personality**: Manrope's moderate negative letter-spacing (-1px to -2px) creates confident headings without being aggressive
-- **Readability first**: Inter body text at comfortable sizes (14-18px) with generous line-heights (1.5-1.6)
-- **Weight clarity**: Manrope at 500-600 for headings, Inter at 400 for body — clear visual hierarchy without extremes
-- **Generous line heights**: Body text at 1.5-1.6 line-height ensures comfortable reading on all screen sizes
+### 6. Нельзя
 
-## 4. Component Stylings
+Тёмные фоны для контента, градиенты как декор, glassmorphism и `backdrop-blur`, цветные тени, serif,
+вес 700+, новые шрифты, новые акцентные цвета вне таблицы, emoji вместо иконок, текст меньше 12px,
+`text.tertiary` на тексте ≤14px.
 
-### Buttons
-- **Primary Blue Pill**: `bg-[#0071e3] text-white hover:bg-[#0077ED] rounded-full` — the main CTA, confident and approachable
-- **Secondary Light Pill**: `bg-[#1d1d1f]/[0.06] hover:bg-[#1d1d1f]/[0.1] text-[#1d1d1f] rounded-full` — secondary actions, subtle and clear
-- **Ghost**: No visible background, blue text (`text-[#0071e3]`), hover reveals subtle background
-- **Disabled**: `opacity-50 cursor-not-allowed` — clear but unobtrusive
+### 7. Внедрение
 
-### Cards & Containers
-- **White Card**: `bg-white rounded-2xl shadow-sm` — clean, elevated on gray backgrounds
-- **Gray Card**: `bg-[#f5f5f7] rounded-2xl` — subtle containment on white backgrounds, `hover:bg-[#ebebed]` for interactive
-- **Bordered Card**: `bg-white rounded-2xl border border-black/[0.08]` — explicit containment when needed
-- **Hover**: Subtle background shift or border darkening
+По разделу 8 ТЗ одним PR: `@theme` в `globals.css` из `tokens.json`, публичный вариант примитивов
+`src/components/ui`, замена хардкода hex в компонентах лендинга, удаление мёртвого `hero-section.tsx`,
+снапшот-тесты и e2e-скрины на 1440 и 390. До этого код лендинга остаётся на старых значениях.
 
-### Inputs & Forms
-- **Input Base**: `bg-white border border-black/[0.08] rounded-xl px-4 py-3 text-[#1d1d1f] text-sm`
-- **Placeholder**: `placeholder-[#86868b]/50`
-- **Focus State**: `focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20 focus:outline-none`
-- **Label**: `text-[#86868b] text-xs` above input with `mb-1.5` spacing
-- **Textarea**: Same as input with `resize-none`
+---
 
-### Navigation
-- **Light floating nav bar**: White background, subtle bottom border, dark text links
-- **Nav links**: Inter at 15px, weight 400, `text-[#1d1d1f]` with subtle hover opacity change
-- **CTA button**: Pill-shaped, blue (`bg-[#0071e3]`), positioned at right end of nav
-- **Mobile**: Collapses to hamburger menu, maintains light theme
-- **Sticky behavior**: Nav remains fixed at top on scroll
+## EN
 
-### Image Treatment
-- **Clean composition**: Images placed on white or light gray backgrounds with rounded corners (12px-16px)
-- **Subtle shadows**: `shadow-sm` or `shadow-md` for depth separation
-- **Rounded corners**: `rounded-2xl` for consistency with the card system
-- **Aspect ratios**: Maintained responsively within containers
+### Character
 
-### Trust & Social Proof
-- Customer logos and testimonials on clean white or light gray surfaces
-- Minimal ornamentation — content and typography carry trust
+A light, quiet, content-first system: white and light-gray surfaces alternate by section, typography and
+park photography do the work, one blue accent marks only what is interactive. Manrope 600 with negative
+tracking for headings, Inter for text. No dark content surfaces, no decorative gradients, no glass.
 
-## 5. Layout Principles
+### Tokens (names from `design/tokens.json`)
 
-### Spacing System
-- **Base unit**: 4px
-- **Scale**: 1px, 2px, 4px, 6px, 8px, 12px, 16px, 20px, 24px, 32px, 40px, 48px, 64px, 80px
-- **Section padding**: Large vertical spacing (80px-120px between sections)
-- **Card padding**: 20px-32px internal padding
-- **Component gaps**: 12px-24px between related elements
+- **Surfaces**: `surface.0` `#ffffff` page and white cards; `surface.1` `#f5f5f7` alternating sections and
+  gray cards; `surface.2` `#e8e8ed` hover and chips; `surface.inverse` `#1d1d1f` toasts only.
+- **Text**: `text.primary` `#1d1d1f`; `text.secondary` `#6e6e73` for descriptions at any size (AA on both
+  surfaces); `text.tertiary` `#86868b` only at ≥15px; `text.onAccent` white.
+- **Accent**: `accent.default` `#0071e3`, `hover` `#0077ed`, `active` `#0066cc`, `subtle` 8% tint;
+  the only interactive color outside module cards, never a decorative background.
+- **Module accents**, used only inside their module's card: `rental` `#0071e3`, `gazebos` `#15803d`,
+  `psPark` `#7c3aed`, `cafe` `#c2410c`, `parking` `#0e7490`. All pass 4.5:1 under white text.
+- **Partners** (`brand.yandex` `#fc3f1d`, `twoGis` `#00b140`, `telegram` `#229ed9`, `whatsapp` `#25d366`)
+  and `rating` `#fbc02d` appear only in logos, star icons and partner buttons.
+- **Status**: `success` `#15803d`, `warning` `#b45309` ("Сдан" badge), `danger` `#dc2626`.
+- **Borders**: black 4% / 8% / 12%; **focus**: accent 24%, 3px, `:focus-visible` only.
+- **Type**: `display.hero` 96/0.9 (48 mobile), `display.section` 64/1 (40), `heading.lg/md/sm/xs`
+  32/24/20/16, `stat` 40 tabular, `body.lg/md/sm` 18/15/14, `caption` 13, `label` 12 uppercase,
+  `button` 15/500, `input` 15 (16 on mobile). Minimum 12px; weight 700 is never used.
+- **Space**: 4px base; section padding 96 / 64; container 1200, gutter 24 / 16; Tailwind breakpoints.
+- **Radius**: 8 / 12 / 16 / 24 / full. **Shadows**: sm, md, lg, neutral only.
+- **Motion**: one easing `cubic-bezier(0.2, 0.8, 0.2, 1)`, 150 / 250 ms, scroll reveal 500 ms once,
+  reduced motion → opacity only.
 
-### Grid & Container
-- **Max width**: 1200px container, centered
-- **Column patterns**: Full-width hero, 2-3 column feature grids, single-column content
-- **Symmetric layouts**: Clean, balanced compositions
+### Component prompts for agents
 
-### Whitespace Philosophy
-- **Breathe through brightness**: Generous vertical spacing between sections — white backgrounds create natural rhythm through spacing alone
-- **Spacious throughout**: Both individual components and their surroundings have breathing room
-- **Content-first clarity**: Each section has a clear purpose with whitespace providing natural boundaries
-
-### Border Radius Scale
-- **4px**: Small UI elements, badges, tags
-- **8px**: Standard components — inputs, small buttons
-- **12px**: Cards, containers — `rounded-xl`
-- **16px**: Large containers, feature cards — `rounded-2xl`
-- **9999px / full**: Pill buttons, navigation CTAs — `rounded-full`
-
-## 6. Depth & Elevation
-
-| Level | Treatment | Use |
-|-------|-----------|-----|
-| Level 0 (Flat) | No shadow, white or `#f5f5f7` surface | Page background, section backgrounds |
-| Level 1 (Subtle) | `shadow-sm` | Cards on gray backgrounds, light elevation |
-| Level 2 (Medium) | `shadow-md` | Floating elements, dropdowns |
-| Level 3 (Prominent) | `shadow-lg` | Modals, overlays, popovers |
-
-### Shadow Philosophy
-The Apple light elevation system uses subtle, diffused shadows that create gentle depth without drawing attention. Shadows are soft and spread wide, never creating harsh edges.
-
-### Border-Based Depth
-- **Light borders** (`border-black/[0.04]`): Section dividers, the lightest containment
-- **Medium borders** (`border-black/[0.08]`): Input fields, card outlines
-- **Active borders** (`border-black/[0.12]`): Hover states, emphasized containment
-
-### Decorative Depth
-- No glow effects or colored shadows
-- Depth is communicated through background color changes (`#ffffff` → `#f5f5f7`) and subtle shadows
-- Clean, physical-feeling elevation without digital artifacts
-
-## 7. Do's and Don'ts
-
-### Do
-- Use white (`#ffffff`) and light gray (`#f5f5f7`) as primary backgrounds — alternating for section rhythm
-- Apply moderate negative letter-spacing on Manrope display text (-1px to -2px)
-- Keep all CTA buttons pill-shaped (`rounded-full`) — approachable and clear
-- Use Apple Blue (`#0071e3`) exclusively for interactive accents — links, buttons, focus states
-- Deploy `bg-[#f5f5f7]` for secondary surfaces and subtle containment
-- Maintain Manrope at weight 500-600 for headings — confident but not aggressive
-- Use Inter for all body text and UI elements at weight 400
-- Let content and typography be the visual centerpiece
-- Apply `border-black/[0.04]` or `border-black/[0.08]` for subtle containment
-
-### Don't
-- Use dark backgrounds (no `#000000`, `#1a1a1a`, or any dark surfaces for content areas)
-- Apply bold (700+) weight to display headings — 500-600 only
-- Introduce additional accent colors beyond Apple Blue (module-specific accents like green are acceptable)
-- Use heavy drop shadows or colored shadow glows
-- Add decorative borders or ornamental elements
-- Use positive letter-spacing on headlines
-- Create glass/frosted effects or translucent surfaces
-- Place colored backgrounds behind content sections — white and `#f5f5f7` only
-- Use serif fonts — the system is geometric sans-serif only
-
-## 8. Responsive Behavior
-
-### Breakpoints
-| Name | Width | Key Changes |
-|------|-------|-------------|
-| Mobile | <768px | Single column, stacked sections, reduced heading sizes, hamburger nav |
-| Tablet | 768px-1199px | 2-column grids begin, nav partially visible |
-| Desktop | >1199px | Full layout, expanded nav, 3-column grids, full heading sizes |
-
-### Touch Targets
-- Pill buttons: minimum 44px height — meets WCAG minimum
-- Nav links: generous padding for touch accessibility
-- Mobile CTA buttons: Full-width pills on mobile for easy thumb reach
-
-### Collapsing Strategy
-- **Navigation**: Full horizontal nav -> hamburger menu at mobile breakpoint
-- **Hero text**: Scales via clamp() — responsive without breakpoint jumps
-- **Feature sections**: Grid columns reduce: 3 -> 2 -> 1 across breakpoints
-- **Section spacing**: Reduces proportionally — 120px desktop -> 60px mobile
-
-### Image Behavior
-- Images are responsive, scaling within their container boundaries
-- Consistent rounded corners maintained across breakpoints
-- Images lazy-load as user scrolls into view
-
-## 9. Agent Prompt Guide
-
-### Quick Color Reference
-- Primary Background: White (`#ffffff`)
-- Secondary Background: Light Gray (`#f5f5f7`)
-- Primary Text: Near Black (`#1d1d1f`)
-- Secondary Text: Muted Gray (`#86868b`)
-- Accent/CTA: Apple Blue (`#0071e3`)
-- Accent Hover: Blue Hover (`#0077ED`)
-- Light Border: `border-black/[0.04]`
-- Medium Border: `border-black/[0.08]`
-- Focus Ring: `focus:ring-[#0071e3]/20`
-
-### Example Component Prompts
-- "Create a hero section on white background with Manrope heading in `#1d1d1f`, letter-spacing -2px, line-height 0.95, and a pill-shaped blue CTA button (`bg-[#0071e3] text-white rounded-full`) with hover state `hover:bg-[#0077ED]`"
-- "Design a feature card on `bg-[#f5f5f7]` with `rounded-2xl`, `text-[#1d1d1f]` Manrope heading at 20px weight 600, and `text-[#86868b]` Inter body text, with `hover:bg-[#ebebed]` transition"
-- "Build a navigation bar with white background, `border-b border-black/[0.04]`, Inter text links in `#1d1d1f` at 15px, and a pill-shaped blue CTA button at the right"
-- "Create an input field with `bg-white border border-black/[0.08] rounded-xl px-4 py-3`, `text-[#1d1d1f]`, `placeholder-[#86868b]/50`, and `focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/20`"
-- "Design a summary card with `bg-white rounded-2xl shadow-sm`, `text-[#86868b]` labels, `text-[#1d1d1f]` values, and `border-b border-black/[0.04]` dividers between rows"
-
-### Iteration Guide
-When refining existing screens generated with this design system:
-1. Focus on ONE component at a time — the clean canvas makes every element visible
-2. Always verify letter-spacing on Manrope headings — moderate negative tracking (-1px to -2px) is the signature
-3. Check that Apple Blue appears ONLY on interactive elements — never as decorative background or non-link text
-4. Ensure all CTA buttons are pill-shaped (`rounded-full`) — any squared corner breaks the aesthetic
-5. Test light gray surfaces by checking they use exactly `#f5f5f7` — too dark looks heavy, too light disappears against white
+- "Primary CTA: 52px pill, `bg-accent text-text-on-accent`, hover `accent.hover`, active scale 0.98,
+  focus ring accent 24% with a white gap, full-width on mobile."
+- "Gray card: `bg-surface-1 rounded-lg p-6`, hover `bg-surface-2`, heading `heading.sm` in
+  `text.primary`, body `body.sm` in `text.secondary`, 44px icon tile on `accent.subtle`."
+- "Tinted chip: 8% tint background, a 6px dot in the module color, `text.primary` label at 12px/500."
+- "Module card: photo 4:3 with a 12px module-colored tag, `heading.md`, `body.sm`, 44px pill button
+  filled with the module color and white text."
+- "Navbar: 56px, transparent over the hero, white 96% plus `border.subtle` after scroll, no blur,
+  links 13px/500 at `text.primary` 70%, 40px pill CTA on the right."
+- "Input: 48px, `rounded-md`, `border.default`, on focus `border-accent` plus `focus.ring`; error uses
+  `status.danger` border and a 12px message."
