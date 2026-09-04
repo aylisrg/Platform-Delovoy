@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.21.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.2...v2.21.0) (2026-09-03)
+
+
+### Features
+
+* **gazebos,ps-park:** недельный вид расписания и drag-and-drop переноса брони (US-5/US-6, эпик [#442](https://github.com/aylisrg/Platform-Delovoy/issues/442)) ([#841](https://github.com/aylisrg/Platform-Delovoy/issues/841)) ([757dcf2](https://github.com/aylisrg/Platform-Delovoy/commit/757dcf2d790d9751505299ef5de98285b6f3e27f))
+
+
+### Bug Fixes
+
+* **automation:** батч бэклога — дедуп чек-ранов свипера, гистерезис Telegram-проб, флапы пробы, шум server-error, decision-executor, deps ([#839](https://github.com/aylisrg/Platform-Delovoy/issues/839)) ([bc71219](https://github.com/aylisrg/Platform-Delovoy/commit/bc7121954ca5113f73dd010fe3e12bec613dea42))
+* **notifications:** owner-decisions heartbeat — порог под джиттер cron GitHub и один CRITICAL на эпизод молчания ([#832](https://github.com/aylisrg/Platform-Delovoy/issues/832)) ([5f37cf0](https://github.com/aylisrg/Platform-Delovoy/commit/5f37cf0ec941b3fa8efda0737bb3430c5490cb9b))
+
 ## [2.20.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.1...v2.20.2) (2026-08-29)
 
 
