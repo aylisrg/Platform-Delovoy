@@ -160,18 +160,18 @@ export function PricingSection({ resources }: { resources: GazeboResource[] }) {
                 className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
                 style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
               >
-                Пн–Пт
+                Пн–Чт
               </span>
-              <span className="text-sm text-[#1d1d1f]">Аренда более 3 часов</span>
+              <span className="text-sm text-[#1d1d1f]">Аренда от 4 часов</span>
             </li>
             <li className="flex items-start gap-3 bg-white/60 rounded-xl px-4 py-3">
               <span
                 className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
                 style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
               >
-                Сб–Вс
+                Пт–Вс
               </span>
-              <span className="text-sm text-[#1d1d1f]">Аренда более 6 часов</span>
+              <span className="text-sm text-[#1d1d1f]">Аренда от 6 часов</span>
             </li>
           </ul>
         </div>
