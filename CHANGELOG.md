@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.0...v2.21.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **gazebos:** обновить условия акции «пицца в подарок» ([#883](https://github.com/aylisrg/Platform-Delovoy/issues/883)) ([921c14a](https://github.com/aylisrg/Platform-Delovoy/commit/921c14a4284981a9c86e0269d8e7301dd3e5e8f4))
+
 ## [2.21.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.20.2...v2.21.0) (2026-09-03)
 
 
