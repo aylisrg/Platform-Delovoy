@@ -32,6 +32,18 @@ PERF_OFFSET_FILE="/tmp/.local-watchdog-perf-offset"
 FIVEXX_ALERT_MARKER="/tmp/.local-watchdog-5xx-alerted"
 FIVEXX_THRESHOLD=10  # 5xx за минуту до алерта
 
+# TLS-edge презенс-чек: независимый канал от app_ok/public_ok ниже (инцидент
+# 2026-09-15). Контейнер `edge` (issue #453, ADR 2026-07-23 §I2) — единственный
+# слушатель постквантового TLS (X25519MLKEM768) на публичном :443; без него
+# host-nginx остаётся только на loopback :8443, и :443 либо не отвечает вовсе,
+# либо (если кто-то руками откатил host-nginx на публичный :443 — так и
+# было 2026-09-15) обслуживается системным OpenSSL 3.0.13 без ML-KEM. Оба
+# случая невидимы для curl-based app_ok/public_ok: curl не шлёт постквантовый
+# ClientHello, классический TLS 1.3 у него и так работает. Ломается только
+# для браузеров (Chrome/Safari) с постквантовым ClientHello — сайт «висит»
+# ровно так, как жаловался владелец за месяц до того, как это заметили.
+EDGE_ALERT_MARKER="/tmp/.local-watchdog-edge-alerted"
+
 SUDO=""
 [ "$(id -u)" != "0" ] && SUDO="sudo"
 
@@ -112,7 +124,26 @@ public_ok() {
     [ "$CODE" = "200" ]
 }
 
+edge_ok() {
+    [ "$(docker inspect -f '{{.State.Running}}' delovoy-edge 2>/dev/null)" = "true" ]
+}
+
 check_5xx_spike
+
+if ! edge_ok; then
+    echo "$(ts) edge container down — recreating"
+    (cd /opt/delovoy-park && docker compose up -d --no-deps edge) >/dev/null 2>&1
+    sleep 3
+    if edge_ok; then
+        echo "$(ts) edge recreated"
+        telegram_alert "⚠️ <b>Local watchdog: TLS-edge был не запущен</b>
+Постквантовый TLS (ML-KEM) на публичном :443 был недоступен — контейнер delovoy-edge пересоздан." "$EDGE_ALERT_MARKER"
+    else
+        echo "$(ts) edge recreate FAILED"
+        telegram_alert "🚨 <b>Local watchdog: TLS-edge не поднимается</b>
+Постквантовый TLS (ML-KEM) недоступен на публичном :443, автовосстановление не удалось — нужен ops-nginx apply вручную." "$EDGE_ALERT_MARKER"
+    fi
+fi
 
 if app_ok && public_ok; then
     rm -f "$FAIL_MARKER"
