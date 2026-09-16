@@ -71,6 +71,7 @@ export const EVENT_SOURCES = {
   GAZEBOS: "gazebos",
   CAFE: "cafe",
   METRIKA: "metrika",
+  ANALYTICS_PRODUCT_EVENT: "analytics.product-event",
   RATE_LIMIT: "rate-limit", // НЕ переименовывать — scripts/lib/log-reader.ts
   REVIEWS_API: "reviews-api",
   REVIEWS_PARSER: "reviews-parser", // landing-delovoy-park.ru — тот же @/lib/logger

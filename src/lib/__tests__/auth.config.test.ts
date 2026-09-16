@@ -167,4 +167,12 @@ describe("authConfig.authorized — сохранённые исключения 
   it("GET /api/tasks/track/public-id остаётся публичным", async () => {
     expect(await authorized("/api/tasks/track/public-id")).toBe(true);
   });
+
+  it("POST /api/analytics/events (funnel beacon) остаётся публичным", async () => {
+    expect(await authorized("/api/analytics/events", "POST")).toBe(true);
+  });
+
+  it("GET /api/analytics/events требует сессию (только POST в allowlist)", async () => {
+    expect(await authorized("/api/analytics/events")).not.toBe(true);
+  });
 });

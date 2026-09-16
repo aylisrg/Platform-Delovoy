@@ -75,6 +75,7 @@ vi.mock("@/lib/db", () => ({
     systemEvent: { create: vi.fn() },
     resource: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
+    productEvent: { create: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const { prisma: p } = await import("@/lib/db");
       return fn(p);
@@ -140,6 +141,7 @@ const remoteSucceeded = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isYooKassaConfigured).mockReturnValue(true);
+  vi.mocked(prisma.productEvent.findFirst).mockResolvedValue(null);
   delete process.env.YOOKASSA_RECEIPTS_ENABLED;
   delete process.env.YOOKASSA_VAT_CODE;
 });
@@ -275,6 +277,7 @@ describe("createOnlinePayment", () => {
 
 describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
   it("succeeded: CAS-переход, подтверждение брони, ONLINE_PAYMENT в леджер, уведомление", async () => {
+    vi.mocked(prisma.productEvent.findFirst).mockResolvedValue({ sessionKey: "sess-1" } as never);
     vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
     vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
     vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
@@ -327,6 +330,60 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
       expect.objectContaining({
         data: expect.objectContaining({ type: "ONLINE_PAYMENT", bookingId: "book1" }),
       })
+    );
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "payment.succeeded" })
+    );
+    // First-party воронка, шаг paid (US-1 эпика #583, ADR 2026-09-16 §5.4) —
+    // наследует sessionKey от найденного submitted-события.
+    await vi.waitFor(() => expect(prisma.productEvent.create).toHaveBeenCalled());
+    expect(prisma.productEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        funnel: "gazebos",
+        step: "paid",
+        sessionKey: "sess-1",
+        entityId: "book1",
+        metadata: { amountRub: 1500 },
+      }),
+    });
+  });
+
+  it("сбой записи шага paid (ProductEvent) не ломает подтверждение брони и уведомление — fire-and-forget", async () => {
+    vi.mocked(prisma.productEvent.findFirst).mockRejectedValue(new Error("db down"));
+
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
+    vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
+    vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+      paymentRow({ status: "SUCCEEDED" })
+    );
+    const booking = {
+      id: "book1",
+      moduleSlug: "gazebos",
+      status: "PENDING",
+      resourceId: "res1",
+      userId: "user1",
+      clientName: null,
+      clientPhone: null,
+      googleEventId: null,
+      metadata: { totalPrice: "1500.00" },
+      date: new Date("2026-07-15"),
+      startTime: new Date("2026-07-15T10:00:00Z"),
+      endTime: new Date("2026-07-15T14:00:00Z"),
+    };
+    vi.mocked(prisma.booking.findUnique)
+      .mockResolvedValueOnce(booking as never)
+      .mockResolvedValueOnce({ ...booking, status: "CONFIRMED" } as never);
+    vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({
+      name: "Беседка №1",
+      googleCalendarId: null,
+    } as never);
+
+    await expect(syncPaymentByProviderId("yk1")).resolves.toBeUndefined();
+
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONFIRMED" }) })
     );
     expect(enqueueNotification).toHaveBeenCalledWith(
       expect.objectContaining({ type: "payment.succeeded" })

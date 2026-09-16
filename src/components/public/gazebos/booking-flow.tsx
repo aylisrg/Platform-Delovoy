@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { reachGoal } from "@/lib/metrika";
+import { sendFunnelBeacon } from "@/lib/funnel-beacon";
 import { Toast } from "@/components/ui/toast";
 import { AuthModal } from "@/components/ui/auth-modal";
 import {
@@ -64,8 +65,16 @@ export function BookingFlow() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error"; visible: boolean }>({
     message: "", type: "success", visible: false,
   });
+  const slotSelectedFired = useRef(false);
 
   const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
+
+  // First-party воронка (US-1 эпика #583, ADR 2026-09-16) — раз за визит.
+  function trackSlotSelected() {
+    if (slotSelectedFired.current) return;
+    slotSelectedFired.current = true;
+    sendFunnelBeacon("gazebos", "slot_selected");
+  }
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type, visible: true });
@@ -94,6 +103,7 @@ export function BookingFlow() {
   }
 
   function toggleSlot(resourceId: string, slotStart: string) {
+    trackSlotSelected();
     if (selectedResourceId && selectedResourceId !== resourceId) {
       setSelectedResourceId(resourceId);
       setSelectedSlots([slotStart]);
@@ -125,6 +135,7 @@ export function BookingFlow() {
    * BOOKING_CONFLICT. Поэтому кнопка активна только на полностью свободном дне.
    */
   function selectFullDay(resourceId: string, slotStarts: string[]) {
+    trackSlotSelected();
     setSelectedResourceId(resourceId);
     setSelectedSlots((prev) =>
       selectedResourceId === resourceId && prev.length === slotStarts.length

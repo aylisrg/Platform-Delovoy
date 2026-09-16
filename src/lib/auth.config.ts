@@ -181,7 +181,11 @@ export const authConfig: NextAuthConfig = {
         pathname === "/api/tasks/report" ||
         // Отмена, перенос и оплата брони со страницы управления: тот же
         // капабилити-токен в пути, что и у GET (см. isPublicApiRoute).
-        pathname.startsWith("/api/booking/");
+        pathname.startsWith("/api/booking/") ||
+        // Публичный ingest промежуточных шагов воронки (US-1 эпика #583, ADR
+        // 2026-09-16): анонимные посетители, sendBeacon. Только клиентские
+        // шаги — сервер сам проверяет это в схеме (продать конверсию нельзя).
+        pathname === "/api/analytics/events";
       // CI-triggered endpoints with their own secret-based auth
       const isCiWebhook = pathname === "/api/admin/release-notify";
       // Owner-decisions sweeper (issue-queue-merge.yml, no session — Bearer

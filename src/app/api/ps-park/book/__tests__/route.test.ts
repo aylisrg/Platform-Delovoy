@@ -9,6 +9,12 @@ vi.mock("@/lib/logger", () => ({
   logAudit: (...args: unknown[]) => mockLogAudit(...args),
 }));
 
+const mockProductEventCreate = vi.fn();
+vi.mock("@/lib/db", () => ({
+  prisma: { productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) } },
+}));
+vi.mock("@/lib/redis", () => ({ redis: { set: vi.fn() }, redisAvailable: false }));
+
 const mockCreateBooking = vi.fn();
 vi.mock("@/modules/ps-park/service", async () => {
   const actual = await vi.importActual<typeof import("@/modules/ps-park/service")>(
@@ -43,6 +49,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
   mockCreateBooking.mockResolvedValue({ id: "bk-1", metadata: {} });
+  mockProductEventCreate.mockRejectedValue(new Error("db down"));
 });
 
 describe("POST /api/ps-park/book", () => {
@@ -108,5 +115,14 @@ describe("POST /api/ps-park/book", () => {
 
     expect(res.status).toBe(500);
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  it("сбой записи в ProductEvent (БД недоступна) не ломает ответ брони — fire-and-forget (AC-1.6)", async () => {
+    const res = await POST(makeRequest(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.success).toBe(true);
+    expect(mockProductEventCreate).toHaveBeenCalledOnce();
   });
 });

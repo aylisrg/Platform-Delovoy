@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { reachGoal } from "@/lib/metrika";
+import { sendFunnelBeacon } from "@/lib/funnel-beacon";
 import { AuthModal } from "@/components/ui/auth-modal";
 import { DarkDateNavigator } from "@/components/public/ps-park/dark-date-navigator";
 import type { DayAvailability } from "@/modules/ps-park/types";
@@ -28,6 +29,7 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingSuccessMsg, setBookingSuccessMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const slotSelectedFired = useRef(false);
 
   const loadAvailability = useCallback(async (newDate: string) => {
     setDate(newDate);
@@ -48,6 +50,11 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
   }, []);
 
   function toggleSlot(resourceId: string, slotStart: string) {
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16) — раз за визит.
+    if (!slotSelectedFired.current) {
+      slotSelectedFired.current = true;
+      sendFunnelBeacon("ps-park", "slot_selected");
+    }
     if (selectedResourceId && selectedResourceId !== resourceId) {
       setSelectedResourceId(resourceId);
       setSelectedSlots([slotStart]);

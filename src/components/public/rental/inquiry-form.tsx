@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { reachGoal } from "@/lib/metrika";
+import { sendFunnelBeacon } from "@/lib/funnel-beacon";
 
 type Office = {
   id: string;
@@ -38,6 +39,8 @@ export function InquiryForm({
     if (startTrackedRef.current) return;
     startTrackedRef.current = true;
     reachGoal("office_inquiry_start");
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    sendFunnelBeacon("rental", "form_started");
   }, []);
 
   const availableOffices = offices.filter((o) => o.status === "AVAILABLE");
