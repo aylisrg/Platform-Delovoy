@@ -159,9 +159,9 @@ if [ -f "$EDGE_MAINTENANCE_FLAG" ]; then
     if ! edge_ok; then
         echo "$(ts) edge container down but .edge-maintenance is set — ops-nginx apply/rollback in progress, skipping auto-heal"
         if [ -n "$(find "$EDGE_MAINTENANCE_FLAG" -maxdepth 0 -mmin "+${EDGE_MAINTENANCE_STALE_MIN}" 2>/dev/null)" ]; then
-            echo "$(ts) .edge-maintenance older than ${EDGE_MAINTENANCE_STALE_MIN}m — likely an abandoned/failed ops-nginx run, alerting"
+            echo "$(ts) .edge-maintenance older than ${EDGE_MAINTENANCE_STALE_MIN}m — apply likely failed, or rollback is waiting for a re-apply, alerting"
             telegram_alert "🚨 <b>Local watchdog: .edge-maintenance завис (&gt;${EDGE_MAINTENANCE_STALE_MIN} мин)</b>
-edge всё ещё не запущен, self-heal выключен флагом дольше обычного прогона apply/rollback — похоже, ops-nginx apply упал и не откатился. Публичный :443, скорее всего, держит host-nginx напрямую (без ML-KEM). Проверьте последний прогон ops-nginx.yml; после ручного фикса снять флаг: rm /opt/delovoy-park/.edge-maintenance." "$EDGE_STALE_ALERT_MARKER"
+edge всё ещё не запущен, self-heal выключен флагом дольше обычного прогона apply/rollback — стоит из-за проваленного apply или дожидается повторного apply после rollback. Публичный :443, скорее всего, держит host-nginx напрямую (без ML-KEM). Проверьте последний прогон ops-nginx.yml; после фикса флаг снимает apply сам, вручную — только если нужно: rm /opt/delovoy-park/.edge-maintenance." "$EDGE_STALE_ALERT_MARKER"
         fi
     fi
 elif ! edge_ok; then
