@@ -386,7 +386,7 @@ PR не уезжает никогда (замерено на #712: две нед
 
 | Level | Channel |
 |-------|---------|
-| CRITICAL | Telegram admin group (`log.critical()` → `sendAlert()`, throttled per source, 300s — `src/lib/logger.ts`) |
+| CRITICAL | Telegram admin group (`log.critical()` → `sendAlert()`, throttled per source, 300s — `src/lib/logger.ts`); if Telegram is unset/unreachable, falls back to email at `CRITICAL_ALERT_EMAIL` via the SMTP adapter (issue #455) |
 | ERROR | Telegram admin group |
 | WARNING | Dashboard only |
 | INFO | DB log (`SystemEvent`) |

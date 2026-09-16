@@ -161,3 +161,4 @@
 | 2026-09-03 | 2026-09-03-landing-design-system-qa-report.md | 3 | rbac, api, tests, scope_creep |
 | 2026-09-03 | 2026-09-03-backlog-batch-qa-report.md | 12 | rbac, api, typescript, tests |
 | 2026-09-03 | 2026-09-03-calendar-week-dnd-qa-report.md | 8 | rbac, api, typescript, tests |
+| unknown | issue-455-qa-report.md | 8 | rbac, api, typescript, tests |
