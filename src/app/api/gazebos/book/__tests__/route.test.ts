@@ -11,6 +11,12 @@ vi.mock("@/lib/logger", () => ({
   log: { info: (...args: unknown[]) => mockLogInfo(...args) },
 }));
 
+const mockProductEventCreate = vi.fn();
+vi.mock("@/lib/db", () => ({
+  prisma: { productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) } },
+}));
+vi.mock("@/lib/redis", () => ({ redis: { set: vi.fn() }, redisAvailable: false }));
+
 const mockCreateBooking = vi.fn();
 vi.mock("@/modules/gazebos/service", async () => {
   const actual = await vi.importActual<typeof import("@/modules/gazebos/service")>(
@@ -47,6 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
   mockCreateBooking.mockResolvedValue({ id: "bk-1", metadata: {}, manageToken: "raw-token" });
+  mockProductEventCreate.mockRejectedValue(new Error("db down"));
 });
 
 describe("POST /api/gazebos/book", () => {
@@ -196,5 +203,14 @@ describe("POST /api/gazebos/book — акцепт оферты", () => {
     expect(body.success).toBe(true);
     expect(body.data.manageToken).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("raw-token");
+  });
+
+  it("сбой записи в ProductEvent (БД недоступна) не ломает ответ брони — fire-and-forget (AC-1.6)", async () => {
+    const res = await POST(makeRequest(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.success).toBe(true);
+    expect(mockProductEventCreate).toHaveBeenCalledOnce();
   });
 });

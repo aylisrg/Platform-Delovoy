@@ -111,7 +111,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
 | `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
 | `clients` | ✅ | Tenant CRM |
-| `analytics` | ✅ | Aggregate metrics, balance/conversions |
+| `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation` |
 | `users` | ✅ | Admin user management |
 | `profile` | ⚠️ webapp only | USER contact API (`/api/profile/*`) |
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |

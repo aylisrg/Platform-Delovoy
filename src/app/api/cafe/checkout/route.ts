@@ -11,6 +11,7 @@ import { log, logAudit } from "@/lib/logger";
 import { createCheckout, OrderError } from "@/modules/cafe/service";
 import { checkoutSchema } from "@/modules/cafe/validation";
 import { trackServerGoal } from "@/lib/metrika-server";
+import { deriveSessionKeyFromHeaders, recordFunnelStep } from "@/modules/analytics/product-events";
 
 /**
  * POST /api/cafe/checkout — публичный QR-чекаут кафе.
@@ -56,6 +57,14 @@ export async function POST(request: NextRequest) {
       request,
       target: "cafe_order_submit",
       price: Number(result.totalAmount),
+    });
+
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    recordFunnelStep({
+      funnel: "cafe",
+      step: "submitted",
+      sessionKey: deriveSessionKeyFromHeaders(request.headers),
+      entityId: result.id,
     });
 
     return apiResponse(result, undefined, 201);

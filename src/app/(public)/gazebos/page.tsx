@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { after } from "next/server";
+import { headers } from "next/headers";
 import { listResources, isPublicBookingEnabled } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
@@ -9,6 +11,7 @@ import { ParkingSection } from "@/components/public/gazebos/parking-section";
 import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
+import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +94,14 @@ export const metadata: Metadata = {
 };
 
 export default async function GazebosPage() {
+  const headersList = await headers();
+  if (!isPrefetchOrBot(headersList)) {
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    after(() => {
+      recordFunnelStep({ funnel: "gazebos", step: "view", sessionKey: deriveSessionKeyFromHeaders(headersList) });
+    });
+  }
+
   const [resources, phoneInfo, bookingEnabled] = await Promise.all([
     listResources(true),
     getPublicPhone("gazebos"),

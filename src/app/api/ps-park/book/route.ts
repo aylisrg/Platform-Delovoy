@@ -6,6 +6,7 @@ import { createBooking, PSBookingError } from "@/modules/ps-park/service";
 import { createPSBookingSchema } from "@/modules/ps-park/validation";
 import { InventoryError } from "@/modules/inventory/service";
 import { trackServerGoal } from "@/lib/metrika-server";
+import { deriveSessionKeyFromHeaders, recordFunnelStep } from "@/modules/analytics/product-events";
 
 /** Booking price живёт в metadata JSON, не в колонке. */
 function extractBookingPrice(metadata: unknown): number | null {
@@ -43,6 +44,14 @@ export async function POST(request: NextRequest) {
       request,
       target: "pspark_booking_success",
       price: extractBookingPrice(booking.metadata),
+    });
+
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    recordFunnelStep({
+      funnel: "ps-park",
+      step: "submitted",
+      sessionKey: deriveSessionKeyFromHeaders(request.headers),
+      entityId: booking.id,
     });
 
     return apiResponse(booking, undefined, 201);

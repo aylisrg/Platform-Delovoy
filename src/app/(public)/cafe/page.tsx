@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { after } from "next/server";
+import { headers } from "next/headers";
 import { getMenu, getMenuCategories } from "@/modules/cafe/service";
 import { MenuList } from "@/components/public/cafe/menu-list";
 import { Navbar } from "@landing/components/navbar";
@@ -6,6 +8,7 @@ import { Footer } from "@landing/components/footer";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { auth } from "@/lib/auth";
+import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 
 // Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -77,6 +80,14 @@ export const metadata: Metadata = {
 };
 
 export default async function CafePage() {
+  const headersList = await headers();
+  if (!isPrefetchOrBot(headersList)) {
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    after(() => {
+      recordFunnelStep({ funnel: "cafe", step: "view", sessionKey: deriveSessionKeyFromHeaders(headersList) });
+    });
+  }
+
   const [items, categories, session] = await Promise.all([
     getMenu(),
     getMenuCategories(),

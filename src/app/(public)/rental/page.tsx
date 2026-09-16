@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { after } from "next/server";
+import { headers } from "next/headers";
 import { listOffices } from "@/modules/rental/service";
 import { RentalPageContent } from "@/components/public/rental/rental-page-content";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
+import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 
 // Офисы живут в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -84,6 +87,14 @@ export const metadata: Metadata = {
 };
 
 export default async function RentalPage() {
+  const headersList = await headers();
+  if (!isPrefetchOrBot(headersList)) {
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    after(() => {
+      recordFunnelStep({ funnel: "rental", step: "view", sessionKey: deriveSessionKeyFromHeaders(headersList) });
+    });
+  }
+
   const offices = await listOffices();
 
   return (

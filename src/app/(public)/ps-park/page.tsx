@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { after } from "next/server";
+import { headers } from "next/headers";
 import { listTables, getAvailability } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
@@ -12,6 +14,7 @@ import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
 import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
 import { toISODate } from "@/lib/format";
+import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +169,14 @@ function TableCard({ resource, index }: { resource: PSTableResource; index: numb
 }
 
 export default async function PSParkPage() {
+  const headersList = await headers();
+  if (!isPrefetchOrBot(headersList)) {
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    after(() => {
+      recordFunnelStep({ funnel: "ps-park", step: "view", sessionKey: deriveSessionKeyFromHeaders(headersList) });
+    });
+  }
+
   const today = toISODate(new Date());
   const [tables, rawAvailability, phoneInfo] = await Promise.all([
     listTables(true),

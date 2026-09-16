@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { createInquiry, listInquiries, RentalError } from "@/modules/rental/service";
 import { createInquirySchema, inquiryFilterSchema } from "@/modules/rental/validation";
 import { trackServerGoal } from "@/lib/metrika-server";
+import { deriveSessionKeyFromHeaders, recordFunnelStep } from "@/modules/analytics/product-events";
 
 /**
  * POST /api/rental/inquiries — public, submit a rental inquiry (no auth).
@@ -29,6 +30,14 @@ export async function POST(request: NextRequest) {
       target: "office_inquiry_success",
       // Заявка на офис — это lead, а не контракт. Цены ещё нет → передаём null.
       price: null,
+    });
+
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
+    recordFunnelStep({
+      funnel: "rental",
+      step: "submitted",
+      sessionKey: deriveSessionKeyFromHeaders(request.headers),
+      entityId: inquiry.id,
     });
 
     return apiResponse(inquiry, undefined, 201);

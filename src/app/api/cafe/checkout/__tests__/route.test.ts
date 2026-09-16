@@ -8,6 +8,11 @@ vi.mock("@/lib/logger", () => ({
   logAudit: vi.fn(),
 }));
 vi.mock("@/lib/metrika-server", () => ({ trackServerGoal: vi.fn() }));
+const mockProductEventCreate = vi.fn();
+vi.mock("@/lib/db", () => ({
+  prisma: { productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) } },
+}));
+vi.mock("@/lib/redis", () => ({ redis: { set: vi.fn() }, redisAvailable: false }));
 vi.mock("@/modules/cafe/service", () => {
   class OrderError extends Error {
     code: string;
@@ -40,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(auth).mockResolvedValue(null as never);
   vi.mocked(rateLimit).mockResolvedValue(null as never);
+  mockProductEventCreate.mockRejectedValue(new Error("db down"));
 });
 
 describe("POST /api/cafe/checkout", () => {
@@ -113,5 +119,20 @@ describe("POST /api/cafe/checkout", () => {
     vi.mocked(createCheckout).mockRejectedValue(new Error("boom"));
     const res = await POST(makeRequest(validBody));
     expect(res.status).toBe(500);
+  });
+
+  it("сбой записи в ProductEvent (БД недоступна) не ломает ответ заказа — fire-and-forget (AC-1.6)", async () => {
+    vi.mocked(createCheckout).mockResolvedValue({
+      id: "order-1",
+      totalAmount: 430,
+      payment: null,
+    } as never);
+
+    const res = await POST(makeRequest(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.success).toBe(true);
+    expect(mockProductEventCreate).toHaveBeenCalledOnce();
   });
 });

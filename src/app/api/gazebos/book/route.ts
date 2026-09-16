@@ -7,6 +7,7 @@ import { createBookingSchema } from "@/modules/gazebos/validation";
 import { InventoryError } from "@/modules/inventory/service";
 import { trackServerGoal } from "@/lib/metrika-server";
 import { getClientIp } from "@/lib/client-ip";
+import { deriveSessionKeyFromHeaders, recordFunnelStep } from "@/modules/analytics/product-events";
 
 /**
  * Достаёт totalPrice из Booking.metadata (JSON).
@@ -81,6 +82,15 @@ export async function POST(request: NextRequest) {
       request,
       target: "gazebo_booking_success",
       price: extractBookingPrice(booking.metadata),
+    });
+
+    // First-party воронка (US-1 эпика #583, ADR 2026-09-16) — та же точка,
+    // тот же fire-and-forget паттерн, что и trackServerGoal выше.
+    recordFunnelStep({
+      funnel: "gazebos",
+      step: "submitted",
+      sessionKey: deriveSessionKeyFromHeaders(request.headers),
+      entityId: booking.id,
     });
 
     // Сырой токен управления бронью наружу не отдаём — он уходит клиенту

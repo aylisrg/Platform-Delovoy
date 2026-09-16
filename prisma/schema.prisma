@@ -2299,3 +2299,33 @@ model OfferVersion {
   @@unique([documentKey, slug])
   @@index([documentKey, isCurrent])
 }
+
+// === PRODUCT ANALYTICS (first-party воронки) ===
+
+/// First-party событие воронки (US-1 эпика #583, ADR 2026-09-16). PII не
+/// хранит: sessionKey — невосстановимый хэш (соль + доверенный IP +
+/// user-agent + календарная дата МСК), сырые IP/UA/имя/телефон/email/ИНН в
+/// таблицу не попадают никогда, включая metadata (allowlist ключей в
+/// src/modules/analytics/product-events.ts).
+model ProductEvent {
+  id         String   @id @default(cuid())
+  /// Ключ воронки: gazebos | ps-park | cafe | rental (см. funnels.ts)
+  funnel     String
+  /// Ключ шага: view | slot_selected | cart_item_added | form_started | submitted | paid
+  step       String
+  /// Обезличенный идентификатор посетителя-дня. null — серверное событие без
+  /// браузерного контекста (например, вебхук оплаты, когда унаследовать не удалось).
+  sessionKey String?
+  /// Слаг модуля-владельца шага — для фильтров и связи с таблицей Module.
+  moduleSlug String
+  /// Id брони/заказа/заявки. Связывает шаг submitted с шагом paid
+  /// (у вебхука ЮKassa нет браузерного контекста).
+  entityId   String?
+  /// Только неперсональные примитивы из allowlist'а (amountRub, slotCount, ...).
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([funnel, step, createdAt]) // основной паттерн AC-1.7
+  @@index([createdAt]) // ретенция/уборка и общие срезы по периоду
+  @@index([entityId]) // наследование sessionKey на шаге paid
+}

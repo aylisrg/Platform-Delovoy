@@ -20,6 +20,10 @@ const STATIC_CONFIGS = {
   // Клиентский error-beacon (public, без auth) — жёстче обычного public:
   // битая страница в цикле ошибок не должна флудить SystemEvent.
   "client-error": { limit: 10, windowSeconds: 60 } as RateLimitConfig,
+  // Публичный ingest промежуточных шагов воронки (issue #725, ADR
+  // 2026-09-16) — sendBeacon от анонимных посетителей. Мягче client-error:
+  // это ожидаемый трафик каждого визита, не аварийный сигнал.
+  "product-event": { limit: 60, windowSeconds: 60 } as RateLimitConfig,
 } as const;
 
 export type RateLimitType = "public" | "authenticated" | keyof typeof STATIC_CONFIGS;

@@ -22,6 +22,7 @@ import {
 } from "@/lib/yookassa/receipts";
 import type { YooPayment } from "@/lib/yookassa/types";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { recordPaidStep } from "@/modules/analytics/product-events";
 import {
   PaymentError,
   type AutoRefundResult,
@@ -334,6 +335,13 @@ async function markSucceeded(paymentId: string, remote: YooPayment): Promise<voi
     entityId: applied.id,
     userId: applied.userId ?? undefined,
     data: { amount: formatAmount(applied.amount), description: applied.description },
+  });
+
+  // First-party воронка, шаг `paid` (US-1 эпика #583, ADR 2026-09-16 §5.4).
+  // После транзакции — не удлиняет и не может откатить оплату; тихо
+  // no-op для moduleSlug вне каталога воронок (rental, subscriptions).
+  void recordPaidStep(applied.moduleSlug, applied.subjectId, {
+    amountRub: Number(applied.amount),
   });
 
   if (applied.subjectType === "BOOKING") {

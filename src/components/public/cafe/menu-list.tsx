@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { reachGoal } from "@/lib/metrika";
+import { sendFunnelBeacon } from "@/lib/funnel-beacon";
 import { receiptEmailSchema } from "@/modules/cafe/validation";
 import type { CafeMenuItem } from "@/modules/cafe/types";
 
@@ -111,6 +112,7 @@ export function MenuList({
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const cartRef = useRef<HTMLDivElement>(null);
   const startGoalFired = useRef(false);
+  const cartItemFunnelFired = useRef(false);
   const hydrated = useRef(false);
 
   // Гидратация корзины из localStorage: позиции, исчезнувшие из меню,
@@ -154,6 +156,11 @@ export function MenuList({
     if (!startGoalFired.current) {
       startGoalFired.current = true;
       reachGoal("cafe_order_start");
+    }
+    if (!cartItemFunnelFired.current) {
+      cartItemFunnelFired.current = true;
+      // First-party воронка (US-1 эпика #583, ADR 2026-09-16) — раз за визит.
+      sendFunnelBeacon("cafe", "cart_item_added");
     }
     setSuccess(null);
     setCart((prev) => {

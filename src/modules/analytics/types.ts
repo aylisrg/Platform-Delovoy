@@ -112,6 +112,33 @@ export type CampaignsData = {
   cachedAt: string;
 };
 
+// --- ProductEvent / funnel stats (US-1 эпика #583, ADR 2026-09-16) ---
+
+export type FunnelStepStats = {
+  step: string;
+  label: string;
+  /** Сырое число событий (может переучитывать при флапе/дублях верхних шагов). */
+  events: number;
+  /** Число уникальных sessionKey — основная метрика конверсии (ADR §4). */
+  sessions: number;
+  /** % от предыдущего шага по sessions. null для первого шага воронки. */
+  conversionFromPrev: number | null;
+  /** % от первого шага воронки по sessions. */
+  conversionFromTop: number;
+};
+
+export type FunnelStats = {
+  funnel: string;
+  steps: FunnelStepStats[];
+  /** Шаг с наибольшим оттоком (наименьший conversionFromPrev). null если данных нет. */
+  biggestDropStep: string | null;
+};
+
+export type FunnelStatsData = {
+  period: DateRange;
+  funnels: FunnelStats[];
+};
+
 export type ConversionsData = {
   period: DateRange;
   goals: GoalConversion[];
