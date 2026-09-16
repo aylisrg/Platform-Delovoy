@@ -121,4 +121,18 @@ describe("sendAlert — email-фолбэк для CRITICAL (issue #455)", () => 
 
     expect(result).toBe(false);
   });
+
+  it("sendTransactionalEmail упал (reject, не {success:false}) → sendAlert прокидывает исключение, не глотает его молча", async () => {
+    // sendAlert сам не оборачивает вызов в try/catch — это делает единственный
+    // сегодняшний вызывающий, alertCritical() в src/lib/logger.ts (тот же
+    // контракт, что уже был у telegramApi() до этого PR). Тест фиксирует это
+    // поведение явно, а не полагается на внешний try/catch молча.
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    vi.stubEnv("CRITICAL_ALERT_EMAIL", "owner@example.com");
+    mockSendTransactionalEmail.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    await expect(sendAlert("CRITICAL", "payments", "инцидент")).rejects.toThrow(
+      "ECONNREFUSED"
+    );
+  });
 });

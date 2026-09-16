@@ -22,6 +22,11 @@ const LEVEL_EMOJI: Record<AlertLevel, string> = {
  * so it degrades independently of whatever broke Telegram. Only CRITICAL
  * gets this — INFO/WARNING/ERROR staying Telegram-only (or silent when
  * unconfigured) matches the existing severity routing in CLAUDE.md.
+ *
+ * `source`/`message` are sent verbatim into both a Telegram HTML message
+ * and (for CRITICAL) an email HTML body — callers must pre-escape any
+ * untrusted content (the only current caller, `alertCritical` in
+ * `src/lib/logger.ts`, does this via `escapeHtml()`).
  */
 export async function sendAlert(
   level: AlertLevel,
