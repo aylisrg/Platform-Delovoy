@@ -163,3 +163,4 @@
 | 2026-09-03 | 2026-09-03-calendar-week-dnd-qa-report.md | 8 | rbac, api, typescript, tests |
 | unknown | issue-455-qa-report.md | 8 | rbac, api, typescript, tests |
 | unknown | issue-725-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
+| unknown | issue-726-qa-report.md | 4 | rbac, api, typescript, tests, scope_creep |
