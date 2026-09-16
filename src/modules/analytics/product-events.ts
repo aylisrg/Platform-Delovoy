@@ -52,19 +52,26 @@ function getSalt(): string {
  * недельную динамику.
  */
 export function deriveSessionKeyFromHeaders(headers: HeadersLike): string {
-  const realIp = headers.get("x-real-ip")?.trim();
-  let ip = realIp || "";
-  if (!ip) {
-    const xff = headers.get("x-forwarded-for");
-    if (xff) {
-      const hops = xff.split(",").map((p) => p.trim()).filter(Boolean);
-      ip = hops[hops.length - 1] || "";
+  // Вызывается синхронно прямо в теле роутов бронирования/заказа (не только
+  // внутри try/catch recordFunnelStepAsync) — как и trackServerGoal рядом,
+  // не должна ронять бронь/заказ ни при каких обстоятельствах (AC-1.6).
+  try {
+    const realIp = headers.get("x-real-ip")?.trim();
+    let ip = realIp || "";
+    if (!ip) {
+      const xff = headers.get("x-forwarded-for");
+      if (xff) {
+        const hops = xff.split(",").map((p) => p.trim()).filter(Boolean);
+        ip = hops[hops.length - 1] || "";
+      }
     }
+    if (!ip) ip = "unknown";
+    const userAgent = headers.get("user-agent") ?? "";
+    const subject = `${ip}|${userAgent}|${toISODate(new Date())}`;
+    return createHash("sha256").update(`${getSalt()}|${subject}`).digest("hex").slice(0, 32);
+  } catch {
+    return "unknown";
   }
-  if (!ip) ip = "unknown";
-  const userAgent = headers.get("user-agent") ?? "";
-  const subject = `${ip}|${userAgent}|${toISODate(new Date())}`;
-  return createHash("sha256").update(`${getSalt()}|${subject}`).digest("hex").slice(0, 32);
 }
 
 /** `view` не пишется для префетча роутера и очевидных ботов (ADR §5.3). */

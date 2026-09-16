@@ -95,6 +95,16 @@ describe("deriveSessionKeyFromHeaders", () => {
   it("не бросает при полном отсутствии IP-заголовков", () => {
     expect(() => deriveSessionKeyFromHeaders(headers({}))).not.toThrow();
   });
+
+  it("не бросает и отдаёт фолбэк, если чтение заголовков внезапно бросает (AC-1.6)", () => {
+    const brokenHeaders = {
+      get(): string | null {
+        throw new Error("boom");
+      },
+    };
+    expect(() => deriveSessionKeyFromHeaders(brokenHeaders)).not.toThrow();
+    expect(deriveSessionKeyFromHeaders(brokenHeaders)).toBe("unknown");
+  });
 });
 
 describe("isPrefetchOrBot", () => {
