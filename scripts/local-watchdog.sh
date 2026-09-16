@@ -43,6 +43,14 @@ FIVEXX_THRESHOLD=10  # 5xx за минуту до алерта
 # для браузеров (Chrome/Safari) с постквантовым ClientHello — сайт «висит»
 # ровно так, как жаловался владелец за месяц до того, как это заметили.
 EDGE_ALERT_MARKER="/tmp/.local-watchdog-edge-alerted"
+# .edge-maintenance: пишут ops-nginx.yml (jobs apply/rollback) перед тем, как
+# намеренно остановить edge и вернуть host-nginx на публичный :443 (см. эти
+# job'ы). Пока флаг стоит, self-heal ниже обязан молчать: пересоздание edge
+# отвоюет порт обратно у только что откаченного host-nginx и уйдёт в
+# crash-loop (EADDRINUSE, оба слушают network_mode: host). apply снимает флаг
+# сам, как только edge подтверждённо занял :443 — до этого момента считаем
+# состояние управляемым, а не аварией.
+EDGE_MAINTENANCE_FLAG="/opt/delovoy-park/.edge-maintenance"
 
 SUDO=""
 [ "$(id -u)" != "0" ] && SUDO="sudo"
@@ -130,9 +138,14 @@ edge_ok() {
 
 check_5xx_spike
 
-if ! edge_ok; then
+if [ -f "$EDGE_MAINTENANCE_FLAG" ]; then
+    if ! edge_ok; then
+        echo "$(ts) edge container down but .edge-maintenance is set — ops-nginx apply/rollback in progress, skipping auto-heal"
+    fi
+elif ! edge_ok; then
     echo "$(ts) edge container down — recreating"
-    (cd /opt/delovoy-park && docker compose up -d --no-deps edge) >/dev/null 2>&1
+    RECREATE_LOG=$(cd /opt/delovoy-park && docker compose up -d --no-deps edge 2>&1)
+    echo "$RECREATE_LOG"
     sleep 3
     if edge_ok; then
         echo "$(ts) edge recreated"
