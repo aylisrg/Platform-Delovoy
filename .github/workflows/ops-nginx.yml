@@ -137,6 +137,19 @@ jobs:
             cd /opt/delovoy-park
             chmod +x scripts/apply-nginx-vhost.sh
 
+            # .edge-maintenance координирует этот job с local-watchdog.sh
+            # (инцидент 2026-09-15, PR с этим маркером): пока флаг стоит,
+            # ежеминутный self-heal в local-watchdog.sh обязан МОЛЧАТЬ и не
+            # пересоздавать edge — иначе он тут же отвоюет публичный :443 у
+            # host-nginx (EADDRINUSE / crash-loop, оба network_mode: host).
+            # Ставим ДО первого шага, а не только в rollback_host_nginx:
+            # apply-nginx-vhost.sh откатывается САМ при провале nginx -t и
+            # может вернуть host-nginx на публичный :443 (ровно стартовое
+            # состояние инцидента 2026-09-15) раньше, чем скрипт дойдёт до
+            # rollback_host_nginx ниже — self-heal не должен успеть встрять
+            # в этот промежуток.
+            touch .edge-maintenance || true
+
             rollback_host_nginx() {
               LATEST=$($SUDO ls -t /etc/nginx/sites-available/delovoy-park.bak-* 2>/dev/null | head -1 || true)
               if [ -n "$LATEST" ]; then
@@ -175,6 +188,9 @@ jobs:
               rollback_host_nginx
               exit 1
             fi
+            # Успех: edge — снова единственный владелец публичного :443,
+            # self-heal в local-watchdog.sh может (и должен) следить за ним.
+            rm -f .edge-maintenance || true
             echo "✅ edge запущен и слушает публичный :443"
 
       - name: Внешняя проверка (HTTP/2, 200, живой чанк)
@@ -220,6 +236,12 @@ jobs:
             set -eu
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
             cd /opt/delovoy-park
+
+            # Тот же маркер, что и в apply: пока он есть, local-watchdog.sh
+            # не пытается пересоздать edge (он остановлен намеренно, host-nginx
+            # снова единолично держит публичный :443) — иначе ежеминутный
+            # self-heal отвоюет порт обратно в течение минуты после rollback.
+            touch .edge-maintenance || true
 
             if docker compose ps edge --format '{{.Names}}' 2>/dev/null | grep -q .; then
               docker compose stop edge

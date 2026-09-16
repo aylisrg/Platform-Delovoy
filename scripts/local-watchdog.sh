@@ -32,6 +32,43 @@ PERF_OFFSET_FILE="/tmp/.local-watchdog-perf-offset"
 FIVEXX_ALERT_MARKER="/tmp/.local-watchdog-5xx-alerted"
 FIVEXX_THRESHOLD=10  # 5xx за минуту до алерта
 
+# TLS-edge презенс-чек: независимый канал от app_ok/public_ok ниже (инцидент
+# 2026-09-15). Контейнер `edge` (issue #453, ADR 2026-07-23 §I2) — единственный
+# слушатель постквантового TLS (X25519MLKEM768) на публичном :443; без него
+# host-nginx остаётся только на loopback :8443, и :443 либо не отвечает вовсе,
+# либо (если кто-то руками откатил host-nginx на публичный :443 — так и
+# было 2026-09-15) обслуживается системным OpenSSL 3.0.13 без ML-KEM. Оба
+# случая невидимы для curl-based app_ok/public_ok: curl не шлёт постквантовый
+# ClientHello, классический TLS 1.3 у него и так работает. Ломается только
+# для браузеров (Chrome/Safari) с постквантовым ClientHello — сайт «висит»
+# ровно так, как жаловался владелец за месяц до того, как это заметили.
+# Разные маркеры для «пересоздан» и «пересоздать не удалось» (QA, PR #890,
+# раунд 2): один маркер на оба исхода означал, что информационный алерт об
+# успешном пересоздании мог 15 минут подавлять кулдауном критический алерт
+# о последующем провале того же контейнера (флап) — тот же паттерн, что уже
+# разделён для FIVEXX_ALERT_MARKER/ALERT_MARKER выше.
+EDGE_RECREATED_ALERT_MARKER="/tmp/.local-watchdog-edge-recreated-alerted"
+EDGE_RECREATE_FAILED_ALERT_MARKER="/tmp/.local-watchdog-edge-recreate-failed-alerted"
+EDGE_STALE_ALERT_MARKER="/tmp/.local-watchdog-edge-stale-alerted"
+# .edge-maintenance: пишут ops-nginx.yml (jobs apply/rollback) перед тем, как
+# намеренно остановить edge и вернуть host-nginx на публичный :443 (см. эти
+# job'ы). Пока флаг стоит, self-heal ниже обязан молчать: пересоздание edge
+# отвоюет порт обратно у только что откаченного host-nginx и уйдёт в
+# crash-loop (EADDRINUSE, оба слушают network_mode: host). apply снимает флаг
+# сам, как только edge подтверждённо занял :443 — до этого момента считаем
+# состояние управляемым, а не аварией.
+#
+# Но если apply падает (nginx -t, edge не поднялся/не healthy) — флаг
+# намеренно остаётся стоять (см. rollback_host_nginx в ops-nginx.yml), а
+# больше в этом workflow алертов ни на один failure-путь нет (QA, PR #890,
+# раунд 2). Без стейлнес-проверки заброшенный флаг молча выключает self-heal
+# навсегда — тот же класс «тихого» инцидента, который вся эта проверка
+# должна была устранить, просто на уровень выше. EDGE_MAINTENANCE_STALE_MIN
+# — порог, ощутимо больше времени одного прогона apply/rollback (обычно
+# десятки секунд).
+EDGE_MAINTENANCE_FLAG="/opt/delovoy-park/.edge-maintenance"
+EDGE_MAINTENANCE_STALE_MIN=30
+
 SUDO=""
 [ "$(id -u)" != "0" ] && SUDO="sudo"
 
@@ -112,7 +149,36 @@ public_ok() {
     [ "$CODE" = "200" ]
 }
 
+edge_ok() {
+    [ "$(docker inspect -f '{{.State.Running}}' delovoy-edge 2>/dev/null)" = "true" ]
+}
+
 check_5xx_spike
+
+if [ -f "$EDGE_MAINTENANCE_FLAG" ]; then
+    if ! edge_ok; then
+        echo "$(ts) edge container down but .edge-maintenance is set — ops-nginx apply/rollback in progress, skipping auto-heal"
+        if [ -n "$(find "$EDGE_MAINTENANCE_FLAG" -maxdepth 0 -mmin "+${EDGE_MAINTENANCE_STALE_MIN}" 2>/dev/null)" ]; then
+            echo "$(ts) .edge-maintenance older than ${EDGE_MAINTENANCE_STALE_MIN}m — apply likely failed, or rollback is waiting for a re-apply, alerting"
+            telegram_alert "🚨 <b>Local watchdog: .edge-maintenance завис (&gt;${EDGE_MAINTENANCE_STALE_MIN} мин)</b>
+edge всё ещё не запущен, self-heal выключен флагом дольше обычного прогона apply/rollback — стоит из-за проваленного apply или дожидается повторного apply после rollback. Публичный :443, скорее всего, держит host-nginx напрямую (без ML-KEM). Проверьте последний прогон ops-nginx.yml; после фикса флаг снимает apply сам, вручную — только если нужно: rm /opt/delovoy-park/.edge-maintenance." "$EDGE_STALE_ALERT_MARKER"
+        fi
+    fi
+elif ! edge_ok; then
+    echo "$(ts) edge container down — recreating"
+    RECREATE_LOG=$(cd /opt/delovoy-park && docker compose up -d --no-deps edge 2>&1)
+    echo "$RECREATE_LOG"
+    sleep 3
+    if edge_ok; then
+        echo "$(ts) edge recreated"
+        telegram_alert "⚠️ <b>Local watchdog: TLS-edge был не запущен</b>
+Постквантовый TLS (ML-KEM) на публичном :443 был недоступен — контейнер delovoy-edge пересоздан." "$EDGE_RECREATED_ALERT_MARKER"
+    else
+        echo "$(ts) edge recreate FAILED"
+        telegram_alert "🚨 <b>Local watchdog: TLS-edge не поднимается</b>
+Постквантовый TLS (ML-KEM) недоступен на публичном :443, автовосстановление не удалось — нужен ops-nginx apply вручную." "$EDGE_RECREATE_FAILED_ALERT_MARKER"
+    fi
+fi
 
 if app_ok && public_ok; then
     rm -f "$FAIL_MARKER"
