@@ -15,6 +15,9 @@
  * Триаж и планирование:
  *   untriaged                                issues без auto:* — входящие для триажа (JSON)
  *   triage 480 P1 ready                      назначить prio + auto:ready|epic
+ *   promote 812 P2                           гипотеза недельного аналитика → очередь
+ *                                            (только из auto:hypothesis и только когда
+ *                                             владелец сказал «делай» — ADR 2026-09-16 §5)
  *   create --title "..." --body-file f.md    завести issue [--prio P2] [--ready|--epic]
  *                                            [--label X ...] [--parent N] [--force]
  *                                            [--dedup-key slug] — дедуп по точному title
@@ -417,6 +420,29 @@ function cmdTriage(num: number, prio: string, lane: string): void {
   const kept = labels.filter((l) => !l.startsWith('prio:'));
   setLabels(num, [...kept, `prio:${prio}`, `auto:${lane}`]);
   console.log(`triaged #${num} → prio:${prio} + auto:${lane}`);
+}
+
+/**
+ * Гипотеза недельного аналитика → задача очереди (ADR 2026-09-16 §5).
+ *
+ * Единственный легальный путь из полосы `hypothesis` в работу. Вызывается
+ * только после явного слова владельца («идея: делаем гипотезу #N» боту →
+ * контур owner-decisions → issue во входящих → шаг 0 `/next-issue`).
+ * Проверка lane здесь машинная: обычный `triage` на гипотезу не подействует,
+ * потому что `auto:hypothesis` выводит issue из списка входящих.
+ */
+function cmdPromote(num: number, prio: string): void {
+  if (!/^P[0-3]$/.test(prio)) throw new Error(`приоритет «${prio}» — ожидаю P0..P3`);
+  const issue = gh<RawIssue>(`/repos/${REPO}/issues/${num}`);
+  const labels = issue.labels.map((l) => l.name);
+  const lane = laneOf(labels);
+  if (lane !== 'hypothesis') {
+    throw new Error(`#${num} не гипотеза (сейчас: ${lane}) — promote работает только из auto:hypothesis`);
+  }
+  const kept = swapLane(labels, 'auto:ready').filter((l) => !l.startsWith('prio:'));
+  setLabels(num, [...kept, `prio:${prio}`]);
+  comment(num, 'Владелец дал ход гипотезе — задача в очереди.');
+  console.log(`promoted #${num} → prio:${prio} + auto:ready`);
 }
 
 const CREATE_DEDUP_WINDOW_DAYS = 14;
@@ -1326,6 +1352,19 @@ function renderDashboard(config: QueueConfig): string {
     ...(snap.byLane['prod-apply'].length
       ? ['**Код готов, apply трогает прод (`auto:prod-apply`):**', '', ...snap.byLane['prod-apply'].map((i) => `- #${i.number} — ${i.title}`), '']
       : []),
+    // Гипотезы недельного аналитика — отдельной строкой, а не среди parked:
+    // это не провал очереди, а ожидание слова владельца (ADR 2026-09-16 §5).
+    `## Гипотезы недельного аналитика (${snap.byLane.hypothesis.length})`,
+    '',
+    snap.byLane.hypothesis.length
+      ? [
+          'В работу сами не уходят. Ход даёт владелец: `promote <N> <P0..P3>`.',
+          '',
+          ...snap.byLane.hypothesis.map((i) => `- #${i.number} — ${i.title}`),
+          '',
+        ].join('\n')
+      : '_Нет._',
+    '',
     `## Открытые PR очереди (${queuePrs.length})`,
     '',
     queuePrs.length
@@ -1835,6 +1874,7 @@ try {
     case 'ops-watch': cmdOpsWatch(rest.includes('--dry-run')); break;
     case 'untriaged': cmdUntriaged(); break;
     case 'triage': cmdTriage(Number(rest[0]), rest[1] ?? '', rest[2] ?? ''); break;
+    case 'promote': cmdPromote(Number(rest[0]), rest[1] ?? ''); break;
     case 'create': cmdCreate(rest); break;
     case 'epics': cmdEpics(); break;
     case 'pr-open': cmdPrOpen(Number(rest[0]), rest[1], rest.includes('--draft'), rest.includes('--refs')); break;
@@ -1859,7 +1899,7 @@ try {
     case 'decisions-sync': cmdDecisionsSync(rest.includes('--dry-run')); break;
     default:
       console.error(
-        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|create|epics|batch-add|batch-result|decisions-sync|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric|automerge|unpark|ops-watch> [args]',
+        'usage: issue-queue.ts <next|claim|release|park|gate|verdict|reconcile|report|heartbeat|untriaged|triage|promote|create|epics|batch-add|batch-result|decisions-sync|pr-open|pr-ready|pr-status|pr-wait|pr-merge|metric|automerge|unpark|ops-watch> [args]',
       );
       process.exitCode = 2;
   }
