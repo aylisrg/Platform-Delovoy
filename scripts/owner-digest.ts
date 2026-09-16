@@ -14,11 +14,15 @@
  * workflow (секреты в CLI не попадают — тот же паттерн, что heartbeat).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import type { WeeklyFunnelDigest } from '../src/modules/analytics/types';
+import { isFreshSidecar, parseWeeklySidecar, toDigestSummary } from '../src/modules/analytics/weekly-report';
 import { REPO, ghApi } from './lib/gh-api';
 import { buildOwnerDigest, type DigestDecision, type DigestPr } from './lib/owner-digest';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ANALYTICS_DIR = resolve(__dirname, '..', 'docs/analytics');
 
 function mergedPrsLast24h(now: Date): DigestPr[] {
   const cutoff = now.getTime() - DAY_MS;
@@ -102,6 +106,40 @@ function pendingDecisions(now: Date): DigestDecision[] {
   }
 }
 
+/** Момент, когда файл доехал в ветку. null — истории нет (мелкий checkout, локальный прогон). */
+function gitCommittedAt(path: string): string | null {
+  try {
+    const out = execFileSync('git', ['log', '-1', '--format=%cI', '--', path], { encoding: 'utf8' }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Свежий недельный отчёт по воронке (US-3, ADR 2026-09-16 §7): сайдкар с
+ * максимальным именем в `docs/analytics/`, доехавший в main за последние сутки.
+ * Любая неурядица (нет папки, битый JSON, чужая схема, нет git) — `null`:
+ * дайджест едет без блока, но едет.
+ */
+function weeklyFunnel(now: Date): WeeklyFunnelDigest | null {
+  try {
+    const latest = readdirSync(ANALYTICS_DIR)
+      .filter((f) => f.endsWith('-funnel-weekly.json'))
+      .sort()
+      .at(-1);
+    if (!latest) return null;
+    const path = join(ANALYTICS_DIR, latest);
+    const sidecar = parseWeeklySidecar(JSON.parse(readFileSync(path, 'utf8')));
+    if (!sidecar) return null;
+    const landedAt = gitCommittedAt(path);
+    if (!isFreshSidecar({ landedAt, publishedAt: sidecar.publishedAt, now })) return null;
+    return toDigestSummary(sidecar);
+  } catch {
+    return null;
+  }
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const fbIdx = args.indexOf('--feedback-file');
@@ -124,6 +162,7 @@ function main(): void {
     backlog: backlogCounts(now),
     decisions: pendingDecisions(now),
     feedback,
+    weeklyFunnel: weeklyFunnel(now),
   });
 
   console.log(JSON.stringify({ textHtml }, null, 2));

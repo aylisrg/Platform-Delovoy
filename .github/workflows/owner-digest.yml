@@ -31,7 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # fetch-depth: 50 — блоку недельной воронки нужен `git log` по сайдкару
+      # (ADR 2026-09-16-weekly-product-analyst-loop §7: «доехал в main за сутки»).
+      # При дефолтной глубине 1 истории нет вовсе; 50 коммитов заведомо
+      # покрывают сутки, а недостающая история старого файла даёт правильный
+      # ответ «не свежий».
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 50
       - uses: ./.github/actions/setup-node
 
       # Счётчики фидбека за сутки — SSH-psql (паттерн backlog-intake.yml).
