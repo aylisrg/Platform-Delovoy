@@ -11,8 +11,9 @@ import { redis, redisAvailable } from "@/lib/redis";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
 import { toISODate } from "@/lib/format";
-import { FUNNELS, getFunnel, getStepDef, type FunnelKey, type FunnelStepKey } from "./funnels";
-import type { FunnelStats, FunnelStatsData, FunnelStepStats } from "./types";
+import { getFunnel, getStepDef, type FunnelKey, type FunnelStepKey } from "./funnels";
+import { aggregateFunnelStats } from "./funnel-stats";
+import type { FunnelStatsData } from "./types";
 
 type HeadersLike = { get(name: string): string | null };
 
@@ -244,45 +245,9 @@ export async function getFunnelStats(params: {
         GROUP BY funnel, step
       `;
 
-  const byFunnel = new Map<string, Map<string, StatsRow>>();
-  for (const row of rows) {
-    if (!byFunnel.has(row.funnel)) byFunnel.set(row.funnel, new Map());
-    byFunnel.get(row.funnel)!.set(row.step, row);
-  }
-
-  const funnelKeys = params.funnel ? [params.funnel] : (Object.keys(FUNNELS) as FunnelKey[]);
-  const funnels: FunnelStats[] = funnelKeys.map((key) => {
-    const def = FUNNELS[key];
-    const rowsByStep = byFunnel.get(key) ?? new Map<string, StatsRow>();
-    const topSessions = Number(rowsByStep.get(def.steps[0]?.step ?? "")?.sessions ?? 0);
-
-    let prevSessions: number | null = null;
-    const steps: FunnelStepStats[] = def.steps.map((stepDef) => {
-      const row = rowsByStep.get(stepDef.step);
-      const events = Number(row?.events ?? 0);
-      const sessions = Number(row?.sessions ?? 0);
-      const conversionFromPrev =
-        prevSessions === null ? null : prevSessions > 0 ? round1((sessions / prevSessions) * 100) : 0;
-      const conversionFromTop = topSessions > 0 ? round1((sessions / topSessions) * 100) : 0;
-      prevSessions = sessions;
-      return { step: stepDef.step, label: stepDef.label, events, sessions, conversionFromPrev, conversionFromTop };
-    });
-
-    let biggestDropStep: string | null = null;
-    let worstDrop = Infinity;
-    for (const s of steps.slice(1)) {
-      if (s.conversionFromPrev !== null && s.conversionFromPrev < worstDrop) {
-        worstDrop = s.conversionFromPrev;
-        biggestDropStep = s.step;
-      }
-    }
-
-    return { funnel: key, steps, biggestDropStep };
-  });
-
-  return { period: { dateFrom: params.dateFrom, dateTo: params.dateTo }, funnels };
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
+  return aggregateFunnelStats(
+    rows.map((r) => ({ funnel: r.funnel, step: r.step, events: Number(r.events), sessions: Number(r.sessions) })),
+    { dateFrom: params.dateFrom, dateTo: params.dateTo },
+    params.funnel
+  );
 }

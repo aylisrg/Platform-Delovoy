@@ -139,6 +139,72 @@ export type FunnelStatsData = {
   funnels: FunnelStats[];
 };
 
+// --- Недельный отчёт по воронке (US-2/US-3 эпика #583, ADR
+// 2026-09-16-weekly-product-analyst-loop) ---
+
+export const WEEKLY_SIDECAR_SCHEMA_VERSION = 1 as const;
+
+export type WeeklyFunnelSummary = {
+  funnel: string;
+  /** Человекочитаемое название воронки — из funnels.ts, для отчёта и дайджеста. */
+  label: string;
+  /** Сессий на первом шаге воронки за отчётный период. */
+  topSessions: number;
+  /** % последнего шага от первого (сквозная конверсия воронки). */
+  endToEndConversion: number;
+  /** Изменение сквозной конверсии к прошлой неделе, п.п. null — не считаем (мало данных). */
+  endToEndDeltaPp: number | null;
+  biggestDropStep: string | null;
+  biggestDropLabel: string | null;
+  /** conversionFromPrev худшего шага, %. null — нет данных для расчёта. */
+  biggestDropConversion: number | null;
+  /** По этой воронке выводы не делаем (AC-2.5) — topSessions ниже порога. */
+  insufficientData: boolean;
+};
+
+export type WeeklyHypothesisRef = {
+  issue: number;
+  title: string;
+  funnel: string;
+  step: string;
+  /** Строка baseline, как она ушла в тело issue — для отображения в дайджесте/отчёте. */
+  baseline: string;
+};
+
+export type WeeklyFunnelSidecar = {
+  schemaVersion: typeof WEEKLY_SIDECAR_SCHEMA_VERSION;
+  /** YYYY-MM-DD — день публикации отчёта (обычно понедельник). */
+  reportDate: string;
+  /** Путь к markdown-отчёту относительно корня репозитория. */
+  reportPath: string;
+  /** Отчётный период — закрытая неделя Пн–Вс. */
+  period: DateRange;
+  previousPeriod: DateRange;
+  /** ISO-момент генерации отчёта. */
+  publishedAt: string;
+  /** По всем 4 воронкам данных недостаточно — выводов и гипотез в отчёте нет (AC-2.5). */
+  insufficientData: boolean;
+  funnels: WeeklyFunnelSummary[];
+  /** Максимум 3 (AC-2.3). */
+  hypotheses: WeeklyHypothesisRef[];
+};
+
+/** Сжатая версия сайдкара для блока в вечернем дайджесте (AC-3.1/3.2/3.4). */
+export type WeeklyFunnelDigest = {
+  period: DateRange;
+  reportPath: string;
+  insufficientData: boolean;
+  funnels: {
+    label: string;
+    endToEndConversion: number;
+    endToEndDeltaPp: number | null;
+    biggestDropLabel: string | null;
+    biggestDropConversion: number | null;
+    insufficientData: boolean;
+  }[];
+  hypotheses: { issue: number; title: string }[];
+};
+
 export type ConversionsData = {
   period: DateRange;
   goals: GoalConversion[];
