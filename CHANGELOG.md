@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.1...v2.21.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* **ops:** self-heal missing TLS-edge container in local-watchdog ([#890](https://github.com/aylisrg/Platform-Delovoy/issues/890)) ([0aedf77](https://github.com/aylisrg/Platform-Delovoy/commit/0aedf77d15e175fda1ad4882b172a4957b355411))
+
 ## [2.21.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.0...v2.21.1) (2026-09-14)
 
 
