@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { TelegramSignInBlock } from "@/components/auth/telegram-polling";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 type AuthView = "main" | "email";
 type EmailMode = "password" | "magic-link";
@@ -29,7 +30,21 @@ function SignInInner() {
   const [telegramEnabled, setTelegramEnabled] = useState(true);
   const [vkEnabled, setVkEnabled] = useState(false);
 
+  // «Куда вернуть после логина». Ставится auth-гейтом (proxy.ts) при заходе
+  // на закрытую страницу и ссылкой FOR TEAM (?callbackUrl=/for-team).
+  // Без него email/magic-link уводили на дефолтный дашборд, теряя адрес,
+  // ради которого пользователь и пошёл логиниться.
+  const rawCallbackUrl = searchParams.get("callbackUrl");
+
   const redirectAfterLogin = useCallback(async () => {
+    const target = safeCallbackUrl(
+      rawCallbackUrl,
+      typeof window === "undefined" ? null : window.location.origin,
+    );
+    if (target) {
+      window.location.href = target;
+      return;
+    }
     const sessionRes = await fetch("/api/auth/session");
     const session = await sessionRes.json();
     const role = session?.user?.role;
@@ -38,7 +53,13 @@ function SignInInner() {
     } else {
       window.location.href = "/dashboard";
     }
-  }, []);
+  }, [rawCallbackUrl]);
+
+  // Провайдеры с полным редиректом (Telegram, VK) возвращаются на
+  // /auth/redirect — туда callbackUrl нужно пробросить вложенным параметром.
+  const providerCallbackUrl = rawCallbackUrl
+    ? `/auth/redirect?callbackUrl=${encodeURIComponent(rawCallbackUrl)}`
+    : "/auth/redirect";
 
   // Ping server-side provider status on mount — also triggers admin alert
   // if Telegram (primary login channel) is misconfigured. We use the
@@ -127,7 +148,10 @@ function SignInInner() {
       const res = await fetch("/api/auth/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        // Без этого вход по ссылке из письма терял адрес возврата и уводил
+        // на дефолтный дашборд — в обход того, ради чего пользователь и
+        // пошёл логиниться (нашёл qa-engineer на PR #916).
+        body: JSON.stringify({ email, callbackUrl: rawCallbackUrl ?? undefined }),
       });
       const data = await res.json();
 
@@ -143,7 +167,7 @@ function SignInInner() {
     } finally {
       setLoading(false);
     }
-  }, [email]);
+  }, [email, rawCallbackUrl]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
@@ -165,7 +189,7 @@ function SignInInner() {
               {telegramEnabled ? (
                 <>
                   {/* Telegram — primary, Wave 2 deep-link flow */}
-                  <TelegramSignInBlock callbackUrl="/auth/redirect" />
+                  <TelegramSignInBlock callbackUrl={providerCallbackUrl} />
 
                   {/* Divider — collapsed "Other ways" */}
                   <details className="group">
@@ -177,7 +201,7 @@ function SignInInner() {
                     <div className="mt-3 space-y-2.5">
                       {vkEnabled && (
                         <button
-                          onClick={() => signIn("vk-id", { callbackUrl: "/auth/redirect" })}
+                          onClick={() => signIn("vk-id", { callbackUrl: providerCallbackUrl })}
                           disabled={loading}
                           className="flex w-full items-center justify-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
                         >
@@ -201,7 +225,7 @@ function SignInInner() {
                 <div className="space-y-2.5">
                   {vkEnabled && (
                     <button
-                      onClick={() => signIn("vk-id", { callbackUrl: "/auth/redirect" })}
+                      onClick={() => signIn("vk-id", { callbackUrl: providerCallbackUrl })}
                       disabled={loading}
                       className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#0077FF] px-4 py-4 text-sm font-medium text-white transition-colors hover:bg-[#0066DD] disabled:opacity-50"
                     >

@@ -427,3 +427,97 @@ describe("consumeSignInNonce", () => {
     expect(second).toBeNull();
   });
 });
+
+/**
+ * Адрес возврата для входа по ссылке из письма (PR #916).
+ *
+ * Хранится в Redis ПРИ ТОКЕНЕ, а не параметром в самой ссылке: письмо
+ * пересылают и цитируют, и цель редиректа, путешествующая через почтовый
+ * ящик, — лишняя поверхность для подмены.
+ */
+describe("адрес возврата магической ссылки", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    redisState.available = true;
+    mockVerificationToken.deleteMany.mockResolvedValue({ count: 0 });
+    mockVerificationToken.create.mockResolvedValue({});
+  });
+
+  it("сохраняет адрес под ключом токена с тем же TTL", async () => {
+    const { generateAndStoreMagicLink } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+
+    await generateAndStoreMagicLink("u@e.com", undefined, "/for-team");
+
+    const call = mockRedis.set.mock.calls.find(
+      (args) => typeof args[0] === "string" && args[0].startsWith("magic-link:cb:"),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[1]).toBe("/for-team");
+    expect(call?.[2]).toBe("EX");
+    expect(call?.[3]).toBe(15 * 60);
+  });
+
+  it("без адреса ничего лишнего в Redis не пишет", async () => {
+    const { generateAndStoreMagicLink } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+
+    await generateAndStoreMagicLink("u@e.com");
+
+    const cbWrites = mockRedis.set.mock.calls.filter(
+      (args) => typeof args[0] === "string" && args[0].startsWith("magic-link:cb:"),
+    );
+    expect(cbWrites).toHaveLength(0);
+  });
+
+  it("сам адрес в ссылку письма не попадает", async () => {
+    const { generateAndStoreMagicLink, sendMagicLinkEmail } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+    const { sendTransactionalEmail } = await import(
+      "@/modules/notifications/channels/email"
+    );
+
+    const token = await generateAndStoreMagicLink("u@e.com", undefined, "/for-team");
+    await sendMagicLinkEmail("u@e.com", token);
+
+    const sent = vi.mocked(sendTransactionalEmail).mock.calls.at(-1)?.[0];
+    expect(sent).toBeTruthy();
+    expect(JSON.stringify(sent)).not.toContain("for-team");
+    expect(JSON.stringify(sent)).not.toContain("callbackUrl");
+  });
+
+  it("читает адрес один раз и удаляет ключ", async () => {
+    const { consumeMagicLinkCallbackUrl } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+    mockRedis.get.mockResolvedValue("/for-team");
+
+    const value = await consumeMagicLinkCallbackUrl("tok1");
+
+    expect(value).toBe("/for-team");
+    expect(mockRedis.del).toHaveBeenCalledWith("magic-link:cb:tok1");
+  });
+
+  it("нет сохранённого адреса — null, ключ не удаляется", async () => {
+    const { consumeMagicLinkCallbackUrl } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+    mockRedis.get.mockResolvedValue(null);
+
+    expect(await consumeMagicLinkCallbackUrl("tok2")).toBeNull();
+    expect(mockRedis.del).not.toHaveBeenCalled();
+  });
+
+  it("Redis недоступен — вход не ломается, просто нет адреса", async () => {
+    const { consumeMagicLinkCallbackUrl } = await import(
+      "@/modules/auth/email-magic-link.service"
+    );
+    redisState.available = false;
+
+    expect(await consumeMagicLinkCallbackUrl("tok3")).toBeNull();
+    expect(mockRedis.get).not.toHaveBeenCalled();
+  });
+});

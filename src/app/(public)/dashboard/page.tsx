@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -381,8 +382,14 @@ export default async function DashboardPage() {
       </main>
 
       <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-6">
-        <div className="mx-auto max-w-[1200px] text-center md:text-left">
+        <div className="mx-auto flex max-w-[1200px] flex-col gap-3 text-center md:flex-row md:items-center md:justify-between md:text-left">
           <LegalFooterLinks />
+          <Link
+            href="/for-team"
+            className="shrink-0 text-xs uppercase tracking-[0.12em] font-semibold text-[#86868b] transition-colors hover:text-[#1d1d1f]"
+          >
+            For team
+          </Link>
         </div>
       </footer>
     </div>

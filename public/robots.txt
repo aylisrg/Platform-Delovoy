@@ -4,6 +4,7 @@ Disallow: /admin/
 Disallow: /api/
 Disallow: /auth/
 Disallow: /dashboard/
+Disallow: /for-team
 
 # Allow important public API paths for SEO tools
 Allow: /api/health

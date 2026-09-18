@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockVerifyMagicLink, mockGenerateSignInNonce } = vi.hoisted(() => ({
-  mockVerifyMagicLink: vi.fn(),
-  mockGenerateSignInNonce: vi.fn(),
-}));
+const { mockVerifyMagicLink, mockGenerateSignInNonce, mockConsumeCallbackUrl } =
+  vi.hoisted(() => ({
+    mockVerifyMagicLink: vi.fn(),
+    mockGenerateSignInNonce: vi.fn(),
+    mockConsumeCallbackUrl: vi.fn(),
+  }));
 
 vi.mock("@/modules/auth/email-magic-link.service", () => ({
   verifyMagicLink: mockVerifyMagicLink,
   generateSignInNonce: mockGenerateSignInNonce,
+  consumeMagicLinkCallbackUrl: mockConsumeCallbackUrl,
 }));
 
 import { GET } from "../route";
@@ -15,6 +18,8 @@ import { GET } from "../route";
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://example.test");
+  // По умолчанию адреса возврата нет — обычный вход по ссылке из письма.
+  mockConsumeCallbackUrl.mockResolvedValue(null);
 });
 
 function urlWith(params: Record<string, string>): Request {
@@ -84,5 +89,63 @@ describe("GET /api/auth/verify-email", () => {
     expect(location).toContain("/auth/signin?error=link-expired");
     // The bare userId must NOT leak into the URL on failure
     expect(location).not.toContain("user-002");
+  });
+});
+
+/**
+ * Возврат на запрошенную страницу после входа по ссылке из письма (PR #916).
+ * До этого magic-link терял callbackUrl и всегда уводил на дашборд по роли —
+ * то есть мимо страницы, ради которой пользователь и пошёл логиниться.
+ */
+describe("GET /api/auth/verify-email — адрес возврата", () => {
+  beforeEach(() => {
+    mockVerifyMagicLink.mockResolvedValue({ userId: "u1", isNewUser: false });
+    mockGenerateSignInNonce.mockResolvedValue("a".repeat(64));
+  });
+
+  it("сохранённый внутренний путь доезжает до страницы входа", async () => {
+    mockConsumeCallbackUrl.mockResolvedValue("/for-team");
+
+    const res = await GET(urlWith({ token: "t", email: "u@e.com" }));
+    const url = new URL(res.headers.get("location") || "");
+
+    expect(url.pathname).toBe("/auth/signin");
+    expect(url.searchParams.get("magic")).toMatch(/^[0-9a-f]{64}$/);
+    expect(url.searchParams.get("callbackUrl")).toBe("/for-team");
+    expect(mockConsumeCallbackUrl).toHaveBeenCalledWith("t");
+  });
+
+  it("без сохранённого адреса параметр не добавляется", async () => {
+    mockConsumeCallbackUrl.mockResolvedValue(null);
+
+    const res = await GET(urlWith({ token: "t", email: "u@e.com" }));
+    const url = new URL(res.headers.get("location") || "");
+
+    expect(url.searchParams.has("callbackUrl")).toBe(false);
+  });
+
+  it.each(["//evil.com", "/\\evil.com", "https://evil.com/x"])(
+    "чужой адрес %s отбрасывается, вход не ломается",
+    async (evil) => {
+      mockConsumeCallbackUrl.mockResolvedValue(evil);
+
+      const res = await GET(urlWith({ token: "t", email: "u@e.com" }));
+      const url = new URL(res.headers.get("location") || "");
+
+      expect(url.host).toBe("example.test");
+      expect(url.pathname).toBe("/auth/signin");
+      expect(url.searchParams.has("callbackUrl")).toBe(false);
+      // вход всё равно состоялся — nonce на месте
+      expect(url.searchParams.get("magic")).toMatch(/^[0-9a-f]{64}$/);
+    },
+  );
+
+  it("недоступный Redis (null) не мешает войти", async () => {
+    mockConsumeCallbackUrl.mockResolvedValue(null);
+
+    const res = await GET(urlWith({ token: "t", email: "u@e.com" }));
+
+    expect(res.status).toBeGreaterThanOrEqual(300);
+    expect(res.status).toBeLessThan(400);
   });
 });

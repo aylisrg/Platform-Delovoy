@@ -3,7 +3,9 @@ import { verifyMagicLinkSchema } from "@/modules/auth/validation";
 import {
   verifyMagicLink,
   generateSignInNonce,
+  consumeMagicLinkCallbackUrl,
 } from "@/modules/auth/email-magic-link.service";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 /**
  * GET /api/auth/verify-email?token=XXX&email=YYY
@@ -33,8 +35,15 @@ export async function GET(request: Request) {
   try {
     const { userId } = await verifyMagicLink(token, email);
     const nonce = await generateSignInNonce(userId);
+    // Адрес возврата лежал в Redis при токене (в письмо он не попадал).
+    // Санитайзер прогоняем второй раз: запись в Redis и чтение из неё
+    // разнесены во времени, а цена пропуска — увод пользователя на чужой
+    // домен сразу после успешного входа.
+    const stored = await consumeMagicLinkCallbackUrl(token);
+    const target = safeCallbackUrl(stored, appUrl);
+    const suffix = target ? `&callbackUrl=${encodeURIComponent(target)}` : "";
     return NextResponse.redirect(
-      `${appUrl}/auth/signin?magic=${encodeURIComponent(nonce)}`
+      `${appUrl}/auth/signin?magic=${encodeURIComponent(nonce)}${suffix}`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
