@@ -54,3 +54,43 @@ describe("safeCallbackUrl", () => {
     expect(safeCallbackUrl("", ORIGIN)).toBeNull();
   });
 });
+
+/**
+ * BUG-3, найден qa-engineer в раунде 2 PR #916.
+ *
+ * Ветка абсолютных URL схлопывала свой origin до `pathname` и возвращала его
+ * СРАЗУ, не прогоняя через проверки путевой ветки. `https://<наш-домен>//evil`
+ * проходил сверку origin, а `pathname` у него — `//evil`, то есть снова
+ * protocol-relative. Ссылка выглядела целиком нашей и уводила на чужой домен —
+ * ровно та дыра, которую эта функция закрывает.
+ *
+ * Первый набор тестов это пропустил: проверялись `//evil.com` как голый путь и
+ * `https://evil.com` как чужой origin, но не СВОЙ origin с путём-обманкой.
+ */
+describe("safeCallbackUrl — свой origin с protocol-relative путём (BUG-3)", () => {
+  it.each([
+    "https://delovoy-park.ru//evil.example.com",
+    "https://delovoy-park.ru//evil.example.com/deep?a=1#f",
+    "HTTPS://delovoy-park.ru//evil.example.com",
+  ])("отклоняет %s", (raw) => {
+    expect(safeCallbackUrl(raw, ORIGIN)).toBeNull();
+  });
+
+  it.each([
+    "https://delovoy-park.ru/\\evil.example.com",
+    "https://delovoy-park.ru/\\/evil.example.com",
+  ])("отклоняет backslash-вариант %s (new URL нормализует \\ в /)", (raw) => {
+    expect(safeCallbackUrl(raw, ORIGIN)).toBeNull();
+  });
+
+  it("но обычный абсолютный URL своего origin по-прежнему работает", () => {
+    expect(safeCallbackUrl(`${ORIGIN}/for-team`, ORIGIN)).toBe("/for-team");
+    expect(safeCallbackUrl(`${ORIGIN}/admin/cafe?tab=1#top`, ORIGIN)).toBe(
+      "/admin/cafe?tab=1#top",
+    );
+  });
+
+  it("голый origin без пути схлопывается в корень", () => {
+    expect(safeCallbackUrl(ORIGIN, ORIGIN)).toBe("/");
+  });
+});
