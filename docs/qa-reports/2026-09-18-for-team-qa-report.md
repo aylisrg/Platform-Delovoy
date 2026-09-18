@@ -484,3 +484,219 @@ appUrl)` на записи даёт `"//evil.com"` (тот же баг), но п
   уязвимости, который PR заявляет закрытым. Блокер.
 - Security-кейс FAIL (open redirect) → вердикт **FAIL**, независимо от того,
   что оба заявленных на исправление блокера раунда 1 закрыты корректно.
+
+---
+
+## Раунд 3
+
+Проверка фикса BUG-3 поверх HEAD раунда 2 (`ed89656`). На момент проверки
+ветку успел передвинуть авто-ребейзер (в базу уехал #877 — пересборка
+`package-lock.json`), SHA сменились. HEAD на момент проверки —
+`031f622` (`fix(auth): open redirect в safeCallbackUrl — свой origin с
+protocol-relative путём`), поверх `a471434` (отчёт code-reviewer раунда 2) и
+`5b2ce72` (фикс BUG-2, без изменений с раунда 2).
+
+```
+git log --oneline origin/main..HEAD
+031f622 fix(auth): open redirect в safeCallbackUrl — свой origin с protocol-relative путём
+a471434 docs(qa-reports): раунд 2 code-reviewer по PR #916 — PASS
+5b2ce72 fix(auth): magic-link теряет адрес возврата — вход по ссылке из письма уводил на дашборд
+82aaabf docs(qa-reports): отчёт code-reviewer по PR #916 (FOR TEAM)
+3261ccf fix(auth): хранить control-range в safe-callback-url текстом, не байтами
+b79a5e3 test(e2e): обновить эталон cafe-mobile под ссылку FOR TEAM в подвале
+e07c3ae feat(team): раздел FOR TEAM в меню и подвале — витрина внутренних сервисов
+bdb200e chore: bump the npm-minor-patch group across 1 directory with 14 updates (#877)
+```
+
+## Вердикт: PASS
+
+BUG-3 закрыт корректно: живой браузер (Playwright, chromium-1194) против
+свежесобранного стенда подтверждает — ни один из проверенных векторов,
+включая оба, что стреляли в раунде 2, не порождает ни одного сетевого
+запроса к чужому хосту. Целевой поиск нового обхода той же логики (double
+encoding, userinfo, explicit-port, юникод-слэш, `about:`/`blob:`/`data:`,
+очень длинные значения) ничего не нашёл. Mutation-check по обоим новым
+наборам тестов (5 регрессионных + 2 на хоп формы) даёт ровно ожидаемую
+картину: откат фикса роняет ровно эти тесты, ни одного больше и ни одного
+меньше. BUG-1 и BUG-2 остаются закрытыми — код обоих не тронут этим
+коммитом (только `safe-callback-url.ts` + тесты), полный прогон зелёный.
+
+---
+
+### 1. Обязательные команды
+
+| Команда | Результат |
+|---|---|
+| `npm test -- --run` | **337 файлов / 4713 тестов — все зелёные.** Совпадает с цифрой из коммит-мессаджа `031f622`. Duration ~47s. |
+| `npx tsc --noEmit` | 0 ошибок, exit code 0. |
+| `npx eslint .` | **0 errors, 21 warnings** — то же число, что в раундах 1–2. В файлах диффа (`redirect/page.tsx:14`, `signin/page.tsx:52,54` — `@next/next/no-location-assign-relative-destination` на литеральных `window.location.href = "/admin/dashboard"` и т.п.) ровно 3 warning'а, все на строках вне этого коммита (сверено `git show --stat 031f622` — эти файлы коммитом не тронуты вообще). Отдельно проверил "лишний" `60:9` из грепа по файлу — это `src/app/auth/tg-callback/CallbackClient.tsx`, не файл этого PR (грep без якоря на имя файла склеил вывод двух разных блоков). |
+| `SKIP_ENV_VALIDATION=1 npx next build` | Успешно, exit 0. `/for-team`, `/auth/signin`, `/auth/redirect` собраны корректно. Несвязанные pre-existing build-warnings про `instrumentation.ts` — как и в раундах 1–2. |
+
+---
+
+### 2. Мутация фикса BUG-3 — откат и проверка, что падают ровно ожидаемые тесты
+
+Восстановил до-фиксовую версию `safe-callback-url.ts`
+(`git show 031f622^:src/lib/safe-callback-url.ts`) поверх текущего дерева,
+прогнал только `src/lib/__tests__/safe-callback-url.test.ts`, вернул фикс на
+место (`git status` — чисто до и после):
+
+```
+Test Files  1 failed (1)
+     Tests  5 failed | 11 passed (16)
+```
+
+Упавшие ровно те 5, что и должны — весь новый `describe("safeCallbackUrl —
+свой origin с protocol-relative путём (BUG-3)")`, блок "отклоняет %s" (3
+кейса: двойной слэш, глубокий путь с `query#hash`, `HTTPS://` в верхнем
+регистре) + блок "отклоняет backslash-вариант %s" (2 кейса). Два соседних
+теста в том же `describe` ("но обычный абсолютный URL своего origin
+по-прежнему работает", "голый origin без пути схлопывается в корень") —
+**прошли и без фикса**, потому что они не про уязвимость, а про то, что
+легитимный кейс не сломан регрессией; это ожидаемо, не ложноотрицательный
+результат. Все 11 старых тестов (раунды 1–2) — зелёные без изменений.
+Ложных срабатываний нет, тесты не тавтологичны.
+
+Диффом подтверждено, что откат — это ровно инверсия фикса (`git diff` между
+до-фиксовым файлом и HEAD показывает только: `let candidate = raw` вместо
+прямого возврата, `candidate = url.pathname + ...` вместо `return
+url.pathname + ...`, и последующие 3 проверки читают `candidate` вместо
+`raw`) — не более широкая правка, которая могла бы исказить mutation-check.
+
+---
+
+### 3. Мутация хопа «форма → POST /api/auth/email/send» (2 новых теста)
+
+Мутировал `src/app/auth/signin/page.tsx`: `body: JSON.stringify({ email,
+callbackUrl: rawCallbackUrl ?? undefined })` → `body: JSON.stringify({
+email })`, прогнал только
+`src/app/auth/signin/__tests__/magic-link-callback.test.tsx`, вернул на
+место:
+
+```
+Tests  1 failed | 1 passed (2)
+```
+
+Упал ровно тест «кладёт callbackUrl из query в тело запроса письма» —
+именно та ассерция, которую мутация ломает. Второй тест («без callbackUrl в
+query поле не отправляется») закономерно прошёл и с мутацией: он проверяет
+`body.callbackUrl` равен `undefined` при отсутствии query-параметра, а
+мутация как раз и делает поле всегда отсутствующим — на этом конкретном
+кейсе поведение мутанта и фикса совпадает по построению теста, это не
+дефект теста (он покрывает другую ветку — «параметр не переживает
+отсутствие», не «параметр не переживает наличие»). Оба теста вместе
+корректно закрывают ранее найденный (раунд 2) непокрытый хоп.
+
+---
+
+### 4. BUG-3 — целевой поиск нового обхода (живой браузер + pure-function матрица)
+
+**Живой стенд:** `npm run build` (SKIP_ENV_VALIDATION=1) → восстановил
+`.next/standalone/.next/static` (`cp -r .next/static
+.next/standalone/.next/static`) и `public/` → `node .next/standalone/server.js`
+с `AUTH_TRUST_HOST=true AUTH_URL=http://localhost:3000` (без него NextAuth
+v5 отвечает `UntrustedHost` 500 на голый `node server.js` — не баг PR, особенность
+локального запуска standalone-сборки без прокси-заголовков) + `/tmp/e2e.env`
+(`DATABASE_URL`, `REDIS_URL`). `/api/health` → 200 на всём протяжении
+проверки.
+
+**Оба вектора, что стреляли в раунде 2 — закрыты, повторено дважды:**
+
+1. `/auth/redirect?callbackUrl=http%3A%2F%2Flocalhost%3A3000%2F%2Fevil.example.com`
+   с активной сессией (`user@local`/`user`) — Playwright, перехват всех
+   `request`-событий за время навигации: **ни одного запроса на хост
+   `evil.example.com`**, `page.url()` в итоге `http://localhost:3000/`
+   (корректный дефолт для роли USER).
+2. `/auth/signin?callbackUrl=...` + обычный вход по паролю тем же
+   пользователем: **ни одного запроса на `evil.example.com`**, `page.url()`
+   → `http://localhost:3000/dashboard` (корректный дефолт).
+
+*(Методологическая заметка: первый прогон моего же скрипта показал
+`requests-to-evil=true` на обоих сценариях — это оказался ложный
+срабатыватель в самой проверке: я матчил подстроку `"evil.example.com"` по
+всему `req.url()`, а сам запрос на `/auth/redirect?callbackUrl=...evil.example.com`
+естественно содержит эту подстроку вURL-энкодед query-параметре, никуда не
+уходя. Пересобрал проверку на `new URL(u).hostname === "evil.example.com"`
+и диагностическим прогоном с полным логом всех `request`/`framenavigated`
+событий убедился, что реального запроса к этому хосту нет ни разу — только
+внутренняя навигация `localhost:3000`. Уточняю явно, чтобы не выглядело,
+что нашёл и скрыл регресс.)*
+
+**Новые векторы (не проверялись явно в раунде 2), все против того же
+`/auth/redirect` с активной сессией, ноль запросов на `evil.example.com` по
+хосту во всех случаях:**
+
+| Вектор | `raw` (пример) | Итог (pure-function) | Живой браузер |
+|---|---|---|---|
+| userinfo в абсолютном URL | `http://user:pass@localhost:3000//evil.example.com` | `null` (`url.origin` не включает userinfo, но и не спасает — `pathname` всё равно ловится проверкой `//`) | requests-to-evil-host=false, finalURL=`/` |
+| явный порт 80 vs дефолтный | `http://localhost:3000:80//evil.example.com` | `null` | requests-to-evil-host=false, finalURL=`/` |
+| percent-encoded `%2f%2f` | `http://localhost:3000/%2f%2fevil.example.com` | `"/%2f%2fevil.example.com"` (не `null`!) — но это буквальный путь на своём же origin, браузер не декодирует `%2f` в `/` для интерпретации protocol-relative | requests-to-evil-host=false, finalURL=`http://localhost:3000/%2f%2fevil.example.com` (страница 404 на своём домене, не редирект) |
+| backslash в абсолютном URL | `http://localhost:3000/\evil.example.com` | `null` (`new URL()` нормализует `\`→`/`, дальше ловит путевая проверка) | requests-to-evil-host=false, finalURL=`/` |
+| тройной слэш | `http://localhost:3000///evil.example.com` | `null` | requests-to-evil-host=false, finalURL=`/` |
+| юникод fullwidth solidus `／` (U+FF0F) | `http://localhost:3000/／／evil.example.com` | `"/%EF%BC%8F%EF%BC%8Fevil.example.com"` — `new URL()` percent-encode'ит его как обычный символ пути, не как `/`; браузеры (в т.ч. Chromium) не трактуют этот символ как разделитель пути | requests-to-evil-host=false, finalURL остаётся на своём origin с percent-encoded путём |
+| `about:blank` | — | `null` (не матчит `scheme://`, не начинается с `/`) | requests-to-evil-host=false |
+| `javascript:alert(1)` | — | `null` | requests-to-evil-host=false |
+| `data:text/html,hi` | — | `null` | requests-to-evil-host=false |
+| `blob:http://localhost:3000/uuid` | — | `null` (не матчит `scheme://` — после `blob:` идёt `http:`, не `//`) | requests-to-evil-host=false |
+| очень длинный путь (`/` + 5000 символов) | — | возвращается как есть (обычный длинный путь, не protocol-relative) | не проверял живым браузером — pure-function поведение корректно и ожидаемо, длина сама по себе не создаёт protocol-relative |
+| очень длинный абсолютный URL с `//evil` (5000 симв. хоста) | `https://<origin>//` + `"e".repeat(5000)` + `.com` | `null` | не проверял живым — pure-function уже отклоняет |
+
+Полная pure-function матрица (32 кейса, включая IPv6-подобную путаницу
+`//[::1]`, разные схемы `ftp://`/`ws://` с тем же хостом, null-byte в
+percent-encoded виде, `@`-confusion `https://evil.com/@delovoy-park.ru`,
+поддомен-confusion `delovoy-park.ru.evil.com`) — воспроизведена отдельным
+node-скриптом с копией текущей логики функции, свёрена построчно с
+`src/lib/safe-callback-url.ts` (идентична). Ни один вход не вернул путь,
+который браузер интерпретировал бы как переход на чужой хост.
+
+---
+
+### 5. Легитимные сценарии не сломаны
+
+| Сценарий | Ожидание | Факт |
+|---|---|---|
+| Абсолютный URL своего origin, `/for-team`, через `/auth/redirect` (сессия уже есть) | → `/for-team` | `finalURL = http://localhost:3000/for-team` |
+| Путь `/for-team` через `/auth/signin` + обычный вход по паролю (`user@local`) | → `/for-team` | `finalURL = http://localhost:3000/for-team` |
+| Абсолютный URL своего origin, путь+query+hash (`/admin/cafe?tab=1#top`), через `/auth/redirect` под ролью с доступом (`admin@local`/`admin`) | → `/admin/cafe?tab=1#top` | `finalURL = http://localhost:3000/admin/cafe?tab=1#top` — точное совпадение, включая `#top` |
+| Тот же путь+query+hash под ролью USER (`user@local`) | → страница открывается, но RBAC самого `/admin/cafe` (не `safeCallbackUrl`) отправляет на `/admin/forbidden`, сохраняя hash | `finalURL = http://localhost:3000/admin/forbidden#top` — ожидаемо, это RBAC-редирект админки, а не дефект санитайзера (`callbackUrl` был корректно принят и использован, просто у USER нет доступа к `/admin/cafe`) |
+| Голый origin без пути | → `/` | `finalURL = http://localhost:3000/` |
+
+---
+
+### 6. BUG-1 и BUG-2 — не сломаны раундом 3
+
+- **BUG-1** (control-байты в файле вместо escape-последовательностей):
+  побайтовый скан всего `src/lib/safe-callback-url.ts` (тот же метод, что в
+  раунде 2) — `0` совпадений на `3311` байтах текущего файла (файл вырос на
+  ~700 байт за счёт нового докблока и `candidate`-логики, скан не завязан на
+  длину). `file` показывает `Unicode text, UTF-8 text`, не `data`/`binary`.
+- **BUG-2** (magic-link теряет `callbackUrl`): `git show --stat 031f622`
+  подтверждает, что коммит фикса **не касается** ни одного из файлов цепочки
+  BUG-2 (`validation.ts`, `send/route.ts`, `email-magic-link.service.ts`,
+  `verify-email/route.ts`) — трогает только `safe-callback-url.ts` и два
+  тестовых файла. Полный прогон (4713 тестов, включая все тесты цепочки
+  BUG-2 из раунда 2) зелёный без исключений — независимого live-E2E на
+  magic-link в этом раунде не делал, это избыточно при неизменном коде и
+  зелёном регрессе.
+
+---
+
+## Итог раунда 3
+
+- BUG-3 (open redirect в абсолютно-URL-ветке `safeCallbackUrl`) — **закрыт**,
+  подтверждено дважды живым браузером на тех же векторах, что стреляли в
+  раунде 2, плюс 10 новых векторов обхода (double-encoding, userinfo,
+  explicit-port, юникод-слэш, `about:`/`javascript:`/`data:`/`blob:`,
+  длинные значения) — ни один не дошёл до чужого хоста.
+- Mutation-check обоих новых наборов тестов (5 регрессионных на BUG-3 + 2 на
+  хоп формы) — падают ровно ожидаемые тесты, ни один лишний, ни один
+  пропущенный.
+- Легитимные сценарии возврата (свой origin, path+query+hash, голый origin,
+  обычный путь) не сломаны, включая RBAC-пересечение (путь применяется
+  корректно, дальнейший редирект на `/admin/forbidden` — поведение самой
+  админки, не санитайзера).
+- BUG-1 и BUG-2 остаются закрытыми.
+- `npm test` (337/4713), `tsc --noEmit`, `eslint` (0 errors/21 pre-existing
+  warnings), `next build` — все зелёные.
+
+**Вердикт: PASS.**
