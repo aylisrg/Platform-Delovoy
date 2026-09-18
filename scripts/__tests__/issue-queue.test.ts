@@ -86,6 +86,37 @@ describe('laneOf', () => {
     // живая сессия важнее: если оба лейбла, задача всё ещё в работе
     expect(laneOf(['auto:wip', 'auto:review'])).toBe('wip');
   });
+
+  it('auto:hypothesis — своя полоса (ADR 2026-09-16 §5), не parked и не ready', () => {
+    expect(laneOf(['auto:hypothesis'])).toBe('hypothesis');
+    expect(laneOf(['auto:hypothesis', 'from-analytics'])).toBe('hypothesis');
+    // порядок проверок в laneOf: живая работа и парковка важнее гипотезы
+    expect(laneOf(['auto:hypothesis', 'auto:wip'])).toBe('wip');
+    expect(laneOf(['auto:hypothesis', 'auto:parked'])).toBe('parked');
+  });
+});
+
+describe('гипотеза недельного аналитика не уходит в работу сама (AC-2.4)', () => {
+  it('не показывается в списке входящих — триаж её не увидит', () => {
+    expect(isUntriaged(issue(812, ['auto:hypothesis', 'from-analytics']))).toBe(false);
+    expect(untriagedIssues([issue(812, ['auto:hypothesis']), issue(813, ['bug'])]).map((i) => i.number)).toEqual([813]);
+  });
+
+  it('не выбирается воркером и не берётся claim-ом даже напрямую', () => {
+    expect(isEligible(issue(812, ['auto:hypothesis', 'prio:P1']))).toBe(false);
+    expect(pickNext([issue(812, ['auto:hypothesis', 'prio:P0'])], config(), 0).issue).toBeNull();
+    expect(() => assertClaimable(['auto:hypothesis'], 812)).toThrow('#812 не в auto:ready (сейчас: hypothesis)');
+  });
+
+  it('видна в дашборде отдельной корзиной, а не среди parked', () => {
+    const snap = snapshot(
+      [issue(812, ['auto:hypothesis']), issue(813, ['auto:hypothesis']), issue(1, ['auto:parked'])],
+      config(),
+      0,
+    );
+    expect(snap.byLane.hypothesis.map((i) => i.number)).toEqual([812, 813]);
+    expect(snap.byLane.parked.map((i) => i.number)).toEqual([1]);
+  });
 });
 
 describe('priorityOf', () => {

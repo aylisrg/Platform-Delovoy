@@ -111,7 +111,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
 | `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
 | `clients` | ✅ | Tenant CRM |
-| `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation` |
+| `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation`; недельный отчёт по воронке + гипотезы недели (`weekly-report.ts`, `scripts/funnel-weekly.ts`, артефакты `docs/analytics/<дата>-funnel-weekly.{md,json}`, блок в вечерней сводке) — ADR `2026-09-16-weekly-product-analyst-loop` |
 | `users` | ✅ | Admin user management |
 | `profile` | ⚠️ webapp only | USER contact API (`/api/profile/*`) |
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |
@@ -206,7 +206,14 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
   15-мин окна «Отменить» и только при зелёном CI. GitHub-креды — только у
   Actions; auto-rebase не трогает needs-owner PR (SHA под решением стабилен).
 - **Сводка дня** — `owner-digest.yml` (21:00 МСК, личный чат): что уехало в
-  прод, дельта бэклога, ждущие решения, фидбек пользователей.
+  прод, дельта бэклога, ждущие решения, фидбек пользователей, а в день выхода
+  недельного отчёта по воронке — его выжимка и гипотезы, ждущие «делай».
+- **Недельный разбор воронки** — `analytics-funnel-export.yml` (пн 08:40 МСК,
+  без AI: агрегаты `ProductEvent` за две закрытые недели по SSH→psql в repo
+  variable `FUNNEL_WEEKLY_STATS`) + Routine «Product Analyst: недельный отчёт
+  по воронке» (пн 09:00 МСК) → `.claude/commands/weekly-funnel.md`: отчёт в
+  `docs/analytics/`, ≤3 гипотез с лейблом `auto:hypothesis`, PR ветки
+  `claude/weekly-funnel-*`. ADR `2026-09-16-weekly-product-analyst-loop`.
 
 Владельцу остаётся ровно одно действие в самом GitHub: перевыпуск fine-grained
 PAT (`AUTOMATION_TOKEN`) раз в ~90 дней — инструкция приходит decision-сообщением
@@ -217,6 +224,9 @@ PAT (`AUTOMATION_TOKEN`) раз в ~90 дней — инструкция при�
 ждёт решения (оно уехало кнопками в Telegram), `auto:blocked` — нужны
 доступы/решение владельца (тоже кнопками), `auto:prod-apply` — код
 автоматизируем, но apply трогает прод (approve диспатчит ops-workflow),
+`auto:hypothesis` — гипотеза недельного product-analyst: не входящая (триаж её
+не видит) и не очередь (воркер не берёт), ход даёт только владелец словом
+«делай» → `issue-queue.ts promote <N> <P>` (ADR `2026-09-16-weekly-product-analyst-loop`),
 `auto:epic`/`auto:parked` — вне очереди. Плюс лейбл `batch` — «зонтик» мелочи:
 P2-мелочь живёт **пунктами-комментариями** зонтика своей области (маркеры
 `batch:<area>`/`batch-item`), а не отдельными issues; воркер закрывает зонтик
@@ -248,6 +258,7 @@ ERROR/CRITICAL из `SystemEvent` и всплески WARNING (`analyze-errors.t
 npx tsx scripts/issue-queue.ts next        # что дальше
 npx tsx scripts/issue-queue.ts untriaged   # входящие для триажа
 npx tsx scripts/issue-queue.ts epics       # эпики и разобраны ли они
+npx tsx scripts/issue-queue.ts promote <N> <P0..P3>  # гипотеза → очередь (только по слову владельца)
 npx tsx scripts/issue-queue.ts batch-add --area X --key K --title "..."  # мелочь → зонтик
 npx tsx scripts/issue-queue.ts batch-result <N> --done ... --carried ... # итог батча
 npx tsx scripts/issue-queue.ts gate <PR>   # можно ли авто-мержить

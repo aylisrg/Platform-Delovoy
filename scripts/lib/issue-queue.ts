@@ -11,6 +11,7 @@
  *   auto:wip                       — взято (лок; снимается ресуществлением)
  *   auto:blocked                   — нужны доступы/решение владельца
  *   auto:prod-apply                — код автоматизируем, финальный apply трогает прод
+ *   auto:hypothesis                — гипотеза недельного аналитика: ждёт слова владельца
  *   auto:epic | auto:parked        — вне очереди
  *
  * I/O нет ни в одной функции этого файла — всё вызывается из scripts/issue-queue.ts.
@@ -24,6 +25,8 @@ export type Lane =
   | 'prod-apply'
   | 'epic'
   | 'parked'
+  /** Гипотеза недельного product-analyst (ADR 2026-09-16 §5): не входящая и не очередь. */
+  | 'hypothesis'
   | 'untriaged';
 
 export type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -103,6 +106,10 @@ export function laneOf(labels: string[]): Lane {
   if (labels.includes('auto:review')) return 'review';
   if (labels.includes('auto:epic')) return 'epic';
   if (labels.includes('auto:parked')) return 'parked';
+  // Гипотеза недельного аналитика: ждёт явного «делай» владельца.
+  // Не входящая (триаж её не трогает) и не очередь (воркер её не берёт) —
+  // единственный легальный путь в работу это `issue-queue.ts promote`.
+  if (labels.includes('auto:hypothesis')) return 'hypothesis';
   if (labels.includes('auto:blocked')) return 'blocked';
   if (labels.includes('auto:prod-apply')) return 'prod-apply';
   if (labels.includes('auto:ready')) return 'ready';
@@ -955,7 +962,8 @@ export function snapshot(
   openQueuePrCount: number,
 ): QueueSnapshot {
   const byLane = {
-    ready: [], wip: [], review: [], blocked: [], 'prod-apply': [], epic: [], parked: [], untriaged: [],
+    ready: [], wip: [], review: [], blocked: [], 'prod-apply': [], epic: [], parked: [],
+    hypothesis: [], untriaged: [],
   } as Record<Lane, QueueIssue[]>;
   for (const issue of issues) byLane[laneOf(issue.labels)].push(issue);
 
