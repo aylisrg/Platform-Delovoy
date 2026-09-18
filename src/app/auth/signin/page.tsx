@@ -148,7 +148,10 @@ function SignInInner() {
       const res = await fetch("/api/auth/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        // Без этого вход по ссылке из письма терял адрес возврата и уводил
+        // на дефолтный дашборд — в обход того, ради чего пользователь и
+        // пошёл логиниться (нашёл qa-engineer на PR #916).
+        body: JSON.stringify({ email, callbackUrl: rawCallbackUrl ?? undefined }),
       });
       const data = await res.json();
 
@@ -164,7 +167,7 @@ function SignInInner() {
     } finally {
       setLoading(false);
     }
-  }, [email]);
+  }, [email, rawCallbackUrl]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">

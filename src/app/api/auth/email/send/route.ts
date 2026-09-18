@@ -1,5 +1,6 @@
 import { apiResponse, apiError } from "@/lib/api-response";
 import { sendMagicLinkSchema } from "@/modules/auth/validation";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import {
   canSendMagicLink,
   generateAndStoreMagicLink,
@@ -28,8 +29,19 @@ export async function POST(request: Request) {
     return apiError("VALIDATION_ERROR", message, 422);
   }
 
-  const { email, password } = parsed.data;
+  const { email, password, callbackUrl } = parsed.data;
   const normalized = email.toLowerCase().trim();
+
+  // Адрес возврата приходит из query-строки страницы входа, то есть от того,
+  // кто прислал ссылку. Нормализуем ЗДЕСЬ, до записи: в Redis должен лечь
+  // только свой путь, иначе письмо превратилось бы в инструмент увода на
+  // чужой домен. Чужое значение молча отбрасываем — вход всё равно сработает,
+  // просто по роли.
+  const appUrl =
+    process.env.NEXTAUTH_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000";
+  const safeTarget = safeCallbackUrl(callbackUrl, appUrl);
 
   const canSend = await canSendMagicLink(normalized);
   if (!canSend) {
@@ -41,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const token = await generateAndStoreMagicLink(normalized, password);
+    const token = await generateAndStoreMagicLink(normalized, password, safeTarget);
     await sendMagicLinkEmail(normalized, token);
   } catch (err) {
     console.error("[Magic Link] Send failed:", err);

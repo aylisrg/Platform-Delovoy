@@ -10,6 +10,7 @@ const COOLDOWN_TTL_SECONDS = 60; // 1 minute between sends
 const SIGNIN_NONCE_TTL_SECONDS = 5 * 60; // 5 minutes between verify-email and signIn
 
 const MAGIC_LINK_PW_PREFIX = "magic-link:pw:";
+const MAGIC_LINK_CB_PREFIX = "magic-link:cb:";
 const MAGIC_LINK_COOLDOWN_PREFIX = "magic-link:cooldown:";
 const MAGIC_LINK_SIGNIN_PREFIX = "magic-link:signin:";
 
@@ -56,7 +57,8 @@ export async function canSendMagicLink(email: string): Promise<boolean> {
  */
 export async function generateAndStoreMagicLink(
   email: string,
-  password?: string
+  password?: string,
+  callbackUrl?: string | null
 ): Promise<string> {
   const normalized = normalizeEmail(email);
   const token = generateToken();
@@ -87,6 +89,20 @@ export async function generateAndStoreMagicLink(
     );
   }
 
+  // Куда вернуть после входа — рядом с токеном в Redis, а НЕ параметром в
+  // ссылке письма. Письмо пересылают, цитируют и хранят в ящике; цель
+  // редиректа, путешествующая через почту, — лишняя поверхность для подмены.
+  // Здесь адрес уже нормализован вызывающим (safeCallbackUrl) и живёт ровно
+  // столько же, сколько сам токен.
+  if (callbackUrl && redisAvailable) {
+    await redis.set(
+      MAGIC_LINK_CB_PREFIX + token,
+      callbackUrl,
+      "EX",
+      TOKEN_TTL_SECONDS
+    );
+  }
+
   // Set cooldown
   if (redisAvailable) {
     await redis.set(
@@ -98,6 +114,21 @@ export async function generateAndStoreMagicLink(
   }
 
   return token;
+}
+
+/**
+ * Забрать и удалить сохранённый адрес возврата магической ссылки.
+ * Одноразовый: повторный переход по той же ссылке уже ничего не вернёт —
+ * как и сам токен, который verifyMagicLink удаляет.
+ */
+export async function consumeMagicLinkCallbackUrl(
+  token: string
+): Promise<string | null> {
+  if (!redisAvailable) return null;
+  const key = MAGIC_LINK_CB_PREFIX + token;
+  const value = await redis.get(key);
+  if (value) await redis.del(key);
+  return value;
 }
 
 /**
