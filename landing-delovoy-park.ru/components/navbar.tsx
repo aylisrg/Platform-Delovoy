@@ -14,6 +14,10 @@ const navLinks = [
   { label: "Контакты", href: "/#contacts" },
 ];
 
+// Вход во внутренние сервисы. Страница сама уводит на /auth/signin с
+// callbackUrl, поэтому ссылка одна и та же для гостя и для залогиненного.
+const TEAM_LINK = { label: "FOR TEAM", href: "/for-team" };
+
 export function Navbar({ dark = false }: { dark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
@@ -32,6 +36,12 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
   const linkCls = dark
     ? "transition-colors text-[13px] font-[family-name:var(--font-inter)] font-medium text-white/60 hover:text-white"
     : "transition-colors text-[13px] font-[family-name:var(--font-inter)] font-medium text-[#1d1d1f]/70 hover:text-[#1d1d1f]";
+  const teamLinkCls = dark
+    ? "transition-colors text-[12px] tracking-[0.12em] uppercase font-[family-name:var(--font-inter)] font-semibold text-white/45 hover:text-white"
+    : "transition-colors text-[12px] tracking-[0.12em] uppercase font-[family-name:var(--font-inter)] font-semibold text-[#1d1d1f]/45 hover:text-[#1d1d1f]";
+  const mobileTeamLinkCls = dark
+    ? "block transition-colors text-[13px] tracking-[0.12em] uppercase font-[family-name:var(--font-inter)] font-semibold text-white/45 hover:text-white"
+    : "block transition-colors text-[13px] tracking-[0.12em] uppercase font-[family-name:var(--font-inter)] font-semibold text-[#1d1d1f]/45 hover:text-[#1d1d1f]";
   const ctaBtnCls = dark
     ? "inline-flex items-center text-white text-[13px] px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium bg-violet-600 hover:bg-violet-500"
     : "inline-flex items-center text-white text-[13px] px-5 py-2 rounded-full transition-all font-[family-name:var(--font-inter)] font-medium bg-[#0071e3] hover:bg-[#0077ED]";
@@ -95,6 +105,9 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
               </Link>
             ),
           )}
+          <Link href={TEAM_LINK.href} className={teamLinkCls}>
+            {TEAM_LINK.label}
+          </Link>
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -192,6 +205,13 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
               </Link>
             ),
           )}
+          <Link
+            href={TEAM_LINK.href}
+            onClick={() => setOpen(false)}
+            className={mobileTeamLinkCls}
+          >
+            {TEAM_LINK.label}
+          </Link>
           {!isLoggedIn && (
             <a
               href="#offices"

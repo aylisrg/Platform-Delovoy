@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect } from "react";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 export default function AuthRedirectPage() {
   const { data: session, status } = useSession();
@@ -14,17 +15,21 @@ export default function AuthRedirectPage() {
       return;
     }
 
-    // Support callbackUrl for redirect-after-login
+    // Support callbackUrl for redirect-after-login.
+    // Проверка `startsWith("/")` тут была недостаточной: `//evil.com` и
+    // `/\evil.com` её проходят, а браузер уводит на чужой домен — open
+    // redirect. Санитайзер общий с /auth/signin.
     const params = new URLSearchParams(window.location.search);
-    const callbackUrl = params.get("callbackUrl");
-    const safeCallbackUrl =
-      callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : null;
+    const target = safeCallbackUrl(
+      params.get("callbackUrl"),
+      window.location.origin,
+    );
 
     const role = session.user.role;
     if (role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER") {
-      window.location.href = safeCallbackUrl ?? "/admin/dashboard";
+      window.location.href = target ?? "/admin/dashboard";
     } else {
-      window.location.href = safeCallbackUrl ?? "/";
+      window.location.href = target ?? "/";
     }
   }, [session, status]);
 

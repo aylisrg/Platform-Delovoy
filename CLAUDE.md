@@ -140,6 +140,19 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 подтверждает их сам. Детали и открытые юридические вопросы — PRD
 `docs/requirements/2026-08-21-oferta-acceptance-prd.md`.
 
+**Раздел «Для команды» (не модуль):** публичная точка входа сотрудников —
+пункт `FOR TEAM` в меню и подвале лендинга ведёт на `/for-team`
+(`src/app/(public)/for-team/page.tsx`). Гостя страница уводит на
+`/auth/signin?callbackUrl=/for-team` и возвращает обратно после логина.
+Каталог сервисов — `src/lib/team-services.ts`; своих данных и API у раздела
+нет, это витрина ссылок на `/admin/*`. Видимость карточки обязана совпадать с
+гейтом `auth.config.ts → authorized()`, иначе команда упирается в
+`/admin/forbidden`: показываем только выданные `getUserAdminSections()`
+секции, а `payments`/`feedback`/`notifications` — только SUPERADMIN, пока их
+нет в `ADMIN_SECTIONS` (issue #914). Заглушки в каталог не попадают
+(`sauna` — issue #915). `callbackUrl` везде нормализуется через
+`src/lib/safe-callback-url.ts`: `startsWith("/")` пропускал `//evil.com`.
+
 **Integrations (not modules):**
 - `avito` → lives in `src/lib/avito/`, `src/app/api/avito/`, `src/app/admin/avito/`. Does NOT create `src/modules/avito/`. See `docs/architecture/2026-04-28-delovoy-avito-adr.md`.
 - `yookassa` → API-клиент in `src/lib/yookassa/` (fetch, Basic auth, Idempotence-Key, чеки 54-ФЗ). Бизнес-логика — в модуле `payments`. Does NOT create `src/modules/yookassa/`.
