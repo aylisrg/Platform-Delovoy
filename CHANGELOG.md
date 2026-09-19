@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.22.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.2...v2.22.0) (2026-09-18)
+
+
+### Features
+
+* **analytics:** first-party funnel events (ProductEvent) ([#896](https://github.com/aylisrg/Platform-Delovoy/issues/896)) ([5bc69b7](https://github.com/aylisrg/Platform-Delovoy/commit/5bc69b7e88fd90b5a4265cecd2cc10c5a3bfcc4e))
+* **notifications:** email fallback for CRITICAL alerts when Telegram fails ([#895](https://github.com/aylisrg/Platform-Delovoy/issues/895)) ([6c4e469](https://github.com/aylisrg/Platform-Delovoy/commit/6c4e4692148adc2803f19d6149e83bb43c05841d))
+
 ## [2.21.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.1...v2.21.2) (2026-09-16)
 
 
