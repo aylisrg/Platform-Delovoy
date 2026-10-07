@@ -1,19 +1,9 @@
 # Одноразовое купирование шторма 2026-10-07.
 #
-# Симптом: delovoy-app залит таймаутами на api.telegram.org, а
-# /api/notifications/health отдаёт 503. Крон process-outgoing стоит
-# каждую минуту и ходит на публичный URL; обработчик не дописывает
-# SystemEvent (lastRunAt=null), зато каждый запуск жжёт таймауты транспорта.
-#
-# Этот прогон только на VPS и только process-outgoing:
-# - если крон реально стучится или curl'ы висят — строка в crontab
-#   комментируется (бэкап /tmp/crontab.delovoy.bak), висящие curl убиваются;
-# - очередь OutgoingNotification не чистится и не помечается failed;
-# - остальные кроны, бот и docker не трогаются.
-# Секреты в лог не пишутся.
-#
-# push не-main по этому файлу = тот же прогон (workflow_dispatch с ветки
-# недоступен, пока файл не в main).
+# process-outgoing раз в минуту ходит на публичный URL и не оставляет
+# SystemEvent. Прогон комментирует только эту строку crontab (бэкап
+# /tmp/crontab.delovoy.bak) и снимает висящие curl по PID.
+# Очередь, бот, docker и остальные кроны не трогаются. Секреты не печатаются.
 name: Ops — Contain notification storm
 
 on:
@@ -41,84 +31,83 @@ jobs:
           command_timeout: 6m
           script: |
             set -eu
-            echo "=== transport (no secrets) ==="
+            echo "=== transport ==="
             docker exec delovoy-app node -e '
               const net = require("net");
               const proxy = process.env.TELEGRAM_PROXY_URL || "";
               const root = process.env.TELEGRAM_API_ROOT || "";
-              const info = { proxy_set: Boolean(proxy), root_set: Boolean(root), root_is_default: root === "" || root === "https://api.telegram.org" };
-              let host = "", port = 0;
+              let port = 0, host = "";
+              const info = {
+                proxy_set: Boolean(proxy),
+                root_is_default: root === "" || root === "https://api.telegram.org"
+              };
               if (proxy) {
                 try {
                   const u = new URL(proxy);
                   host = u.hostname || "";
-                  port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+                  port = Number(u.port || 80);
                   info.proxy_scheme = u.protocol.replace(":", "");
-                  info.proxy_host = host;
                   info.proxy_port = port;
-                } catch (e) {
-                  info.proxy_host = "unparsed";
-                }
+                } catch (e) { info.proxy_parse = "fail"; }
               }
               console.log(JSON.stringify(info));
-              if (!host || !port) process.exit(0);
+              if (!host) process.exit(0);
               const s = net.connect({ host, port, timeout: 5000 });
-              s.on("connect", () => { console.log("proxy_tcp=open"); s.end(); });
-              s.on("timeout", () => { console.log("proxy_tcp=timeout"); s.destroy(); });
-              s.on("error", (e) => { console.log("proxy_tcp=fail " + (e.code || e.message)); });
+              const done = (msg) => { console.log(msg); process.exit(0); };
+              s.on("connect", () => { s.end(); done("proxy_tcp=open"); });
+              s.on("timeout", () => { s.destroy(); done("proxy_tcp=timeout"); });
+              s.on("error", (e) => done("proxy_tcp=fail " + (e.code || "error")));
             '
 
             echo "=== telegram from host ==="
-            curl -4 -sS -o /dev/null --max-time 8 -w 'v4 %{http_code} %{time_total}s\n' https://api.telegram.org/ || echo "v4 fail"
-            curl -6 -sS -o /dev/null --max-time 8 -w 'v6 %{http_code} %{time_total}s\n' https://api.telegram.org/ || echo "v6 fail"
+            curl -4 -sS -o /dev/null --max-time 6 -w 'v4 %{http_code}\n' https://api.telegram.org/ || echo "v4 fail"
+            curl -6 -sS -o /dev/null --max-time 6 -w 'v6 %{http_code}\n' https://api.telegram.org/ || echo "v6 fail"
 
-            echo "=== in-flight process-outgoing ==="
-            ps -eo pid,etimes,cmd | grep -F 'process-outgoing' | grep -v grep || echo none
-
-            echo "=== edge hits, 15 min ==="
-            docker logs --since 15m delovoy-edge 2>&1 | grep -c 'process-outgoing' || true
-
-            echo "=== app transport warns, 3 min ==="
-            docker logs --since 3m delovoy-app 2>&1 | grep -c 'настроенный транспорт' || true
-
-            echo "=== contain ==="
-            HITS=$(docker logs --since 15m delovoy-edge 2>&1 | grep -c 'process-outgoing' || true)
-            STUCK=$(ps -eo cmd | grep -F 'process-outgoing' | grep -v grep | wc -l | tr -d ' ')
-            echo "edge_hits_15m=$HITS stuck_curls=$STUCK"
-            if [ "${HITS:-0}" -gt 0 ] || [ "${STUCK:-0}" -gt 0 ]; then
-              crontab -l > /tmp/crontab.delovoy.bak
-              python3 - << 'PY'
+            echo "=== pause cron if still active ==="
+            crontab -l > /tmp/crontab.delovoy.bak
+            python3 - << 'PY'
             import pathlib, subprocess, sys
             raw = pathlib.Path("/tmp/crontab.delovoy.bak").read_text()
-            out = []
-            changed = False
+            out, changed = [], False
             for line in raw.splitlines():
                 if "process-outgoing" in line and not line.lstrip().startswith("#"):
-                    out.append("# CONTAIN 2026-10-07: paused — telegram transport dead, batch never finishes (issues 917/1025)")
+                    out.append("# CONTAIN 2026-10-07: paused — telegram transport dead, batch never finishes")
                     out.append("# " + line)
                     changed = True
                 else:
                     out.append(line)
-            if not changed:
-                print("process-outgoing already paused")
-                sys.exit(0)
-            text = "\n".join(out) + "\n"
-            pathlib.Path("/tmp/crontab.delovoy.new").write_text(text)
-            subprocess.check_call(["crontab", "/tmp/crontab.delovoy.new"])
-            print("process-outgoing cron paused; backup /tmp/crontab.delovoy.bak")
+            if changed:
+                pathlib.Path("/tmp/crontab.delovoy.new").write_text("\n".join(out) + "\n")
+                subprocess.check_call(["crontab", "/tmp/crontab.delovoy.new"])
+                print("paused")
+            else:
+                print("already paused")
             PY
-              pkill -f 'curl .*process-outgoing' || true
-              echo "stuck curls signaled"
-            else
-              echo "no process-outgoing traffic — crontab left unchanged"
-            fi
 
-            echo "=== crontab markers (no secrets) ==="
-            crontab -l | grep -n 'process-outgoing\|CONTAIN 2026-10-07' | sed -E 's/Authorization: Bearer [^ ]+/Authorization: Bearer ***/g'
+            echo "=== kill only curl pids ==="
+            python3 - << 'PY'
+            import os, signal
+            killed = []
+            for pid in os.listdir("/proc"):
+                if not pid.isdigit():
+                    continue
+                try:
+                    cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\x00", b" ").decode("utf-8", "replace")
+                except OSError:
+                    continue
+                if cmd.startswith("curl ") and "process-outgoing" in cmd:
+                    os.kill(int(pid), signal.SIGTERM)
+                    killed.append(pid)
+            print("killed", ",".join(killed) or "none")
+            PY
 
-            echo "=== settle 70s ==="
-            sleep 70
-            echo "=== app transport warns, last 60s ==="
-            docker logs --since 60s delovoy-app 2>&1 | grep -c 'настроенный транспорт' || true
-            echo "=== in-flight after ==="
-            ps -eo pid,etimes,cmd | grep -F 'process-outgoing' | grep -v grep || echo none
+            echo "=== markers ==="
+            crontab -l | grep -n 'CONTAIN 2026-10-07' || echo "no contain marker"
+            echo "active_lines=$(crontab -l | grep -c 'process-outgoing' || true)"
+            echo "commented_lines=$(crontab -l | grep 'process-outgoing' | grep -c '^#' || true)"
+
+            echo "=== settle 75s ==="
+            sleep 75
+            echo "edge_hits_since_pause=$(docker logs --since 70s delovoy-edge 2>&1 | grep -c 'process-outgoing' || true)"
+            echo "app_warns_70s=$(docker logs --since 70s delovoy-app 2>&1 | grep -c 'настроенный транспорт' || true)"
+            ps -eo pid,etimes,cmd | grep -F 'process-outgoing' | grep -v grep || echo "no in-flight curls"
