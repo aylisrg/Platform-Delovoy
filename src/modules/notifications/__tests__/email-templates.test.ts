@@ -64,18 +64,32 @@ describe("email-templates", () => {
       expect(html).toContain("18:00");
     });
 
-    it("says заявка принята", () => {
+    it("без онлайн-оплаты — заявку подтвердит администратор", () => {
       const html = bookingCreatedHtml(BOOKING_DATA);
-      expect(html).toContain("Заявка принята");
+      expect(html).toContain("Заявка на бронь принята");
+      expect(html).toContain("Администратор");
+    });
+
+    it("онлайн-оплата — просим оплатить, подтверждение придёт само", () => {
+      const html = bookingCreatedHtml({ ...BOOKING_DATA, paymentFlow: "online" });
+      expect(html).toContain("осталось оплатить");
+      expect(html).toContain("подтвердится автоматически");
+      expect(html).not.toContain("Администратор");
     });
   });
 
   describe("bookingCreatedText", () => {
     it("returns plain text with key info", () => {
       const text = bookingCreatedText(BOOKING_DATA);
-      expect(text).toContain("Заявка принята");
+      expect(text).toContain("Заявка на бронь принята");
       expect(text).toContain("Беседка №1");
       expect(text).toContain("14:00");
+    });
+
+    it("бронь из бота — оплата по ссылке", () => {
+      const text = bookingCreatedText({ ...BOOKING_DATA, paymentFlow: "link" });
+      expect(text).toContain("ещё не оплачена");
+      expect(text).toContain("по ссылке");
     });
   });
 
@@ -263,6 +277,23 @@ describe("email-templates", () => {
       expect(result!.subject).toContain("Заявка");
       expect(result!.html).toContain("<!DOCTYPE html>");
       expect(result!.text).toBeTruthy();
+    });
+
+    it("ISO-дату из события показывает по-человечески", () => {
+      const result = renderEmailTemplate("gazebos", "booking.confirmed", {
+        ...BOOKING_DATA,
+        date: "2026-10-10",
+      });
+      expect(result!.html).toContain("сб, 10 октября");
+      expect(result!.html).not.toContain("2026-10-10");
+    });
+
+    it("тема письма о брони с онлайн-оплатой говорит об оплате", () => {
+      const result = renderEmailTemplate("gazebos", "booking.created", {
+        ...BOOKING_DATA,
+        paymentFlow: "online",
+      });
+      expect(result!.subject).toContain("осталось оплатить");
     });
 
     it("returns template for booking.confirmed", () => {

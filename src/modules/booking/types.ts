@@ -66,7 +66,23 @@ export type BookingMetadata = {
   prepaidCashAmount?: string; // decimal string
   prepaidCardAmount?: string; // decimal string
   prepaidAt?: string;         // ISO datetime последнего приёма предоплаты
+
+  // Как бронь будет подтверждена — фиксируется при создании (gazebos).
+  // Хранится только `online`: ссылка на оплату выдана сразу, и общий админ-чат
+  // о брони не уведомлялся (узнает из оплаты). По этому флагу отмена
+  // неоплаченной брони тоже не идёт в чат — он не видел её создания.
+  paymentFlow?: BookingPaymentFlow;
 };
+
+/**
+ * Как подтверждается новая бронь (тексты уведомлений, `data.paymentFlow`):
+ * - `online` — ссылка на оплату ЮKassa выдана сразу, оплата подтвердит бронь;
+ * - `link`   — бронь из бота/Mini App без акцепта, клиент может оплатить на
+ *              странице брони `/booking/[token]`, иначе подтвердит менеджер;
+ * - `manual` — онлайн-оплаты нет (ps-park, ЮKassa не настроена или не
+ *              ответила) — бронь подтверждает менеджер.
+ */
+export type BookingPaymentFlow = "online" | "link" | "manual";
 
 export type CancellationPolicy = {
   thresholdHours: number;  // free cancel before this many hours

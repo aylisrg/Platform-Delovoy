@@ -17,7 +17,12 @@ import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
-import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
+import type {
+  CancellationPolicy,
+  BookingMetadata,
+  BookingDiscount,
+  BookingPaymentFlow,
+} from "@/modules/booking/types";
 import {
   DEFAULT_CANCELLATION_POLICY,
   PREPAID_CANCELLATION_POLICY,
@@ -474,14 +479,25 @@ export async function createBooking(
     );
   }
 
-  enqueueNotification({
-    type: "booking.created",
-    moduleSlug: MODULE_SLUG,
-    entityId: booking.id,
-    userId: userId ?? undefined,
-    actor: "client",
-    data: { resourceName: resource.name, date, startTime, endTime },
-  });
+  const notifyCreated = (paymentFlow: BookingPaymentFlow) =>
+    enqueueNotification({
+      type: "booking.created",
+      moduleSlug: MODULE_SLUG,
+      entityId: booking.id,
+      userId: userId ?? undefined,
+      actor: "client",
+      data: {
+        resourceName: resource.name,
+        date,
+        startTime,
+        endTime,
+        paymentFlow,
+        // Бронь ждёт оплаты на сайте — смене делать нечего: общий чат узнает о
+        // ней из payment.succeeded, а брошенная оплата не оставит в чате пару
+        // «новая бронь → отменена». Лично подписавшиеся видят её как обычно.
+        ...(paymentFlow === "online" && { adminChat: false }),
+      },
+    });
 
   // === 100 % онлайн-предоплата (YooKassa) ===
   // Бронь ждёт денег в PENDING: CONFIRMED придёт из вебхука payment.succeeded,
@@ -491,10 +507,40 @@ export async function createBooking(
   // Без акцепта ссылку на оплату не выдаём ни при каких условиях: оплата и есть
   // акцепт (п. 4.3 оферты), а акцептовать документ, которого не видел, нельзя.
   // Такие брони оплачиваются на /booking/[token], где условия показываются.
+  //
+  // Уведомление о брони уходит после попытки оплаты: от её исхода зависит, что
+  // написать клиенту и нужно ли что-то делать администратору.
   let payment: { id: string; confirmationUrl: string | null } | null = null;
-  if (acceptance) {
-    payment = await createBookingPayment(booking.id, { cancelOnDataError: true });
+  try {
+    if (acceptance) {
+      payment = await createBookingPayment(booking.id, { cancelOnDataError: true });
+    }
+  } catch (err) {
+    // BookingError — платёж с битыми данными, бронь уже отменена: сообщать не
+    // о чем. Любая другая ошибка оставляет бронь в PENDING — пусть её увидят.
+    if (!(err instanceof BookingError)) notifyCreated("manual");
+    throw err;
   }
+
+  const paymentFlow: BookingPaymentFlow = payment
+    ? "online"
+    : !acceptance && manageToken && isYooKassaConfigured()
+      ? "link"
+      : "manual";
+  if (paymentFlow === "online") {
+    // Ссылка на оплату ещё не ушла клиенту (она в ответе этого же запроса),
+    // поэтому параллельной записи metadata из вебхука здесь быть не может.
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        metadata: {
+          ...((booking.metadata as BookingMetadata | null) ?? {}),
+          paymentFlow,
+        } as import("@prisma/client").Prisma.InputJsonValue,
+      },
+    });
+  }
+  notifyCreated(paymentFlow);
 
   // Сырой токен наружу отдаём ровно один раз — вызывающий код кладёт его в
   // письмо-подтверждение. В ответ публичного API он не попадает.

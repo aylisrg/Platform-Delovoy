@@ -9,7 +9,17 @@ export type NotificationEvent = {
   entityId: string; // booking/order ID
   userId?: string; // client user ID (for client notifications)
   actor?: "client" | "admin";
-  data: Record<string, unknown>; // event-specific payload for templates
+  /**
+   * Event-specific payload for templates.
+   *
+   * Служебный ключ `adminChat: false` — событие только для сотрудников, лично
+   * подписавшихся в Центре уведомлений Mini App. Его не получают общий
+   * админ-чат модуля, заменяющие его явные получатели, выделенный канал и
+   * всплывающие уведомления админки. Так помечается, например, бронь, которая
+   * ещё ждёт онлайн-оплаты: смене по ней делать нечего, а о самой оплате чат
+   * узнает из `payment.succeeded`.
+   */
+  data: Record<string, unknown>;
 };
 
 /**

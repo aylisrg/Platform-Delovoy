@@ -7,19 +7,72 @@ import {
 } from "../templates";
 
 describe("renderClientMessage", () => {
-  it("renders gazebos booking.confirmed", () => {
-    const msg = renderClientMessage("gazebos", "booking.confirmed", {
-      resourceName: "Беседка №1",
-      date: "2026-04-15",
-      startTime: "10:00",
-      endTime: "12:00",
-    });
-    expect(msg).toContain("Бронирование подтверждено");
+  const slot = {
+    resourceName: "Беседка №1",
+    date: "2026-10-10",
+    startTime: "16:00",
+    endTime: "22:00",
+  };
+
+  it("renders gazebos booking.confirmed с человеческой датой", () => {
+    const msg = renderClientMessage("gazebos", "booking.confirmed", slot);
+    expect(msg).toContain("Бронь подтверждена");
     expect(msg).toContain("Беседка №1");
-    expect(msg).toContain("10:00");
+    expect(msg).toContain("сб, 10 октября · 16:00–22:00");
+    expect(msg).not.toContain("2026-10-10");
   });
 
-  it("renders cafe order.ready with deliveryTo", () => {
+  describe("booking.created: что ждёт клиента, зависит от paymentFlow", () => {
+    it("online — просим оплатить, подтверждение придёт само", () => {
+      const msg = renderClientMessage("gazebos", "booking.created", { ...slot, paymentFlow: "online" });
+      expect(msg).toContain("осталось оплатить");
+      expect(msg).toContain("подтвердится автоматически");
+      expect(msg).not.toContain("Ожидайте подтверждения");
+    });
+
+    it("link — бронь из бота: оплата по ссылке", () => {
+      const msg = renderClientMessage("gazebos", "booking.created", { ...slot, paymentFlow: "link" });
+      expect(msg).toContain("ещё не оплачена");
+      expect(msg).toContain("по ссылке");
+    });
+
+    it("manual (и ps-park по умолчанию) — подтвердит администратор", () => {
+      const msg = renderClientMessage("ps-park", "booking.created", slot);
+      expect(msg).toContain("Заявка на бронь принята");
+      expect(msg).toContain("Администратор");
+    });
+  });
+
+  it("booking.cancelled за неоплату объясняет причину", () => {
+    const msg = renderClientMessage("gazebos", "booking.cancelled", {
+      ...slot,
+      cancelledBecause: "unpaid",
+    });
+    expect(msg).toContain("оплата не поступила");
+    expect(msg).toContain("снова свободно");
+  });
+
+  it("booking.rescheduled показывает было/стало", () => {
+    const msg = renderClientMessage("gazebos", "booking.rescheduled", {
+      ...slot,
+      oldDate: "2026-10-09",
+      oldStartTime: "12:00",
+      oldEndTime: "18:00",
+    });
+    expect(msg).toContain("Было: пт, 9 октября · 12:00–18:00");
+    expect(msg).toContain("Стало: сб, 10 октября · 16:00–22:00");
+  });
+
+  it("booking.reminder понимает дату из планировщика (DD.MM.YYYY)", () => {
+    const msg = renderClientMessage("gazebos", "booking.reminder", {
+      ...slot,
+      date: "10.10.2026",
+    });
+    expect(msg).toContain("Через час");
+    expect(msg).toContain("сб, 10 октября");
+  });
+
+  it("cafe order.ready с доставкой не просит «заберите»", () => {
     const msg = renderClientMessage("cafe", "order.ready", {
       orderNumber: "ABC123",
       deliveryTo: "301",
@@ -27,6 +80,12 @@ describe("renderClientMessage", () => {
     expect(msg).toContain("ABC123");
     expect(msg).toContain("готов");
     expect(msg).toContain("301");
+    expect(msg).not.toContain("Заберите");
+  });
+
+  it("cafe order.ready без доставки — забрать на стойке", () => {
+    const msg = renderClientMessage("cafe", "order.ready", { orderNumber: "ABC123" });
+    expect(msg).toContain("заберите его на стойке");
   });
 
   it("returns null for unknown module", () => {
@@ -39,40 +98,138 @@ describe("renderClientMessage", () => {
 });
 
 describe("renderAdminMessage", () => {
-  it("renders gazebos booking.created", () => {
-    const msg = renderAdminMessage("gazebos", "booking.created", {
-      resourceName: "Беседка №2",
-      date: "2026-04-16",
-      startTime: "14:00",
-      endTime: "16:00",
-      userName: "Иван Петров",
+  const booking = {
+    resourceName: "Беседка №3",
+    date: "2026-10-10",
+    startTime: "16:00",
+    endTime: "22:00",
+    clientName: "Иван Петров",
+    clientPhone: "+79991234567",
+    bookingId: "b1",
+  };
+
+  describe("gazebos booking.created", () => {
+    it("manual — заголовок «нужно подтвердить», клиент, телефон и ссылка", () => {
+      const msg = renderAdminMessage("gazebos", "booking.created", booking)!;
+      expect(msg).toContain("Новая бронь — нужно подтвердить");
+      expect(msg).toContain("👤 Иван Петров · +79991234567");
+      expect(msg).toContain("📅 сб, 10 октября · 16:00–22:00");
+      expect(msg).toContain("/admin/gazebos/bookings/b1");
+      expect(msg).not.toContain("Требуется подтверждение");
     });
-    expect(msg).toContain("Новое бронирование");
+
+    it("link — ждёт оплаты, подтверждать вручную только при оплате на месте", () => {
+      const msg = renderAdminMessage("gazebos", "booking.created", { ...booking, paymentFlow: "link" })!;
+      expect(msg).toContain("ждёт оплаты");
+      expect(msg).toContain("подтвердится сама");
+    });
+
+    it("online — «ничего делать не нужно» (видят только лично подписавшиеся)", () => {
+      const msg = renderAdminMessage("gazebos", "booking.created", { ...booking, paymentFlow: "online" })!;
+      expect(msg).toContain("ждёт онлайн-оплаты");
+      expect(msg).toContain("Ничего делать не нужно");
+    });
+
+    it("без клиента не печатает пустое «Клиент:»", () => {
+      const msg = renderAdminMessage("gazebos", "booking.created", {
+        ...booking,
+        clientName: undefined,
+        clientPhone: undefined,
+      })!;
+      expect(msg).not.toContain("👤");
+      expect(msg).not.toContain("Клиент:");
+    });
+  });
+
+  it("ps-park booking.created ведёт на страницу сессии", () => {
+    const msg = renderAdminMessage("ps-park", "booking.created", { ...booking, resourceName: "Стол 2" })!;
+    expect(msg).toContain("нужно подтвердить");
+    expect(msg).toContain("/admin/ps-park/sessions/b1");
+  });
+
+  it.each([
+    [{ cancelledBecause: "unpaid" }, "Оплата не поступила"],
+    [{ cancelledBy: "client" }, "Отменил клиент"],
+    [{ cancelledBy: "admin" }, "Отменена администратором"],
+  ])("booking.cancelled объясняет, кто/почему отменил (%o)", (extra, expected) => {
+    const msg = renderAdminMessage("gazebos", "booking.cancelled", { ...booking, ...extra })!;
+    expect(msg).toContain("Бронь отменена");
+    expect(msg).toContain(expected);
+  });
+
+  it("payment.succeeded по брони беседки — полноценное «бронь оплачена»", () => {
+    const msg = renderAdminMessage("gazebos", "payment.succeeded", {
+      ...booking,
+      amount: "12 000,00",
+      description: "Беседка: Беседка №3, 2026-10-10 16:00–22:00",
+      subjectType: "BOOKING",
+    })!;
+    expect(msg).toContain("Бронь оплачена онлайн: 12 000,00 ₽");
     expect(msg).toContain("Иван Петров");
-    expect(msg).toContain("подтверждение");
+    expect(msg).toContain("ничего делать не нужно");
+    expect(msg).toContain("/admin/gazebos/bookings/b1");
+  });
+
+  it("payment.succeeded по уже отменённой брони — просит восстановить или вернуть деньги", () => {
+    const msg = renderAdminMessage("gazebos", "payment.succeeded", {
+      ...booking,
+      amount: "12 000,00",
+      subjectType: "BOOKING",
+      bookingStatus: "CANCELLED",
+    })!;
+    expect(msg).toContain("Оплата по отменённой брони");
+    expect(msg).toContain("возврат");
+    expect(msg).not.toContain("ничего делать не нужно");
+  });
+
+  it("payment.succeeded без брони (заказ кафе) — сумма и описание", () => {
+    const msg = renderAdminMessage("cafe", "payment.succeeded", {
+      amount: "850,00",
+      description: "Заказ кафе",
+      subjectType: "ORDER",
+    })!;
+    expect(msg).toContain("Онлайн-оплата: 850,00 ₽");
+    expect(msg).toContain("Заказ кафе");
   });
 
   it("renders cafe order.placed", () => {
     const msg = renderAdminMessage("cafe", "order.placed", {
       orderNumber: "XYZ789",
-      userName: "Мария",
+      clientName: "Мария",
       totalAmount: "1500",
       itemCount: 3,
-    });
-    expect(msg).toContain("Новый заказ");
-    expect(msg).toContain("1500");
+    })!;
+    expect(msg).toContain("Новый заказ #XYZ789");
+    expect(msg).toContain("Мария");
+    expect(msg).toContain("1\u00a0500 ₽");
+    expect(msg).toContain("Самовывоз");
   });
 
-  it("renders rental contract.expiring", () => {
+  it("renders rental contract.expiring с правильным склонением", () => {
     const msg = renderAdminMessage("rental", "contract.expiring", {
       tenantName: "ООО Тест",
       officeNumber: "A-12",
-      endDate: "2026-05-10",
-      daysLeft: 15,
-    });
-    expect(msg).toContain("истекает");
+      endDate: "10.05.2026",
+      daysLeft: 22,
+    })!;
+    expect(msg).toContain("заканчивается через 22 дня");
     expect(msg).toContain("ООО Тест");
-    expect(msg).toContain("15");
+    expect(msg).toContain("10 мая 2026");
+  });
+
+  it("rental inquiry.created не печатает пустые поля-заглушки", () => {
+    const msg = renderAdminMessage("rental-inquiry", "inquiry.created", {
+      name: "Иван",
+      phone: "+7900",
+      email: "—",
+      companyName: "—",
+      officeNumber: "Общий запрос",
+      message: "—",
+    })!;
+    expect(msg).toContain("Иван · +7900");
+    expect(msg).not.toContain("Email:");
+    expect(msg).not.toContain("Компания:");
+    expect(msg).not.toContain("Сообщение:");
   });
 });
 
@@ -114,13 +271,13 @@ describe("HTML escaping (#471)", () => {
     expect(msg).not.toContain("<img src=");
   });
 
-  it("экранирует userName в adminTemplates.gazebos['booking.created'] (гостевое бронирование)", () => {
+  it("экранирует имя клиента в adminTemplates.gazebos['booking.created'] (гостевое бронирование)", () => {
     const msg = renderAdminMessage("gazebos", "booking.created", {
       resourceName: "Беседка №1",
       date: "2026-04-15",
       startTime: "10:00",
       endTime: "12:00",
-      userName: "<b>Гость</b>",
+      clientName: "<b>Гость</b>",
     });
     expect(msg).toContain("&lt;b&gt;Гость&lt;/b&gt;");
     expect(msg).not.toContain("<b>Гость</b>");

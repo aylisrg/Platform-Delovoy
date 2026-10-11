@@ -5,6 +5,7 @@ import { createCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
+import type { BookingMetadata } from "@/modules/booking/types";
 import { EVENT_SOURCES } from "@/lib/event-sources";
 import { log } from "@/lib/logger";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
@@ -270,6 +271,9 @@ async function sendBookingReceipt(
   }
 }
 
+/** Причина автоотмены брони, по которой так и не пришли деньги. */
+const UNPAID_CANCEL_REASON = "Оплата не завершена";
+
 export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promise<void> {
   const booking = await tx.booking.findUnique({ where: { id: payment.subjectId } });
   if (!booking) return;
@@ -279,24 +283,40 @@ export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promis
   if (booking.moduleSlug === "gazebos" && booking.status === "PENDING") {
     await tx.booking.updateMany({
       where: { id: booking.id, status: "PENDING" },
-      data: { status: "CANCELLED", cancelReason: "Оплата не завершена" },
+      data: { status: "CANCELLED", cancelReason: UNPAID_CANCEL_REASON },
     });
   }
 }
 
 export async function afterBookingPaymentCanceled(payment: Payment): Promise<void> {
   const booking = await prisma.booking.findUnique({ where: { id: payment.subjectId } });
-  if (!booking || booking.status !== "CANCELLED") return;
+  // Сообщаем, только если бронь отменила именно неоплата. Бронь, которую клиент
+  // или менеджер отменили раньше, уже получила своё «отменена» — второе, да ещё
+  // с причиной «оплата не поступила», было бы неправдой.
+  if (!booking || booking.status !== "CANCELLED" || booking.cancelReason !== UNPAID_CANCEL_REASON) {
+    return;
+  }
   const resource = await prisma.resource.findUnique({
     where: { id: booking.resourceId },
     select: { name: true },
   });
+  // Бронь, оплачиваемую сразу при создании, общий админ-чат не видел
+  // (`paymentFlow: online`, см. gazebos createBooking) — значит, и её отмена
+  // за неоплатой ему не новость. Брони из бота/Mini App чат видел и об отмене
+  // узнаёт как раньше.
+  const staffSawBooking =
+    (booking.metadata as BookingMetadata | null)?.paymentFlow !== "online";
   enqueueNotification({
     type: "booking.cancelled",
     moduleSlug: booking.moduleSlug,
     entityId: booking.id,
     userId: booking.userId ?? undefined,
     actor: "admin",
-    data: { resourceName: resource?.name || "", ...bookingTimeStrings(booking) },
+    data: {
+      resourceName: resource?.name || "",
+      ...bookingTimeStrings(booking),
+      cancelledBecause: "unpaid",
+      ...(!staffSawBooking && { adminChat: false }),
+    },
   });
 }

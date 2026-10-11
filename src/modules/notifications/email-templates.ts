@@ -4,6 +4,8 @@
  * Uses emailLayout() wrapper for consistent header/footer.
  */
 
+import { PARK_PHONE, formatEventDate } from "./text-format";
+
 type TemplateData = Record<string, unknown>;
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
@@ -89,14 +91,42 @@ function infoRow(label: string, value: string): string {
 
 // ─── Booking: Created ─────────────────────────────────────────────────────────
 
+/**
+ * Что ждёт клиента после создания брони — зависит от `paymentFlow`
+ * (см. templates.ts clientBookingCreated): оплата на сайте, оплата по ссылке
+ * со страницы брони или подтверждение администратором.
+ */
+function bookingCreatedCopy(data: TemplateData): { heading: string; lead: string; next: string } {
+  if (data.paymentFlow === "online") {
+    return {
+      heading: "Бронь создана — осталось оплатить",
+      lead: "Время за вами, пока идёт оплата.",
+      next: "Оплатите бронь в течение часа: после оплаты она подтвердится автоматически и мы пришлём письмо. Если не оплатить, бронь отменится и время освободится.",
+    };
+  }
+  if (data.paymentFlow === "link") {
+    return {
+      heading: "Бронь создана, но ещё не оплачена",
+      lead: "Время за вами, осталось оплатить.",
+      next: "Оплатить можно по ссылке, которую вы получили при бронировании, — после оплаты бронь подтвердится автоматически.",
+    };
+  }
+  return {
+    heading: "Заявка на бронь принята",
+    lead: "Мы получили вашу заявку.",
+    next: "Администратор проверит время и подтвердит бронь — мы пришлём письмо.",
+  };
+}
+
 export function bookingCreatedHtml(data: TemplateData): string {
   const accent = moduleAccent(String(data.moduleSlug || ""));
+  const copy = bookingCreatedCopy(data);
   const content = `
     <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
-      Заявка принята!
+      ${copy.heading}
     </h2>
     <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
-      Ваша заявка на бронирование получена. Мы подтвердим её в ближайшее время.
+      ${copy.lead}
     </p>
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
       <tbody>
@@ -106,14 +136,15 @@ export function bookingCreatedHtml(data: TemplateData): string {
       </tbody>
     </table>
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Ожидайте подтверждения — мы пришлём письмо, как только менеджер обработает заявку.
+      ${copy.next} Вопросы — по телефону <a href="tel:+74996774888" style="color:${accent};">${PARK_PHONE}</a>.
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: "Заявка на бронирование" });
+  return emailLayout(content, { accentColor: accent, title: copy.heading });
 }
 
 export function bookingCreatedText(data: TemplateData): string {
-  return `Заявка принята!\n\n${data.resourceName}\nДата: ${data.date}\nВремя: ${data.startTime} — ${data.endTime}\n\nОжидайте подтверждения.`;
+  const copy = bookingCreatedCopy(data);
+  return `${copy.heading}\n\n${data.resourceName}\nДата: ${data.date}\nВремя: ${data.startTime} — ${data.endTime}\n\n${copy.next}\nВопросы: ${PARK_PHONE}.`;
 }
 
 // ─── Booking: Confirmed ───────────────────────────────────────────────────────
@@ -543,12 +574,13 @@ export function renderEmailTemplate(
   eventType: string,
   data: TemplateData
 ): EmailTemplate | null {
-  const d = { ...data, moduleSlug };
+  // Дата в письме — «сб, 10 октября», а не «2026-10-10» (места вызова шлют ISO).
+  const d = { ...data, moduleSlug, date: formatEventDate(data.date) };
 
   switch (eventType) {
     case "booking.created":
       return {
-        subject: `Заявка на бронирование принята — ${data.resourceName || "Деловой Парк"}`,
+        subject: `${bookingCreatedCopy(data).heading} — ${data.resourceName || "Деловой Парк"}`,
         html: bookingCreatedHtml(d),
         text: bookingCreatedText(d),
       };
