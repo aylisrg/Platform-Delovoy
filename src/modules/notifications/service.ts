@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { formatTime } from "@/lib/format";
 import type { NotificationChannel } from "@prisma/client";
 import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
@@ -37,7 +38,7 @@ export async function notify(event: NotificationEvent): Promise<void> {
     promises.push(notifyClient(event));
   }
 
-  if (routing.admin) {
+  if (routing.admin && event.staffAudience !== "none") {
     promises.push(notifyAdmin(event));
   }
 
@@ -186,6 +187,89 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
   }
 }
 
+const BOOKING_MODULES = new Set(["gazebos", "ps-park"]);
+
+/**
+ * Бронь, о которой событие: сама бронь для `booking.*` беседок и PS Park,
+ * предмет платежа для `payment.*` по брони.
+ */
+function bookingIdForEvent(event: NotificationEvent): string | null {
+  if (event.type.startsWith("booking.") && BOOKING_MODULES.has(event.moduleSlug)) {
+    return event.entityId;
+  }
+  if (
+    event.type.startsWith("payment.") &&
+    event.data.subjectType === "BOOKING" &&
+    typeof event.data.subjectId === "string"
+  ) {
+    return event.data.subjectId;
+  }
+  return null;
+}
+
+/**
+ * Дополняет данные события тем, что нужно тексту админ-чата, но не передаётся
+ * из мест вызова: имя и телефон клиента, ссылка на бронь, ресурс и слот для
+ * платежа по брони, кто инициировал отмену. Раньше шаблон ждал `userName`,
+ * которого не передавало ни одно место вызова, — и в чат уходило пустое
+ * «Клиент:». Явно переданные поля важнее загруженных; ошибка чтения не
+ * блокирует уведомление — текст просто выйдет без строки клиента.
+ */
+async function withAdminContext(event: NotificationEvent): Promise<Record<string, unknown>> {
+  const data: Record<string, unknown> = { ...event.data };
+  if (data.cancelledBy === undefined && event.actor) data.cancelledBy = event.actor;
+
+  try {
+    const bookingId = bookingIdForEvent(event);
+    if (bookingId) {
+      const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: {
+          status: true,
+          resourceId: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          clientName: true,
+          clientPhone: true,
+          user: { select: { name: true, phone: true } },
+        },
+      });
+      if (!booking) return data;
+
+      data.bookingId ??= bookingId;
+      data.bookingStatus ??= booking.status;
+      data.clientName ||= booking.clientName || booking.user?.name || undefined;
+      data.clientPhone ||= booking.clientPhone || booking.user?.phone || undefined;
+      // Платёж несёт только сумму и описание — ресурс и слот берём из брони.
+      if (!data.resourceName) {
+        const resource = await prisma.resource.findUnique({
+          where: { id: booking.resourceId },
+          select: { name: true },
+        });
+        data.resourceName = resource?.name;
+        data.date = booking.date.toISOString().split("T")[0];
+        data.startTime = formatTime(booking.startTime);
+        data.endTime = formatTime(booking.endTime);
+      }
+      return data;
+    }
+
+    // Заказу кафе достаточно имени: телефон кухне не нужен, лишний раз его
+    // в чат и журнал уведомлений не тащим.
+    if (event.type.startsWith("order.") && event.userId && !data.clientName) {
+      const user = await prisma.user.findUnique({
+        where: { id: event.userId },
+        select: { name: true },
+      });
+      data.clientName = user?.name || undefined;
+    }
+  } catch (err) {
+    console.error("[Notifications] Admin context lookup failed:", err);
+  }
+  return data;
+}
+
 /**
  * Send notification to module admins.
  *
@@ -207,6 +291,10 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
  * to path 3 ensures SUPERADMIN always gets notifications via the legacy chatId
  * even when no channels are configured in the DB.
  *
+ * `event.staffAudience === "personal"` stops after path 2b: only self-subscribed
+ * staff get the event, the group chat and explicit recipients don't
+ * (`"none"` never reaches notifyAdmin at all).
+ *
  * `Module.config.telegramAdminChatEnabled === false` is a hard kill switch:
  * paths 1 and 3 are skipped entirely (no chatId fallback either). Path 2
  * (explicit per-user recipients) is unaffected — it's an opt-in mechanism
@@ -214,7 +302,8 @@ async function notifyClient(event: NotificationEvent): Promise<void> {
  */
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
-    const message = renderAdminMessage(event.moduleSlug, event.type, event.data);
+    const data = await withAdminContext(event);
+    const message = renderAdminMessage(event.moduleSlug, event.type, data);
     if (!message) return;
 
     const [explicitIds, moduleConfig, selfSubscribedIds] = await Promise.all([
@@ -246,10 +335,17 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     // conditions below and never changes them: the group chat keeps behaving
     // exactly as before. Users already listed as explicit recipients are
     // filtered out here so we don't rely on the 5-minute dispatch dedup window.
-    const selfOnlyIds = selfSubscribedIds.filter((id) => !explicitIds.includes(id));
+    // `staffAudience: "personal"` — событие только для лично подписавшихся.
+    // Общий чат, заменяющие его явные получатели и legacy-фолбэк его не
+    // получают, поэтому и фильтр «уже получил как явный» здесь не нужен.
+    const personalOnly = event.staffAudience === "personal";
+    const selfOnlyIds = personalOnly
+      ? selfSubscribedIds
+      : selfSubscribedIds.filter((id) => !explicitIds.includes(id));
     if (selfOnlyIds.length > 0) {
       await dispatchPersonal(selfOnlyIds);
     }
+    if (personalOnly) return;
 
     // Admin group chat explicitly disabled for this category — never send to
     // it and never fall back to the global chat. Explicit per-user recipients

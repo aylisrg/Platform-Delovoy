@@ -84,4 +84,24 @@ describe("enqueueNotification", () => {
       })
     );
   });
+
+  it("не всплывает в админке, если аудитория персонала сужена (staffAudience)", () => {
+    enqueueNotification({
+      type: "booking.created",
+      moduleSlug: "gazebos",
+      entityId: "booking-1",
+      userId: "user-1",
+      actor: "client",
+      data: {
+        resourceName: "Беседка №1",
+        date: "2026-04-15",
+        startTime: "10:00",
+        endTime: "12:00",
+        paymentFlow: "online",
+      },
+      staffAudience: "none",
+    });
+
+    expect(broadcastAdminEvent).not.toHaveBeenCalled();
+  });
 });

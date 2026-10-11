@@ -260,4 +260,53 @@ describe("dispatchModuleChannel", () => {
     await dispatchModuleChannel({ ...paidEvent, type: "booking.admin_created" });
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it("отмена неоплаченной брони в канал не идёт (канал не видел её создания)", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.cancelled"],
+    });
+
+    await dispatchModuleChannel({
+      ...paidEvent,
+      type: "booking.cancelled",
+      data: { ...paidEvent.data, cancelledBecause: "unpaid" },
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("обычная отмена в канал идёт", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.cancelled"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, type: "booking.cancelled" });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(sentBody().text).toContain("Бронь отменена");
+  });
+
+  it("событие с суженной аудиторией персонала (staffAudience) в канал не идёт", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, staffAudience: "personal" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("дата в посте — по-человечески, а не ISO", async () => {
+    mockConfig({
+      telegramChannelEnabled: true,
+      telegramChannelId: "-100",
+      telegramChannelEvents: ["booking.paid"],
+    });
+
+    await dispatchModuleChannel({ ...paidEvent, data: { ...paidEvent.data, date: "2026-10-10" } });
+    expect(sentBody().text).toContain("сб, 10 октября");
+  });
 });

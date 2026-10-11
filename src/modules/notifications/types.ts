@@ -9,7 +9,18 @@ export type NotificationEvent = {
   entityId: string; // booking/order ID
   userId?: string; // client user ID (for client notifications)
   actor?: "client" | "admin";
-  data: Record<string, unknown>; // event-specific payload for templates
+  /**
+   * Кому из персонала доставлять событие (по умолчанию — всем, как раньше):
+   * - `personal` — только сотрудникам, лично подписавшимся в Центре
+   *   уведомлений Mini App; общий админ-чат модуля, заменяющие его явные
+   *   получатели, выделенный канал и всплывающие уведомления админки — нет;
+   * - `none` — персоналу не доставляется вовсе, только клиенту.
+   * Так бронь, которая ждёт онлайн-оплаты, не шумит у смены: о ней узнают,
+   * когда она оплачена (см. gazebos createBooking, payments/subjects/booking).
+   */
+  staffAudience?: "personal" | "none";
+  /** Event-specific payload for templates. */
+  data: Record<string, unknown>;
 };
 
 /**

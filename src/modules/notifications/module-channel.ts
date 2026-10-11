@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
 import { escapeHtml } from "@/lib/telegram/escape";
 import type { NotificationEvent } from "./types";
+import { adminBookingLink, formatClient, formatSlot } from "./text-format";
 
 /**
  * Dedicated per-module Telegram channel delivery.
@@ -18,26 +19,11 @@ import type { NotificationEvent } from "./types";
  *   - telegramBotToken?: string         — optional per-module bot override
  */
 
-type TemplateFn = (d: Record<string, unknown>) => string;
+type TemplateFn = (d: Record<string, unknown>) => string | null;
 
-/**
- * Абсолютная ссылка на конкретную бронь в админке. Единый источник знания о
- * форме админ-маршрута по модулю: gazebos → страница брони, ps-park → сессия.
- */
-function adminBookingUrl(moduleSlug: string, bookingId: unknown): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const id = encodeURIComponent(String(bookingId ?? ""));
-  const path =
-    moduleSlug === "ps-park"
-      ? `/admin/ps-park/sessions/${id}`
-      : `/admin/gazebos/bookings/${id}`;
-  return `${base}${path}`;
-}
-
-/** HTML-ссылка «Открыть в панели» на бронь (пусто, если bookingId неизвестен). */
+/** HTML-ссылка «Открыть бронь в панели» (пусто, если bookingId неизвестен). */
 function adminLink(moduleSlug: string, d: Record<string, unknown>): string {
-  if (!d.bookingId) return "";
-  return `\n\n<a href="${adminBookingUrl(moduleSlug, d.bookingId)}">Открыть в панели</a>`;
+  return adminBookingLink(moduleSlug, d.bookingId);
 }
 
 /**
@@ -52,6 +38,38 @@ function gazeboExtendLink(d: Record<string, unknown>): string {
   const date = d.dateISO ? `&date=${encodeURIComponent(String(d.dateISO))}` : "";
   return `\n\n<a href="${base}/admin/gazebos?booking=${id}${date}">Продлить (изменить время)</a>`;
 }
+
+/** Ресурс, слот и (если известен) клиент — общий блок всех постов о брони. */
+function bookingBlock(d: Record<string, unknown>, opts: { withPhone?: boolean } = {}): string {
+  const lines = [escapeHtml(d.resourceName), `📅 ${escapeHtml(formatSlot(d))}`];
+  const client = opts.withPhone
+    ? formatClient(d)
+    : formatClient({ clientName: d.clientName });
+  if (client) lines.push(`👤 ${escapeHtml(client)}`);
+  return lines.join("\n");
+}
+
+function rescheduleBlock(d: Record<string, unknown>): string {
+  const was = formatSlot({ date: d.oldDate, startTime: d.oldStartTime, endTime: d.oldEndTime });
+  const lines = [
+    escapeHtml(d.resourceName),
+    `Было: ${escapeHtml(was)}`,
+    `Стало: ${escapeHtml(formatSlot(d))}`,
+  ];
+  const client = formatClient({ clientName: d.clientName });
+  if (client) lines.push(`👤 ${escapeHtml(client)}`);
+  return lines.join("\n");
+}
+
+const amountLine = (d: Record<string, unknown>) =>
+  d.amount ? `\nСумма: ${escapeHtml(d.amount)} ₽` : "";
+
+/**
+ * Отмена неоплаченной брони (истекло окно онлайн-оплаты) — не новость для
+ * канала: сам канал узнаёт о брони только после оплаты (`booking.paid`) или
+ * при брони по телефону, так что «отмену» он видел бы без «создания».
+ */
+const isUnpaidCancellation = (d: Record<string, unknown>) => d.cancelledBecause === "unpaid";
 
 /**
  * HTML-formatted channel templates per module + event type.
@@ -69,43 +87,47 @@ function gazeboExtendLink(d: Record<string, unknown>): string {
 const channelTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
     "booking.paid": (d) =>
-      `💳 <b>Бронь оплачена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("gazebos", d)}`,
+      `💳 <b>Бронь оплачена онлайн</b>\n\n${bookingBlock(d)}${amountLine(d)}\n\nБронь подтверждена — ждём гостей.${adminLink("gazebos", d)}`,
     "booking.admin_created": (d) =>
-      `📞 <b>Бронь по телефону</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}${adminLink("gazebos", d)}`,
+      `📞 <b>Бронь по телефону</b>\n\n${bookingBlock(d, { withPhone: true })}\n\nБронь уже подтверждена администратором.${adminLink("gazebos", d)}`,
     "booking.cancelled": (d) =>
-      `❌ <b>Бронь отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${adminLink("gazebos", d)}`,
+      isUnpaidCancellation(d)
+        ? null
+        : `❌ <b>Бронь отменена</b>\n\n${bookingBlock(d)}\n\nВремя снова свободно.${adminLink("gazebos", d)}`,
     "booking.completed": (d) =>
-      `🏁 <b>Бронь завершена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("gazebos", d)}`,
+      `🏁 <b>Бронь завершена</b>\n\n${bookingBlock(d)}${adminLink("gazebos", d)}`,
     "booking.deleted": (d) =>
-      `🗑 <b>Бронь удалена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}`,
+      `🗑 <b>Бронь удалена</b>\n\n${bookingBlock(d)}`,
     "booking.rescheduled": (d) =>
-      `🔄 <b>Бронь перенесена</b>\n\n${escapeHtml(d.resourceName)}\nБыло: ${d.oldDate}, ${d.oldStartTime} — ${d.oldEndTime}\nСтало: ${d.date}, ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${adminLink("gazebos", d)}`,
+      `🔄 <b>Бронь перенесена</b>\n\n${rescheduleBlock(d)}${adminLink("gazebos", d)}`,
     "booking.reminder": (d) =>
-      `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+      `⏰ <b>Через час приезжают гости</b>\n\n${bookingBlock(d)}\n\nПроверьте, что беседка готова.`,
     "booking.ending_soon": (d) =>
-      `⏳ <b>Бронь скоро заканчивается</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nОкончание: ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}\n\nПредложите клиенту продлить.${gazeboExtendLink(d)}`,
+      `⏳ <b>Бронь закончится через час</b>\n\n${bookingBlock(d, { withPhone: true })}\n\nПредложите гостям продлить, если следом беседка свободна.${gazeboExtendLink(d)}`,
   },
   cafe: {
     // QR-чекаут: постим только оплаченные заказы (order.paid шлётся строго
     // после успешной онлайн-оплаты). order.placed шаблона намеренно нет —
     // неоплаченные корзины в канал не попадают.
     "order.paid": (d) =>
-      `☕ <b>Оплачен заказ #${escapeHtml(d.orderNumber)}</b>\n\nСумма: ${d.amount} ₽\nСостав: ${escapeHtml(d.itemsSummary)}\n${d.deliveryTo ? `Принести: ${escapeHtml(d.deliveryTo)}` : "Самообслуживание — выдан у кассы"}\n\n<a href="${(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000") + "/admin/cafe"}">Открыть в панели</a>`,
+      `☕ <b>Оплачен заказ #${escapeHtml(d.orderNumber)} — можно готовить</b>\n\nСумма: ${escapeHtml(d.amount)} ₽\nСостав: ${escapeHtml(d.itemsSummary)}\n${d.deliveryTo ? `Принести в офис: ${escapeHtml(d.deliveryTo)}` : "Самообслуживание — гость заберёт у кассы"}\n\n<a href="${(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000") + "/admin/cafe"}">Открыть заказы в панели</a>`,
   },
   "ps-park": {
     // «Онлайн-оплата», а не «оплачена»: счёт ps-park может оплачиваться
     // частями (несколько платежей), поэтому каждое событие — это принятый
     // онлайн-платёж, а не факт полной оплаты сессии.
     "booking.paid": (d) =>
-      `💳 <b>Онлайн-оплата сессии</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.amount ? `\nСумма: ${d.amount} ₽` : ""}${adminLink("ps-park", d)}`,
+      `💳 <b>Онлайн-оплата сессии</b>\n\n${bookingBlock(d)}${amountLine(d)}${adminLink("ps-park", d)}`,
     "booking.admin_created": (d) =>
-      `📞 <b>Сессия по телефону</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${d.clientName ? `\nКлиент: ${escapeHtml(d.clientName)}` : ""}${d.clientPhone ? `\nТелефон: ${escapeHtml(d.clientPhone)}` : ""}${adminLink("ps-park", d)}`,
+      `📞 <b>Сессия по телефону</b>\n\n${bookingBlock(d, { withPhone: true })}\n\nСессия уже подтверждена администратором.${adminLink("ps-park", d)}`,
     "booking.cancelled": (d) =>
-      `❌ <b>Сессия отменена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
+      isUnpaidCancellation(d)
+        ? null
+        : `❌ <b>Сессия отменена</b>\n\n${bookingBlock(d)}\n\nСтол снова свободен.${adminLink("ps-park", d)}`,
     "booking.completed": (d) =>
-      `🏁 <b>Сессия завершена</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}${adminLink("ps-park", d)}`,
+      `🏁 <b>Сессия завершена</b>\n\n${bookingBlock(d)}${adminLink("ps-park", d)}`,
     "booking.reminder": (d) =>
-      `⏰ <b>Напоминание</b>\n\n${escapeHtml(d.resourceName)}\nДата: ${d.date}\nВремя: ${d.startTime} — ${d.endTime}`,
+      `⏰ <b>Через час начинается сессия</b>\n\n${bookingBlock(d)}\n\nПроверьте, что стол свободен и готов.`,
   },
 };
 
@@ -126,6 +148,10 @@ function renderChannelMessage(
 export async function dispatchModuleChannel(
   event: NotificationEvent
 ): Promise<void> {
+  // Канал — общая лента смены, как и админ-чат: событие с суженной аудиторией
+  // персонала (NotificationEvent.staffAudience) сюда не идёт.
+  if (event.staffAudience) return;
+
   try {
     const moduleRecord = await prisma.module.findUnique({
       where: { slug: event.moduleSlug },

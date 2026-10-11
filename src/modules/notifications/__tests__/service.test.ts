@@ -4,6 +4,9 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     module: { findUnique: vi.fn() },
     notificationLog: { create: vi.fn() },
+    booking: { findUnique: vi.fn() },
+    resource: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn() },
   },
 }));
 
@@ -71,6 +74,7 @@ beforeEach(() => {
   vi.mocked(telegramAdapter.send).mockResolvedValue({ success: true });
   vi.mocked(prisma.notificationLog.create).mockResolvedValue({} as never);
   vi.mocked(dispatch).mockResolvedValue({ status: "skipped", reason: "test" });
+  vi.mocked(prisma.booking.findUnique).mockResolvedValue(null);
 });
 
 describe("notifyAdmin — telegramAdminChatEnabled kill switch", () => {
@@ -206,5 +210,206 @@ describe("notifyAdmin — путь 2b: самоподписанные сотру
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "self-1" })
     );
+  });
+});
+
+// Сообщение в админ-чат раньше ждало `userName`, которого не передавало ни
+// одно место вызова, — в чат уходило пустое «Клиент:». Контакт клиента и
+// ссылку на бронь notifyAdmin теперь берёт из самой брони.
+describe("notifyAdmin — контекст брони для текста", () => {
+  const sentText = () => vi.mocked(telegramAdapter.send).mock.calls[0][1];
+
+  it("подставляет имя и телефон клиента из профиля и ссылку на бронь", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://delovoy-park.ru");
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({
+      resourceId: "r1",
+      date: new Date("2026-10-10T00:00:00Z"),
+      startTime: new Date("2026-10-10T13:00:00Z"),
+      endTime: new Date("2026-10-10T19:00:00Z"),
+      clientName: null,
+      clientPhone: null,
+      user: { name: "Иван Петров", phone: "+79991234567" },
+    } as never);
+
+    await notify({
+      type: "booking.created",
+      moduleSlug: "gazebos",
+      entityId: "b1",
+      actor: "client",
+      data: { resourceName: "Беседка №3", date: "2026-10-10", startTime: "16:00", endTime: "22:00" },
+    });
+
+    expect(prisma.booking.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "b1" } })
+    );
+    expect(sentText()).toContain("👤 Иван Петров · +79991234567");
+    expect(sentText()).toContain("https://delovoy-park.ru/admin/gazebos/bookings/b1");
+    expect(sentText()).not.toContain("Требуется подтверждение");
+  });
+
+  it("гостевая бронь: контакт с самой брони важнее профиля", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({
+      resourceId: "r1",
+      date: new Date("2026-10-10T00:00:00Z"),
+      startTime: new Date("2026-10-10T13:00:00Z"),
+      endTime: new Date("2026-10-10T19:00:00Z"),
+      clientName: "Гость Мария",
+      clientPhone: "+79990000000",
+      user: null,
+    } as never);
+
+    await notify(cancelledEvent);
+
+    expect(sentText()).toContain("Гость Мария · +79990000000");
+    // actor события превращается в «кто отменил».
+    expect(sentText()).toContain("Отменена администратором");
+  });
+
+  it("платёж по брони: ресурс, слот и клиент берутся из брони", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({
+      status: "CONFIRMED",
+      resourceId: "r1",
+      date: new Date("2026-10-10T00:00:00Z"),
+      startTime: new Date("2026-10-10T13:00:00Z"),
+      endTime: new Date("2026-10-10T19:00:00Z"),
+      clientName: "Гость Мария",
+      clientPhone: null,
+      user: null,
+    } as never);
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Беседка №3" } as never);
+
+    await notify({
+      type: "payment.succeeded",
+      moduleSlug: "gazebos",
+      entityId: "pay1",
+      data: { amount: "12 000,00", description: "Беседка", subjectType: "BOOKING", subjectId: "b1" },
+    });
+
+    expect(prisma.booking.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "b1" } })
+    );
+    expect(sentText()).toContain("Бронь оплачена онлайн: 12 000,00 ₽");
+    expect(sentText()).toContain("Беседка №3");
+    expect(sentText()).toContain("сб, 10 октября · 16:00–22:00");
+    expect(sentText()).toContain("Гость Мария");
+  });
+
+  it("платёж пришёл по уже отменённой брони — статус брони попадает в текст", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({
+      status: "CANCELLED",
+      resourceId: "r1",
+      date: new Date("2026-10-10T00:00:00Z"),
+      startTime: new Date("2026-10-10T13:00:00Z"),
+      endTime: new Date("2026-10-10T19:00:00Z"),
+      clientName: null,
+      clientPhone: null,
+      user: null,
+    } as never);
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Беседка №3" } as never);
+
+    await notify({
+      type: "payment.succeeded",
+      moduleSlug: "gazebos",
+      entityId: "pay1",
+      data: { amount: "12 000,00", description: "Беседка", subjectType: "BOOKING", subjectId: "b1" },
+    });
+
+    expect(sentText()).toContain("Оплата по отменённой брони");
+  });
+
+  it("заказ кафе: имя клиента из профиля, без телефона", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { telegramAdminChatId: "-100cafe" },
+    } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Мария" } as never);
+
+    await notify({
+      type: "order.placed",
+      moduleSlug: "cafe",
+      entityId: "o1",
+      userId: "u1",
+      actor: "client",
+      data: { orderNumber: "A1B2C3", totalAmount: "850", itemCount: 2 },
+    });
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      select: { name: true },
+    });
+    expect(sentText()).toContain("👤 Мария");
+    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("ошибка чтения брони не блокирует сообщение", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(prisma.booking.findUnique).mockRejectedValue(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await notify(cancelledEvent);
+
+    expect(telegramAdapter.send).toHaveBeenCalledTimes(1);
+    expect(sentText()).toContain("Бронь отменена");
+  });
+});
+
+describe("notifyAdmin — staffAudience", () => {
+  const personalEvent: NotificationEvent = {
+    ...cancelledEvent,
+    type: "booking.created",
+    staffAudience: "personal",
+    data: { ...cancelledEvent.data, paymentFlow: "online", paid: true },
+  };
+
+  it("none — персоналу не доставляется вовсе, даже самоподписанным", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+
+    await notify({ ...personalEvent, staffAudience: "none" });
+
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("не шлёт в общий чат", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+
+    await notify(personalEvent);
+
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+  });
+
+  it("не уходит в глобальный фолбэк-чат", async () => {
+    vi.stubEnv("TELEGRAM_ADMIN_CHAT_ID", "-100global");
+    mockGazebosConfig({});
+
+    await notify(personalEvent);
+
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+  });
+
+  it("явные получатели (замена чата) его не получают, самоподписанные — получают", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["explicit-1"]);
+    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+
+    await notify(personalEvent);
+
+    const dispatched = vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId);
+    expect(dispatched).toEqual(["self-1"]);
+  });
+
+  it("самоподписанный, который ещё и явный получатель, всё равно получает", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["user-1"]);
+    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["user-1"]);
+
+    await notify(personalEvent);
+
+    const dispatched = vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId);
+    expect(dispatched).toEqual(["user-1"]);
   });
 });

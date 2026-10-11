@@ -17,7 +17,13 @@ import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
-import type { CancellationPolicy, BookingMetadata, BookingDiscount } from "@/modules/booking/types";
+import { isHiddenFromStaff } from "@/modules/booking/payment-flow";
+import type {
+  CancellationPolicy,
+  BookingMetadata,
+  BookingDiscount,
+  BookingPaymentFlow,
+} from "@/modules/booking/types";
 import {
   DEFAULT_CANCELLATION_POLICY,
   PREPAID_CANCELLATION_POLICY,
@@ -474,14 +480,19 @@ export async function createBooking(
     );
   }
 
-  enqueueNotification({
-    type: "booking.created",
-    moduleSlug: MODULE_SLUG,
-    entityId: booking.id,
-    userId: userId ?? undefined,
-    actor: "client",
-    data: { resourceName: resource.name, date, startTime, endTime },
-  });
+  const notifyCreated = (paymentFlow: BookingPaymentFlow) =>
+    enqueueNotification({
+      type: "booking.created",
+      moduleSlug: MODULE_SLUG,
+      entityId: booking.id,
+      userId: userId ?? undefined,
+      actor: "client",
+      // Бронь ждёт оплаты на сайте — смене делать нечего. Персонал узнает о
+      // ней, когда она оплачена (payments/subjects/booking.ts), а брошенная
+      // оплата не оставит у него пары «новая бронь → отменена».
+      ...(paymentFlow === "online" && { staffAudience: "none" as const }),
+      data: { resourceName: resource.name, date, startTime, endTime, paymentFlow },
+    });
 
   // === 100 % онлайн-предоплата (YooKassa) ===
   // Бронь ждёт денег в PENDING: CONFIRMED придёт из вебхука payment.succeeded,
@@ -491,10 +502,49 @@ export async function createBooking(
   // Без акцепта ссылку на оплату не выдаём ни при каких условиях: оплата и есть
   // акцепт (п. 4.3 оферты), а акцептовать документ, которого не видел, нельзя.
   // Такие брони оплачиваются на /booking/[token], где условия показываются.
+  //
+  // Уведомление о брони уходит после попытки оплаты: от её исхода зависит, что
+  // написать клиенту и нужно ли что-то делать администратору.
   let payment: { id: string; confirmationUrl: string | null } | null = null;
-  if (acceptance) {
-    payment = await createBookingPayment(booking.id, { cancelOnDataError: true });
+  try {
+    if (acceptance) {
+      payment = await createBookingPayment(booking.id, { cancelOnDataError: true });
+    }
+  } catch (err) {
+    // BookingError — платёж с битыми данными, бронь уже отменена: сообщать не
+    // о чем. Любая другая ошибка оставляет бронь в PENDING — пусть её увидят.
+    if (!(err instanceof BookingError)) notifyCreated("manual");
+    throw err;
   }
+
+  const paymentFlow: BookingPaymentFlow = payment
+    ? "online"
+    : !acceptance && manageToken && isYooKassaConfigured()
+      ? "link"
+      : "manual";
+  if (paymentFlow === "online") {
+    // Ссылка на оплату ещё не ушла клиенту (она в ответе этого же запроса),
+    // поэтому параллельной записи metadata из вебхука здесь быть не может.
+    // Сбой записи не роняет бронь с уже созданным платежом: без флага смена
+    // просто узнает об отмене за неоплату, как раньше.
+    try {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: {
+          metadata: {
+            ...((booking.metadata as BookingMetadata | null) ?? {}),
+            paymentFlow,
+          } as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      await log.warn(MODULE_SLUG, "Не записан paymentFlow брони", {
+        bookingId: booking.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  notifyCreated(paymentFlow);
 
   // Сырой токен наружу отдаём ровно один раз — вызывающий код кладёт его в
   // письмо-подтверждение. В ответ публичного API он не попадает.
@@ -1402,6 +1452,8 @@ export async function updateBookingStatus(
     // Guest bookings have no user to notify — the channel is a manager-initiated callback.
     userId: booking.userId ?? undefined,
     actor: "admin",
+    // Неоплаченную бронь с сайта персонал не видел — её отмена ему не новость.
+    ...(status === "CANCELLED" && isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 
@@ -1542,6 +1594,8 @@ export async function cancelBooking(
     entityId: id,
     userId: userId ?? undefined,
     actor: "client",
+    // Неоплаченную бронь с сайта персонал не видел — её отмена ему не новость.
+    ...(isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 

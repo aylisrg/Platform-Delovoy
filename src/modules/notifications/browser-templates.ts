@@ -3,48 +3,61 @@
  * Returns { title, body } for the Browser Notification API.
  */
 
+import { formatRub, formatSlot, humanizeDates, pluralDays } from "./text-format";
+
 type TemplateData = Record<string, unknown>;
 type BrowserTemplate = { title: string; body: string };
 type BrowserTemplateFn = (d: TemplateData) => BrowserTemplate;
 
+const bookingBody = (d: TemplateData) => `${d.resourceName} · ${formatSlot(d)}`;
+
+/** Заголовок новой брони говорит, нужно ли что-то делать (см. templates.ts). */
+function bookingCreated(park: string): BrowserTemplateFn {
+  return (d) => ({
+    title:
+      d.paymentFlow === "link"
+        ? `${park}: новая бронь — ждёт оплаты`
+        : `${park}: новая бронь — нужно подтвердить`,
+    body: bookingBody(d),
+  });
+}
+
+function bookingCancelled(park: string): BrowserTemplateFn {
+  return (d) => ({ title: `${park}: бронь отменена`, body: bookingBody(d) });
+}
+
 const templates: Record<string, Record<string, BrowserTemplateFn>> = {
   gazebos: {
-    "booking.created": (d) => ({
-      title: "Новое бронирование — Барбекю Парк",
-      body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
-    }),
-    "booking.cancelled": (d) => ({
-      title: "Бронирование отменено — Барбекю Парк",
-      body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
+    "booking.created": bookingCreated("Барбекю Парк"),
+    "booking.cancelled": bookingCancelled("Барбекю Парк"),
+    // Бронь с сайта до оплаты персоналу не показывается (staffAudience) —
+    // колокольчик узнаёт о ней из оплаты. Других платежей у беседок нет.
+    "payment.succeeded": (d) => ({
+      title: "Барбекю Парк: бронь оплачена",
+      body: `${humanizeDates(d.description)} · ${d.amount} ₽`,
     }),
   },
   "ps-park": {
-    "booking.created": (d) => ({
-      title: "Новое бронирование — Плей Парк",
-      body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
-    }),
-    "booking.cancelled": (d) => ({
-      title: "Бронирование отменено — Плей Парк",
-      body: `${d.resourceName}\n${d.date} ${d.startTime}–${d.endTime}`,
-    }),
+    "booking.created": bookingCreated("Плей Парк"),
+    "booking.cancelled": bookingCancelled("Плей Парк"),
   },
   cafe: {
     "order.placed": (d) => ({
-      title: "Новый заказ — Кафе",
-      body: `Заказ #${d.orderNumber}, ${d.totalAmount} руб.${d.deliveryTo ? ` → офис ${d.deliveryTo}` : ""}`,
+      title: "Кафе: новый заказ",
+      body: `Заказ #${d.orderNumber} · ${formatRub(d.totalAmount)} ₽ · ${d.deliveryTo ? `в офис ${d.deliveryTo}` : "самовывоз"}`,
     }),
     "order.cancelled": (d) => ({
-      title: "Заказ отменён — Кафе",
-      body: `Заказ #${d.orderNumber}, ${d.totalAmount} руб.`,
+      title: "Кафе: заказ отменён",
+      body: `Заказ #${d.orderNumber} · ${formatRub(d.totalAmount)} ₽`,
     }),
   },
   rental: {
     "contract.expiring": (d) => ({
-      title: "Договор истекает",
-      body: `${d.tenantName}, офис ${d.officeNumber} — через ${d.daysLeft} дн.`,
+      title: "Договор аренды заканчивается",
+      body: `${d.tenantName}, офис ${d.officeNumber}${Number.isFinite(Number(d.daysLeft)) ? ` — через ${pluralDays(Number(d.daysLeft))}` : ""}`,
     }),
     "inquiry.created": (d) => ({
-      title: "Новая заявка на аренду",
+      title: "Новая заявка на аренду офиса",
       body: `${d.name}, ${d.phone}${d.officeNumber ? ` — офис ${d.officeNumber}` : ""}`,
     }),
   },

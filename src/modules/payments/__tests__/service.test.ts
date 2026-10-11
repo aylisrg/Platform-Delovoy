@@ -443,6 +443,167 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
     );
   });
 
+  describe("уведомление об отмене неоплаченной брони", () => {
+    const pendingBooking = {
+      id: "book1",
+      moduleSlug: "gazebos",
+      status: "PENDING",
+      resourceId: "res1",
+      userId: "user1",
+      date: new Date("2026-10-10T00:00:00Z"),
+      startTime: new Date("2026-10-10T13:00:00Z"),
+      endTime: new Date("2026-10-10T19:00:00Z"),
+      cancelReason: null,
+      metadata: {},
+    };
+
+    function arrangeCanceledPayment(afterCancel: Record<string, unknown>) {
+      vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
+      vi.mocked(yooGet).mockResolvedValue({
+        ...remoteSucceeded,
+        status: "canceled",
+        paid: false,
+        cancellation_details: { party: "yoo_money", reason: "expired_on_confirmation" },
+      } as never);
+      vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+        paymentRow({ status: "CANCELED" })
+      );
+      // Первое чтение — в транзакции (бронь ещё PENDING), второе — после неё.
+      vi.mocked(prisma.booking.findUnique)
+        .mockResolvedValueOnce(pendingBooking as never)
+        .mockResolvedValueOnce({ ...pendingBooking, status: "CANCELLED", ...afterCancel } as never);
+      vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Беседка №3" } as never);
+    }
+
+    const cancelledCalls = () =>
+      vi.mocked(enqueueNotification).mock.calls
+        .map((c) => c[0])
+        .filter((event) => event.type === "booking.cancelled");
+
+    it("бронь, оплачиваемая с сайта: причина «не оплачена», персоналу не идёт", async () => {
+      arrangeCanceledPayment({
+        cancelReason: "Оплата не завершена",
+        metadata: { paymentFlow: "online" },
+      });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(cancelledCalls()).toHaveLength(1);
+      expect(cancelledCalls()[0].staffAudience).toBe("none");
+      expect(cancelledCalls()[0].data).toEqual(
+        expect.objectContaining({ resourceName: "Беседка №3", cancelledBecause: "unpaid" })
+      );
+    });
+
+    it("бронь из бота (чат видел её создание): отмена идёт в чат как раньше", async () => {
+      arrangeCanceledPayment({ cancelReason: "Оплата не завершена", metadata: {} });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(cancelledCalls()).toHaveLength(1);
+      expect(cancelledCalls()[0].data.cancelledBecause).toBe("unpaid");
+      expect(cancelledCalls()[0]).not.toHaveProperty("staffAudience");
+    });
+
+    it("payment.canceled несёт тип предмета оплаты (от него зависит текст клиенту)", async () => {
+      arrangeCanceledPayment({ cancelReason: "Оплата не завершена" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(enqueueNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "payment.canceled",
+          data: expect.objectContaining({ subjectType: "BOOKING" }),
+        })
+      );
+    });
+
+    it("бронь уже отменена клиентом раньше — второго «отменена» нет", async () => {
+      arrangeCanceledPayment({ cancelReason: "Передумали" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(cancelledCalls()).toHaveLength(0);
+    });
+  });
+
+  describe("оплата брони с сайта: «новая бронь» лично подписавшимся", () => {
+    function arrangeSucceededBooking(metadata: Record<string, unknown>) {
+      vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
+      vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
+      vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+        paymentRow({ status: "SUCCEEDED" })
+      );
+      const base = {
+        id: "book1",
+        moduleSlug: "gazebos",
+        resourceId: "res1",
+        userId: "user1",
+        date: new Date("2026-10-10T00:00:00Z"),
+        startTime: new Date("2026-10-10T13:00:00Z"),
+        endTime: new Date("2026-10-10T19:00:00Z"),
+        googleEventId: null,
+      };
+      vi.mocked(prisma.booking.findUnique)
+        .mockResolvedValueOnce({ ...base, status: "PENDING", metadata } as never)
+        .mockResolvedValue({ ...base, status: "CONFIRMED", metadata } as never);
+      vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.resource.findUnique).mockResolvedValue({
+        name: "Беседка №3",
+        googleCalendarId: null,
+      } as never);
+    }
+
+    const staffCreated = () =>
+      vi.mocked(enqueueNotification).mock.calls
+        .map((c) => c[0])
+        .filter((event) => event.type === "booking.created");
+
+    it("paymentFlow online — staff-only booking.created с paid, без клиента", async () => {
+      arrangeSucceededBooking({ paymentFlow: "online", totalPrice: "4000.00" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(staffCreated()).toHaveLength(1);
+      expect(staffCreated()[0].staffAudience).toBe("personal");
+      // Клиенту это событие не адресовано: без userId notifyClient его не шлёт.
+      expect(staffCreated()[0].userId).toBeUndefined();
+      expect(staffCreated()[0].data).toEqual(
+        expect.objectContaining({ paid: true, resourceName: "Беседка №3" })
+      );
+    });
+
+    it("бронь из бота (персонал её уже видел) — повторной «новой брони» нет", async () => {
+      arrangeSucceededBooking({ totalPrice: "4000.00" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(staffCreated()).toHaveLength(0);
+    });
+  });
+
+  it("succeeded: payment.succeeded несёт предмет платежа для админ-текста", async () => {
+    vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
+    vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
+    vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+      paymentRow({ status: "SUCCEEDED" })
+    );
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue(null);
+
+    await syncPaymentByProviderId("yk1");
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "payment.succeeded",
+        data: expect.objectContaining({ subjectType: "BOOKING", subjectId: "book1" }),
+      })
+    );
+  });
+
   it("неизвестный providerPaymentId — warn без исключения", async () => {
     vi.mocked(prisma.payment.findUnique).mockResolvedValue(null);
     await expect(syncPaymentByProviderId("unknown")).resolves.toBeUndefined();

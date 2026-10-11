@@ -11,7 +11,20 @@ describe("renderBrowserNotification", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.title).toContain("Барбекю Парк");
+    expect(result!.title).toContain("нужно подтвердить");
     expect(result!.body).toContain("Беседка №1");
+    expect(result!.body).toContain("ср, 15 апреля · 10:00–12:00");
+  });
+
+  it("booking.created из бота — «ждёт оплаты», а не «нужно подтвердить»", () => {
+    const result = renderBrowserNotification("gazebos", "booking.created", {
+      resourceName: "Беседка №1",
+      date: "2026-04-15",
+      startTime: "10:00",
+      endTime: "12:00",
+      paymentFlow: "link",
+    });
+    expect(result!.title).toContain("ждёт оплаты");
   });
 
   it("renders ps-park booking.created", () => {
@@ -34,7 +47,8 @@ describe("renderBrowserNotification", () => {
     expect(result).not.toBeNull();
     expect(result!.title).toContain("Кафе");
     expect(result!.body).toContain("A123");
-    expect(result!.body).toContain("1500");
+    expect(result!.body).toContain("1\u00a0500 ₽");
+    expect(result!.body).toContain("самовывоз");
   });
 
   it("renders cafe order.placed with delivery", () => {
@@ -53,9 +67,9 @@ describe("renderBrowserNotification", () => {
       daysLeft: 15,
     });
     expect(result).not.toBeNull();
-    expect(result!.title).toContain("истекает");
+    expect(result!.title).toContain("заканчивается");
     expect(result!.body).toContain("ООО Тест");
-    expect(result!.body).toContain("15");
+    expect(result!.body).toContain("через 15 дней");
   });
 
   it("renders rental inquiry.created", () => {
@@ -67,6 +81,16 @@ describe("renderBrowserNotification", () => {
     expect(result).not.toBeNull();
     expect(result!.body).toContain("Петров");
     expect(result!.body).toContain("B-5");
+  });
+
+  it("оплата брони беседки звенит в колокольчике (до оплаты бронь персоналу не видна)", () => {
+    const result = renderBrowserNotification("gazebos", "payment.succeeded", {
+      amount: "4 000,00",
+      description: "Беседка: Беседка №1, 2026-10-10 16:00–22:00",
+      subjectType: "BOOKING",
+    });
+    expect(result!.title).toBe("Барбекю Парк: бронь оплачена");
+    expect(result!.body).toBe("Беседка: Беседка №1, сб, 10 октября 16:00–22:00 · 4 000,00 ₽");
   });
 
   it("returns null for unknown module", () => {
@@ -85,6 +109,6 @@ describe("renderBrowserNotification", () => {
       endTime: "20:00",
     });
     expect(result).not.toBeNull();
-    expect(result!.title).toContain("отменено");
+    expect(result!.title).toContain("бронь отменена");
   });
 });

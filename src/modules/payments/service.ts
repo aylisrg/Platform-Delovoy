@@ -334,7 +334,14 @@ async function markSucceeded(paymentId: string, remote: YooPayment): Promise<voi
     moduleSlug: applied.moduleSlug,
     entityId: applied.id,
     userId: applied.userId ?? undefined,
-    data: { amount: formatAmount(applied.amount), description: applied.description },
+    data: {
+      amount: formatAmount(applied.amount),
+      description: applied.description,
+      // По предмету платежа админ-текст подтягивает бронь (ресурс, слот,
+      // клиента): «оплачена беседка» должно читаться без панели.
+      subjectType: applied.subjectType,
+      subjectId: applied.subjectId,
+    },
   });
 
   // First-party воронка, шаг `paid` (US-1 эпика #583, ADR 2026-09-16 §5.4).
@@ -378,6 +385,9 @@ async function markCanceled(paymentId: string, reason: string): Promise<void> {
       amount: formatAmount(applied.amount),
       description: applied.description,
       reason,
+      // Что будет с предметом оплаты, зависит от его типа: бронь беседки,
+      // заказ и абонемент отменяются вместе с платежом, счёт PS Park — нет.
+      subjectType: applied.subjectType,
     },
   });
 

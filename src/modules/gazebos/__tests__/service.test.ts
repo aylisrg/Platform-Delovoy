@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Общий мок advisory-блокировки слота: hoisted, чтобы на него можно было
 // ассертить из тестов (#429) — иначе он пересоздавался бы на каждую транзакцию.
@@ -109,6 +109,8 @@ import {
 import { prisma } from "@/lib/db";
 import { createCalendarEvent, deleteCalendarEvent, updateCalendarEvent } from "@/lib/google-calendar";
 import { enqueueNotification } from "@/modules/notifications/queue";
+import { createOnlinePayment } from "@/modules/payments/service";
+import { PaymentError } from "@/modules/payments/types";
 import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { upsertClientByPhone } from "@/modules/clients/service";
 
@@ -471,6 +473,32 @@ describe("updateBookingStatus", () => {
     );
   });
 
+  it("менеджер отменяет неоплаченную бронь с сайта — персоналу не сообщается", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", metadata: { paymentFlow: "online" } }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CANCELLED" }) as never);
+
+    await updateBookingStatus("booking-1", "CANCELLED");
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "booking.cancelled", staffAudience: "none" })
+    );
+  });
+
+  it("подтверждение той же брони менеджером аудиторию не сужает", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", metadata: { paymentFlow: "online" } }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await updateBookingStatus("booking-1", "CONFIRMED");
+
+    const event = vi.mocked(enqueueNotification).mock.calls.at(-1)?.[0];
+    expect(event?.type).toBe("booking.confirmed");
+    expect(event).not.toHaveProperty("staffAudience");
+  });
+
   it("transitions CONFIRMED → COMPLETED with zero totalBill (no metadata.totalPrice)", async () => {
     // No metadata.totalPrice → totalBill === 0 → payment gate passes without cash/card.
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
@@ -772,6 +800,32 @@ describe("cancelBooking", () => {
     expect(prisma.booking.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "CANCELLED" }) })
     );
+  });
+
+  it("отмена неоплаченной брони с сайта персоналу не сообщается (он её не видел)", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ userId: "user-1", status: "PENDING", metadata: { paymentFlow: "online" } }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CANCELLED" }) as never);
+
+    await cancelBooking("booking-1", "user-1");
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "booking.cancelled", staffAudience: "none" })
+    );
+  });
+
+  it("отмена обычной брони идёт персоналу как раньше", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ userId: "user-1", status: "PENDING" }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CANCELLED" }) as never);
+
+    await cancelBooking("booking-1", "user-1");
+
+    const event = vi.mocked(enqueueNotification).mock.calls.at(-1)?.[0];
+    expect(event?.type).toBe("booking.cancelled");
+    expect(event).not.toHaveProperty("staffAudience");
   });
 
   it("throws FORBIDDEN when user is not the booking owner", async () => {
@@ -2476,5 +2530,131 @@ describe("редактирование брони, оформленной по �
     await expect(
       rescheduleBooking("booking-1", { startTime: "17:00", endTime: "22:00" }, "m1")
     ).resolves.toBeDefined();
+  });
+});
+
+// === Уведомление о новой брони: сценарий подтверждения (paymentFlow) ===
+//
+// Раньше booking.created уходил до попытки оплаты с безусловным «Требуется
+// подтверждение» в админ-чат — даже для брони, которую подтвердит сама оплата.
+
+describe("createBooking — уведомление о новой брони", () => {
+  const createdEvent = () =>
+    vi.mocked(enqueueNotification).mock.calls
+      .map((c) => c[0])
+      .find((event) => event.type === "booking.created");
+
+  beforeEach(() => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+    vi.mocked(prisma.offerVersion.findFirst).mockResolvedValue(CURRENT_OFFER as never);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("без онлайн-оплаты — manual: админ-чат просят подтвердить", async () => {
+    await createBooking("user-1", acceptedBookingInput);
+
+    expect(createdEvent()?.data).toEqual(
+      expect.objectContaining({ paymentFlow: "manual", resourceName: expect.any(String) })
+    );
+    expect(createdEvent()).not.toHaveProperty("staffAudience");
+  });
+
+  /** ЮKassa настроена, акцепт есть, бронь находится для платежа. */
+  function arrangeOnlinePayment() {
+    vi.stubEnv("YOOKASSA_SHOP_ID", "shop");
+    vi.stubEnv("YOOKASSA_SECRET_KEY", "secret");
+    // Первый findFirst — конфликт-чек (свободно), второй — бронь для платежа.
+    vi.mocked(prisma.booking.findFirst)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(mockBooking({ metadata: { totalPrice: "4000.00" } }) as never);
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Беседка №1" } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ email: "a@b.ru", phone: null } as never);
+  }
+
+  it("ЮKassa не ответила (PAYMENT_CREATE_FAILED) — manual, менеджер подтвердит", async () => {
+    arrangeOnlinePayment();
+    vi.mocked(createOnlinePayment).mockRejectedValue(
+      new PaymentError("PAYMENT_CREATE_FAILED", "Провайдер недоступен")
+    );
+
+    const result = await createBooking("user-1", acceptedBookingInput);
+
+    expect(result.payment).toBeNull();
+    expect(createdEvent()?.data.paymentFlow).toBe("manual");
+    expect(createdEvent()).not.toHaveProperty("staffAudience");
+  });
+
+  it("неожиданная ошибка при создании платежа — бронь в PENDING, о ней сообщаем (manual) и пробрасываем", async () => {
+    arrangeOnlinePayment();
+    vi.mocked(createOnlinePayment).mockRejectedValue(new Error("db down"));
+
+    await expect(createBooking("user-1", acceptedBookingInput)).rejects.toThrow("db down");
+    expect(createdEvent()?.data.paymentFlow).toBe("manual");
+  });
+
+  it("бронь из бота при настроенной ЮKassa — link: клиент оплатит по ссылке", async () => {
+    vi.stubEnv("YOOKASSA_SHOP_ID", "shop");
+    vi.stubEnv("YOOKASSA_SECRET_KEY", "secret");
+    vi.stubEnv("AUTH_SECRET", "test-secret");
+
+    await createBooking("user-1", validBookingInput);
+
+    expect(createOnlinePayment).not.toHaveBeenCalled();
+    expect(createdEvent()?.data.paymentFlow).toBe("link");
+    expect(createdEvent()).not.toHaveProperty("staffAudience");
+  });
+
+  it("ссылка на оплату выдана — online: персоналу не идёт, флаг сохранён в брони", async () => {
+    arrangeOnlinePayment();
+    vi.mocked(createOnlinePayment).mockResolvedValue({
+      id: "pay-1",
+      confirmationUrl: "https://yookassa.example/pay",
+    } as never);
+
+    const result = await createBooking("user-1", acceptedBookingInput);
+
+    expect(result.payment).toEqual({ id: "pay-1", confirmationUrl: "https://yookassa.example/pay" });
+    expect(createdEvent()?.data.paymentFlow).toBe("online");
+    expect(createdEvent()?.staffAudience).toBe("none");
+    // Флаг нужен отмене за неоплату: чат не видел создания — не увидит и отмены.
+    const flagUpdate = vi
+      .mocked(prisma.booking.update)
+      .mock.calls.find((c) => "metadata" in (c[0].data as object));
+    expect((flagUpdate?.[0].data as { metadata: Record<string, unknown> }).metadata).toEqual(
+      expect.objectContaining({ paymentFlow: "online" })
+    );
+  });
+
+  it("сбой записи флага не роняет бронь с созданным платежом", async () => {
+    arrangeOnlinePayment();
+    vi.mocked(createOnlinePayment).mockResolvedValue({
+      id: "pay-1",
+      confirmationUrl: "https://yookassa.example/pay",
+    } as never);
+    vi.mocked(prisma.booking.update).mockImplementation(((args: { data: object }) =>
+      "metadata" in args.data
+        ? Promise.reject(new Error("write failed"))
+        : Promise.resolve(mockBooking())) as never);
+
+    const result = await createBooking("user-1", acceptedBookingInput);
+
+    expect(result.payment?.id).toBe("pay-1");
+    expect(createdEvent()?.data.paymentFlow).toBe("online");
+  });
+
+  it("платёж с битыми данными (бронь отменена) — о брони не сообщаем", async () => {
+    arrangeOnlinePayment();
+    vi.mocked(createOnlinePayment).mockRejectedValue(
+      new PaymentError("PAYMENT_INVALID_AMOUNT", "Неверная сумма")
+    );
+
+    await expect(createBooking("user-1", acceptedBookingInput)).rejects.toThrow("Неверная сумма");
+    expect(createdEvent()).toBeUndefined();
   });
 });
