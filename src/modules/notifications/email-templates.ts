@@ -4,7 +4,7 @@
  * Uses emailLayout() wrapper for consistent header/footer.
  */
 
-import { PARK_PHONE, formatEventDate } from "./text-format";
+import { PARK_PHONE, PARK_PHONE_TEL, formatEventDate } from "./text-format";
 
 type TemplateData = Record<string, unknown>;
 
@@ -136,7 +136,7 @@ export function bookingCreatedHtml(data: TemplateData): string {
       </tbody>
     </table>
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      ${copy.next} Вопросы — по телефону <a href="tel:+74996774888" style="color:${accent};">${PARK_PHONE}</a>.
+      ${copy.next} Вопросы — по телефону <a href="tel:${PARK_PHONE_TEL}" style="color:${accent};">${PARK_PHONE}</a>.
     </p>
   `;
   return emailLayout(content, { accentColor: accent, title: copy.heading });

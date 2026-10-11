@@ -10,10 +10,10 @@ import { renderBrowserNotification } from "./browser-templates";
  */
 export function enqueueNotification(event: NotificationEvent): void {
   // Broadcast to admin SSE connections (sync, in-memory)
-  // Событие «только для лично подписавшихся» (data.adminChat === false) во
-  // всплывающие уведомления админки не идёт — как и в общий админ-чат.
+  // Событие с суженной аудиторией персонала (staffAudience) во всплывающие
+  // уведомления админки не идёт — как и в общий админ-чат.
   const routing = EVENT_ROUTING[event.type];
-  if (routing?.admin && event.data.adminChat !== false) {
+  if (routing?.admin && !event.staffAudience) {
     const browser = renderBrowserNotification(
       event.moduleSlug,
       event.type,

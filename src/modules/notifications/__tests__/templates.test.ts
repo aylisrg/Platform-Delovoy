@@ -43,6 +43,35 @@ describe("renderClientMessage", () => {
     });
   });
 
+  it("payment.canceled по брони/заказу — оформить заново, а не «оплатить ещё раз»", () => {
+    for (const moduleSlug of ["gazebos", "cafe"]) {
+      const msg = renderClientMessage(moduleSlug, "payment.canceled", {
+        amount: "4 000,00",
+        description: "Беседка: Беседка №1, 2026-10-10 16:00–22:00",
+      })!;
+      expect(msg).toContain("Деньги не списаны");
+      expect(msg).toContain("оформите бронь или заказ заново");
+      expect(msg).not.toContain("оплатить ещё раз");
+    }
+  });
+
+  it("payment.canceled по счёту PS Park — счёт можно оплатить ещё раз", () => {
+    const msg = renderClientMessage("ps-park", "payment.canceled", {
+      amount: "1 500,00",
+      description: "Сессия",
+    })!;
+    expect(msg).toContain("Счёт можно оплатить ещё раз");
+  });
+
+  it("дата в описании платежа показывается по-человечески", () => {
+    const msg = renderClientMessage("gazebos", "payment.succeeded", {
+      amount: "4 000,00",
+      description: "Беседка: Беседка №1, 2026-10-10 16:00–22:00",
+    })!;
+    expect(msg).toContain("Беседка №1, сб, 10 октября 16:00–22:00");
+    expect(msg).not.toContain("2026-10-10");
+  });
+
   it("booking.cancelled за неоплату объясняет причину", () => {
     const msg = renderClientMessage("gazebos", "booking.cancelled", {
       ...slot,
@@ -124,10 +153,14 @@ describe("renderAdminMessage", () => {
       expect(msg).toContain("подтвердится сама");
     });
 
-    it("online — «ничего делать не нужно» (видят только лично подписавшиеся)", () => {
-      const msg = renderAdminMessage("gazebos", "booking.created", { ...booking, paymentFlow: "online" })!;
-      expect(msg).toContain("ждёт онлайн-оплаты");
-      expect(msg).toContain("Ничего делать не нужно");
+    it("paid — оплаченная бронь с сайта для лично подписавшихся: «ничего делать не нужно»", () => {
+      const msg = renderAdminMessage("gazebos", "booking.created", {
+        ...booking,
+        paymentFlow: "online",
+        paid: true,
+      })!;
+      expect(msg).toContain("Новая бронь — оплачена онлайн");
+      expect(msg).toContain("ничего делать не нужно");
     });
 
     it("без клиента не печатает пустое «Клиент:»", () => {
@@ -215,6 +248,16 @@ describe("renderAdminMessage", () => {
     expect(msg).toContain("заканчивается через 22 дня");
     expect(msg).toContain("ООО Тест");
     expect(msg).toContain("10 мая 2026");
+  });
+
+  it("rental contract.expiring без числа дней не печатает «NaN»", () => {
+    const msg = renderAdminMessage("rental", "contract.expiring", {
+      tenantName: "ООО Тест",
+      officeNumber: "A-12",
+      endDate: "10.05.2026",
+    })!;
+    expect(msg).toContain("Договор аренды заканчивается");
+    expect(msg).not.toContain("NaN");
   });
 
   it("rental inquiry.created не печатает пустые поля-заглушки", () => {

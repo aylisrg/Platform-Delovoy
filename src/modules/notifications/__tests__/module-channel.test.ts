@@ -288,14 +288,14 @@ describe("dispatchModuleChannel", () => {
     expect(sentBody().text).toContain("Бронь отменена");
   });
 
-  it("событие только для лично подписавшихся (adminChat: false) в канал не идёт", async () => {
+  it("событие с суженной аудиторией персонала (staffAudience) в канал не идёт", async () => {
     mockConfig({
       telegramChannelEnabled: true,
       telegramChannelId: "-100",
       telegramChannelEvents: ["booking.paid"],
     });
 
-    await dispatchModuleChannel({ ...paidEvent, data: { ...paidEvent.data, adminChat: false } });
+    await dispatchModuleChannel({ ...paidEvent, staffAudience: "personal" });
     expect(global.fetch).not.toHaveBeenCalled();
   });
 

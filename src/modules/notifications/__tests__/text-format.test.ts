@@ -3,6 +3,7 @@ import {
   adminBookingLink,
   formatClient,
   formatEventDate,
+  humanizeDates,
   formatRub,
   formatSlot,
   pluralDays,
@@ -27,6 +28,11 @@ describe("formatEventDate", () => {
 
   it("withYear — для договоров: «1 ноября 2026 г.»", () => {
     expect(formatEventDate("2026-11-01", { withYear: true })).toBe("1 ноября 2026 г.");
+  });
+
+  it("несуществующую дату не «исправляет» в соседний месяц", () => {
+    expect(formatEventDate("2026-02-30")).toBe("2026-02-30");
+    expect(formatEventDate("31.02.2026")).toBe("31.02.2026");
   });
 
   it("уже готовый текст и пустое значение возвращает как есть", () => {
@@ -98,5 +104,15 @@ describe("adminBookingLink", () => {
 
   it("без bookingId ссылки нет", () => {
     expect(adminBookingLink("gazebos", undefined)).toBe("");
+  });
+});
+
+describe("humanizeDates", () => {
+  it("переписывает ISO-даты внутри текста, остальное не трогает", () => {
+    expect(humanizeDates("Беседка: Беседка №3, 2026-10-10 16:00–22:00")).toBe(
+      "Беседка: Беседка №3, сб, 10 октября 16:00–22:00"
+    );
+    expect(humanizeDates("Заказ кафе #A1B2")).toBe("Заказ кафе #A1B2");
+    expect(humanizeDates(undefined)).toBe("");
   });
 });

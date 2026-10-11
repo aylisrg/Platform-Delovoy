@@ -38,7 +38,7 @@ export async function notify(event: NotificationEvent): Promise<void> {
     promises.push(notifyClient(event));
   }
 
-  if (routing.admin) {
+  if (routing.admin && event.staffAudience !== "none") {
     promises.push(notifyAdmin(event));
   }
 
@@ -255,13 +255,14 @@ async function withAdminContext(event: NotificationEvent): Promise<Record<string
       return data;
     }
 
+    // Заказу кафе достаточно имени: телефон кухне не нужен, лишний раз его
+    // в чат и журнал уведомлений не тащим.
     if (event.type.startsWith("order.") && event.userId && !data.clientName) {
       const user = await prisma.user.findUnique({
         where: { id: event.userId },
-        select: { name: true, phone: true },
+        select: { name: true },
       });
       data.clientName = user?.name || undefined;
-      data.clientPhone ||= user?.phone || undefined;
     }
   } catch (err) {
     console.error("[Notifications] Admin context lookup failed:", err);
@@ -290,8 +291,9 @@ async function withAdminContext(event: NotificationEvent): Promise<Record<string
  * to path 3 ensures SUPERADMIN always gets notifications via the legacy chatId
  * even when no channels are configured in the DB.
  *
- * `event.data.adminChat === false` stops after path 2b: only self-subscribed
- * staff get the event, the group chat and explicit recipients don't.
+ * `event.staffAudience === "personal"` stops after path 2b: only self-subscribed
+ * staff get the event, the group chat and explicit recipients don't
+ * (`"none"` never reaches notifyAdmin at all).
  *
  * `Module.config.telegramAdminChatEnabled === false` is a hard kill switch:
  * paths 1 and 3 are skipped entirely (no chatId fallback either). Path 2
@@ -333,11 +335,10 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     // conditions below and never changes them: the group chat keeps behaving
     // exactly as before. Users already listed as explicit recipients are
     // filtered out here so we don't rely on the 5-minute dispatch dedup window.
-    // `adminChat: false` — событие только для лично подписавшихся (например,
-    // бронь, которая ещё ждёт онлайн-оплаты: смене по ней делать нечего).
+    // `staffAudience: "personal"` — событие только для лично подписавшихся.
     // Общий чат, заменяющие его явные получатели и legacy-фолбэк его не
     // получают, поэтому и фильтр «уже получил как явный» здесь не нужен.
-    const personalOnly = event.data.adminChat === false;
+    const personalOnly = event.staffAudience === "personal";
     const selfOnlyIds = personalOnly
       ? selfSubscribedIds
       : selfSubscribedIds.filter((id) => !explicitIds.includes(id));

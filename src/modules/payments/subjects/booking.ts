@@ -6,6 +6,7 @@ import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import type { BookingMetadata } from "@/modules/booking/types";
+import { isHiddenFromStaff } from "@/modules/booking/payment-flow";
 import { EVENT_SOURCES } from "@/lib/event-sources";
 import { log } from "@/lib/logger";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
@@ -146,6 +147,21 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
       actor: "admin",
       data: { resourceName: resource?.name || "", ...times },
     });
+
+    // Бронь с сайта до оплаты персоналу не показывалась (gazebos
+    // createBooking). Общий чат узнаёт о ней из payment.succeeded, а лично
+    // подписавшиеся на «Новую бронь» получают её сейчас — уже оплаченной.
+    // Без userId: клиенту это событие не адресовано.
+    if ((booking.metadata as BookingMetadata | null)?.paymentFlow === "online") {
+      enqueueNotification({
+        type: "booking.created",
+        moduleSlug: booking.moduleSlug,
+        entityId: booking.id,
+        actor: "client",
+        staffAudience: "personal",
+        data: { resourceName: resource?.name || "", ...times, paymentFlow: "online", paid: true },
+      });
+    }
   }
 
   // Письмо-подтверждение с номером редакции оферты и ссылкой на управление
@@ -300,23 +316,20 @@ export async function afterBookingPaymentCanceled(payment: Payment): Promise<voi
     where: { id: booking.resourceId },
     select: { name: true },
   });
-  // Бронь, оплачиваемую сразу при создании, общий админ-чат не видел
-  // (`paymentFlow: online`, см. gazebos createBooking) — значит, и её отмена
-  // за неоплатой ему не новость. Брони из бота/Mini App чат видел и об отмене
-  // узнаёт как раньше.
-  const staffSawBooking =
-    (booking.metadata as BookingMetadata | null)?.paymentFlow !== "online";
   enqueueNotification({
     type: "booking.cancelled",
     moduleSlug: booking.moduleSlug,
     entityId: booking.id,
     userId: booking.userId ?? undefined,
     actor: "admin",
+    // Бронь, оплачиваемую сразу при создании, персонал не видел — значит, и
+    // её отмена за неоплатой ему не новость. Брони из бота/Mini App смена
+    // видела и об отмене узнаёт как раньше.
+    ...(isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: {
       resourceName: resource?.name || "",
       ...bookingTimeStrings(booking),
       cancelledBecause: "unpaid",
-      ...(!staffSawBooking && { adminChat: false }),
     },
   });
 }

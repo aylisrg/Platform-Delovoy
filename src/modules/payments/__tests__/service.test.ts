@@ -482,7 +482,7 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
         .map((c) => c[0])
         .filter((event) => event.type === "booking.cancelled");
 
-    it("бронь, оплачиваемая с сайта: причина «не оплачена», в общий чат не идёт", async () => {
+    it("бронь, оплачиваемая с сайта: причина «не оплачена», персоналу не идёт", async () => {
       arrangeCanceledPayment({
         cancelReason: "Оплата не завершена",
         metadata: { paymentFlow: "online" },
@@ -491,12 +491,9 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
       await syncPaymentByProviderId("yk1");
 
       expect(cancelledCalls()).toHaveLength(1);
+      expect(cancelledCalls()[0].staffAudience).toBe("none");
       expect(cancelledCalls()[0].data).toEqual(
-        expect.objectContaining({
-          resourceName: "Беседка №3",
-          cancelledBecause: "unpaid",
-          adminChat: false,
-        })
+        expect.objectContaining({ resourceName: "Беседка №3", cancelledBecause: "unpaid" })
       );
     });
 
@@ -507,7 +504,7 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
 
       expect(cancelledCalls()).toHaveLength(1);
       expect(cancelledCalls()[0].data.cancelledBecause).toBe("unpaid");
-      expect(cancelledCalls()[0].data).not.toHaveProperty("adminChat");
+      expect(cancelledCalls()[0]).not.toHaveProperty("staffAudience");
     });
 
     it("бронь уже отменена клиентом раньше — второго «отменена» нет", async () => {
@@ -516,6 +513,62 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
       await syncPaymentByProviderId("yk1");
 
       expect(cancelledCalls()).toHaveLength(0);
+    });
+  });
+
+  describe("оплата брони с сайта: «новая бронь» лично подписавшимся", () => {
+    function arrangeSucceededBooking(metadata: Record<string, unknown>) {
+      vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow());
+      vi.mocked(yooGet).mockResolvedValue(remoteSucceeded as never);
+      vi.mocked(prisma.payment.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(
+        paymentRow({ status: "SUCCEEDED" })
+      );
+      const base = {
+        id: "book1",
+        moduleSlug: "gazebos",
+        resourceId: "res1",
+        userId: "user1",
+        date: new Date("2026-10-10T00:00:00Z"),
+        startTime: new Date("2026-10-10T13:00:00Z"),
+        endTime: new Date("2026-10-10T19:00:00Z"),
+        googleEventId: null,
+      };
+      vi.mocked(prisma.booking.findUnique)
+        .mockResolvedValueOnce({ ...base, status: "PENDING", metadata } as never)
+        .mockResolvedValue({ ...base, status: "CONFIRMED", metadata } as never);
+      vi.mocked(prisma.booking.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.resource.findUnique).mockResolvedValue({
+        name: "Беседка №3",
+        googleCalendarId: null,
+      } as never);
+    }
+
+    const staffCreated = () =>
+      vi.mocked(enqueueNotification).mock.calls
+        .map((c) => c[0])
+        .filter((event) => event.type === "booking.created");
+
+    it("paymentFlow online — staff-only booking.created с paid, без клиента", async () => {
+      arrangeSucceededBooking({ paymentFlow: "online", totalPrice: "4000.00" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(staffCreated()).toHaveLength(1);
+      expect(staffCreated()[0].staffAudience).toBe("personal");
+      // Клиенту это событие не адресовано: без userId notifyClient его не шлёт.
+      expect(staffCreated()[0].userId).toBeUndefined();
+      expect(staffCreated()[0].data).toEqual(
+        expect.objectContaining({ paid: true, resourceName: "Беседка №3" })
+      );
+    });
+
+    it("бронь из бота (персонал её уже видел) — повторной «новой брони» нет", async () => {
+      arrangeSucceededBooking({ totalPrice: "4000.00" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(staffCreated()).toHaveLength(0);
     });
   });
 

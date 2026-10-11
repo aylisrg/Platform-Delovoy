@@ -321,6 +321,29 @@ describe("notifyAdmin — контекст брони для текста", () =
     expect(sentText()).toContain("Оплата по отменённой брони");
   });
 
+  it("заказ кафе: имя клиента из профиля, без телефона", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({
+      config: { telegramAdminChatId: "-100cafe" },
+    } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Мария" } as never);
+
+    await notify({
+      type: "order.placed",
+      moduleSlug: "cafe",
+      entityId: "o1",
+      userId: "u1",
+      actor: "client",
+      data: { orderNumber: "A1B2C3", totalAmount: "850", itemCount: 2 },
+    });
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      select: { name: true },
+    });
+    expect(sentText()).toContain("👤 Мария");
+    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
+  });
+
   it("ошибка чтения брони не блокирует сообщение", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
     vi.mocked(prisma.booking.findUnique).mockRejectedValue(new Error("db down"));
@@ -333,12 +356,23 @@ describe("notifyAdmin — контекст брони для текста", () =
   });
 });
 
-describe("notifyAdmin — adminChat: false (только лично подписавшимся)", () => {
+describe("notifyAdmin — staffAudience", () => {
   const personalEvent: NotificationEvent = {
     ...cancelledEvent,
     type: "booking.created",
-    data: { ...cancelledEvent.data, paymentFlow: "online", adminChat: false },
+    staffAudience: "personal",
+    data: { ...cancelledEvent.data, paymentFlow: "online", paid: true },
   };
+
+  it("none — персоналу не доставляется вовсе, даже самоподписанным", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+
+    await notify({ ...personalEvent, staffAudience: "none" });
+
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 
   it("не шлёт в общий чат", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });

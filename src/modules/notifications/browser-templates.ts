@@ -48,7 +48,7 @@ const templates: Record<string, Record<string, BrowserTemplateFn>> = {
   rental: {
     "contract.expiring": (d) => ({
       title: "Договор аренды заканчивается",
-      body: `${d.tenantName}, офис ${d.officeNumber} — через ${pluralDays(Number(d.daysLeft))}`,
+      body: `${d.tenantName}, офис ${d.officeNumber}${Number.isFinite(Number(d.daysLeft)) ? ` — через ${pluralDays(Number(d.daysLeft))}` : ""}`,
     }),
     "inquiry.created": (d) => ({
       title: "Новая заявка на аренду офиса",

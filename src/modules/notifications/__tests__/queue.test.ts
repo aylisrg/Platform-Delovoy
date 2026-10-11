@@ -85,7 +85,7 @@ describe("enqueueNotification", () => {
     );
   });
 
-  it("не всплывает в админке, если событие только для лично подписавшихся", () => {
+  it("не всплывает в админке, если аудитория персонала сужена (staffAudience)", () => {
     enqueueNotification({
       type: "booking.created",
       moduleSlug: "gazebos",
@@ -98,8 +98,8 @@ describe("enqueueNotification", () => {
         startTime: "10:00",
         endTime: "12:00",
         paymentFlow: "online",
-        adminChat: false,
       },
+      staffAudience: "none",
     });
 
     expect(broadcastAdminEvent).not.toHaveBeenCalled();

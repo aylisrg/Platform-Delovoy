@@ -148,9 +148,9 @@ function renderChannelMessage(
 export async function dispatchModuleChannel(
   event: NotificationEvent
 ): Promise<void> {
-  // Канал — общая лента смены, как и админ-чат: событие «только для лично
-  // подписавшихся» (см. NotificationEvent.data.adminChat) сюда не идёт.
-  if (event.data.adminChat === false) return;
+  // Канал — общая лента смены, как и админ-чат: событие с суженной аудиторией
+  // персонала (NotificationEvent.staffAudience) сюда не идёт.
+  if (event.staffAudience) return;
 
   try {
     const moduleRecord = await prisma.module.findUnique({

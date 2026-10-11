@@ -17,6 +17,7 @@ import { computeCancellationPenalty } from "@/modules/booking/cancellation";
 import { buildCheckInMetadata, buildNoShowMetadata } from "@/modules/booking/checkin";
 import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { getPrepaidAmount } from "@/modules/booking/prepayment";
+import { isHiddenFromStaff } from "@/modules/booking/payment-flow";
 import type {
   CancellationPolicy,
   BookingMetadata,
@@ -486,17 +487,11 @@ export async function createBooking(
       entityId: booking.id,
       userId: userId ?? undefined,
       actor: "client",
-      data: {
-        resourceName: resource.name,
-        date,
-        startTime,
-        endTime,
-        paymentFlow,
-        // Бронь ждёт оплаты на сайте — смене делать нечего: общий чат узнает о
-        // ней из payment.succeeded, а брошенная оплата не оставит в чате пару
-        // «новая бронь → отменена». Лично подписавшиеся видят её как обычно.
-        ...(paymentFlow === "online" && { adminChat: false }),
-      },
+      // Бронь ждёт оплаты на сайте — смене делать нечего. Персонал узнает о
+      // ней, когда она оплачена (payments/subjects/booking.ts), а брошенная
+      // оплата не оставит у него пары «новая бронь → отменена».
+      ...(paymentFlow === "online" && { staffAudience: "none" as const }),
+      data: { resourceName: resource.name, date, startTime, endTime, paymentFlow },
     });
 
   // === 100 % онлайн-предоплата (YooKassa) ===
@@ -530,15 +525,24 @@ export async function createBooking(
   if (paymentFlow === "online") {
     // Ссылка на оплату ещё не ушла клиенту (она в ответе этого же запроса),
     // поэтому параллельной записи metadata из вебхука здесь быть не может.
-    await prisma.booking.update({
-      where: { id: booking.id },
-      data: {
-        metadata: {
-          ...((booking.metadata as BookingMetadata | null) ?? {}),
-          paymentFlow,
-        } as import("@prisma/client").Prisma.InputJsonValue,
-      },
-    });
+    // Сбой записи не роняет бронь с уже созданным платежом: без флага смена
+    // просто узнает об отмене за неоплату, как раньше.
+    try {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: {
+          metadata: {
+            ...((booking.metadata as BookingMetadata | null) ?? {}),
+            paymentFlow,
+          } as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      await log.warn(MODULE_SLUG, "Не записан paymentFlow брони", {
+        bookingId: booking.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
   notifyCreated(paymentFlow);
 
@@ -1448,6 +1452,8 @@ export async function updateBookingStatus(
     // Guest bookings have no user to notify — the channel is a manager-initiated callback.
     userId: booking.userId ?? undefined,
     actor: "admin",
+    // Неоплаченную бронь с сайта персонал не видел — её отмена ему не новость.
+    ...(status === "CANCELLED" && isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 
@@ -1588,6 +1594,8 @@ export async function cancelBooking(
     entityId: id,
     userId: userId ?? undefined,
     actor: "client",
+    // Неоплаченную бронь с сайта персонал не видел — её отмена ему не новость.
+    ...(isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 

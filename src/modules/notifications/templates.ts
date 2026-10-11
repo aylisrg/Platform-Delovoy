@@ -6,6 +6,7 @@ import {
   formatEventDate,
   formatRub,
   formatSlot,
+  humanizeDates,
   pluralDays,
 } from "./text-format";
 
@@ -75,15 +76,26 @@ const clientBookingEndingSoon: TemplateFn = (d) =>
   `Ваша бронь закончится через час, в ${e(d.endTime)}\n\n${e(d.resourceName)} · ${e(formatEventDate(d.date))}\n\nХотите остаться подольше? Позвоните: ${PARK_PHONE} — продлим, если время свободно.`;
 
 // Единые шаблоны онлайн-оплат (ЮKassa) — одинаковы для всех модулей,
-// подмешиваются в каждый модульный блок ниже.
-const paymentClientTemplates: Record<string, TemplateFn> = {
-  "payment.succeeded": (d) =>
-    `Оплата прошла: ${e(d.amount)} ₽\n\n${e(d.description)}\n\nЧек придёт на почту или телефон, указанные при оплате.`,
-  "payment.canceled": (d) =>
-    `Оплата не прошла: ${e(d.amount)} ₽\n\n${e(d.description)}\n\nДеньги не списаны. Попробуйте оплатить ещё раз или позвоните: ${PARK_PHONE}.`,
-  "payment.refund.succeeded": (d) =>
-    `Возврат оформлен: ${e(d.amount)} ₽\n\n${e(d.description)}\n\nДеньги вернутся тем же способом, которым вы платили, — обычно за 1–3 дня (срок зависит от банка).`,
-};
+// подмешиваются в каждый модульный блок ниже. Описание платежа — это же
+// описание у ЮKassa и в чеке («Беседка: №3, 2026-10-10 16:00–22:00»), поэтому
+// оно не меняется, а дата в нём переписывается только для показа.
+function paymentClientTemplates(moduleSlug: string): Record<string, TemplateFn> {
+  // Отмена платежа отменяет и то, за что платили (бронь беседки, заказ кафе,
+  // абонемент) — повторить ту же оплату нельзя, только оформить заново. Счёт
+  // PS Park при этом остаётся, его можно оплатить ещё раз.
+  const afterCancel =
+    moduleSlug === "ps-park"
+      ? `Счёт можно оплатить ещё раз или на месте. Вопросы: ${PARK_PHONE}.`
+      : `Чтобы попробовать снова, оформите бронь или заказ заново. Вопросы: ${PARK_PHONE}.`;
+  return {
+    "payment.succeeded": (d) =>
+      `Оплата прошла: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nЧек придёт на почту или телефон, указанные при оплате.`,
+    "payment.canceled": (d) =>
+      `Оплата не прошла: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nДеньги не списаны. ${afterCancel}`,
+    "payment.refund.succeeded": (d) =>
+      `Возврат оформлен: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nДеньги вернутся тем же способом, которым вы платили, — обычно за 1–3 дня (срок зависит от банка).`,
+  };
+}
 
 /**
  * Client notification templates — sent to the user.
@@ -97,14 +109,14 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.rescheduled": clientBookingRescheduled,
     "booking.reminder": clientBookingReminder,
     "booking.ending_soon": clientBookingEndingSoon,
-    ...paymentClientTemplates,
+    ...paymentClientTemplates("gazebos"),
   },
   "ps-park": {
     "booking.created": clientBookingCreated,
     "booking.confirmed": clientBookingConfirmed,
     "booking.cancelled": clientBookingCancelled,
     "booking.reminder": clientBookingReminder,
-    ...paymentClientTemplates,
+    ...paymentClientTemplates("ps-park"),
   },
   cafe: {
     "order.placed": (d) =>
@@ -119,7 +131,7 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
       `Заказ ${orderNo(d)} доставлен. Приятного аппетита!`,
     "order.cancelled": (d) =>
       `Заказ ${orderNo(d)} отменён.\n\nЕсли вы его не отменяли или есть вопросы, позвоните: ${PARK_PHONE}.`,
-    ...paymentClientTemplates,
+    ...paymentClientTemplates("cafe"),
   },
 };
 
@@ -130,15 +142,15 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
  * что-то делать» — раньше там стояло безусловное «Требуется подтверждение»,
  * хотя оплаченная онлайн бронь подтверждается сама.
  *
- * Бронь `online` (ждёт оплаты на сайте) в общий чат не попадает вовсе — её
- * помечает `adminChat: false`, а чат узнаёт о брони из `payment.succeeded`.
- * Этот текст видят только лично подписавшиеся в Центре уведомлений.
+ * Бронь `online` (ждёт оплаты на сайте) до оплаты персоналу не показывается
+ * вовсе (`staffAudience: "none"`). После оплаты общий чат узнаёт о ней из
+ * `payment.succeeded`, а лично подписавшиеся — из этого же события с `paid`.
  */
 function adminBookingCreated(moduleSlug: "gazebos" | "ps-park"): TemplateFn {
   return (d) => {
     const link = adminBookingLink(moduleSlug, d.bookingId);
-    if (d.paymentFlow === "online") {
-      return `⏳ <b>Новая бронь — ждёт онлайн-оплаты</b>\n\n${adminBookingBlock(d)}\n\nКлиент оплачивает на сайте. Оплатит в течение часа — бронь подтвердится сама, не оплатит — отменится. Ничего делать не нужно.${link}`;
+    if (d.paid) {
+      return `✅ <b>Новая бронь — оплачена онлайн</b>\n\n${adminBookingBlock(d)}\n\nБронь подтверждена — ничего делать не нужно.${link}`;
     }
     if (d.paymentFlow === "link") {
       return `🆕 <b>Новая бронь — ждёт оплаты</b>\n\n${adminBookingBlock(d)}\n\nБронь из бота или Mini App: клиенту отправлена ссылка на оплату. Оплатит — бронь подтвердится сама. Если договорились об оплате на месте, подтвердите бронь в панели.${link}`;
@@ -185,10 +197,10 @@ function paymentAdminTemplates(moduleSlug: string): Record<string, TemplateFn> {
       if (isBooking && moduleSlug === "ps-park") {
         return `💳 <b>Онлайн-оплата сессии: ${e(d.amount)} ₽</b>\n\n${adminBookingBlock(d)}${link}`;
       }
-      return `💳 <b>Онлайн-оплата: ${e(d.amount)} ₽</b>\n\n${e(d.description)}`;
+      return `💳 <b>Онлайн-оплата: ${e(d.amount)} ₽</b>\n\n${e(humanizeDates(d.description))}`;
     },
     "payment.refund.succeeded": (d) =>
-      `↩️ <b>Возврат клиенту: ${e(d.amount)} ₽</b>\n\n${e(d.description)}\n\nДеньги вернутся клиенту через ЮKassa, обычно за 1–3 дня.`,
+      `↩️ <b>Возврат клиенту: ${e(d.amount)} ₽</b>\n\n${e(humanizeDates(d.description))}\n\nДеньги вернутся клиенту через ЮKassa, обычно за 1–3 дня.`,
   };
 }
 
@@ -233,7 +245,7 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
     "contract.created": (d) =>
       `📄 <b>Новый договор аренды</b>\n\nАрендатор: ${e(d.tenantName)}\nОфис: ${e(d.officeNumber)}\nСтавка: ${e(formatRub(d.monthlyRate))} ₽/мес.\nСрок: ${e(formatEventDate(d.startDate, { withYear: true }))} — ${e(formatEventDate(d.endDate, { withYear: true }))}`,
     "contract.expiring": (d) =>
-      `⏰ <b>Договор аренды заканчивается через ${e(pluralDays(Number(d.daysLeft)))}</b>\n\nАрендатор: ${e(d.tenantName)}\nОфис: ${e(d.officeNumber)}\nДата окончания: ${e(formatEventDate(d.endDate, { withYear: true }))}\n\nСвяжитесь с арендатором: продлеваем договор или готовим офис к новому.`,
+      `⏰ <b>Договор аренды заканчивается${Number.isFinite(Number(d.daysLeft)) ? ` через ${e(pluralDays(Number(d.daysLeft)))}` : ""}</b>\n\nАрендатор: ${e(d.tenantName)}\nОфис: ${e(d.officeNumber)}\nДата окончания: ${e(formatEventDate(d.endDate, { withYear: true }))}\n\nСвяжитесь с арендатором: продлеваем договор или готовим офис к новому.`,
     "inquiry.created": rentalInquiry,
   },
   "rental-inquiry": {

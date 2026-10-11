@@ -8,6 +8,8 @@
  */
 
 export const PARK_PHONE = "+7 (499) 677-48-88";
+/** Тот же номер для `tel:`-ссылок в письмах. */
+export const PARK_PHONE_TEL = "+74996774888";
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const RU_DATE = /^(\d{2})\.(\d{2})\.(\d{4})$/;
@@ -32,7 +34,9 @@ export function formatEventDate(value: unknown, options: { withYear?: boolean } 
   if (!parts) return raw;
 
   const date = new Date(Date.UTC(Number(parts.y), Number(parts.m) - 1, Number(parts.d)));
-  if (Number.isNaN(date.getTime())) return raw;
+  // Date.UTC молча переносит «30 февраля» на 2 марта — такую дату не
+  // «исправляем», а показываем как пришла.
+  if (Number.isNaN(date.getTime()) || date.getUTCDate() !== Number(parts.d)) return raw;
 
   return date.toLocaleDateString(
     "ru-RU",
@@ -40,6 +44,15 @@ export function formatEventDate(value: unknown, options: { withYear?: boolean } 
       ? { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }
       : { weekday: "short", day: "numeric", month: "long", timeZone: "UTC" }
   );
+}
+
+/**
+ * Переписывает ISO-даты внутри готового текста: «Беседка №3, 2026-10-10
+ * 16:00–22:00» → «Беседка №3, сб, 10 октября 16:00–22:00». Нужен для описания
+ * платежа — оно же уходит в ЮKassa и в чек, поэтому меняется только при показе.
+ */
+export function humanizeDates(text: unknown): string {
+  return String(text ?? "").replace(/\b\d{4}-\d{2}-\d{2}\b/g, (iso) => formatEventDate(iso));
 }
 
 /** Слот брони одной строкой: «сб, 10 октября · 16:00–22:00». */
