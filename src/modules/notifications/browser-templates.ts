@@ -3,7 +3,7 @@
  * Returns { title, body } for the Browser Notification API.
  */
 
-import { formatRub, formatSlot, pluralDays } from "./text-format";
+import { formatRub, formatSlot, humanizeDates, pluralDays } from "./text-format";
 
 type TemplateData = Record<string, unknown>;
 type BrowserTemplate = { title: string; body: string };
@@ -30,6 +30,12 @@ const templates: Record<string, Record<string, BrowserTemplateFn>> = {
   gazebos: {
     "booking.created": bookingCreated("Барбекю Парк"),
     "booking.cancelled": bookingCancelled("Барбекю Парк"),
+    // Бронь с сайта до оплаты персоналу не показывается (staffAudience) —
+    // колокольчик узнаёт о ней из оплаты. Других платежей у беседок нет.
+    "payment.succeeded": (d) => ({
+      title: "Барбекю Парк: бронь оплачена",
+      body: `${humanizeDates(d.description)} · ${d.amount} ₽`,
+    }),
   },
   "ps-park": {
     "booking.created": bookingCreated("Плей Парк"),

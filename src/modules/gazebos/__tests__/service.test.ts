@@ -473,6 +473,32 @@ describe("updateBookingStatus", () => {
     );
   });
 
+  it("менеджер отменяет неоплаченную бронь с сайта — персоналу не сообщается", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", metadata: { paymentFlow: "online" } }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CANCELLED" }) as never);
+
+    await updateBookingStatus("booking-1", "CANCELLED");
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "booking.cancelled", staffAudience: "none" })
+    );
+  });
+
+  it("подтверждение той же брони менеджером аудиторию не сужает", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(
+      mockBooking({ status: "PENDING", metadata: { paymentFlow: "online" } }) as never
+    );
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking({ status: "CONFIRMED" }) as never);
+
+    await updateBookingStatus("booking-1", "CONFIRMED");
+
+    const event = vi.mocked(enqueueNotification).mock.calls.at(-1)?.[0];
+    expect(event?.type).toBe("booking.confirmed");
+    expect(event).not.toHaveProperty("staffAudience");
+  });
+
   it("transitions CONFIRMED → COMPLETED with zero totalBill (no metadata.totalPrice)", async () => {
     // No metadata.totalPrice → totalBill === 0 → payment gate passes without cash/card.
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(

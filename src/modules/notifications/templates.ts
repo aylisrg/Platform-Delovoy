@@ -82,16 +82,19 @@ const clientBookingEndingSoon: TemplateFn = (d) =>
 function paymentClientTemplates(moduleSlug: string): Record<string, TemplateFn> {
   // Отмена платежа отменяет и то, за что платили (бронь беседки, заказ кафе,
   // абонемент) — повторить ту же оплату нельзя, только оформить заново. Счёт
-  // PS Park при этом остаётся, его можно оплатить ещё раз.
-  const afterCancel =
-    moduleSlug === "ps-park"
-      ? `Счёт можно оплатить ещё раз или на месте. Вопросы: ${PARK_PHONE}.`
-      : `Чтобы попробовать снова, оформите бронь или заказ заново. Вопросы: ${PARK_PHONE}.`;
+  // по брони PS Park при этом остаётся, его можно оплатить ещё раз.
+  const afterCancel = (d: TemplateData) => {
+    if (moduleSlug === "ps-park" && d.subjectType === "BOOKING") {
+      return `Счёт можно оплатить ещё раз или на месте. Вопросы: ${PARK_PHONE}.`;
+    }
+    const what = moduleSlug === "gazebos" ? "бронь " : moduleSlug === "cafe" ? "заказ " : "";
+    return `Чтобы попробовать снова, оформите ${what}заново. Вопросы: ${PARK_PHONE}.`;
+  };
   return {
     "payment.succeeded": (d) =>
       `Оплата прошла: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nЧек придёт на почту или телефон, указанные при оплате.`,
     "payment.canceled": (d) =>
-      `Оплата не прошла: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nДеньги не списаны. ${afterCancel}`,
+      `Оплата не прошла: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nДеньги не списаны. ${afterCancel(d)}`,
     "payment.refund.succeeded": (d) =>
       `Возврат оформлен: ${e(d.amount)} ₽\n\n${e(humanizeDates(d.description))}\n\nДеньги вернутся тем же способом, которым вы платили, — обычно за 1–3 дня (срок зависит от банка).`,
   };

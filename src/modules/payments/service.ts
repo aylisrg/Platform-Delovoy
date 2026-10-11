@@ -385,6 +385,9 @@ async function markCanceled(paymentId: string, reason: string): Promise<void> {
       amount: formatAmount(applied.amount),
       description: applied.description,
       reason,
+      // Что будет с предметом оплаты, зависит от его типа: бронь беседки,
+      // заказ и абонемент отменяются вместе с платежом, счёт PS Park — нет.
+      subjectType: applied.subjectType,
     },
   });
 

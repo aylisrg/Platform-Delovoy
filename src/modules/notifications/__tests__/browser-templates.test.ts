@@ -83,6 +83,16 @@ describe("renderBrowserNotification", () => {
     expect(result!.body).toContain("B-5");
   });
 
+  it("оплата брони беседки звенит в колокольчике (до оплаты бронь персоналу не видна)", () => {
+    const result = renderBrowserNotification("gazebos", "payment.succeeded", {
+      amount: "4 000,00",
+      description: "Беседка: Беседка №1, 2026-10-10 16:00–22:00",
+      subjectType: "BOOKING",
+    });
+    expect(result!.title).toBe("Барбекю Парк: бронь оплачена");
+    expect(result!.body).toBe("Беседка: Беседка №1, сб, 10 октября 16:00–22:00 · 4 000,00 ₽");
+  });
+
   it("returns null for unknown module", () => {
     expect(renderBrowserNotification("unknown", "booking.created", {})).toBeNull();
   });

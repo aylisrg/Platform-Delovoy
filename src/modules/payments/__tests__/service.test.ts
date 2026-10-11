@@ -507,6 +507,19 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
       expect(cancelledCalls()[0]).not.toHaveProperty("staffAudience");
     });
 
+    it("payment.canceled несёт тип предмета оплаты (от него зависит текст клиенту)", async () => {
+      arrangeCanceledPayment({ cancelReason: "Оплата не завершена" });
+
+      await syncPaymentByProviderId("yk1");
+
+      expect(enqueueNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "payment.canceled",
+          data: expect.objectContaining({ subjectType: "BOOKING" }),
+        })
+      );
+    });
+
     it("бронь уже отменена клиентом раньше — второго «отменена» нет", async () => {
       arrangeCanceledPayment({ cancelReason: "Передумали" });
 

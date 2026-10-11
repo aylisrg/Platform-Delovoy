@@ -43,22 +43,29 @@ describe("renderClientMessage", () => {
     });
   });
 
-  it("payment.canceled по брони/заказу — оформить заново, а не «оплатить ещё раз»", () => {
-    for (const moduleSlug of ["gazebos", "cafe"]) {
+  it.each([
+    ["gazebos", "BOOKING", "оформите бронь заново"],
+    ["cafe", "ORDER", "оформите заказ заново"],
+    ["ps-park", "SUBSCRIPTION", "оформите заново"],
+  ])(
+    "payment.canceled (%s, %s) — предмет отменён, оформить заново, а не «оплатить ещё раз»",
+    (moduleSlug, subjectType, expected) => {
       const msg = renderClientMessage(moduleSlug, "payment.canceled", {
         amount: "4 000,00",
-        description: "Беседка: Беседка №1, 2026-10-10 16:00–22:00",
+        description: "Оплата",
+        subjectType,
       })!;
       expect(msg).toContain("Деньги не списаны");
-      expect(msg).toContain("оформите бронь или заказ заново");
-      expect(msg).not.toContain("оплатить ещё раз");
+      expect(msg).toContain(expected);
+      expect(msg).not.toContain("ещё раз");
     }
-  });
+  );
 
-  it("payment.canceled по счёту PS Park — счёт можно оплатить ещё раз", () => {
+  it("payment.canceled по счёту брони PS Park — счёт можно оплатить ещё раз", () => {
     const msg = renderClientMessage("ps-park", "payment.canceled", {
       amount: "1 500,00",
       description: "Сессия",
+      subjectType: "BOOKING",
     })!;
     expect(msg).toContain("Счёт можно оплатить ещё раз");
   });
