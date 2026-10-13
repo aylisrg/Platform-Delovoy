@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.24.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.23.0...v2.24.0) (2026-10-13)
+
+
+### Features
+
+* **gazebos:** онлайн-бронь первым действием + блок «Уборка» в админке ([#1085](https://github.com/aylisrg/Platform-Delovoy/issues/1085)) ([#1088](https://github.com/aylisrg/Platform-Delovoy/issues/1088)) ([b4da653](https://github.com/aylisrg/Platform-Delovoy/commit/b4da65344cd6b9bdfb5c548ef696dfe42a10fcc4))
+
+
+### Bug Fixes
+
+* **cron:** constant-time verifyCronRequest, только CRON_SECRET ([#1074](https://github.com/aylisrg/Platform-Delovoy/issues/1074)) ([#1084](https://github.com/aylisrg/Platform-Delovoy/issues/1084)) ([3ccbf49](https://github.com/aylisrg/Platform-Delovoy/commit/3ccbf4936d575d1202b2594086d710fe04afdf8b))
+* **telephony:** accept Novofon 2.0 webhooks and split API tokens ([#1106](https://github.com/aylisrg/Platform-Delovoy/issues/1106)) ([511d0c8](https://github.com/aylisrg/Platform-Delovoy/commit/511d0c84b0592461a96df28473804b599fc03ba7))
+
 ## [2.23.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.3...v2.23.0) (2026-10-13)
 
 
