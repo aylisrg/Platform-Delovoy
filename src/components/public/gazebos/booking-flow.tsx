@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { reachGoal } from "@/lib/metrika";
 import { sendFunnelBeacon } from "@/lib/funnel-beacon";
@@ -21,6 +21,7 @@ import {
   type ResourcePricing,
 } from "@/modules/gazebos/pricing";
 import { CleaningBufferHint } from "@/components/public/booking/cleaning-buffer-hint";
+import { PRESELECT_EVENT } from "@/components/public/gazebos/booking-cta";
 
 type TimeSlot = {
   startTime: string;
@@ -67,6 +68,17 @@ export function BookingFlow() {
     message: "", type: "success", visible: false,
   });
   const slotSelectedFired = useRef(false);
+  // Беседка, выбранная кнопкой на карточке (#1085): показываем её первой.
+  const [preferredResourceId, setPreferredResourceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onPreselect(e: Event) {
+      const id = (e as CustomEvent<{ resourceId?: string }>).detail?.resourceId;
+      if (id) setPreferredResourceId(id);
+    }
+    window.addEventListener(PRESELECT_EVENT, onPreselect);
+    return () => window.removeEventListener(PRESELECT_EVENT, onPreselect);
+  }, []);
 
   const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
 
@@ -401,7 +413,11 @@ export function BookingFlow() {
 
               <CleaningBufferHint className="text-[#86868b] font-[family-name:var(--font-inter)]" />
 
-              {availability.map((item) => {
+              {[...availability]
+                .sort((a, b) =>
+                  Number(b.resource.id === preferredResourceId) - Number(a.resource.id === preferredResourceId)
+                )
+                .map((item) => {
                 const isSelected = selectedResourceId === item.resource.id;
                 const hasAvailable = item.slots.some((s) => s.isAvailable);
                 // Весь день доступен, только когда свободен весь день целиком —
@@ -420,8 +436,12 @@ export function BookingFlow() {
                 return (
                   <div
                     key={item.resource.id}
+                    data-testid={`resource-${item.resource.id}`}
+                    data-preferred={item.resource.id === preferredResourceId ? "true" : undefined}
                     className={`rounded-2xl p-5 border transition-all ${
-                      isSelected
+                      item.resource.id === preferredResourceId && !isSelected
+                        ? "border-[#16A34A]/60 ring-2 ring-[#16A34A]/20"
+                        : isSelected
                         ? "border-[#16A34A]/40 bg-[#16A34A]/[0.04]"
                         : "border-black/[0.06] hover:border-black/[0.12]"
                     }`}

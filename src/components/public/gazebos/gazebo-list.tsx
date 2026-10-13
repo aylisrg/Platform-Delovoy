@@ -1,12 +1,15 @@
 import type { GazeboResource } from "@/modules/gazebos/types";
+import { BookOnlineButton } from "./booking-cta";
 
 const ACCENT = "#16A34A";
 
 type Props = {
   resources: GazeboResource[];
+  /** Онлайн-бронь включена: на карточке кнопка «Забронировать» (#1085). */
+  bookingEnabled?: boolean;
 };
 
-export function GazeboList({ resources }: Props) {
+export function GazeboList({ resources, bookingEnabled = false }: Props) {
   if (resources.length === 0) {
     return (
       <p className="text-[#86868b]/50 font-[family-name:var(--font-inter)] text-sm">
@@ -57,6 +60,16 @@ export function GazeboList({ resources }: Props) {
               </span>
             )}
           </div>
+
+          {bookingEnabled && (
+            <BookOnlineButton
+              source="card"
+              resourceId={resource.id}
+              className="self-start inline-flex items-center bg-[#16A34A] hover:bg-[#15803d] text-white font-[family-name:var(--font-manrope)] font-semibold text-sm px-5 py-2.5 rounded-full transition-colors"
+            >
+              Забронировать
+            </BookOnlineButton>
+          )}
         </div>
       ))}
     </div>

@@ -1999,9 +1999,10 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     orderBy: { startTime: "asc" },
   });
 
-  const [{ openHour, closeHour }, minBookingHours] = await Promise.all([
+  const [{ openHour, closeHour }, minBookingHours, cleaningBufferMinutes] = await Promise.all([
     getOpenCloseHours(),
     getMinBookingHours(),
+    getCleaningBufferMinutes(MODULE_SLUG),
   ]);
   const hours = Array.from({ length: closeHour - openHour }, (_, i) =>
     `${(openHour + i).toString().padStart(2, "0")}:00`
@@ -2024,6 +2025,7 @@ export async function getTimeline(date: string): Promise<TimelineData> {
     })),
     hours,
     minBookingHours,
+    cleaningBufferMinutes,
   };
 }
 

@@ -119,6 +119,12 @@ export type TimelineData = {
   bookings: TimelineBooking[];
   hours: string[]; // ["08:00", "09:00", ..., "22:00"]
   minBookingHours: number;
+  /**
+   * Буфер на уборку после брони, минут (#1067, Module.config.cleaningBufferMinutes).
+   * Админский таймлайн рисует его отдельным блоком «Уборка» (#1085).
+   * Не хранится в БД: блок вычисляется из брони. Отсутствует/0 = без блока.
+   */
+  cleaningBufferMinutes?: number;
 };
 
 export type TimelineBooking = {
