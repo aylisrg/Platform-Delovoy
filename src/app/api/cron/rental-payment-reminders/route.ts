@@ -1,29 +1,13 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { runRentalPaymentReminders } from "@/modules/rental/scheduler";
-import { timingSafeEqual } from "node:crypto";
-import { getCronBearerToken } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
-function safeCompare(a: string, b: string): boolean {
-  // Constant-time compare that also resists length-based timing probes:
-  // always compare buffers of the same length, then AND the result with
-  // the length-equality bit at the end.
-  const maxLen = Math.max(a.length, b.length, 32);
-  const aBuf = Buffer.alloc(maxLen);
-  const bBuf = Buffer.alloc(maxLen);
-  aBuf.write(a);
-  bBuf.write(b);
-  const equal = timingSafeEqual(aBuf, bBuf);
-  return equal && a.length === b.length;
-}
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getCronBearerToken(request);
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
-    if (!cronSecret || !safeCompare(token, cronSecret)) {
-      return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-    }
+    const denied = verifyCronRequest(request);
+    if (denied) return denied;
 
     const report = await runRentalPaymentReminders();
     return apiResponse({ timestamp: new Date().toISOString(), report });

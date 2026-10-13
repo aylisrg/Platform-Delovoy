@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { processRecurring } from "@/modules/management/service";
-import { getCronBearerToken } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/process-recurring — process due recurring expenses.
@@ -15,13 +15,8 @@ import { getCronBearerToken } from "@/lib/cron-auth";
  */
 export async function GET(request: NextRequest) {
   try {
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
-
-    const token = getCronBearerToken(request);
-
-    if (!token || token !== cronSecret) {
-      return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-    }
+    const denied = verifyCronRequest(request);
+    if (denied) return denied;
 
     const result = await processRecurring();
     return apiResponse(result);

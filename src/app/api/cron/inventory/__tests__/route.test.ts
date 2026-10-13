@@ -49,12 +49,20 @@ describe("GET /api/cron/inventory", () => {
     expect(mockedGetExpiring).not.toHaveBeenCalled();
   });
 
-  it("falls back to NEXTAUTH_SECRET when CRON_SECRET is not set", async () => {
+  it("no NEXTAUTH_SECRET fallback: 503 when CRON_SECRET is not set", async () => {
     delete process.env.CRON_SECRET;
     process.env.NEXTAUTH_SECRET = "auth-secret";
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(200);
-    expect(mockedGetExpiring).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(503);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
+    delete process.env.NEXTAUTH_SECRET;
+  });
+
+  it("rejects NEXTAUTH_SECRET as bearer when CRON_SECRET is set (401)", async () => {
+    process.env.NEXTAUTH_SECRET = "auth-secret";
+    const res = await GET(makeReq("auth-secret"));
+    expect(res.status).toBe(401);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
     delete process.env.NEXTAUTH_SECRET;
   });
 
