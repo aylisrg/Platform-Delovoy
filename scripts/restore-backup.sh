@@ -7,19 +7,28 @@
 # Legacy *.sql.gz / *.sql по-прежнему поддерживаются через psql.
 #
 # Использование:
-#   ./scripts/restore-backup.sh /opt/backups/postgres/daily/delovoy_park_DAILY_20260421_020000.dump
+#   DB_NAME=delovoy_park ./scripts/restore-backup.sh /opt/backups/postgres/daily/delovoy_park_DAILY_20260421_020000.dump
+#
+# Цель восстановления задаётся ЯВНО: DATABASE_URL (direct) или DB_NAME (docker).
+# Значения по умолчанию для цели нет, чтобы случайно не перезаписать прод.
+# Перед восстановлением всегда делается страховочный бэкап цели
+# (SAFETY_BACKUP_DIR, default: $BACKUP_DIR/pre-restore). Если он не удался,
+# восстановление не начинается.
 #
 # env:
-#   DB_NAME       — целевая БД (default: delovoy_park)
+#   DB_NAME       — целевая БД в docker-режиме (обязательна, если нет DATABASE_URL)
 #   DATABASE_URL  — если задан и есть pg_restore/psql на хосте, работаем напрямую
 #   PG_CONTAINER  — контейнер Postgres для docker-режима (default: delovoy-postgres)
 #   DB_USER       — пользователь в docker-режиме (default: delovoy)
 #   FORCE_DOCKER_PG=1 — принудительно docker exec
-#   ASSUME_YES=1  — без интерактивного подтверждения (для тестов/автоматизации)
+#   ASSUME_YES=1  — без интерактивного подтверждения (для тестов/автоматизации).
+#                   Для цели, похожей на прод (имя delovoy_park или *prod*), не
+#                   действует: нужно дополнительно CONFIRM_PROD_RESTORE=<имя БД>.
+#   SAFETY_BACKUP_DIR — куда писать страховочный бэкап цели
 set -euo pipefail
 
 BACKUP_FILE="${1:-}"
-DB_NAME="${DB_NAME:-delovoy_park}"
+DB_NAME="${DB_NAME:-}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/backups/postgres}"
 PG_CONTAINER="${PG_CONTAINER:-delovoy-postgres}"
 DB_USER="${DB_USER:-delovoy}"
@@ -34,6 +43,11 @@ fi
 
 if [ ! -f "$BACKUP_FILE" ]; then
   echo "Файл не найден: $BACKUP_FILE"
+  exit 1
+fi
+
+if [ -z "${DATABASE_URL:-}" ] && [ -z "$DB_NAME" ]; then
+  echo "Не задана цель восстановления. Укажите явно DATABASE_URL или DB_NAME."
   exit 1
 fi
 
@@ -53,18 +67,66 @@ else
   PG_MODE="docker"
 fi
 
-echo "⚠️  ВНИМАНИЕ: Это восстановит базу ${DB_NAME} из бэкапа:"
+# Имя целевой БД для сообщений и проверки на прод.
+if [ "$PG_MODE" = "direct" ]; then
+  TARGET_NAME="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^/]*//[^/]*/##; s#\?.*$##')"
+  TARGET_DESC="$(printf '%s' "$DATABASE_URL" | sed -E 's#//[^@/]*@#//***@#')"
+else
+  if [ -z "$DB_NAME" ]; then
+    echo "Docker-режим: укажите явно DB_NAME."
+    exit 1
+  fi
+  TARGET_NAME="$DB_NAME"
+  TARGET_DESC="docker:${PG_CONTAINER}/${DB_NAME}"
+fi
+
+LOOKS_PROD=0
+case "$TARGET_NAME" in
+  delovoy_park|*prod*|*PROD*) LOOKS_PROD=1 ;;
+esac
+
+echo "⚠️  ВНИМАНИЕ: Это восстановит базу ${TARGET_DESC} из бэкапа:"
 echo "  $BACKUP_FILE (формат: ${FORMAT}, режим: ${PG_MODE})"
 echo "  Все текущие данные будут перезаписаны!"
-echo "  Сначала сделайте страховочный бэкап: ./scripts/backup-db.sh"
+[ "$LOOKS_PROD" = "1" ] && echo "  🚨 Цель похожа на ПРОД (${TARGET_NAME})."
 echo ""
-if [ "${ASSUME_YES:-}" != "1" ]; then
-  read -r -p "Продолжить? (yes/no): " CONFIRM
-  if [ "$CONFIRM" != "yes" ]; then
-    echo "Отменено."
-    exit 0
+if [ "$LOOKS_PROD" = "1" ] && [ "${ASSUME_YES:-}" = "1" ]; then
+  if [ "${CONFIRM_PROD_RESTORE:-}" != "$TARGET_NAME" ]; then
+    echo "ASSUME_YES не действует для прод-цели. Задайте CONFIRM_PROD_RESTORE=${TARGET_NAME} или подтвердите вручную."
+    exit 1
+  fi
+elif [ "${ASSUME_YES:-}" != "1" ]; then
+  if [ "$LOOKS_PROD" = "1" ]; then
+    read -r -p "Введите имя базы (${TARGET_NAME}) для подтверждения: " CONFIRM
+    if [ "$CONFIRM" != "$TARGET_NAME" ]; then
+      echo "Отменено."
+      exit 0
+    fi
+  else
+    read -r -p "Продолжить? (yes/no): " CONFIRM
+    if [ "$CONFIRM" != "yes" ]; then
+      echo "Отменено."
+      exit 0
+    fi
   fi
 fi
+
+# Страховочный бэкап цели. Без него не восстанавливаем.
+SAFETY_BACKUP_DIR="${SAFETY_BACKUP_DIR:-${BACKUP_DIR}/pre-restore}"
+mkdir -p "$SAFETY_BACKUP_DIR"
+SAFETY_FILE="${SAFETY_BACKUP_DIR}/${TARGET_NAME:-target}_PRE_RESTORE_$(date +%Y%m%d_%H%M%S)_$$.dump"
+echo "[$(date)] Страховочный бэкап цели -> ${SAFETY_FILE}"
+if [ "$PG_MODE" = "direct" ]; then
+  SAFETY_OK=0; pg_dump --format=custom -d "$DATABASE_URL" -f "$SAFETY_FILE" && SAFETY_OK=1
+else
+  SAFETY_OK=0; docker exec "$PG_CONTAINER" pg_dump --format=custom -U "$DB_USER" -d "$DB_NAME" > "$SAFETY_FILE" && SAFETY_OK=1
+fi
+if [ "$SAFETY_OK" != "1" ] || [ "$(head -c 5 "$SAFETY_FILE" 2>/dev/null)" != "PGDMP" ]; then
+  echo "Страховочный бэкап не удался. Восстановление отменено, база не тронута."
+  rm -f "$SAFETY_FILE"
+  exit 1
+fi
+echo "  Готово. Откат: DATABASE_URL/DB_NAME=... $0 ${SAFETY_FILE}"
 
 echo "[$(date)] Восстанавливаем из $BACKUP_FILE..."
 
