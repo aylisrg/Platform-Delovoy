@@ -1,0 +1,84 @@
+# Read-only: кто вызывает cron-роуты (Refs #1084).
+# Печатает ТОЛЬКО числа, имена роутов, HTTP-статусы и первый токен User-Agent.
+# Никогда не печатает строки crontab, unit-файлов, логов, IP, query, заголовки, .env.
+# Ничего не меняет на сервере.
+name: Ops Cron Callers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-cron-callers
+  cancel-in-progress: false
+
+jobs:
+  callers:
+    name: Вызывающие cron-роутов (read-only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Счётчики по crontab, systemd и nginx access log
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 8m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
+            ROUTES="avito-account-sync avito-messenger-poll avito-reviews-sync avito-stats-sync inventory no-show ps-park/auto-complete process-outgoing payments-reconcile notifications rental-payment-reminders overdue-session-reminders process-recurring"
+
+            # Подсчёт строк с /api/cron/<route> с границей после имени. Только число.
+            cnt() { printf '%s\n' "$2" | grep -cE "/api/cron/$1([^a-z/-]|\$)" || true; }
+
+            echo "=== (a) источники расписания ==="
+            ROOT_CT=""; ROOT_OK=1
+            if ! ROOT_CT=$($SUDO crontab -l -u root 2>/dev/null); then
+              if $SUDO crontab -l -u root 2>&1 | grep -qi 'no crontab'; then ROOT_CT=""; else ROOT_OK=0; echo "::error::root crontab: ошибка чтения"; fi
+            fi
+            ETC_CT=""
+            for F in /etc/crontab /etc/cron.d/*; do
+              [ -f "$F" ] || continue
+              if C=$($SUDO cat "$F" 2>/dev/null); then ETC_CT="$ETC_CT
+            $C"; else echo "::error::$F: ошибка чтения"; fi
+            done
+            SYSD=""
+            for F in /etc/systemd/system/*.timer /etc/systemd/system/*.service /lib/systemd/system/*.timer /usr/lib/systemd/system/*.timer /etc/systemd/system/*/*.service; do
+              [ -f "$F" ] || continue
+              C=$($SUDO cat "$F" 2>/dev/null) && SYSD="$SYSD
+            $C"
+            done
+            printf '%-28s %10s %10s %10s\n' route root_crontab etc_cron systemd
+            for R in $ROUTES; do
+              rc="n/a"; [ "$ROOT_OK" = 1 ] && rc=$(cnt "$R" "$ROOT_CT")
+              printf '%-28s %10s %10s %10s\n' "$R" "$rc" "$(cnt "$R" "$ETC_CT")" "$(cnt "$R" "$SYSD")"
+            done
+
+            echo "=== (b) nginx access log, файлы за 7 дней ==="
+            FILES=$($SUDO find /var/log/nginx -maxdepth 2 -type f -name '*access*' -mtime -7 2>/dev/null | sort)
+            [ -n "$FILES" ] || { echo "access-логи не найдены"; exit 0; }
+            echo "files: $(printf '%s\n' "$FILES" | wc -l)"
+            # Из строки берём только путь без query, статус и первый токен UA (до / или пробела).
+            for F in $FILES; do
+              case "$F" in *.gz) $SUDO zcat -f "$F" 2>/dev/null ;; *) $SUDO cat "$F" 2>/dev/null ;; esac
+            done | awk -F'"' -v routes="$ROUTES" '
+              BEGIN { n = split(routes, rr, " ") }
+              {
+                split($2, req, " "); p = req[2]; sub(/\?.*/, "", p)
+                if (p !~ /^\/api\/cron\//) next
+                r = substr(p, 11); sub(/\/$/, "", r)
+                hit = 0; for (i = 1; i <= n; i++) if (r == rr[i]) hit = 1
+                if (!hit) next
+                split($3, s, " "); st = s[1]; if (st !~ /^[0-9][0-9][0-9]$/) st = "???"
+                ua = $6; sub(/^[ \t]+/, "", ua); sub(/[\/ ].*$/, "", ua)
+                gsub(/[^A-Za-z0-9._-]/, "", ua); if (ua == "") ua = "-"
+                ua = substr(ua, 1, 40)
+                print r "\tstatus=" st "\tua=" ua
+              }' | sort | uniq -c | sort -k2,2 -k1,1nr
+            echo "=== конец ==="
