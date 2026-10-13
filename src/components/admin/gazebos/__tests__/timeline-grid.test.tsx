@@ -274,3 +274,76 @@ describe("GazeboTimelineGrid — drag-and-drop (issue #741)", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("нет связи");
   });
 });
+
+describe("GazeboTimelineGrid — блок «Уборка» (issue #1085)", () => {
+  // Бронь 14:00–18:00 МСК.
+  const B14 = { ...BOOKING, id: "b-14", startTime: "2030-06-17T11:00:00.000Z", endTime: "2030-06-17T15:00:00.000Z" };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  function renderWith(data: Record<string, unknown>) {
+    const d = { ...DATA, ...data } as typeof DATA;
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: d }));
+    return render(<GazeboTimelineGrid initialData={d} initialDate="2030-06-17" />);
+  }
+
+  it("бронь 14–18 → блок «Уборка · 1 ч» 18–19 без клиента и суммы, легенда есть (AC B)", () => {
+    renderWith({ bookings: [B14], cleaningBufferMinutes: 60 });
+    const block = screen.getByTestId("cleaning-b-14");
+    expect(block.textContent).toContain("Уборка · 1 ч");
+    expect(block.textContent).not.toContain("Иван");
+    expect(block.textContent).not.toMatch(/₽|чел\./);
+    // 18:00 при сетке 08–23 (15 ч): left = 10/15, width = 1/15.
+    expect(block.style.left).toMatch(/^calc\(66\.66\d*% \+ 2px\)$/);
+    expect(block.style.width).toMatch(/^calc\(6\.66\d*% - 2px\)$/);
+    expect(block.getAttribute("title")).toContain("Резерв на уборку после брони");
+    const legend = screen.getByTestId("timeline-legend");
+    for (const t of ["Бронь", "Уборка", "Свободно"]) expect(legend.textContent).toContain(t);
+  });
+
+  it("aria-label у уборки; образец «Бронь» в легенде того же цвета, что плашка брони; в недельном виде легенды нет", () => {
+    renderWith({ bookings: [B14], cleaningBufferMinutes: 60 });
+    expect(screen.getByRole("button", { name: "Уборка после брони, открыть бронь" })).toBeTruthy();
+    const swatch = screen.getByTestId("legend-booking").className;
+    const block = screen.getByTestId("booking-b-14").className;
+    for (const cls of ["bg-emerald-50", "border-emerald-200"]) {
+      expect(swatch).toContain(cls);
+      expect(block).toContain(cls);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Неделя" }));
+    expect(screen.queryByTestId("timeline-legend")).toBeNull();
+  });
+
+  it("клик по уборке открывает родительскую бронь", () => {
+    renderWith({ bookings: [B14], cleaningBufferMinutes: 60 });
+    fireEvent.click(screen.getByTestId("cleaning-b-14"));
+    expect(screen.getByTestId("detail-card").textContent).toBe("CARD:b-14:Беседка №1");
+  });
+
+  it("брони до релиза: данных о буфере нет → без уборки, бронь рисуется как раньше", () => {
+    renderWith({ bookings: [B14] });
+    expect(screen.queryByTestId("cleaning-b-14")).toBeNull();
+    expect(screen.getByTestId("booking-b-14")).toBeTruthy();
+  });
+
+  it("брони до релиза встык (18–22 сразу после 14–18) → уборка не рисуется поверх следующей брони", () => {
+    const next = { ...BOOKING, id: "b-18", startTime: "2030-06-17T15:00:00.000Z", endTime: "2030-06-17T19:00:00.000Z" };
+    renderWith({ bookings: [B14, next], cleaningBufferMinutes: 60 });
+    expect(screen.queryByTestId("cleaning-b-14")).toBeNull();
+    expect(screen.getByTestId("booking-b-14")).toBeTruthy();
+    expect(screen.getByTestId("booking-b-18")).toBeTruthy();
+  });
+
+  it("бронь до закрытия (19–23) → уборка не выходит за сетку", () => {
+    const late = { ...BOOKING, id: "b-late", startTime: "2030-06-17T16:00:00.000Z", endTime: "2030-06-17T20:00:00.000Z" };
+    renderWith({ bookings: [late], cleaningBufferMinutes: 60 });
+    expect(screen.queryByTestId("cleaning-b-late")).toBeNull();
+  });
+});
