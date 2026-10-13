@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.22.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.0...v2.22.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **cron:** принимать CRON_SECRET только из Authorization: Bearer, ?token= снят ([#1074](https://github.com/aylisrg/Platform-Delovoy/issues/1074)) ([#1081](https://github.com/aylisrg/Platform-Delovoy/issues/1081)) ([82aba3b](https://github.com/aylisrg/Platform-Delovoy/commit/82aba3bcaccc1a051f1a8b77f15ae2bb91fabf95))
+* **deploy:** non-success workflow_run no longer evicts pending train deploy ([#1082](https://github.com/aylisrg/Platform-Delovoy/issues/1082)) ([5f77632](https://github.com/aylisrg/Platform-Delovoy/commit/5f776320fd7698da9345973e7dbe3f155d7231f6))
+* **deploy:** replace cron lines by route path (Refs [#1074](https://github.com/aylisrg/Platform-Delovoy/issues/1074)) ([#1077](https://github.com/aylisrg/Platform-Delovoy/issues/1077)) ([7710afd](https://github.com/aylisrg/Platform-Delovoy/commit/7710afd7220658b5d568cddf98de7d711ce1a503))
+* **deploy:** upsert remaining cron routes with Bearer (Refs [#1074](https://github.com/aylisrg/Platform-Delovoy/issues/1074)) ([#1078](https://github.com/aylisrg/Platform-Delovoy/issues/1078)) ([9072f51](https://github.com/aylisrg/Platform-Delovoy/commit/9072f51351a67db8bc69d16689f6b6ab59b980a4))
+* **notifications:** крон process-outgoing блокировался auth-гейтом ([#917](https://github.com/aylisrg/Platform-Delovoy/issues/917)) ([#1073](https://github.com/aylisrg/Platform-Delovoy/issues/1073)) ([049e156](https://github.com/aylisrg/Platform-Delovoy/commit/049e156e53b67fa94a316ca87ec58e435099939b))
+* **notifications:** понятные тексты уведомлений, без ложного «Требуется подтверждение» ([#1047](https://github.com/aylisrg/Platform-Delovoy/issues/1047)) ([135065c](https://github.com/aylisrg/Platform-Delovoy/commit/135065ceede623b00e25731d98b322e82bdfeb22))
+
 ## [2.22.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.21.2...v2.22.0) (2026-09-18)
 
 
