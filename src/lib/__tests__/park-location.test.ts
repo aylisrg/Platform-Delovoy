@@ -24,4 +24,12 @@ describe("PARK_LOCATION", () => {
       expect(src).not.toMatch(/55\.519479|36\.978566/);
     }
   });
+
+  it("JSON-LD /gazebos берёт geo из PARK_LOCATION", () => {
+    const src = read("src/app/(public)/gazebos/page.tsx");
+    expect(src).toContain("PARK_LOCATION");
+    expect(src).toMatch(/latitude:\s*PARK_LOCATION\.lat/);
+    expect(src).toMatch(/longitude:\s*PARK_LOCATION\.lon/);
+    expect(src).not.toMatch(/55\.519479|36\.978566/);
+  });
 });
