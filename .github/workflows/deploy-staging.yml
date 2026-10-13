@@ -32,6 +32,9 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
+permissions:
+  contents: read
+
 jobs:
   tag-staging:
     name: Tag Staging Image

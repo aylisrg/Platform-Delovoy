@@ -48,6 +48,9 @@ concurrency:
   group: ops-env
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   set-env:
     name: "Upsert/delete ключа в .env"

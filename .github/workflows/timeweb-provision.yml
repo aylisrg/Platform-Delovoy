@@ -41,6 +41,15 @@ env:
   TIMEWEB_API: "https://api.timeweb.cloud"
   PROJECT_ID: "2360937"
 
+permissions:
+  contents: read
+
+# Общая группа с apply-*, run-seed и job deploy в deploy.yml: операции,
+# меняющие прод/БД, никогда не идут параллельно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   provision:
     runs-on: ubuntu-latest

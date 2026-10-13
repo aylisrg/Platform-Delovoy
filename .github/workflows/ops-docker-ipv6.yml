@@ -34,6 +34,9 @@ concurrency:
   group: ops-docker-ipv6
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   ipv6:
     name: "Docker IPv6: ${{ inputs.action || 'status (push)' }}"

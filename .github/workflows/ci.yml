@@ -21,6 +21,9 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
+permissions:
+  contents: read
+
 jobs:
   # Gate jobs (lint/test/typecheck/security) run on PRs only.
   # Branch protection requires them before merge — re-running on the merge commit
