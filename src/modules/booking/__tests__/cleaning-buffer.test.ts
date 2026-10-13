@@ -19,7 +19,15 @@ describe("cleaning buffer (#1067)", () => {
     expect(parseCleaningBufferMinutes(null)).toBe(60);
     expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: 30 })).toBe(30);
     expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: 0 })).toBe(0);
-    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: -5 })).toBe(60);
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: "x" })).toBe(60);
+  });
+
+  it("clamps setting to integer minutes 0..240", () => {
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: -5 })).toBe(0);
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: 1000 })).toBe(240);
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: 240 })).toBe(240);
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: 44.6 })).toBe(45);
+    expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: Infinity })).toBe(60);
     expect(parseCleaningBufferMinutes({ cleaningBufferMinutes: "x" })).toBe(60);
   });
 

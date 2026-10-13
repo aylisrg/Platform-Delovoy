@@ -15,12 +15,13 @@ import { prisma } from "@/lib/db";
  * поэтому последняя бронь дня не блокирует утро следующего.
  */
 export const DEFAULT_CLEANING_BUFFER_MINUTES = 60;
+/** Верхняя граница настройки: целые минуты 0..240. */
+export const MAX_CLEANING_BUFFER_MINUTES = 240;
 
 export function parseCleaningBufferMinutes(config: unknown): number {
   const val = (config as Record<string, unknown> | null | undefined)?.cleaningBufferMinutes;
-  return typeof val === "number" && Number.isFinite(val) && val >= 0
-    ? val
-    : DEFAULT_CLEANING_BUFFER_MINUTES;
+  if (typeof val !== "number" || !Number.isFinite(val)) return DEFAULT_CLEANING_BUFFER_MINUTES;
+  return Math.min(MAX_CLEANING_BUFFER_MINUTES, Math.max(0, Math.round(val)));
 }
 
 export async function getCleaningBufferMinutes(moduleSlug: string): Promise<number> {
