@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError } from "@/lib/api-response";
+import { verifyCronRequest } from "@/lib/cron-auth";
+import { apiResponse } from "@/lib/api-response";
 import { findAutoNoShowCandidates } from "@/modules/booking/checkin";
 import {
   markNoShow as markNoShowPS,
@@ -20,12 +21,8 @@ const MODULES = ["ps-park", "gazebos"] as const;
  * Protected by Bearer token (CRON_SECRET env var).
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return apiError("UNAUTHORIZED", "Invalid or missing cron secret", 401);
-  }
+  const denied = verifyCronRequest(request);
+  if (denied) return denied;
 
   const results: Record<string, { processed: number; errors: string[] }> = {};
 

@@ -82,10 +82,10 @@ describe("GET /api/cron/no-show", () => {
     expect(mockedFind).not.toHaveBeenCalled();
   });
 
-  it("returns 401 when CRON_SECRET is not configured", async () => {
+  it("returns 503 when CRON_SECRET is not configured", async () => {
     delete process.env.CRON_SECRET;
     const res = await GET(makeReq("anything"));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
     expect(mockedFind).not.toHaveBeenCalled();
   });
 

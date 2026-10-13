@@ -1,42 +1,21 @@
 import { NextRequest } from "next/server";
-import { timingSafeEqual } from "node:crypto";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { rateLimit } from "@/lib/rate-limit";
 import { scanAndDispatchOverdue } from "@/modules/booking/overdue-reminders";
-import { getCronBearerToken } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
 // Cron route: GET to align with sibling cron endpoints
 // (rental-payment-reminders, no-show, process-recurring all use GET).
-// Auth: Bearer CRON_SECRET via timingSafeEqual.
+// Auth: verifyCronRequest (Bearer CRON_SECRET, timingSafeEqual).
 
-function safeCompare(a: string, b: string): boolean {
-  const maxLen = Math.max(a.length, b.length, 32);
-  const aBuf = Buffer.alloc(maxLen);
-  const bBuf = Buffer.alloc(maxLen);
-  aBuf.write(a);
-  bBuf.write(b);
-  const equal = timingSafeEqual(aBuf, bBuf);
-  return equal && a.length === b.length;
-}
 
 export async function GET(request: NextRequest) {
   // Cron работает независимо от WEB_PUSH_ENABLED:
   // NotificationDispatcher выбирает канал per-user (Telegram → Web Push → Email).
   // Если у менеджера привязан Telegram — он получит напоминание даже когда
   // Web Push выключен. См. PR-4 review feedback (PRD: «Primary: Telegram-бот»).
-  const cronSecret = process.env.CRON_SECRET ?? "";
-  if (!cronSecret) {
-    return apiError(
-      "SERVICE_UNAVAILABLE",
-      "CRON_SECRET is not configured",
-      503
-    );
-  }
-
-  const token = getCronBearerToken(request);
-  if (!safeCompare(token, cronSecret)) {
-    return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-  }
+  const denied = verifyCronRequest(request);
+  if (denied) return denied;
 
   // Defence-in-depth: trip rate limiter before doing real work, so an
   // accidental crontab misfire (every-minute) doesn't hammer the dispatcher.

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
-import { getCronBearerToken } from "@/lib/cron-auth";
+import { verifyLegacyCronRequest } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/inventory — run inventory background jobs.
@@ -19,12 +19,8 @@ import { getCronBearerToken } from "@/lib/cron-auth";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = getCronBearerToken(request);
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
-
-    if (!token || token !== cronSecret) {
-      return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-    }
+    const denied = verifyLegacyCronRequest(request, "inventory");
+    if (denied) return denied;
 
     const results: {
       expiredBatches: number;

@@ -1,18 +1,9 @@
 import { NextRequest } from "next/server";
-import { timingSafeEqual } from "node:crypto";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { reconcilePayments } from "@/modules/payments/service";
-import { getCronBearerToken } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
-function safeCompare(a: string, b: string): boolean {
-  const maxLen = Math.max(a.length, b.length, 32);
-  const aBuf = Buffer.alloc(maxLen);
-  const bBuf = Buffer.alloc(maxLen);
-  aBuf.write(a);
-  bBuf.write(b);
-  return timingSafeEqual(aBuf, bBuf) && a.length === b.length;
-}
 
 /**
  * GET /api/cron/payments-reconcile — добивание зависших платежей.
@@ -21,11 +12,8 @@ function safeCompare(a: string, b: string): boolean {
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = getCronBearerToken(request);
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
-    if (!cronSecret || !safeCompare(token, cronSecret)) {
-      return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-    }
+    const denied = verifyCronRequest(request);
+    if (denied) return denied;
 
     if (!isYooKassaConfigured()) {
       return apiResponse({ skipped: true, reason: "yookassa_not_configured" });
