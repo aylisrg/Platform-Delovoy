@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { processScheduledNotifications } from "@/modules/notifications/scheduler";
 import { log } from "@/lib/logger";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 function safeCompare(a: string, b: string): boolean {
   const maxLen = Math.max(a.length, b.length, 32);
@@ -18,7 +19,7 @@ function safeCompare(a: string, b: string): boolean {
  * договоров. Регистрируется в crontab VPS деплоем (deploy.yml), каждые 5 минут.
  *
  * Auth: Authorization: Bearer <CRON_SECRET> (предпочтительно — секрет не
- * попадает в access-логи nginx) или ?token= для обратной совместимости.
+ * попадает в access-логи nginx). Query ?token= не принимается (#1074).
  * Фолбэк на NEXTAUTH_SECRET убран: секрет аутентификации не должен
  * использоваться в cron-URL.
  */
@@ -28,10 +29,7 @@ export async function GET(request: NextRequest) {
     return apiError("SERVICE_UNAVAILABLE", "CRON_SECRET is not configured", 503);
   }
 
-  const token =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    request.nextUrl.searchParams.get("token") ??
-    "";
+  const token = getCronBearerToken(request);
   if (!safeCompare(token, cronSecret)) {
     return apiError("UNAUTHORIZED", "Invalid cron token", 401);
   }

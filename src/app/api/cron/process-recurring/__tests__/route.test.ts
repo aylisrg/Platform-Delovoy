@@ -11,11 +11,8 @@ import { GET } from "../route";
 const mockedProcess = vi.mocked(processRecurring);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/process-recurring"
-      : `http://localhost/api/cron/process-recurring?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest("http://localhost/api/cron/process-recurring", { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -50,12 +47,6 @@ describe("GET /api/cron/process-recurring", () => {
     expect(mockedProcess).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts token via ?token= query param", async () => {
-    const res = await GET(makeReq("test-cron-secret"));
-    expect(res.status).toBe(200);
-    expect(mockedProcess).toHaveBeenCalledTimes(1);
-  });
-
   it("falls back to NEXTAUTH_SECRET when CRON_SECRET is not set", async () => {
     delete process.env.CRON_SECRET;
     process.env.NEXTAUTH_SECRET = "auth-secret";
@@ -77,5 +68,14 @@ describe("GET /api/cron/process-recurring", () => {
     mockedProcess.mockRejectedValue(new Error("db down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("#1074: query ?token= is not accepted", () => {
+  it("returns 401 for a valid secret passed only as ?token=", async () => {
+    const secret = process.env.CRON_SECRET ?? "";
+    const req = new NextRequest(`http://localhost/api/cron/process-recurring?token=${encodeURIComponent(secret)}`, { method: "GET" });
+    const res = await GET(req);
+    expect(res.status).toBe(401);
   });
 });

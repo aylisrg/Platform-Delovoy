@@ -53,12 +53,8 @@ const mockedGetPSThreshold = vi.mocked(getPSThreshold);
 const mockedGetGazebosThreshold = vi.mocked(getGazebosThreshold);
 
 function makeReq(token: string | null): NextRequest {
-  const headers: Record<string, string> = {};
-  if (token !== null) headers.authorization = `Bearer ${token}`;
-  return new NextRequest("http://localhost/api/cron/no-show", {
-    method: "GET",
-    headers,
-  });
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest("http://localhost/api/cron/no-show", { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -140,5 +136,14 @@ describe("GET /api/cron/no-show", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.modules["ps-park"].errors).toEqual(["b-ps-1: unknown error"]);
+  });
+});
+
+describe("#1074: query ?token= is not accepted", () => {
+  it("returns 401 for a valid secret passed only as ?token=", async () => {
+    const secret = process.env.CRON_SECRET ?? "";
+    const req = new NextRequest(`http://localhost/api/cron/no-show?token=${encodeURIComponent(secret)}`, { method: "GET" });
+    const res = await GET(req);
+    expect(res.status).toBe(401);
   });
 });

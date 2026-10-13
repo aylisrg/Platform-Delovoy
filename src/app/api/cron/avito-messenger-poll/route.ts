@@ -5,11 +5,12 @@ import { listChatsUnread, listMessages } from "@/lib/avito/messenger";
 import { routeInboundMessage } from "@/lib/avito/lead-routing";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET/POST /api/cron/avito-messenger-poll?token=<CRON_SECRET>
+ * GET/POST /api/cron/avito-messenger-poll (Authorization: Bearer <CRON_SECRET>)
  *
  * Fallback polling for Avito Messenger when webhooks miss messages
  * (Avito Pro does not retry politely on delivery failures — see ADR §Q2).
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
+    const token = getCronBearerToken(request);
     const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
     if (!token || token !== cronSecret) {
       return apiError("UNAUTHORIZED", "Invalid cron token", 401);

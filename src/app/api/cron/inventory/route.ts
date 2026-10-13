@@ -4,13 +4,14 @@ import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/inventory — run inventory background jobs.
  *
  * Schedule: every 15 minutes via system cron or GitHub Actions.
  * Example:
- *   curl "http://localhost:3000/api/cron/inventory?token=<CRON_SECRET>"
+ *   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/inventory
  *
  * Jobs:
  * 1. Flag expired batches and send Telegram alert to manager
@@ -18,7 +19,7 @@ import { EVENT_SOURCES } from "@/lib/event-sources";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
+    const token = getCronBearerToken(request);
     const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
 
     if (!token || token !== cronSecret) {

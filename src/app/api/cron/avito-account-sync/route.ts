@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiError, apiResponse, apiServerError } from "@/lib/api-response";
 import { syncItemsRegistry, syncAccount } from "@/lib/avito";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
+    const token = getCronBearerToken(request);
     const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
     if (!token || token !== cronSecret) return apiError("UNAUTHORIZED", "Invalid cron token", 401);
 

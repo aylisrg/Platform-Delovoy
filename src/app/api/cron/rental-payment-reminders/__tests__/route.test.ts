@@ -11,11 +11,8 @@ import { GET } from "../route";
 const mockedRun = vi.mocked(runRentalPaymentReminders);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/rental-payment-reminders"
-      : `http://localhost/api/cron/rental-payment-reminders?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest("http://localhost/api/cron/rental-payment-reminders", { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -70,5 +67,14 @@ describe("GET /api/cron/rental-payment-reminders", () => {
     mockedRun.mockRejectedValue(new Error("db down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("#1074: query ?token= is not accepted", () => {
+  it("returns 401 for a valid secret passed only as ?token=", async () => {
+    const secret = process.env.CRON_SECRET ?? "";
+    const req = new NextRequest(`http://localhost/api/cron/rental-payment-reminders?token=${encodeURIComponent(secret)}`, { method: "GET" });
+    const res = await GET(req);
+    expect(res.status).toBe(401);
   });
 });

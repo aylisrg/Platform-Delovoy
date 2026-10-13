@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { rateLimit } from "@/lib/rate-limit";
 import { scanAndDispatchOverdue } from "@/modules/booking/overdue-reminders";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 // Cron route: GET to align with sibling cron endpoints
 // (rental-payment-reminders, no-show, process-recurring all use GET).
@@ -32,10 +33,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const token =
-    request.nextUrl.searchParams.get("token") ??
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    "";
+  const token = getCronBearerToken(request);
   if (!safeCompare(token, cronSecret)) {
     return apiError("UNAUTHORIZED", "Invalid cron token", 401);
   }
