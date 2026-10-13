@@ -20,6 +20,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   apply-prices:
     name: Apply gazebo price list

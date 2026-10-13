@@ -71,6 +71,9 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/platform-delovoy
 
+permissions:
+  contents: read
+
 jobs:
   # Guard трейна: resolve-to-HEAD + дедуп уже задеплоенного.
   #
@@ -216,6 +219,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [guard, build-and-push]
     environment: production
+    # Не пересекаться с миграциями, p3009, apply-*, run-seed, timeweb-*.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       contents: write
       actions: write # repo variables DEPLOYED_SHA_CURRENT/PREVIOUS — issue #578

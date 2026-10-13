@@ -41,6 +41,9 @@ concurrency:
   group: ops-tls-capture
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # РЕШАЮЩИЙ ЭКСПЕРИМЕНТ. Постквантовый клиент против нашего сервера с чистой
   # сети (сам GitHub-раннер — вне РФ, вне подозреваемого DPI-пути) и с самого

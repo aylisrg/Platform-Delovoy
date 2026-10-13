@@ -28,6 +28,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   apply-menu:
     name: Apply cafe menu price list

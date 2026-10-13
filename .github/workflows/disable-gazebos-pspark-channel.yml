@@ -22,6 +22,9 @@ concurrency:
   group: disable-gazebos-pspark-channel
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   disable:
     name: Отключить оба механизма для gazebos + ps-park

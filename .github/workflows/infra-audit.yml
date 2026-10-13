@@ -36,6 +36,9 @@ env:
   DOMAIN: delovoy-park.ru
   SERVER_IP: 85.193.89.242
 
+permissions:
+  contents: read
+
 jobs:
   dns-vantage:
     name: "DNS с разных резолверов (H1)"

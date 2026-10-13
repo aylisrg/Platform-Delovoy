@@ -17,6 +17,9 @@ on:
         required: true
         default: "create"
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     name: Run YooKassa smoke command

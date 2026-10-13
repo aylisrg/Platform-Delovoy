@@ -39,6 +39,9 @@ env:
   TARGET_CHAT: ${{ inputs.chat_id || secrets.TELEGRAM_OWNER_CHAT_ID || '694696' }}
   SEND_TEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.send_test_message == false) && 'false' || 'true' }}
 
+permissions:
+  contents: read
+
 jobs:
   from-github:
     name: "1/2 — Токен и чат (GitHub runner, вне РФ)"
