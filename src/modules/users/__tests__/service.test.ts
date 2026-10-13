@@ -16,6 +16,9 @@ vi.mock("@/lib/db", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    subscription: {
+      count: vi.fn(),
+    },
   },
 }));
 
@@ -383,6 +386,7 @@ describe("deleteUser", () => {
 
   it("deletes a user", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser() as never);
+    vi.mocked(prisma.subscription.count).mockResolvedValue(0 as never);
     vi.mocked(prisma.user.delete).mockResolvedValue(mockUser() as never);
 
     await deleteUser("user-1", "admin-1");
@@ -390,6 +394,38 @@ describe("deleteUser", () => {
     expect(prisma.user.delete).toHaveBeenCalledWith({
       where: { id: "user-1" },
     });
+  });
+
+  it("deletes a user who has bookings (Booking.userId is SET NULL, bookings are not touched)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser() as never);
+    vi.mocked(prisma.subscription.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.user.delete).mockResolvedValue(mockUser() as never);
+
+    await expect(deleteUser("user-1", "admin-1")).resolves.toBeUndefined();
+
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: "user-1" } });
+  });
+
+  it("throws USER_HAS_SUBSCRIPTIONS and does not delete when user has a subscription", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser() as never);
+    vi.mocked(prisma.subscription.count).mockResolvedValue(1 as never);
+
+    await expect(deleteUser("user-1", "admin-1")).rejects.toThrow(
+      "USER_HAS_SUBSCRIPTIONS"
+    );
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("maps FK violation (P2003) on delete to USER_HAS_DEPENDENCIES", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser() as never);
+    vi.mocked(prisma.subscription.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.user.delete).mockRejectedValue(
+      Object.assign(new Error("fk"), { code: "P2003" })
+    );
+
+    await expect(deleteUser("user-1", "admin-1")).rejects.toThrow(
+      "USER_HAS_DEPENDENCIES"
+    );
   });
 
   it("throws CANNOT_DELETE_SELF", async () => {

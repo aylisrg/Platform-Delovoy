@@ -112,6 +112,47 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+  # Миграции == schema.prisma (issue #590). Прогоняет всю историю
+  # prisma/migrations на пустой shadow-БД и сравнивает со схемой. Любое
+  # расхождение (таблица через db push без migration.sql и т.п.) роняет job.
+  migrations-drift:
+    name: Prisma migrations match schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: delovoy
+          POSTGRES_PASSWORD: delovoy_secret
+          POSTGRES_DB: shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U delovoy -d shadow"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - name: prisma migrate diff (migrations -> schema)
+        run: |
+          set +e
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url postgresql://delovoy:delovoy_secret@localhost:5432/shadow \
+            --script --exit-code > drift.sql
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::error::prisma/migrations расходятся с schema.prisma. Создайте миграцию: npx prisma migrate dev --create-only"
+            cat drift.sql
+            exit 1
+          fi
+          exit $code
+
   # Критические флоу против живого стека (issue #572): роутинг, RSC-границы,
   # реальные Prisma-запросы и битые клиентские бандлы не проверяет ни один
   # другой job — unit-тесты мокают DB/Redis, build только компилирует.
@@ -154,15 +195,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
 
-      # `prisma migrate deploy` — не `db push` — было бы правильнее, но
-      # миграционная история сейчас расходится со схемой на пустой БД
-      # (issue #590, отдельный P1: минимум 4 таблицы не создаются fresh
-      # migrate deploy). Прод это не задевает (там уже накопленное годами
-      # состояние), а для одноразовой сервис-БД CI `db push` даёт ровно то
-      # же дерево таблиц, без риска для прода. Вернуть на migrate deploy
-      # после починки #590.
-      - name: Sync schema (db push — see #590)
-        run: npx prisma db push --skip-generate --accept-data-loss
+      # Чистая БД + migrate deploy: тот же путь, что disaster recovery (#590).
+      - name: Apply migrations (migrate deploy)
+        run: npx prisma migrate deploy
 
       - name: Seed reference data + dev test accounts
         run: npx tsx scripts/seed.ts
