@@ -63,7 +63,7 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.AUTH_SECRET = "test-secret";
+  process.env.BOOKING_MANAGE_SECRET = "test-secret";
 });
 
 describe("findBookingByToken", () => {

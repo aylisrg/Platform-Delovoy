@@ -14,11 +14,9 @@ import { GET } from "../route";
 const mockedProcess = vi.mocked(processOutgoing);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/process-outgoing"
-      : `http://localhost/api/cron/process-outgoing?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/process-outgoing";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -70,5 +68,15 @@ describe("GET /api/cron/process-outgoing", () => {
     mockedProcess.mockRejectedValue(new Error("dispatch failed"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/process-outgoing?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

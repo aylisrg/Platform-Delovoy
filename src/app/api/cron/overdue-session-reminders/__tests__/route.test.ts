@@ -16,11 +16,9 @@ const mockedScan = vi.mocked(scanAndDispatchOverdue);
 const mockedRateLimit = vi.mocked(rateLimit);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/overdue-session-reminders"
-      : `http://localhost/api/cron/overdue-session-reminders?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/overdue-session-reminders";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -114,5 +112,15 @@ describe("GET /api/cron/overdue-session-reminders", () => {
     const res = await GET(req);
     expect(res.status).toBe(200);
     expect(mockedScan).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/overdue-session-reminders?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

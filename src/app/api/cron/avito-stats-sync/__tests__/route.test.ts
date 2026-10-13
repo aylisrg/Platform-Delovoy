@@ -18,11 +18,9 @@ const mockedFindMany = vi.mocked(prisma.avitoItem.findMany);
 const mockedRefresh = vi.mocked(refreshItemSnapshot);
 
 function makeReq(token: string | null, method: "GET" | "POST" = "GET"): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/avito-stats-sync"
-      : `http://localhost/api/cron/avito-stats-sync?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method });
+  const url = "http://localhost/api/cron/avito-stats-sync";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: method, headers });
 }
 
 beforeEach(() => {
@@ -89,6 +87,16 @@ describe("GET /api/cron/avito-stats-sync", () => {
 describe("POST /api/cron/avito-stats-sync", () => {
   it("rejects invalid token with 401 (same as GET)", async () => {
     const res = await POST(makeReq("nope", "POST"));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/avito-stats-sync?token=test-cron-secret", { method: "GET" })
+    );
     expect(res.status).toBe(401);
   });
 });

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { apiError, apiResponse, apiServerError } from "@/lib/api-response";
+import { verifyCronRequest } from "@/lib/cron-auth";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { syncItemsRegistry, syncAccount } from "@/lib/avito";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,8 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
-    if (!token || token !== cronSecret) return apiError("UNAUTHORIZED", "Invalid cron token", 401);
+    const denied = verifyCronRequest(request);
+    if (denied) return denied;
 
     if (process.env.AVITO_CRON_ENABLED !== "true") {
       return apiResponse({ skipped: true, reason: "AVITO_CRON_ENABLED is not set to 'true'" });

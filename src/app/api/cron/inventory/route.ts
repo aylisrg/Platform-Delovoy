@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
+import { verifyCronRequest } from "@/lib/cron-auth";
+import { apiResponse, apiServerError } from "@/lib/api-response";
 import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
 import { log } from "@/lib/logger";
@@ -10,7 +11,7 @@ import { EVENT_SOURCES } from "@/lib/event-sources";
  *
  * Schedule: every 15 minutes via system cron or GitHub Actions.
  * Example:
- *   curl "http://localhost:3000/api/cron/inventory?token=<CRON_SECRET>"
+ *   curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/inventory"
  *
  * Jobs:
  * 1. Flag expired batches and send Telegram alert to manager
@@ -18,12 +19,8 @@ import { EVENT_SOURCES } from "@/lib/event-sources";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
-    const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
-
-    if (!token || token !== cronSecret) {
-      return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-    }
+    const denied = verifyCronRequest(request);
+    if (denied) return denied;
 
     const results: {
       expiredBatches: number;

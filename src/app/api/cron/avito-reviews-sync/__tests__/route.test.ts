@@ -17,10 +17,9 @@ beforeEach(() => {
 });
 
 function makeReq(token: string | null): NextRequest {
-  const url = token === null
-    ? "http://localhost/api/cron/avito-reviews-sync"
-    : `http://localhost/api/cron/avito-reviews-sync?token=${token}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/avito-reviews-sync";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 describe("GET /api/cron/avito-reviews-sync", () => {
@@ -69,6 +68,16 @@ describe("GET /api/cron/avito-reviews-sync", () => {
 describe("POST /api/cron/avito-reviews-sync", () => {
   it("rejects invalid token with 401 (same as GET)", async () => {
     const res = await POST(makeReq("nope"));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/avito-reviews-sync?token=test-cron-secret", { method: "GET" })
+    );
     expect(res.status).toBe(401);
   });
 });

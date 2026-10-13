@@ -16,11 +16,9 @@ const mockedConfigured = vi.mocked(isYooKassaConfigured);
 const mockedReconcile = vi.mocked(reconcilePayments);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/payments-reconcile"
-      : `http://localhost/api/cron/payments-reconcile?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/payments-reconcile";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -46,10 +44,10 @@ describe("GET /api/cron/payments-reconcile", () => {
     expect(mockedReconcile).not.toHaveBeenCalled();
   });
 
-  it("returns 401 when CRON_SECRET is not configured (no fallback that leaks an empty-secret bypass)", async () => {
+  it("returns 503 when CRON_SECRET is not configured (no fallback that leaks an empty-secret bypass)", async () => {
     delete process.env.CRON_SECRET;
     const res = await GET(makeReq(""));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
     expect(mockedReconcile).not.toHaveBeenCalled();
   });
 
@@ -86,5 +84,15 @@ describe("GET /api/cron/payments-reconcile", () => {
     mockedReconcile.mockRejectedValue(new Error("provider down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/payments-reconcile?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

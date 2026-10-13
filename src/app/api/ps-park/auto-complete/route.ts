@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { verifyCronRequest } from "@/lib/cron-auth";
 import { apiResponse, apiError } from "@/lib/api-response";
 import { autoCompleteExpiredSessions } from "@/modules/ps-park/service";
 import { prisma } from "@/lib/db";
@@ -25,15 +26,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return apiError("SERVICE_UNAVAILABLE", "CRON_SECRET is not configured", 503);
-  }
-
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return apiError("UNAUTHORIZED", "Invalid or missing cron secret", 401);
-  }
+  const denied = verifyCronRequest(request);
+  if (denied) return denied;
 
   // Use the first SUPERADMIN as the AuditLog actor (FK constraint requires a
   // real user id; the action is tagged actorRole=CRON in the audit metadata).

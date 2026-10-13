@@ -66,7 +66,7 @@ function booking(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.AUTH_SECRET = "test-secret";
+  process.env.BOOKING_MANAGE_SECRET = "test-secret";
   process.env.NEXT_PUBLIC_APP_URL = "https://delovoy-park.ru";
   mockSendEmail.mockResolvedValue({ success: true });
   vi.mocked(prisma.resource.findUnique).mockResolvedValue({

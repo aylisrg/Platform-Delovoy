@@ -14,11 +14,9 @@ import { GET } from "../route";
 const mockedProcess = vi.mocked(processScheduledNotifications);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/notifications"
-      : `http://localhost/api/cron/notifications?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/notifications";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -66,7 +64,7 @@ describe("GET /api/cron/notifications", () => {
     expect(mockedProcess).toHaveBeenCalledTimes(1);
   });
 
-  it("still accepts legacy ?token= query param", async () => {
+  it("accepts a valid Bearer header", async () => {
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -79,5 +77,15 @@ describe("GET /api/cron/notifications", () => {
     mockedProcess.mockRejectedValueOnce(new Error("db down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/notifications?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

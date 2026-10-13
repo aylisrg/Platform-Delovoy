@@ -22,11 +22,9 @@ const mockedSweep = vi.mocked(runLowStockAlertSweep);
 const mockedWarn = vi.mocked(log.warn);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/inventory"
-      : `http://localhost/api/cron/inventory?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/inventory";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -52,12 +50,12 @@ describe("GET /api/cron/inventory", () => {
     expect(mockedGetExpiring).not.toHaveBeenCalled();
   });
 
-  it("falls back to NEXTAUTH_SECRET when CRON_SECRET is not set", async () => {
+  it("does not fall back to NEXTAUTH_SECRET when CRON_SECRET is not set", async () => {
     delete process.env.CRON_SECRET;
     process.env.NEXTAUTH_SECRET = "auth-secret";
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(200);
-    expect(mockedGetExpiring).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(503);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
     delete process.env.NEXTAUTH_SECRET;
   });
 
@@ -98,5 +96,15 @@ describe("GET /api/cron/inventory", () => {
     mockedGetExpiring.mockRejectedValue(new Error("db down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/inventory?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

@@ -39,7 +39,7 @@ const version = {
 beforeEach(() => {
   vi.clearAllMocks();
   // Токен управления бронью выводится из серверного секрета.
-  process.env.AUTH_SECRET = "test-secret";
+  process.env.BOOKING_MANAGE_SECRET = "test-secret";
 });
 
 describe("hashDocumentBody", () => {
@@ -155,16 +155,30 @@ describe("токен управления бронью", () => {
 
   it("не выводится из одного лишь номера брони — нужен серверный секрет", () => {
     const withSecret = createManageToken("bk-1")!.token;
-    const previous = process.env.AUTH_SECRET;
-    process.env.AUTH_SECRET = "другой-секрет";
+    const previous = process.env.BOOKING_MANAGE_SECRET;
+    process.env.BOOKING_MANAGE_SECRET = "другой-секрет";
     expect(createManageToken("bk-1")!.token).not.toBe(withSecret);
-    process.env.AUTH_SECRET = previous;
+    process.env.BOOKING_MANAGE_SECRET = previous;
   });
 
   it("совпадает только со своим хешем", () => {
     const { token, hash } = createManageToken("bk-1")!;
     expect(manageTokenMatches(token, hash)).toBe(true);
     expect(manageTokenMatches("подделка", hash)).toBe(false);
+  });
+
+  it("без BOOKING_MANAGE_SECRET токен не выдаётся, даже если заданы AUTH_SECRET/NEXTAUTH_SECRET (fail closed)", () => {
+    const saved = { ...process.env };
+    delete process.env.BOOKING_MANAGE_SECRET;
+    process.env.AUTH_SECRET = "auth-secret";
+    process.env.NEXTAUTH_SECRET = "nextauth-secret";
+    try {
+      expect(createManageToken("bk-1")).toBeNull();
+      process.env.BOOKING_MANAGE_SECRET = "   ";
+      expect(createManageToken("bk-1")).toBeNull();
+    } finally {
+      process.env = saved;
+    }
   });
 
   it("не падает на мусорном хеше из БД", () => {

@@ -24,6 +24,10 @@ const STATIC_CONFIGS = {
   // 2026-09-16) — sendBeacon от анонимных посетителей. Мягче client-error:
   // это ожидаемый трафик каждого визита, не аварийный сигнал.
   "product-event": { limit: 60, windowSeconds: 60 } as RateLimitConfig,
+  // Публичный статус платежа GET /api/payments/[id]: каждый запрос может
+  // сходить в YooKassa. Страница ожидания поллит раз в 3 с (20/мин на вкладку),
+  // лимит с запасом на 2 вкладки, но отсекает перебор/флуд провайдера.
+  "payment-status": { limit: 40, windowSeconds: 60 } as RateLimitConfig,
 } as const;
 
 export type RateLimitType = "public" | "authenticated" | keyof typeof STATIC_CONFIGS;

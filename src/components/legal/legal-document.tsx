@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { LegalBlock, LegalDocument } from "@/lib/legal/types";
 import { CopyAnchorButton } from "./copy-anchor-button";
 import { LegalToc, type TocEntry } from "./legal-toc";
+import { sanitizeLegalHtml } from "@/lib/legal/sanitize";
 
 /**
  * Рендер опубликованной редакции юридического документа.
@@ -45,7 +46,7 @@ function Block({ block }: { block: LegalBlock }) {
           <span className="legal-clause__num">{block.number}.</span>
           <div
             className="legal-clause__body"
-            dangerouslySetInnerHTML={{ __html: block.html }}
+            dangerouslySetInnerHTML={{ __html: sanitizeLegalHtml(block.html) }}
           />
           <CopyAnchorButton anchor={block.id} label={block.number} />
         </div>
@@ -61,7 +62,7 @@ function Block({ block }: { block: LegalBlock }) {
       return (
         <blockquote
           className="mt-4 border-l-2 border-[var(--border)] bg-[var(--surface)] px-4 py-3 rounded-r-lg"
-          dangerouslySetInnerHTML={{ __html: block.html }}
+          dangerouslySetInnerHTML={{ __html: sanitizeLegalHtml(block.html) }}
         />
       );
     case "table":
@@ -71,7 +72,7 @@ function Block({ block }: { block: LegalBlock }) {
             <thead>
               <tr>
                 {block.head.map((cell, i) => (
-                  <th key={i} dangerouslySetInnerHTML={{ __html: cell }} />
+                  <th key={i} dangerouslySetInnerHTML={{ __html: sanitizeLegalHtml(cell) }} />
                 ))}
               </tr>
             </thead>
@@ -79,7 +80,7 @@ function Block({ block }: { block: LegalBlock }) {
               {block.rows.map((row, r) => (
                 <tr key={r}>
                   {row.map((cell, c) => (
-                    <td key={c} dangerouslySetInnerHTML={{ __html: cell }} />
+                    <td key={c} dangerouslySetInnerHTML={{ __html: sanitizeLegalHtml(cell) }} />
                   ))}
                 </tr>
               ))}
@@ -88,7 +89,7 @@ function Block({ block }: { block: LegalBlock }) {
         </div>
       );
     case "paragraph":
-      return <p className="mt-4" dangerouslySetInnerHTML={{ __html: block.html }} />;
+      return <p className="mt-4" dangerouslySetInnerHTML={{ __html: sanitizeLegalHtml(block.html) }} />;
   }
 }
 

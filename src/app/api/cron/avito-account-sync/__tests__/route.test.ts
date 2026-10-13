@@ -13,11 +13,9 @@ const mockedSyncItems = vi.mocked(syncItemsRegistry);
 const mockedSyncAccount = vi.mocked(syncAccount);
 
 function makeReq(token: string | null, method: "GET" | "POST" = "GET"): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/avito-account-sync"
-      : `http://localhost/api/cron/avito-account-sync?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method });
+  const url = "http://localhost/api/cron/avito-account-sync";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: method, headers });
 }
 
 beforeEach(() => {
@@ -80,6 +78,16 @@ describe("POST /api/cron/avito-account-sync", () => {
 
   it("rejects invalid token with 401", async () => {
     const res = await POST(makeReq("nope", "POST"));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/avito-account-sync?token=test-cron-secret", { method: "GET" })
+    );
     expect(res.status).toBe(401);
   });
 });

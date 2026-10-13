@@ -2282,7 +2282,7 @@ describe("createBooking — фиксация акцепта", () => {
   });
 
   it("кладёт в бронь хеш токена управления, а не сам токен", async () => {
-    process.env.AUTH_SECRET = "test-secret";
+    process.env.BOOKING_MANAGE_SECRET = "test-secret";
     vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
 
     const result = await createBooking("user-1", acceptedBookingInput);

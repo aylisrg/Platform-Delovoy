@@ -162,12 +162,11 @@ function truncateUserAgent(userAgent: string | null): string | null {
  * SHA-256 — он нужен для обратного поиска брони по токену.
  */
 function manageSecret(): string | null {
-  return (
-    process.env.BOOKING_MANAGE_SECRET ??
-    process.env.AUTH_SECRET ??
-    process.env.NEXTAUTH_SECRET ??
-    null
-  );
+  // Только отдельный секрет. Фолбэк на AUTH_SECRET / NEXTAUTH_SECRET убран:
+  // компрометация секрета сессий не должна давать доступ к броням, и наоборот.
+  // Нет секрета: ссылки не выдаются (fail closed), бронь работает без них.
+  const secret = process.env.BOOKING_MANAGE_SECRET?.trim();
+  return secret ? secret : null;
 }
 
 /**

@@ -86,10 +86,10 @@ describe("GET /api/cron/no-show", () => {
     expect(mockedFind).not.toHaveBeenCalled();
   });
 
-  it("returns 401 when CRON_SECRET is not configured", async () => {
+  it("returns 503 when CRON_SECRET is not configured", async () => {
     delete process.env.CRON_SECRET;
     const res = await GET(makeReq("anything"));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
     expect(mockedFind).not.toHaveBeenCalled();
   });
 
@@ -140,5 +140,15 @@ describe("GET /api/cron/no-show", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.modules["ps-park"].errors).toEqual(["b-ps-1: unknown error"]);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/no-show?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });

@@ -11,11 +11,9 @@ import { GET } from "../route";
 const mockedRun = vi.mocked(runRentalPaymentReminders);
 
 function makeReq(token: string | null): NextRequest {
-  const url =
-    token === null
-      ? "http://localhost/api/cron/rental-payment-reminders"
-      : `http://localhost/api/cron/rental-payment-reminders?token=${encodeURIComponent(token)}`;
-  return new NextRequest(url, { method: "GET" });
+  const url = "http://localhost/api/cron/rental-payment-reminders";
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest(url, { method: "GET", headers });
 }
 
 beforeEach(() => {
@@ -40,10 +38,10 @@ describe("GET /api/cron/rental-payment-reminders", () => {
     expect(mockedRun).not.toHaveBeenCalled();
   });
 
-  it("returns 401 when CRON_SECRET is not configured", async () => {
+  it("returns 503 when CRON_SECRET is not configured", async () => {
     delete process.env.CRON_SECRET;
     const res = await GET(makeReq(""));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
     expect(mockedRun).not.toHaveBeenCalled();
   });
 
@@ -70,5 +68,15 @@ describe("GET /api/cron/rental-payment-reminders", () => {
     mockedRun.mockRejectedValue(new Error("db down"));
     const res = await GET(makeReq("test-cron-secret"));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("cron auth: ?token= query param is rejected", () => {
+  it("returns 401 for a correct secret passed via ?token= (no Bearer header)", async () => {
+    process.env.CRON_SECRET = "test-cron-secret";
+    const res = await GET(
+      new NextRequest("http://localhost/api/cron/rental-payment-reminders?token=test-cron-secret", { method: "GET" })
+    );
+    expect(res.status).toBe(401);
   });
 });
