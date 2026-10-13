@@ -30,44 +30,95 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 8m
           script: |
-            set -u
+            set -euo pipefail
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
             ROUTES="avito-account-sync avito-messenger-poll avito-reviews-sync avito-stats-sync inventory no-show ps-park/auto-complete process-outgoing payments-reconcile notifications rental-payment-reminders overdue-session-reminders process-recurring"
+            TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+            die() { echo "::error::$1"; exit 1; }
 
-            # Подсчёт строк с /api/cron/<route> с границей после имени. Только число.
-            cnt() { printf '%s\n' "$2" | grep -cE "/api/cron/$1([^a-z/-]|\$)" || true; }
+            # Читает файл в буфер источника. Отсутствие файла не ошибка, ошибка чтения = exit 1.
+            add_file() { # $1 буфер, $2 файл
+              [ -e "$2" ] || return 0
+              [ -f "$2" ] || return 0
+              $SUDO cat -- "$2" >> "$TMP/$1" 2>/dev/null || die "read failed: $2"
+              printf '\n' >> "$TMP/$1"
+            }
+            # Число строк с /api/cron/<route>. grep: 0 = есть, 1 = нет совпадений (ок), 2 = ошибка.
+            cnt() { # $1 route, $2 буфер
+              local n rc=0
+              n=$(grep -cE "/api/cron/$1([^a-z/-]|\$)" "$TMP/$2") || rc=$?
+              [ "$rc" -le 1 ] || die "grep failed on $2"
+              echo "${n:-0}"
+            }
+            for B in root_ct spool etc_cron systemd_units timers; do : > "$TMP/$B"; done
 
-            echo "=== (a) источники расписания ==="
-            ROOT_CT=""; ROOT_OK=1
-            if ! ROOT_CT=$($SUDO crontab -l -u root 2>/dev/null); then
-              if $SUDO crontab -l -u root 2>&1 | grep -qi 'no crontab'; then ROOT_CT=""; else ROOT_OK=0; echo "::error::root crontab: ошибка чтения"; fi
+            # 1. root crontab
+            rc=0; $SUDO crontab -l -u root > "$TMP/root_ct" 2> "$TMP/err" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              grep -qi 'no crontab' "$TMP/err" && { : > "$TMP/root_ct"; echo "note: root crontab absent"; } || die "read failed: crontab -l -u root"
             fi
-            ETC_CT=""
-            for F in /etc/crontab /etc/cron.d/*; do
-              [ -f "$F" ] || continue
-              if C=$($SUDO cat "$F" 2>/dev/null); then ETC_CT="$ETC_CT
-            $C"; else echo "::error::$F: ошибка чтения"; fi
+            # 2. /var/spool/cron/crontabs/* (все пользователи)
+            if $SUDO test -d /var/spool/cron/crontabs; then
+              LIST=$($SUDO find /var/spool/cron/crontabs -maxdepth 1 -type f 2>/dev/null) || die "read failed: list /var/spool/cron/crontabs"
+              for F in $LIST; do add_file spool "$F"; done
+              echo "spool_crontab_files: $(printf '%s' "$LIST" | grep -c . || true)"
+            else echo "note: /var/spool/cron/crontabs absent"; fi
+            # 3. /etc/crontab, /etc/cron.d, /etc/cron.{hourly,daily,weekly,monthly}
+            add_file etc_cron /etc/crontab
+            for D in /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly; do
+              if [ -d "$D" ]; then
+                LIST=$($SUDO find "$D" -maxdepth 1 -type f 2>/dev/null) || die "read failed: list $D"
+                for F in $LIST; do add_file etc_cron "$F"; done
+              else echo "note: $D absent"; fi
             done
-            SYSD=""
-            for F in /etc/systemd/system/*.timer /etc/systemd/system/*.service /lib/systemd/system/*.timer /usr/lib/systemd/system/*.timer /etc/systemd/system/*/*.service; do
-              [ -f "$F" ] || continue
-              C=$($SUDO cat "$F" 2>/dev/null) && SYSD="$SYSD
-            $C"
+            # 4. systemd unit files
+            for D in /etc/systemd /lib/systemd /usr/lib/systemd; do
+              if [ -d "$D" ]; then
+                LIST=$($SUDO find "$D" -type f \( -name '*.service' -o -name '*.timer' \) 2>/dev/null) || die "read failed: list $D"
+                for F in $LIST; do add_file systemd_units "$F"; done
+              else echo "note: $D absent"; fi
             done
-            printf '%-28s %10s %10s %10s\n' route root_crontab etc_cron systemd
+            # 5. systemctl list-timers --all
+            if command -v systemctl >/dev/null; then
+              $SUDO systemctl list-timers --all --no-pager > "$TMP/timers" 2>/dev/null || die "read failed: systemctl list-timers"
+            else echo "note: systemctl absent"; fi
+
+            echo "=== (a) источники расписания (только числа) ==="
+            printf '%-28s %6s %6s %8s %8s %7s\n' route root spool etc_cron sysd_unit timers
             for R in $ROUTES; do
-              rc="n/a"; [ "$ROOT_OK" = 1 ] && rc=$(cnt "$R" "$ROOT_CT")
-              printf '%-28s %10s %10s %10s\n' "$R" "$rc" "$(cnt "$R" "$ETC_CT")" "$(cnt "$R" "$SYSD")"
+              # Присваивания, чтобы ошибка cnt в subshell обрывала скрипт (set -e).
+              a=$(cnt "$R" root_ct); b=$(cnt "$R" spool); c=$(cnt "$R" etc_cron); d=$(cnt "$R" systemd_units); e=$(cnt "$R" timers)
+              printf '%-28s %6s %6s %8s %8s %7s\n' "$R" "$a" "$b" "$c" "$d" "$e"
             done
 
-            echo "=== (b) nginx access log, файлы за 7 дней ==="
-            FILES=$($SUDO find /var/log/nginx -maxdepth 2 -type f -name '*access*' -mtime -7 2>/dev/null | sort)
-            [ -n "$FILES" ] || { echo "access-логи не найдены"; exit 0; }
-            echo "files: $(printf '%s\n' "$FILES" | wc -l)"
-            # Из строки берём только путь без query, статус и первый токен UA (до / или пробела).
-            for F in $FILES; do
-              case "$F" in *.gz) $SUDO zcat -f "$F" 2>/dev/null ;; *) $SUDO cat "$F" 2>/dev/null ;; esac
-            done | awk -F'"' -v routes="$ROUTES" '
+            echo "=== (b) nginx access log, 7 дней ==="
+            : > "$TMP/log"
+            FILES=""
+            if [ -d /var/log/nginx ]; then
+              FILES=$($SUDO find /var/log/nginx -maxdepth 2 -type f -name '*access*' -mtime -7 2>/dev/null | sort) || die "read failed: list /var/log/nginx"
+            fi
+            if [ -n "$FILES" ]; then
+              echo "source: /var/log/nginx, files: $(printf '%s\n' "$FILES" | wc -l)"
+              for F in $FILES; do
+                case "$F" in
+                  *.gz) $SUDO zcat -f -- "$F" >> "$TMP/log" 2>/dev/null || die "read failed: $F" ;;
+                  *)    $SUDO cat -- "$F" >> "$TMP/log" 2>/dev/null || die "read failed: $F" ;;
+                esac
+              done
+            else
+              echo "note: no access logs in /var/log/nginx, trying docker"
+              command -v docker >/dev/null || die "no nginx access logs and docker absent"
+              PS=$($SUDO docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null) || die "read failed: docker ps"
+              CS=$(printf '%s\n' "$PS" | awk 'tolower($0) ~ /nginx/ {print $1}')
+              [ -n "$CS" ] || die "no nginx access logs and no nginx container"
+              echo "source: docker, containers: $(printf '%s\n' "$CS" | wc -l)"
+              for C in $CS; do
+                $SUDO docker logs --since 168h "$C" >> "$TMP/log" 2>/dev/null || die "read failed: docker logs (container $C)"
+              done
+            fi
+            echo "log_lines_total: $(wc -l < "$TMP/log")"
+            # Печатаем только route, статус, первый токен UA.
+            awk -F'"' -v routes="$ROUTES" '
               BEGIN { n = split(routes, rr, " ") }
               {
                 split($2, req, " "); p = req[2]; sub(/\?.*/, "", p)
@@ -78,7 +129,7 @@ jobs:
                 split($3, s, " "); st = s[1]; if (st !~ /^[0-9][0-9][0-9]$/) st = "???"
                 ua = $6; sub(/^[ \t]+/, "", ua); sub(/[\/ ].*$/, "", ua)
                 gsub(/[^A-Za-z0-9._-]/, "", ua); if (ua == "") ua = "-"
-                ua = substr(ua, 1, 40)
-                print r "\tstatus=" st "\tua=" ua
-              }' | sort | uniq -c | sort -k2,2 -k1,1nr
+                print r "\tstatus=" st "\tua=" substr(ua, 1, 40)
+              }' "$TMP/log" > "$TMP/agg" || die "parse failed"
+            if [ -s "$TMP/agg" ]; then sort "$TMP/agg" | uniq -c | sort -k2,2 -k1,1nr; else echo "cron_route_requests: 0"; fi
             echo "=== конец ==="
