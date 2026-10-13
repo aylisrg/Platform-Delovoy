@@ -87,6 +87,9 @@ function parseMoscowDatetime(date: string, hour: number): Date {
   return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
 }
 
+/** Цвет обычной (CONFIRMED) брони: и плашка на таймлайне, и образец в легенде. */
+export const BOOKING_BLOCK_COLOR = "bg-emerald-50 border border-emerald-200";
+
 /** Штриховка блока «Уборка» (#1085): серо-нейтральная диагональ. */
 const CLEANING_HATCH: React.CSSProperties = {
   backgroundImage:
@@ -97,7 +100,7 @@ function TimelineLegend() {
   return (
     <div data-testid="timeline-legend" className="flex items-center gap-4 mb-2 text-xs text-zinc-500">
       <span className="inline-flex items-center gap-1.5">
-        <span className="inline-block w-4 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Бронь
+        <span data-testid="legend-booking" className={`inline-block w-4 h-3 rounded-sm ${BOOKING_BLOCK_COLOR}`} /> Бронь
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="inline-block w-4 h-3 rounded-sm bg-zinc-100 border border-dashed border-zinc-300" style={CLEANING_HATCH} /> Уборка
@@ -623,6 +626,7 @@ export function GazeboTimelineGrid({
                           key={`cleaning-${c.bookingId}`}
                           data-testid={`cleaning-${c.bookingId}`}
                           title={`Резерв на уборку после брони #${c.bookingId.slice(-6)}`}
+                          aria-label="Уборка после брони, открыть бронь"
                           onClick={(e) => parent && handleBookingClick(parent, e)}
                           className="absolute top-1 bottom-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-100 px-1.5 py-1 overflow-hidden text-left text-[11px] leading-tight text-zinc-500 select-none"
                           style={{
@@ -659,7 +663,7 @@ export function GazeboTimelineGrid({
                             ? "bg-emerald-100 border-2 border-emerald-400 shadow-sm hover:shadow-md hover:brightness-95"
                             : isPending
                             ? "bg-amber-50 border border-dashed border-amber-300 hover:bg-amber-100/70"
-                            : "bg-emerald-50 border border-emerald-200 hover:bg-emerald-100/70"
+                            : `${BOOKING_BLOCK_COLOR} hover:bg-emerald-100/70`
                         }`}
                         title={`${booking.clientName ?? "—"} · Нажмите для подробностей, тяните для переноса`}
                         onClick={(e) => handleBookingClick(booking, e)}

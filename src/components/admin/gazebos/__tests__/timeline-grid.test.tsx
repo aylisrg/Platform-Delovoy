@@ -308,6 +308,19 @@ describe("GazeboTimelineGrid — блок «Уборка» (issue #1085)", () =>
     for (const t of ["Бронь", "Уборка", "Свободно"]) expect(legend.textContent).toContain(t);
   });
 
+  it("aria-label у уборки; образец «Бронь» в легенде того же цвета, что плашка брони; в недельном виде легенды нет", () => {
+    renderWith({ bookings: [B14], cleaningBufferMinutes: 60 });
+    expect(screen.getByRole("button", { name: "Уборка после брони, открыть бронь" })).toBeTruthy();
+    const swatch = screen.getByTestId("legend-booking").className;
+    const block = screen.getByTestId("booking-b-14").className;
+    for (const cls of ["bg-emerald-50", "border-emerald-200"]) {
+      expect(swatch).toContain(cls);
+      expect(block).toContain(cls);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Неделя" }));
+    expect(screen.queryByTestId("timeline-legend")).toBeNull();
+  });
+
   it("клик по уборке открывает родительскую бронь", () => {
     renderWith({ bookings: [B14], cleaningBufferMinutes: 60 });
     fireEvent.click(screen.getByTestId("cleaning-b-14"));

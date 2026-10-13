@@ -246,7 +246,10 @@ export default async function GazebosPage() {
         {/* Автостоянка */}
         <ParkingSection />
 
-        <Footer />
+        {/* Sticky CTA на мобиле (~70px) не должен перекрывать низ футера (#1085). */}
+        <div data-testid="footer-wrap" className={bookingEnabled ? "pb-24 md:pb-0" : undefined}>
+          <Footer />
+        </div>
         {bookingEnabled && <StickyBookingCta />}
       </div>
     </>
