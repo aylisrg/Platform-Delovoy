@@ -41,6 +41,22 @@ grep -q 'cron-backup.sh' "$FAKE" || fail "unrelated line removed"
 grep -q 'notifications-digest' "$FAKE" || fail "similar-path line removed"
 for p in process-outgoing payments-reconcile 'notifications >'; do
   [ "$(grep -c "api/cron/$p" "$FAKE")" -eq 1 ] || fail "dup/missing $p"; done
+# 1b. Новые роуты (#1074): старые ?token= заменяются, идемпотентно, без дублей
+cat >> "$FAKE" <<'C'
+0 6 * * * curl -sS https://delovoy-park.ru/api/cron/rental-payment-reminders?token=OLD >/dev/null 2>&1
+*/5 * * * * curl -fsS "https://delovoy-park.ru/api/cron/overdue-session-reminders?token=OLD" > /dev/null 2>&1
+5 0 * * * curl -s https://delovoy-park.ru/api/cron/process-recurring?token=OLD
+C
+run2() {
+  for r in rental-payment-reminders overdue-session-reminders process-recurring; do
+    upsert_cron "/api/cron/$r" "0 0 * * * curl -H 'Authorization: Bearer $S' https://delovoy-park.ru/api/cron/$r > /dev/null 2>&1"
+  done
+}
+run2; run2
+grep -q 'token=' "$FAKE" && fail "old ?token= on new routes left"
+for r in rental-payment-reminders overdue-session-reminders process-recurring; do
+  [ "$(grep -c "api/cron/$r" "$FAKE")" -eq 1 ] || fail "dup/missing $r"; done
+[ "$(wc -l < "$FAKE")" -eq 8 ] || fail "expected 8 lines after new routes"
 # 2. Идемпотентность
 FIRST=$(cat "$FAKE"); run; [ "$FIRST" = "$(cat "$FAKE")" ] || fail "not idempotent"
 # 3. Ошибка чтения crontab: ничего не пишем, код != 0

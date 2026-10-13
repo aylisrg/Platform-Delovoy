@@ -669,8 +669,13 @@ jobs:
                   *) return 1 ;;
                 esac
               fi
+              # Уже стоит ровно одна нужная строка: ничего не переписываем.
+              _re="${_path}([?/'\"[:space:]]|\$)"
+              if [ "$(printf '%s\n' "$_cur" | awk -v re="$_re" '$0 ~ re')" = "$_entry" ]; then
+                return 0
+              fi
               # awk вместо grep: пустой результат не даёт ненулевой код (set -e).
-              { printf '%s\n' "$_cur" | awk -v re="${_path}([?/'\"[:space:]]|\$)" '$0 != "" && $0 !~ re'
+              { printf '%s\n' "$_cur" | awk -v re="$_re" '$0 != "" && $0 !~ re'
                 printf '%s\n' "$_entry"; } | crontab -
             }
             # cron-upsert-end
@@ -692,6 +697,27 @@ jobs:
               "*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/notifications > /dev/null 2>&1" \
               || { echo "::error::crontab read failed, notifications cron NOT updated (#1074)"; exit 1; }
             echo "✅ scheduled-notifications cron upserted (every 5 minutes)"
+
+            # Напоминания об оплате аренды. 06:00 UTC = 09:00 MSK.
+            # Источник: docs/architecture/2026-04-21-rental-email-notifications-adr.md:813
+            upsert_cron '/api/cron/rental-payment-reminders' \
+              "0 6 * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/rental-payment-reminders > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, rental-payment-reminders cron NOT updated (#1074)"; exit 1; }
+            echo "✅ rental-payment-reminders cron upserted (daily 06:00 UTC)"
+
+            # Напоминания о просроченных сессиях.
+            # Источник: docs/runbooks/cron-overdue-session-reminders.md:58
+            upsert_cron '/api/cron/overdue-session-reminders' \
+              "*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/overdue-session-reminders > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, overdue-session-reminders cron NOT updated (#1074)"; exit 1; }
+            echo "✅ overdue-session-reminders cron upserted (every 5 minutes)"
+
+            # Регулярные расходы (cost tracker).
+            # Источник: docs/architecture/2026-04-18-cost-tracker-management-accounting-adr.md:692
+            upsert_cron '/api/cron/process-recurring' \
+              "5 0 * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/process-recurring > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, process-recurring cron NOT updated (#1074)"; exit 1; }
+            echo "✅ process-recurring cron upserted (daily 00:05 UTC)"
 
       - name: Ensure daily DB backup cron is registered
         continue-on-error: true
