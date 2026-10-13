@@ -14,6 +14,11 @@ import type { TimelineData, TimelineBooking } from "@/modules/gazebos/types";
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { formatTime } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
+import {
+  CLEANING_HATCH_STYLE,
+  deriveCleaningBlocks,
+  formatCleaningDuration,
+} from "@/lib/cleaning-blocks";
 
 // Запасные границы — только если бэкенд не прислал часы (пустой data.hours).
 const FALLBACK_OPEN_HHMM = "08:00";
@@ -92,6 +97,14 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
         endHHMM: toHHMM(b.endTime),
       }));
   }
+
+  // Блоки «Уборка» (#1091): как в дневном виде десктопа (#1085), обрезаются
+  // закрытием дня и началом следующей брони.
+  const cleaningBlocks = deriveCleaningBlocks(
+    data.bookings,
+    data.cleaningBufferMinutes,
+    new Date(`${date}T${closeHHMM === "24:00" ? "23:59" : closeHHMM}:00+03:00`),
+  );
 
   const selectedResource = useMemo(
     () => data.resources.find((r) => r.id === selectedResourceId) ?? null,
@@ -258,6 +271,52 @@ export function GazeboMobileTimeline({ initialData, initialDate }: Props) {
                               </span>
                             </span>
                             <span className="shrink-0 text-zinc-300">›</span>
+                          </button>
+                        </li>
+                      );
+                    }
+
+                    const clean = cleaningBlocks
+                      .filter((c) => c.resourceId === selectedResource.id)
+                      .map((c) => ({
+                        ...c,
+                        startHHMM: toHHMM(c.startTime),
+                        endHHMM: toHHMM(c.endTime),
+                      }))
+                      .find((c) => c.startHHMM <= s && s < c.endHHMM);
+                    if (clean) {
+                      if (clean.startHHMM !== s) return null;
+                      const parent = resourceBookings.find(
+                        (b) => b.id === clean.bookingId,
+                      );
+                      const spanSlots = Math.max(
+                        1,
+                        Math.round(
+                          (parseHHMM(clean.endHHMM) - parseHHMM(clean.startHHMM)) / 30,
+                        ),
+                      );
+                      return (
+                        <li key={s}>
+                          <button
+                            type="button"
+                            data-testid={`mobile-cleaning-${clean.bookingId}`}
+                            aria-label="Уборка после брони, открыть бронь"
+                            onClick={() =>
+                              parent && setSelectedBooking(parent.booking)
+                            }
+                            style={{
+                              ...CLEANING_HATCH_STYLE,
+                              minHeight: `${spanSlots * 40}px`,
+                            }}
+                            className="flex w-full items-center gap-3 border-l-2 border-dashed border-zinc-300 bg-zinc-100 px-3 py-2 text-left"
+                          >
+                            <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-zinc-500">
+                              {clean.startHHMM}–{clean.endHHMM}
+                            </span>
+                            <span className="text-sm font-medium text-zinc-500">
+                              <span aria-hidden="true">🧹 </span>
+                              Уборка · {formatCleaningDuration(clean.minutes)}
+                            </span>
                           </button>
                         </li>
                       );

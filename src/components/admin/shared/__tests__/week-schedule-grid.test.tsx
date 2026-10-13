@@ -190,3 +190,45 @@ describe("WeekScheduleGrid (issue #740)", () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("WeekScheduleGrid: блоки «Уборка» (issue #1091)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  function stubWeek(extra: Record<string, unknown>) {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: { ...WEEK, ...extra } }));
+  }
+
+  it("рисует «Уборка · 1 ч» после брони и легенду, клик открывает бронь", async () => {
+    stubWeek({ cleaningBufferMinutes: 60 });
+    const { onBookingClick, onEmptyCellClick } = renderGrid();
+
+    const chip = await screen.findByTestId("week-cleaning-b-1");
+    expect(chip.textContent).toContain("Уборка · 1 ч");
+    expect(screen.getByTestId("week-legend").textContent).toContain("Уборка");
+
+    fireEvent.click(chip);
+    expect(onBookingClick).toHaveBeenCalledWith(expect.objectContaining({ id: "b-1" }), RESOURCES[0]);
+    expect(onEmptyCellClick).not.toHaveBeenCalled();
+  });
+
+  it("обрезает уборку началом следующей брони того же ресурса", async () => {
+    const next = { ...BOOKING, id: "b-2", startTime: "2030-06-17T11:30:00.000Z", endTime: "2030-06-17T13:00:00.000Z" };
+    stubWeek({ cleaningBufferMinutes: 60, bookings: [BOOKING, next] });
+    renderGrid();
+
+    const chip = await screen.findByTestId("week-cleaning-b-1");
+    expect(chip.textContent).toContain("Уборка · 30 мин");
+  });
+
+  it("без буфера (PS Park, 0 или поле отсутствует) нет ни блоков, ни легенды", async () => {
+    stubWeek({ cleaningBufferMinutes: 0 });
+    renderGrid();
+    await screen.findAllByText("Иван");
+    expect(screen.queryByTestId("week-cleaning-b-1")).toBeNull();
+    expect(screen.queryByTestId("week-legend")).toBeNull();
+  });
+});

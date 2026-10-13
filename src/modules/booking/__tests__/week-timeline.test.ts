@@ -108,6 +108,8 @@ describe("getWeekTimeline (issue #740)", () => {
     expect(data.days).toEqual(weekDays("2030-06-17"));
     expect(data.hours).toEqual(hoursRange(11, 22));
     expect(data.minBookingHours).toBe(4);
+    // #1091: без буфера в настройках (PS Park) уборки нет
+    expect(data.cleaningBufferMinutes).toBe(0);
   });
 
   it("pricePerHour нормализуется Decimal → number, Decimal не пересекает границу Server → Client (#614)", async () => {
@@ -150,5 +152,12 @@ describe("getWeekTimeline (issue #740)", () => {
     const data = await getWeekTimeline("gazebos", "2030-06-17", HOURS);
     expect(data.bookings).toEqual([]);
     expect(data.resources).toEqual([]);
+  });
+});
+
+describe("getWeekTimeline: буфер уборки (#1091)", () => {
+  it("пробрасывает cleaningBufferMinutes из настроек модуля", async () => {
+    const data = await getWeekTimeline("gazebos", "2030-06-17", { ...HOURS, cleaningBufferMinutes: 60 });
+    expect(data.cleaningBufferMinutes).toBe(60);
   });
 });

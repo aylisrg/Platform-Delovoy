@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
 import {
   formatDayHeader,
@@ -14,6 +14,12 @@ import type {
   WeekTimelineResource,
 } from "@/modules/booking/week-timeline";
 import { formatTime, toISODate } from "@/lib/format";
+import {
+  CLEANING_HATCH_STYLE,
+  deriveCleaningBlocks,
+  formatCleaningDuration,
+  type CleaningBlock,
+} from "@/lib/cleaning-blocks";
 
 /**
  * Недельная матрица «ресурс × день» (US-5, эпик #442; ADR 2026-08-23 §3–§4).
@@ -51,6 +57,31 @@ function chipClass(booking: WeekTimelineBooking, selected: boolean): string {
   if (booking.status === "CHECKED_IN") return "bg-emerald-100 border-emerald-400";
   if (booking.status === "PENDING") return "bg-amber-50 border-dashed border-amber-300 hover:bg-amber-100/70";
   return "bg-emerald-50 border-emerald-200 hover:bg-emerald-100/70";
+}
+
+/** Конец рабочего дня по Москве: последний час из `hours` + 1. */
+function dayCloseAt(day: string, hours: string[]): Date {
+  const last = hours.length ? parseInt(hours[hours.length - 1].split(":")[0], 10) + 1 : 24;
+  if (last >= 24) return new Date(new Date(`${day}T00:00:00+03:00`).getTime() + 24 * 3_600_000);
+  return new Date(`${day}T${String(last).padStart(2, "0")}:00:00+03:00`);
+}
+
+/** Легенда недельного вида (#1091): показываем, только если у модуля есть уборка. */
+function WeekLegend() {
+  return (
+    <div data-testid="week-legend" className="flex items-center gap-4 mb-2 text-xs text-zinc-500">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-block w-4 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Бронь
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className="inline-block w-4 h-3 rounded-sm bg-zinc-100 border border-dashed border-zinc-300"
+          style={CLEANING_HATCH_STYLE}
+        />{" "}
+        Уборка
+      </span>
+    </div>
+  );
 }
 
 export function WeekScheduleGrid({
@@ -111,6 +142,21 @@ export function WeekScheduleGrid({
     }
     return map;
   }, [data]);
+
+  // Блоки «Уборка» (#1091): та же derive-логика, что в дневном виде (#1085),
+  // считается по каждой ячейке «ресурс × день» и обрезается закрытием дня.
+  const cleaning = useMemo(() => {
+    const map = new Map<string, CleaningBlock[]>();
+    const buffer = data?.cleaningBufferMinutes ?? 0;
+    if (!data || buffer <= 0) return map;
+    for (const [key, list] of cells) {
+      const day = key.split("|")[1];
+      const blocks = deriveCleaningBlocks(list, buffer, dayCloseAt(day, data.hours));
+      if (blocks.length) map.set(key, blocks);
+    }
+    return map;
+  }, [cells, data]);
+  const showCleaning = (data?.cleaningBufferMinutes ?? 0) > 0;
 
   // «Итого/день»: занятые часы / (ресурсы × длина рабочего дня) — из уже
   // полученных данных, отдельного API нет (ADR §3).
@@ -184,6 +230,8 @@ export function WeekScheduleGrid({
         </div>
       </div>
 
+      {showCleaning && <WeekLegend />}
+
       <div className="rounded-xl border border-zinc-200 overflow-x-auto">
         <table className="w-full min-w-[980px] border-collapse text-xs">
           <thead>
@@ -230,10 +278,13 @@ export function WeekScheduleGrid({
                         {list.map((booking) => {
                           const meta = booking.metadata as Record<string, unknown> | null;
                           const count = meta?.[countMetaKey];
+                          const clean = cleaning
+                            .get(`${resource.id}|${day}`)
+                            ?.find((c) => c.bookingId === booking.id);
                           return (
+                            <Fragment key={booking.id}>
                             <button
                               type="button"
-                              key={booking.id}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onBookingClick(booking, resource);
@@ -259,6 +310,26 @@ export function WeekScheduleGrid({
                                 </span>
                               )}
                             </button>
+                            {clean && (
+                              <button
+                                type="button"
+                                data-testid={`week-cleaning-${booking.id}`}
+                                aria-label="Уборка после брони, открыть бронь"
+                                title={`Резерв на уборку после брони #${booking.id.slice(-6)}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onBookingClick(booking, resource);
+                                }}
+                                className="w-full text-left rounded-md border border-dashed border-zinc-300 bg-zinc-100 px-1.5 py-0.5 leading-tight text-zinc-500"
+                                style={CLEANING_HATCH_STYLE}
+                              >
+                                <span aria-hidden="true">🧹 </span>
+                                <span className="font-medium whitespace-nowrap">
+                                  Уборка · {formatCleaningDuration(clean.minutes)}
+                                </span>
+                              </button>
+                            )}
+                            </Fragment>
                           );
                         })}
                         {list.length === 0 && (
