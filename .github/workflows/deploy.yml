@@ -741,6 +741,13 @@ jobs:
               || { echo "::error::crontab read failed, process-recurring cron NOT updated (#1074)"; exit 1; }
             echo "✅ process-recurring cron upserted (daily 00:05 UTC)"
 
+            # Inventory: expired batches + low-stock Telegram alerts to staff (Redis dedup).
+            # Decision: issue #1108, see docs/runbooks/cron-schedule.md
+            upsert_cron '/api/cron/inventory' \
+              "7,22,37,52 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/inventory > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, inventory cron NOT updated (#1108)"; exit 1; }
+            echo "✅ inventory cron upserted (every 15 minutes, :07/:22/:37/:52)"
+
       - name: Ensure daily DB backup cron is registered
         continue-on-error: true
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
