@@ -23,7 +23,7 @@ jobs:
       # синоним). Falls back to GITHUB_TOKEN if the secret isn't set yet — the
       # release PR will still be created but CI must be kicked manually
       # (close/reopen the PR or push an empty commit to its branch).
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           release-type: node
           token: ${{ secrets.AUTOMATION_TOKEN || secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}

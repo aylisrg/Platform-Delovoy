@@ -26,14 +26,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
 
       - name: Validate pipeline.sh syntax
         run: bash -n scripts/pipeline.sh && bash -n scripts/parallel-pipeline.sh
 
       - name: Validate shell scripts with shellcheck
-        uses: ludeeus/action-shellcheck@master
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
         continue-on-error: true
         with:
           scandir: "./scripts"

@@ -262,7 +262,7 @@ jobs:
       - name: Count recent client-beacon events (SSH → psql)
         id: count
         continue-on-error: true
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -312,13 +312,13 @@ jobs:
       || needs.probe.outputs.mode == 'force-remediate'
     steps:
       - name: Checkout (remediation script)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: scripts/watchdog-remediate.sh
           sparse-checkout-cone-mode: false
 
       - name: Copy remediation script to VPS
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -329,7 +329,7 @@ jobs:
 
       - name: Run remediation on VPS
         id: fix
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         continue-on-error: true
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -343,7 +343,7 @@ jobs:
 
       - name: Fetch remediation report
         id: report
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         continue-on-error: true
         with:
           host: ${{ secrets.VPS_HOST }}

@@ -143,7 +143,7 @@ jobs:
     environment: production
     steps:
       - name: SSH-диагностика с прод-сервера
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_OWNER_CHAT_ID || '694696' }}

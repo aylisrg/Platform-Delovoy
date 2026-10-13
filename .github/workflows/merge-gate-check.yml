@@ -70,7 +70,7 @@ jobs:
     timeout-minutes: 5
     steps:
       # ref: main — не мержить/чекаутить код самого PR. См. коммент выше.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
       - uses: ./.github/actions/setup-node

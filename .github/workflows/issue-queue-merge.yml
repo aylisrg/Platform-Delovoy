@@ -62,7 +62,7 @@ jobs:
     env:
       HAS_PAT: ${{ (secrets.AUTOMATION_TOKEN != '' || secrets.QUEUE_MERGE_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
 
       # PAT предпочтительнее GITHUB_TOKEN: push, сделанный GITHUB_TOKEN, по
