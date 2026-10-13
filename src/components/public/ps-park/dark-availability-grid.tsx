@@ -8,6 +8,7 @@ import { AuthModal } from "@/components/ui/auth-modal";
 import { DarkDateNavigator } from "@/components/public/ps-park/dark-date-navigator";
 import type { DayAvailability } from "@/modules/ps-park/types";
 import { pickRandom, TOAST_PS_BOOKING_SUCCESS } from "@/lib/easter-eggs";
+import { CleaningBufferHint } from "@/components/public/booking/cleaning-buffer-hint";
 
 type Props = {
   initialAvailability: DayAvailability[];
@@ -150,6 +151,8 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
         {error && (
           <p className="text-sm text-red-400">{error}</p>
         )}
+
+        <CleaningBufferHint className="text-zinc-500" />
 
         {availability.map((item) => {
           const isSelected = selectedResourceId === item.resource.id;
