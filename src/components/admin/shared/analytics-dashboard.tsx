@@ -28,9 +28,6 @@ export function AnalyticsDashboard({ moduleSlug, resourceLabel }: AnalyticsDashb
   const [period, setPeriod] = useState<"week" | "month" | "quarter">("month");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadAnalytics() {
     setLoading(true);
@@ -44,6 +41,10 @@ export function AnalyticsDashboard({ moduleSlug, resourceLabel }: AnalyticsDashb
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading && !data) {
     return <div className="py-8 text-center text-sm text-zinc-400 animate-pulse">Загрузка аналитики...</div>;

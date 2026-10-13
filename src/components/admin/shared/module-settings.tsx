@@ -24,9 +24,6 @@ export function ModuleSettings({ moduleSlug, fields }: ModuleSettingsProps) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadSettings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadSettings() {
     try {
@@ -39,6 +36,10 @@ export function ModuleSettings({ moduleSlug, fields }: ModuleSettingsProps) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadSettings();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSave() {
     setSaving(true);

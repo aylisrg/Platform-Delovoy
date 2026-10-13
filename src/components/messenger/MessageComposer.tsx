@@ -40,6 +40,13 @@ function generateClientId(): string {
   return `c-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function autosize(el: HTMLTextAreaElement): void {
+  el.style.height = "auto";
+  const maxHeight = LINE_HEIGHT_PX * MAX_ROWS + 16;
+  el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
 export function MessageComposer(props: Props): ReactNode {
   const { chatId, onMessageSent, disabled, editingMessage, onCancelEdit } = props;
   const [body, setBody] = useState<string>("");
@@ -58,13 +65,6 @@ export function MessageComposer(props: Props): ReactNode {
       });
     }
   }, [editingMessage]);
-
-  const autosize = (el: HTMLTextAreaElement): void => {
-    el.style.height = "auto";
-    const maxHeight = LINE_HEIGHT_PX * MAX_ROWS + 16;
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
-  };
 
   const sendTyping = (): void => {
     const now = Date.now();
