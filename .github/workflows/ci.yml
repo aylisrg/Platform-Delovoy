@@ -84,6 +84,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
       - run: npm test
+      - name: Cron upsert test (#1074)
+        run: bash scripts/__tests__/cron-upsert.test.sh
 
   typecheck:
     name: TypeScript Check
