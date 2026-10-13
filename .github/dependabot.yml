@@ -11,7 +11,10 @@ version: 2
 # деплоем, не занимая трафик-часы.
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # "/" покрывает .github/workflows; composite actions лежат отдельно.
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
       day: "monday"

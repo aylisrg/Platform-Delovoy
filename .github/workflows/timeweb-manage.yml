@@ -177,7 +177,7 @@ jobs:
 
       - name: Server Logs (via SSH)
         if: inputs.action == 'server-logs'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         continue-on-error: true
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -201,7 +201,7 @@ jobs:
 
       - name: Memory Relief (via SSH)
         if: inputs.action == 'ops-memory-relief'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -257,7 +257,7 @@ jobs:
 
       - name: Full Diagnose (via SSH)
         if: inputs.action == 'ops-diagnose'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -320,7 +320,7 @@ jobs:
       # сервера публичный URL не отвечает. Строго read-only.
       - name: Network Diagnose (via SSH)
         if: inputs.action == 'ops-net-diagnose'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -453,7 +453,7 @@ jobs:
 
       - name: Bind secondary IP (via SSH)
         if: inputs.action == 'ops-bind-secondary-ip' && steps.verify_ip.outputs.ip != ''
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           TARGET_IP: ${{ steps.verify_ip.outputs.ip }}
         with:
@@ -519,7 +519,7 @@ jobs:
       # разрыв SSH (setsid + nohup).
       - name: Persist secondary IP in netplan (via SSH)
         if: inputs.action == 'ops-persist-secondary-ip' && inputs.ip_address != ''
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           TARGET_IP: ${{ inputs.ip_address }}
         with:
@@ -606,7 +606,7 @@ jobs:
 
       - name: Disk Cleanup (via SSH)
         if: inputs.action == 'disk-cleanup'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -647,7 +647,7 @@ jobs:
 
       - name: DB Migrate (via SSH)
         if: inputs.action == 'db-migrate'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

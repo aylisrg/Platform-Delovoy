@@ -54,7 +54,7 @@ jobs:
   provision:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # === Step 1: Add SSH key to Timeweb (if provided) ===
       - name: Add SSH Key
@@ -244,7 +244,7 @@ jobs:
       # === Step 5: Setup Server (Docker, Nginx, SSL) ===
       - name: Setup Server via SSH
         if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
           username: root
@@ -359,7 +359,7 @@ jobs:
       - name: Setup SSL
         if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
         continue-on-error: true  # DNS may not have propagated yet
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
           username: root
@@ -372,7 +372,7 @@ jobs:
       # === Step 7: Copy production files ===
       - name: Deploy production config
         if: inputs.action == 'setup-server' || inputs.action == 'full-provision'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ steps.create_server.outputs.server_ip || secrets.VPS_HOST }}
           username: root

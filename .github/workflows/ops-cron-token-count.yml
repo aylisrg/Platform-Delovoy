@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Счётчики token= / api/cron/ по источникам
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

@@ -84,7 +84,7 @@ jobs:
 
       - name: Применение на VPS
         if: steps.prep.outputs.proceed == 'true'
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           ENV_KEY: ${{ steps.prep.outputs.key }}
           ENV_VALUE: ${{ inputs.value }}

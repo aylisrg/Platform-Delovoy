@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Забрать живые конфиги и сравнить
         run: |
@@ -105,10 +105,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Доставить конфиги и скрипт на VPS
-        uses: appleboy/scp-action@v1.0.0
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -128,7 +128,7 @@ jobs:
       #      того же бэкапа, что сделал apply-nginx-vhost.sh, ЗДЕСЬ, а не
       #      полагаемся на внешнюю проверку ниже (та уже не автооткатывает).
       - name: Применить (host-nginx → loopback, затем edge → публичный :443)
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -229,7 +229,7 @@ jobs:
       # иначе восстановленный host-nginx не сможет забиндиться обратно на
       # :443 (EADDRINUSE) и сайт останется без TLS вообще ни с одной стороны.
       - name: Остановить edge (освободить :443) и восстановить host-nginx
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
