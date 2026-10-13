@@ -133,6 +133,23 @@ describe("POST /api/telephony/webhook (Novofon 2.0)", () => {
     expect(db.callLog.create).not.toHaveBeenCalled();
   });
 
+  it("without X-Real-IP rejects spoofed allowlisted first XFF hop with 403", async () => {
+    process.env.NOVOFON_WEBHOOK_IPS = "192.0.2.10";
+    const r = req(V2_INCOMING, { token: SECRET });
+    r.headers.set("x-forwarded-for", "192.0.2.10, 203.0.113.9");
+    const res = await POST(r);
+    expect(res.status).toBe(403);
+    expect(db.callLog.create).not.toHaveBeenCalled();
+  });
+
+  it("without X-Real-IP accepts allowlisted last XFF hop", async () => {
+    process.env.NOVOFON_WEBHOOK_IPS = "192.0.2.10";
+    const r = req(V2_INCOMING, { token: SECRET });
+    r.headers.set("x-forwarded-for", "203.0.113.9, 192.0.2.10");
+    const res = await POST(r);
+    expect(res.status).toBe(200);
+  });
+
   it("returns 400 for unknown payload", async () => {
     const res = await POST(req({ foo: 1 }, { token: SECRET }));
     expect(res.status).toBe(400);
