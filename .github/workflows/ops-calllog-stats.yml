@@ -1,0 +1,77 @@
+# Read-only: агрегаты по "CallLog" для Novofon (Refs #1066).
+# Печатает ТОЛЬКО числа. Никогда не выбирает clientPhone, managerPhone,
+# recordingUrl, metadata, externalCallId и любые построчные данные.
+# Транзакция READ ONLY, ничего не меняет.
+# Часы: createdAt хранится в UTC (timestamp без tz), группировка по Europe/Moscow (TZ проекта, src/lib/format.ts).
+name: Ops CallLog Stats
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-calllog-stats
+  cancel-in-progress: false
+
+jobs:
+  stats:
+    name: CallLog агрегаты (read-only)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Только main
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::run from main only" >&2
+            exit 1
+          fi
+      - name: Агрегаты CallLog
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
+            if [ -n "$SUDO" ]; then sudo -n true 2>/dev/null || { echo "::error::sudo -n unavailable" >&2; exit 1; }; fi
+            $SUDO docker exec -i delovoy-postgres psql -U delovoy -d delovoy_park \
+              -X -q -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
+            BEGIN READ ONLY;
+            SET LOCAL statement_timeout = '60s';
+            \echo === all time ===
+            SELECT count(*) AS total_rows_ever,
+                   min("createdAt") AS min_created_utc,
+                   max("createdAt") AS max_created_utc
+              FROM "CallLog";
+            \echo === totals by window ===
+            SELECT w.days AS window_days, count(c.*) AS total,
+                   count(c."bookingId") AS with_booking
+              FROM (VALUES (30), (90)) AS w(days)
+              LEFT JOIN "CallLog" c ON c."createdAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => w.days)
+             GROUP BY w.days ORDER BY w.days;
+            \echo === by direction ===
+            SELECT w.days AS window_days, c."direction"::text AS direction, count(*) AS n
+              FROM (VALUES (30), (90)) AS w(days)
+              JOIN "CallLog" c ON c."createdAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => w.days)
+             GROUP BY 1, 2 ORDER BY 1, 2;
+            \echo === by status ===
+            SELECT w.days AS window_days, c."status"::text AS status, count(*) AS n
+              FROM (VALUES (30), (90)) AS w(days)
+              JOIN "CallLog" c ON c."createdAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => w.days)
+             GROUP BY 1, 2 ORDER BY 1, 2;
+            \echo === by hour (Europe/Moscow) ===
+            SELECT w.days AS window_days,
+                   extract(hour FROM (c."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow')::int AS hour_msk,
+                   count(*) AS n
+              FROM (VALUES (30), (90)) AS w(days)
+              JOIN "CallLog" c ON c."createdAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => w.days)
+             GROUP BY 1, 2 ORDER BY 1, 2;
+            ROLLBACK;
+            SQL
+            echo "=== конец ==="
