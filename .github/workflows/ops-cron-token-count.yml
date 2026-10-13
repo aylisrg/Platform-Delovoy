@@ -1,0 +1,70 @@
+# Read-only счётчик cron-записей для #1074 (снятие ?token= в cron-роутах).
+# Печатает ТОЛЬКО числа и имена роутов api/cron/*, никогда строки crontab
+# целиком и никакие значения (в строках лежит CRON_SECRET из .env сервера,
+# Actions его не маскирует). Ничего не меняет на сервере.
+name: Ops Cron Token Count
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-cron-token-count
+  cancel-in-progress: false
+
+jobs:
+  count:
+    name: Счётчики crontab (read-only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Счётчики token= / api/cron/ по источникам
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 3m
+          script: |
+            set -u
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
+            ALL_ROUTES=$(mktemp)
+            trap 'rm -f "$ALL_ROUTES"' EXIT
+
+            # Печатает только числа и имена роутов. Содержимое — только через pipe в grep -c / grep -o.
+            report() {
+              label="$1"; content="$2"
+              t=$(printf '%s\n' "$content" | grep -c 'token=' || true)
+              a=$(printf '%s\n' "$content" | grep -c 'api/cron/' || true)
+              echo "=== $label ==="
+              echo "lines_with_token=: ${t:-0}"
+              echo "lines_with_api/cron/: ${a:-0}"
+              printf '%s\n' "$content" | grep -o 'api/cron/[a-z-]*' | tee -a "$ALL_ROUTES" | sort | uniq -c || true
+            }
+
+            # 1. crontab пользователя, от которого ставит cron deploy.yml
+            if CT=$(crontab -l 2>/dev/null); then
+              report "crontab -l ($(whoami))" "$CT"
+            elif crontab -l 2>&1 | grep -qi 'no crontab'; then
+              report "crontab -l ($(whoami)) [нет crontab]" ""
+            else
+              echo "::error::crontab -l ($(whoami)): ошибка чтения"
+            fi
+
+            # 2. /etc/crontab и /etc/cron.d/*
+            for F in /etc/crontab /etc/cron.d/*; do
+              [ -e "$F" ] || continue
+              if C=$($SUDO cat "$F" 2>/dev/null); then
+                report "$F" "$C"
+              else
+                echo "::error::$F: ошибка чтения"
+              fi
+            done
+
+            echo "=== итого ==="
+            echo "routes_total_occurrences: $(wc -l < "$ALL_ROUTES")"
+            echo "duplicate_route_names (встречаются >1 раза): $(sort "$ALL_ROUTES" | uniq -d | wc -l)"
