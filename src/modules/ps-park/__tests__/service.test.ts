@@ -2395,3 +2395,45 @@ describe("CHECKED_IN занимает слот (#424)", () => {
     );
   });
 });
+
+// ===== Буфер на уборку (#1067) =====
+
+describe("cleaning buffer (#1067)", () => {
+  const conflictWhere = () =>
+    vi.mocked(prisma.booking.findFirst).mock.calls.at(-1)![0]!.where as {
+      OR: { startTime: { lt: Date }; endTime: { gt: Date } }[];
+    };
+
+  it("клиентская бронь проверяет пересечение с запасом 60 минут", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+    vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
+
+    await createBooking("user-1", validBookingInput);
+
+    const [w] = conflictWhere().OR;
+    const span = w.startTime.lt.getTime() - w.endTime.gt.getTime();
+    const { startTime, endTime } = validBookingInput;
+    const toMin = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
+    expect(span).toBe((toMin(endTime) - toMin(startTime) + 120) * 60_000);
+  });
+
+  it("админ может поставить бронь в буфер: проверка строгая", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockTable() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createAdminBooking("admin-1", {
+      resourceId: "table-1",
+      date: FUTURE_DATE,
+      startTime: "12:00",
+      endTime: "13:00",
+      clientName: "Иван Петров",
+      clientPhone: "+79991234567",
+    });
+
+    const [w] = conflictWhere().OR;
+    expect(w.startTime.lt.getTime() - w.endTime.gt.getTime()).toBe(60 * 60_000);
+  });
+});

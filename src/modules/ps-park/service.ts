@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { bufferedOverlapWhere, getCleaningBufferMinutes, isSlotBlocked } from "@/modules/booking/cleaning-buffer";
 import type { BookingStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
@@ -273,6 +274,7 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
 
   // Конфликт-чек и запись — в одной транзакции под блокировкой слота, иначе два
   // одновременных запроса на популярный стол оба видят «свободно» (#429).
+  const bufferMinutes = await getCleaningBufferMinutes(MODULE_SLUG);
   const booking = await prisma.$transaction(async (tx) => {
     await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
 
@@ -283,7 +285,8 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
         resourceId,
         status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
-        OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+        // Клиентская бронь: учитываем буфер на уборку (#1067).
+        OR: [bufferedOverlapWhere(start, end, bufferMinutes)],
       },
     });
 
@@ -1421,8 +1424,9 @@ export async function addItemsToBooking(
 // === AVAILABILITY ===
 
 export async function getAvailability(date: string, resourceId?: string): Promise<DayAvailability[]> {
-  const [{ openHour, closeHour }, resources] = await Promise.all([
+  const [{ openHour, closeHour }, bufferMinutes, resources] = await Promise.all([
     getOpenCloseHours(),
+    getCleaningBufferMinutes(MODULE_SLUG),
     resourceId
       ? prisma.resource.findMany({ where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true } })
       : prisma.resource.findMany({ where: { moduleSlug: MODULE_SLUG, isActive: true }, orderBy: { name: "asc" } }),
@@ -1450,8 +1454,9 @@ export async function getAvailability(date: string, resourceId?: string): Promis
       const slotStartDt = parseDatetime(date, slotStart);
       const slotEndDt = parseDatetime(date, slotEnd);
 
-      const isBooked = resourceBookings.some(
-        (b) => b.startTime < slotEndDt && b.endTime > slotStartDt
+      // Буфер на уборку не показываем отдельно, слот просто недоступен (#1067).
+      const isBooked = resourceBookings.some((b) =>
+        isSlotBlocked(b, slotStartDt, slotEndDt, bufferMinutes)
       );
 
       slots.push({ startTime: slotStart, endTime: slotEnd, isAvailable: !isBooked });
