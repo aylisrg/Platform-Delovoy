@@ -34,12 +34,14 @@ jobs:
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
             ROUTES="avito-account-sync avito-messenger-poll avito-reviews-sync avito-stats-sync inventory no-show ps-park/auto-complete process-outgoing payments-reconcile notifications rental-payment-reminders overdue-session-reminders process-recurring"
             TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-            die() { echo "::error::$1"; exit 1; }
+            die() { echo "::error::$1" >&2; exit 1; }
+            if [ -n "$SUDO" ]; then sudo -n true 2>/dev/null || die "sudo -n unavailable"; fi
+            # Проверка существования от root (sudo уже проверен): 0 = есть, иначе отсутствует.
+            ex() { $SUDO test "$@" 2>/dev/null; }
 
             # Читает файл в буфер источника. Отсутствие файла не ошибка, ошибка чтения = exit 1.
             add_file() { # $1 буфер, $2 файл
-              [ -e "$2" ] || return 0
-              [ -f "$2" ] || return 0
+              ex -f "$2" || return 0
               $SUDO cat -- "$2" >> "$TMP/$1" 2>/dev/null || die "read failed: $2"
               printf '\n' >> "$TMP/$1"
             }
@@ -58,7 +60,7 @@ jobs:
               grep -qi 'no crontab' "$TMP/err" && { : > "$TMP/root_ct"; echo "note: root crontab absent"; } || die "read failed: crontab -l -u root"
             fi
             # 2. /var/spool/cron/crontabs/* (все пользователи)
-            if $SUDO test -d /var/spool/cron/crontabs; then
+            if ex -d /var/spool/cron/crontabs; then
               LIST=$($SUDO find /var/spool/cron/crontabs -maxdepth 1 -type f 2>/dev/null) || die "read failed: list /var/spool/cron/crontabs"
               for F in $LIST; do add_file spool "$F"; done
               echo "spool_crontab_files: $(printf '%s' "$LIST" | grep -c . || true)"
@@ -66,14 +68,19 @@ jobs:
             # 3. /etc/crontab, /etc/cron.d, /etc/cron.{hourly,daily,weekly,monthly}
             add_file etc_cron /etc/crontab
             for D in /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly; do
-              if [ -d "$D" ]; then
+              if ex -d "$D"; then
                 LIST=$($SUDO find "$D" -maxdepth 1 -type f 2>/dev/null) || die "read failed: list $D"
                 for F in $LIST; do add_file etc_cron "$F"; done
               else echo "note: $D absent"; fi
             done
             # 4. systemd unit files
-            for D in /etc/systemd /lib/systemd /usr/lib/systemd; do
-              if [ -d "$D" ]; then
+            SYSD_DIRS="/etc/systemd /usr/lib/systemd"
+            # usrmerge: /lib/systemd часто тот же каталог, что /usr/lib/systemd.
+            if ex -d /lib/systemd; then
+              if [ "$(readlink -f /lib/systemd)" = "$(readlink -f /usr/lib/systemd)" ]; then echo "note: /lib/systemd = /usr/lib/systemd (usrmerge), skipped"; else SYSD_DIRS="$SYSD_DIRS /lib/systemd"; fi
+            fi
+            for D in $SYSD_DIRS; do
+              if ex -d "$D"; then
                 LIST=$($SUDO find "$D" -type f \( -name '*.service' -o -name '*.timer' \) 2>/dev/null) || die "read failed: list $D"
                 for F in $LIST; do add_file systemd_units "$F"; done
               else echo "note: $D absent"; fi
@@ -94,7 +101,7 @@ jobs:
             echo "=== (b) nginx access log, 7 дней ==="
             : > "$TMP/log"
             FILES=""
-            if [ -d /var/log/nginx ]; then
+            if ex -d /var/log/nginx; then
               FILES=$($SUDO find /var/log/nginx -maxdepth 2 -type f -name '*access*' -mtime -7 2>/dev/null | sort) || die "read failed: list /var/log/nginx"
             fi
             if [ -n "$FILES" ]; then
@@ -116,6 +123,7 @@ jobs:
                 $SUDO docker logs --since 168h "$C" >> "$TMP/log" 2>/dev/null || die "read failed: docker logs (container $C)"
               done
             fi
+            [ -s "$TMP/log" ] || die "no access log lines"
             echo "log_lines_total: $(wc -l < "$TMP/log")"
             # Печатаем только route, статус, первый токен UA.
             awk -F'"' -v routes="$ROUTES" '
