@@ -76,17 +76,29 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
 }
 
 /**
+ * Max age of a queued notification. Anything whose scheduledFor is older
+ * than this is marked SKIPPED instead of being sent: after a cron outage the
+ * queue may contain confirmations/reminders for bookings that already passed
+ * (#917). scheduledFor is used (not createdAt) because DEFERRED items are
+ * legitimately created earlier and due at the end of quiet hours.
+ */
+export const OUTGOING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const STALE_SKIP_REASON = "stale: older than 24h, not sent";
+
+/**
  * Process a batch of due notifications. Called by cron.
  * Returns counts of sent/failed for monitoring.
  */
 export async function processOutgoing(
   batchSize = 100
-): Promise<{ sent: number; failed: number; processed: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; processed: number }> {
   bootstrapChannels();
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - OUTGOING_MAX_AGE_MS);
   const due = await prisma.outgoingNotification.findMany({
     where: {
       status: { in: ["PENDING", "DEFERRED"] },
-      scheduledFor: { lte: new Date() },
+      scheduledFor: { lte: now },
     },
     orderBy: { scheduledFor: "asc" },
     take: batchSize,
@@ -95,14 +107,31 @@ export async function processOutgoing(
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const item of due) {
+    // Boundary: exactly OUTGOING_MAX_AGE_MS old is still sent; strictly older is skipped.
+    if (item.scheduledFor.getTime() < cutoff.getTime()) {
+      await prisma.outgoingNotification.update({
+        where: { id: item.id },
+        data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON },
+      });
+      skipped++;
+      continue;
+    }
     const result = await deliverOne(item);
     if (result === "sent") sent++;
     else if (result === "failed") failed++;
   }
 
-  return { sent, failed, processed: due.length };
+  if (skipped > 0) {
+    await log.warn(
+      EVENT_SOURCES.NOTIFICATIONS,
+      `processOutgoing: skipped ${skipped} stale notification(s) older than 24h`
+    );
+  }
+
+  return { sent, failed, skipped, processed: due.length };
 }
 
 type ItemWithChannel = OutgoingNotification & {
