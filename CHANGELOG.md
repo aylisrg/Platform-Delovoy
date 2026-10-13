@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.23.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.3...v2.23.0) (2026-10-13)
+
+
+### Features
+
+* **booking:** буфер на уборку после брони ([#1067](https://github.com/aylisrg/Platform-Delovoy/issues/1067)) ([#1068](https://github.com/aylisrg/Platform-Delovoy/issues/1068)) ([672085d](https://github.com/aylisrg/Platform-Delovoy/commit/672085d0056ed27ed89db8abf689f31b380eebff))
+* **ux:** show FOR TEAM link to staff only ([#1090](https://github.com/aylisrg/Platform-Delovoy/issues/1090)) ([#1102](https://github.com/aylisrg/Platform-Delovoy/issues/1102)) ([aef28c5](https://github.com/aylisrg/Platform-Delovoy/commit/aef28c5b753b3150ba00760b1fa3d7ee25a35f2b))
+
+
+### Bug Fixes
+
+* **db:** миграции совпадают со schema.prisma + CI-проверка дрейфа + рабочий restore (Refs [#590](https://github.com/aylisrg/Platform-Delovoy/issues/590)) ([#1072](https://github.com/aylisrg/Platform-Delovoy/issues/1072)) ([8440ad7](https://github.com/aylisrg/Platform-Delovoy/commit/8440ad7b42f805ecf662fbe5234a8a91d18f0502))
+
 ## [2.22.3](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.2...v2.22.3) (2026-10-13)
 
 
