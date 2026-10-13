@@ -3,7 +3,7 @@
 # Запуск: bash scripts/__tests__/cron-upsert.test.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FAKE="$(mktemp)"; trap 'rm -f "$FAKE" "$FAKE.new"' EXIT
+FAKE="$(mktemp)"; trap 'rm -f "$FAKE" "$FAKE.new" "$FAKE.writes"' EXIT
 MODE=ok   # ok | none | error
 # Как настоящий crontab: stdin читается целиком, потом файл заменяется.
 crontab() {
@@ -13,7 +13,7 @@ crontab() {
       error) echo "crontab: cannot open spool: Permission denied" >&2; return 1 ;;
       *)     cat "$FAKE" ;;
     esac
-  else cat > "$FAKE.new"; mv "$FAKE.new" "$FAKE"; fi
+  else echo w >> "$FAKE.writes"; cat > "$FAKE.new"; mv "$FAKE.new" "$FAKE"; fi
 }
 eval "$(sed -n '/# cron-upsert-begin/,/# cron-upsert-end/p' "$ROOT/.github/workflows/deploy.yml")"
 fail() { echo "FAIL: $1"; exit 1; }
@@ -71,4 +71,14 @@ MODE=ok
 [ "$(cat "$FAKE")" = "* * * * * new" ] || fail "no-crontab case"
 # 5. Пустой файл
 : > "$FAKE"; run; [ "$(wc -l < "$FAKE")" -eq 3 ] || fail "empty crontab case"
+# 6. Две одинаковые правильные строки -> ровно одна
+E="*/5 * * * * curl -H 'Authorization: Bearer $S' https://delovoy-park.ru/api/cron/overdue-session-reminders > /dev/null 2>&1"
+printf '%s\n%s\n%s\n' "30 1 * * * other" "$E" "$E" > "$FAKE"
+upsert_cron '/api/cron/overdue-session-reminders' "$E"
+[ "$(grep -c 'overdue-session-reminders' "$FAKE")" -eq 1 ] || fail "duplicate correct lines not collapsed"
+grep -q '^30 1 \* \* \* other$' "$FAKE" || fail "unrelated line lost on dedup"
+# 7. Ровно одна правильная строка -> crontab - (запись) не вызывается
+rm -f "$FAKE.writes"
+upsert_cron '/api/cron/overdue-session-reminders' "$E"
+[ ! -e "$FAKE.writes" ] || fail "crontab write invoked when line already correct"
 echo "PASS cron-upsert"
