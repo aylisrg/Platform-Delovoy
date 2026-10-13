@@ -59,7 +59,12 @@ concurrency:
   # workflow_dispatch с ЯВНЫМ sha (hotfix, авто-откат error-budget) — отдельная
   # группа: он не должен стоять в очереди за трейном; dispatch без sha деплоит
   # HEAD и едет общим трейном.
-  group: deploy-production-${{ (github.event_name == 'workflow_dispatch' && inputs.sha != '') && format('manual-{0}', github.run_id) || 'train' }}
+  # workflow_run от НЕуспешного CI (cancelled/failure: ci.yml отменяет старый
+  # main-CI при новом пуше) ничего не деплоит (гейт build-and-push), но раньше
+  # входил в трейн и вытеснял настоящий pending-ран (push-фолбэк) — так мерж
+  # 9072f51 не доехал до прода. Такие раны уходят в одноразовую группу
+  # noop-<run_id> и трейн не трогают.
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') && format('deploy-noop-{0}', github.run_id) || format('deploy-production-{0}', (github.event_name == 'workflow_dispatch' && inputs.sha != '') && format('manual-{0}', github.run_id) || 'train') }}
   cancel-in-progress: false  # Never cancel a deploy in progress
 
 env:
