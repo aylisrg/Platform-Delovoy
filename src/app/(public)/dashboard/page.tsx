@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NotificationSettings } from "@/components/public/notifications/notification-settings";
 import { ContactsCard } from "@/components/public/profile/contacts-card";
+import { TeamLink } from "@/components/public/team/team-link";
 import { VkCommunityBanner } from "@/components/auth/vk-community-banner";
 import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 import { formatDate, formatTime } from "@/lib/format";
@@ -384,12 +385,10 @@ export default async function DashboardPage() {
       <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-6">
         <div className="mx-auto flex max-w-[1200px] flex-col gap-3 text-center md:flex-row md:items-center md:justify-between md:text-left">
           <LegalFooterLinks />
-          <Link
-            href="/for-team"
+          <TeamLink
+            role={session.user.role}
             className="shrink-0 text-xs uppercase tracking-[0.12em] font-semibold text-[#86868b] transition-colors hover:text-[#1d1d1f]"
-          >
-            For team
-          </Link>
+          />
         </div>
       </footer>
     </div>
