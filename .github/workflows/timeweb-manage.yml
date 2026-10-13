@@ -89,6 +89,15 @@ on:
 env:
   TIMEWEB_API: "https://api.timeweb.cloud"
 
+permissions:
+  contents: read
+
+# Общая группа с apply-*, run-seed и job deploy в deploy.yml: операции,
+# меняющие прод/БД, никогда не идут параллельно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   manage:
     runs-on: ubuntu-latest

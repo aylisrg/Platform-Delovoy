@@ -12,6 +12,7 @@ import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.519479,
-        longitude: 36.978566,
+        latitude: PARK_LOCATION.lat,
+        longitude: PARK_LOCATION.lon,
       },
       openingHoursSpecification: [
         {

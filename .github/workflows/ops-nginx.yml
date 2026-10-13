@@ -40,6 +40,9 @@ concurrency:
 env:
   ACTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) || 'diff' }}
 
+permissions:
+  contents: read
+
 jobs:
   diff:
     name: "Diff: живой конфиг vs репозиторий"

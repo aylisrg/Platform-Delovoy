@@ -19,6 +19,15 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
+# Общая группа с apply-*, run-seed и job deploy в deploy.yml: операции,
+# меняющие прод/БД, никогда не идут параллельно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   backup:
     name: Pre-migration backup (REQUIRED)

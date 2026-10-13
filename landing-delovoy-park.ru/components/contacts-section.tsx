@@ -1,5 +1,6 @@
 import React from "react";
 import { YandexMap } from "@/components/ui/yandex-map";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 const PHONE = "+74996774888";
 const PHONE_DISPLAY = "+7 (499) 677-48-88";
@@ -8,9 +9,9 @@ const WHATSAPP_NUMBER = "74996774888";
 // Бизнес-парк "Деловой" — Промышленная ул., 1, пгт Селятино, 143345
 // Используем organization ID, не shortlink (последний экспирится).
 // Источник: https://yandex.ru/maps/org/delovoy/165904522406/
-const PARK_OID = "165904522406";
-const PARK_LAT = 55.516945;
-const PARK_LON = 36.978520;
+const PARK_OID = PARK_LOCATION.orgId;
+const PARK_LAT = PARK_LOCATION.lat;
+const PARK_LON = PARK_LOCATION.lon;
 
 const contacts = [
   {

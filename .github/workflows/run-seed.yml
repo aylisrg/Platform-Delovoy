@@ -11,6 +11,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   seed:
     name: Run unified seed pipeline
