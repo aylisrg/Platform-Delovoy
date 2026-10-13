@@ -447,12 +447,6 @@ export default async function PSParkPage() {
                 Плей Парк · Бизнес-парк Деловой, Селятино
               </p>
               <div className="flex items-center gap-5">
-                <Link
-                  href="/for-team"
-                  className="text-zinc-600 hover:text-zinc-300 text-xs tracking-[0.12em] uppercase font-semibold transition-colors"
-                >
-                  For team
-                </Link>
                 <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
                   ← На главную
                 </Link>
