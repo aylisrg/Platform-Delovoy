@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     if (allow.length > 0) {
       const ip =
         request.headers.get("x-real-ip") ??
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ??
         "";
       if (!allow.includes(ip)) {
         return apiError("FORBIDDEN_IP", "IP не в списке разрешённых", 403);

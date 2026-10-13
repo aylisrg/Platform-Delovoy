@@ -1,3 +1,4 @@
+import { safeCompare } from "@/lib/cron-auth";
 /**
  * Novofon API HTTP client.
  * Knows only about HTTP protocol — no business logic, no DB.
@@ -139,12 +140,10 @@ export function getNovofonCallApiToken(env: NodeJS.ProcessEnv = process.env): st
   return env.NOVOFON_CALL_API_TOKEN || env.NOVOFON_API_TOKEN || env.NOVOFON_API_KEY || "";
 }
 
-/** Constant-time string comparison. */
+/** Constant-time string comparison (crypto.timingSafeEqual via safeCompare). */
 export function safeEqual(a: string, b: string): boolean {
-  if (!a || !b || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  if (!a || !b) return false;
+  return safeCompare(a, b);
 }
 
 /**
