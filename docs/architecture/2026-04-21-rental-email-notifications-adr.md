@@ -12,7 +12,7 @@
 Существующая инфраструктура, на которую опираемся (НЕ переписываем):
 - `sendTransactionalEmail({ to, subject, html, text })` — готовый SMTP-транспорт через Yandex (`src/modules/notifications/channels/email.ts`).
 - `NotificationLog` — общий лог уведомлений (используется для booking/order, не подходит по схеме для rental-журнала писем).
-- `processScheduledNotifications()` — текущий scheduler (`src/modules/notifications/scheduler.ts`), вызывается из `GET /api/cron/notifications?token=<CRON_SECRET>`. Уже содержит `processContractExpiryAlerts()`.
+- `processScheduledNotifications()` — текущий scheduler (`src/modules/notifications/scheduler.ts`), вызывается из `GET /api/cron/notifications` (Bearer `CRON_SECRET`). Уже содержит `processContractExpiryAlerts()`.
 - `CRON_SECRET` — стандарт проекта для cron-эндпоинтов (`/api/cron/process-recurring`, `/api/cron/notifications`).
 - `AuditLog`, `SystemEvent`, `RentalChangeLog` — готовые журналы.
 - `sendTelegramAlert` — реализован локально в `src/modules/inventory/alerts.ts`; нужен общий helper в `src/lib/telegram-alert.ts`.
@@ -518,7 +518,7 @@ regeneratePendingPayments(contract):
 ### Cron-endpoint (без user-сессии)
 
 #### `GET /api/cron/rental-payment-reminders`
-- **Auth**: `Authorization: Bearer ${CRON_SECRET}` или query `?token=$CRON_SECRET`.
+- **Auth**: только `Authorization: Bearer ${CRON_SECRET}` (query `?token=` снят в #1074).
 - **Частота**: раз в сутки (crontab VPS: `0 6 * * *` = 09:00 МСК).
 - **Логика**:
   ```

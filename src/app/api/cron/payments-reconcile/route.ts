@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { reconcilePayments } from "@/modules/payments/service";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 function safeCompare(a: string, b: string): boolean {
   const maxLen = Math.max(a.length, b.length, 32);
@@ -20,10 +21,7 @@ function safeCompare(a: string, b: string): boolean {
  */
 export async function GET(request: NextRequest) {
   try {
-    const token =
-      request.nextUrl.searchParams.get("token") ??
-      request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-      "";
+    const token = getCronBearerToken(request);
     const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
     if (!cronSecret || !safeCompare(token, cronSecret)) {
       return apiError("UNAUTHORIZED", "Invalid cron token", 401);

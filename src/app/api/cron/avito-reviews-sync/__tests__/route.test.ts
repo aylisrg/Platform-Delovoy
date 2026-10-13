@@ -17,10 +17,8 @@ beforeEach(() => {
 });
 
 function makeReq(token: string | null): NextRequest {
-  const url = token === null
-    ? "http://localhost/api/cron/avito-reviews-sync"
-    : `http://localhost/api/cron/avito-reviews-sync?token=${token}`;
-  return new NextRequest(url, { method: "GET" });
+  const headers: Record<string, string> = token === null ? {} : { authorization: `Bearer ${token}` };
+  return new NextRequest("http://localhost/api/cron/avito-reviews-sync", { method: "GET", headers });
 }
 
 describe("GET /api/cron/avito-reviews-sync", () => {
@@ -69,6 +67,15 @@ describe("GET /api/cron/avito-reviews-sync", () => {
 describe("POST /api/cron/avito-reviews-sync", () => {
   it("rejects invalid token with 401 (same as GET)", async () => {
     const res = await POST(makeReq("nope"));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("#1074: query ?token= is not accepted", () => {
+  it("returns 401 for a valid secret passed only as ?token=", async () => {
+    const secret = process.env.CRON_SECRET ?? "";
+    const req = new NextRequest(`http://localhost/api/cron/avito-reviews-sync?token=${encodeURIComponent(secret)}`, { method: "GET" });
+    const res = await GET(req);
     expect(res.status).toBe(401);
   });
 });

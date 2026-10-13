@@ -248,7 +248,7 @@ Backward compatibility: ничего не удаляется, только add. 
 
 ### `POST /api/cron/overdue-session-reminders`
 
-- **Auth:** `Authorization: Bearer ${CRON_SECRET}` или `?token=`. `safeCompare` через `timingSafeEqual` (как в `rental-payment-reminders/route.ts`).
+- **Auth:** `Authorization: Bearer ${CRON_SECRET}` (query `?token=` снят в #1074). `safeCompare` через `timingSafeEqual` (как в `rental-payment-reminders/route.ts`).
 - **Метод:** GET для консистентности с другими cron-ами проекта (`/api/cron/rental-payment-reminders` тоже GET); если хотим строгости — POST. Фиксируем: **GET**, чтобы не плодить несоответствий.
 - **Частота:** каждые 5 минут (crontab VPS: `*/5 * * * *`).
 - **Логика (см. ниже «Эскалация»).**

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { apiError, apiResponse, apiServerError } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { refreshItemSnapshot } from "@/lib/avito";
+import { getCronBearerToken } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
  * POST/GET /api/cron/avito-stats-sync — refresh AvitoItemStatsSnapshot for all
  * ACTIVE items, both 7d and 30d periods.
  * Schedule: every 15 minutes.
- * Auth: ?token=<CRON_SECRET> (matches existing /api/cron/inventory pattern).
+ * Auth: Authorization: Bearer <CRON_SECRET>.
  * Gated by AVITO_CRON_ENABLED=true.
  */
 export async function GET(request: NextRequest) {
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const token = request.nextUrl.searchParams.get("token");
+    const token = getCronBearerToken(request);
     const cronSecret = process.env.CRON_SECRET ?? process.env.NEXTAUTH_SECRET;
     if (!token || token !== cronSecret) return apiError("UNAUTHORIZED", "Invalid cron token", 401);
 
