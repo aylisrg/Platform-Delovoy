@@ -49,21 +49,33 @@ describe("GET /api/cron/inventory", () => {
     expect(mockedGetExpiring).not.toHaveBeenCalled();
   });
 
-  it("no NEXTAUTH_SECRET fallback: 503 when CRON_SECRET is not set", async () => {
+  it("transition #1084: accepts NEXTAUTH_SECRET even when CRON_SECRET is not set, warns without value", async () => {
     delete process.env.CRON_SECRET;
     process.env.NEXTAUTH_SECRET = "auth-secret";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(503);
-    expect(mockedGetExpiring).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).not.toContain("auth-secret");
+    warn.mockRestore();
     delete process.env.NEXTAUTH_SECRET;
   });
 
-  it("rejects NEXTAUTH_SECRET as bearer when CRON_SECRET is set (401)", async () => {
+  it("transition #1084: accepts NEXTAUTH_SECRET as bearer when CRON_SECRET is set", async () => {
     process.env.NEXTAUTH_SECRET = "auth-secret";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(401);
-    expect(mockedGetExpiring).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
     delete process.env.NEXTAUTH_SECRET;
+  });
+
+  it("503 when neither secret matches and CRON_SECRET is not set", async () => {
+    delete process.env.CRON_SECRET;
+    const res = await GET(makeReq("whatever"));
+    expect(res.status).toBe(503);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
   });
 
   it("happy path: no expired batches, no SystemEvent written", async () => {

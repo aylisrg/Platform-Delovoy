@@ -5,7 +5,7 @@ import { listChatsUnread, listMessages } from "@/lib/avito/messenger";
 import { routeInboundMessage } from "@/lib/avito/lead-routing";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
-import { verifyCronRequest } from "@/lib/cron-auth";
+import { verifyLegacyCronRequest } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const denied = verifyCronRequest(request);
+    const denied = verifyLegacyCronRequest(request, "avito-messenger-poll");
     if (denied) return denied;
 
     if (process.env.AVITO_CRON_ENABLED !== "true") {

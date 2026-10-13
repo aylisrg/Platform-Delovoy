@@ -27,21 +27,50 @@ export function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
+export interface VerifyCronOptions {
+  /**
+   * ПЕРЕХОДНЫЙ РЕЖИМ (#1084): дополнительно принимать NEXTAUTH_SECRET как Bearer.
+   * Только для avito-* и inventory. Удалить через неделю (см. issue в PR #1084).
+   */
+  allowLegacyNextAuthSecret?: boolean;
+  /** Имя маршрута для предупреждения в логе. */
+  route?: string;
+}
+
 /**
  * Единая проверка cron-запроса (#1074).
- * Принимается только `process.env.CRON_SECRET` (без фолбэка на NEXTAUTH_SECRET).
- * - CRON_SECRET не задан -> 503
- * - токен отсутствует или не совпадает -> 401
- * - иначе null (запрос авторизован)
+ * Основной секрет: `process.env.CRON_SECRET`.
+ * - токен совпал с CRON_SECRET -> null (ok)
+ * - allowLegacyNextAuthSecret и токен совпал с NEXTAUTH_SECRET -> null + warn (без значения)
+ * - CRON_SECRET не задан и легаси-путь не сработал -> 503
+ * - иначе 401
  */
-export function verifyCronRequest(request: NextRequest): NextResponse | null {
+export function verifyCronRequest(
+  request: NextRequest,
+  options: VerifyCronOptions = {}
+): NextResponse | null {
   const cronSecret = process.env.CRON_SECRET ?? "";
+  const token = getCronBearerToken(request);
+
+  if (cronSecret && token && safeCompare(token, cronSecret)) return null;
+
+  if (options.allowLegacyNextAuthSecret && token) {
+    const legacy = process.env.NEXTAUTH_SECRET ?? "";
+    if (legacy && safeCompare(token, legacy)) {
+      console.warn(
+        `[cron-auth] ${options.route ?? "cron"}: принят устаревший NEXTAUTH_SECRET, переведите вызов на CRON_SECRET (#1084)`
+      );
+      return null;
+    }
+  }
+
   if (!cronSecret) {
     return apiError("SERVICE_UNAVAILABLE", "CRON_SECRET is not configured", 503);
   }
-  const token = getCronBearerToken(request);
-  if (!token || !safeCompare(token, cronSecret)) {
-    return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-  }
-  return null;
+  return apiError("UNAUTHORIZED", "Invalid cron token", 401);
+}
+
+/** Переходный режим #1084: только для avito-* и inventory. */
+export function verifyLegacyCronRequest(request: NextRequest, route: string): NextResponse | null {
+  return verifyCronRequest(request, { allowLegacyNextAuthSecret: true, route });
 }
