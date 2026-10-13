@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.3](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.2...v2.22.3) (2026-10-13)
+
+
+### Bug Fixes
+
+* **security:** next 16.4.0, патчи sharp/undici, actions на SHA ([#1071](https://github.com/aylisrg/Platform-Delovoy/issues/1071)) ([578ff5e](https://github.com/aylisrg/Platform-Delovoy/commit/578ff5ef165ea887ce516dc3d0556289c1163819))
+
 ## [2.22.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.1...v2.22.2) (2026-10-13)
 
 
