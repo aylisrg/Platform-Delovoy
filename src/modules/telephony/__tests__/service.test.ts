@@ -37,6 +37,10 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("../novofon-client", () => ({
   novofonStartCall: vi.fn(),
   novofonCheckStatus: vi.fn(),
+  getNovofonCallApiToken: () =>
+    process.env.NOVOFON_CALL_API_TOKEN || process.env.NOVOFON_API_TOKEN || process.env.NOVOFON_API_KEY || "",
+  getNovofonDataApiToken: () =>
+    process.env.NOVOFON_DATA_API_TOKEN || process.env.NOVOFON_API_TOKEN || process.env.NOVOFON_API_KEY || "",
 }));
 
 import { prisma } from "@/lib/db";
