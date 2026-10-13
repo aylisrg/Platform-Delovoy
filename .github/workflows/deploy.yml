@@ -656,33 +656,42 @@ jobs:
               echo "⚠️  CRON_SECRET not found in .env — skipping cron setup (add it manually)"
               exit 0
             fi
-            CRON_ENTRY="* * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/process-outgoing > /dev/null 2>&1"
-            if crontab -l 2>/dev/null | grep -q 'process-outgoing'; then
-              echo "✅ process-outgoing cron already registered"
-            else
-              (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
-              echo "✅ process-outgoing cron installed (every minute)"
-            fi
+            # cron-upsert-begin (issue #1074)
+            # Заменяет строку crontab по пути роута: удаляет все строки с этим
+            # путём (в т.ч. старые ?token=) и добавляет актуальную Bearer-строку.
+            # Идемпотентно, чужие строки не трогает, содержимое crontab не печатает.
+            # Ошибка чтения crontab (кроме "no crontab") -> return 1 без записи.
+            upsert_cron() {
+              _path="$1"; _entry="$2"
+              if ! _cur=$(crontab -l 2>&1); then
+                case "$_cur" in
+                  *"no crontab"*) _cur="" ;;
+                  *) return 1 ;;
+                esac
+              fi
+              # awk вместо grep: пустой результат не даёт ненулевой код (set -e).
+              { printf '%s\n' "$_cur" | awk -v re="${_path}([?/'\"[:space:]]|\$)" '$0 != "" && $0 !~ re'
+                printf '%s\n' "$_entry"; } | crontab -
+            }
+            # cron-upsert-end
+
+            upsert_cron '/api/cron/process-outgoing' \
+              "* * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/process-outgoing > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, process-outgoing cron NOT updated (#1074)"; exit 1; }
+            echo "✅ process-outgoing cron upserted (every minute)"
 
             # Сверка платежей ЮKassa: добивает зависшие статусы, если вебхук
             # не дошёл (ретраи ЮKassa живут только 24 часа).
-            RECONCILE_ENTRY="*/10 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/payments-reconcile > /dev/null 2>&1"
-            if crontab -l 2>/dev/null | grep -q 'payments-reconcile'; then
-              echo "✅ payments-reconcile cron already registered"
-            else
-              (crontab -l 2>/dev/null; echo "$RECONCILE_ENTRY") | crontab -
-              echo "✅ payments-reconcile cron installed (every 10 minutes)"
-            fi
+            upsert_cron '/api/cron/payments-reconcile' \
+              "*/10 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/payments-reconcile > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, payments-reconcile cron NOT updated (#1074)"; exit 1; }
+            echo "✅ payments-reconcile cron upserted (every 10 minutes)"
 
-            # Напоминания о бронях + алерты истечения договоров: раньше cron
-            # нигде не регистрировался и напоминания молча не отправлялись.
-            NOTIFY_ENTRY="*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/notifications > /dev/null 2>&1"
-            if crontab -l 2>/dev/null | grep -q 'api/cron/notifications'; then
-              echo "✅ scheduled-notifications cron already registered"
-            else
-              (crontab -l 2>/dev/null; echo "$NOTIFY_ENTRY") | crontab -
-              echo "✅ scheduled-notifications cron installed (every 5 minutes)"
-            fi
+            # Напоминания о бронях + алерты истечения договоров.
+            upsert_cron '/api/cron/notifications' \
+              "*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/notifications > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, notifications cron NOT updated (#1074)"; exit 1; }
+            echo "✅ scheduled-notifications cron upserted (every 5 minutes)"
 
       - name: Ensure daily DB backup cron is registered
         continue-on-error: true
