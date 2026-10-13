@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
 import { log, logAudit } from "@/lib/logger";
-import { novofonStartCall, novofonCheckStatus } from "./novofon-client";
+import {
+  novofonStartCall,
+  novofonCheckStatus,
+  getNovofonCallApiToken,
+  getNovofonDataApiToken,
+} from "./novofon-client";
 import type { TelephonyModuleConfig, CallLogWithManager, NovofonWebhookPayload } from "./types";
 import type { CallFilter } from "./validation";
 
@@ -93,7 +98,7 @@ export async function initiateCall(
     );
   }
 
-  const apiKey = process.env.NOVOFON_API_KEY;
+  const apiKey = getNovofonCallApiToken();
   if (!apiKey) {
     throw new TelephonyError(
       "TELEPHONY_NOT_CONFIGURED",
@@ -176,7 +181,7 @@ export async function initiateDirectCall(
   phone: string,
   opts: { tenantId?: string; context?: string } = {}
 ) {
-  const apiKey = process.env.NOVOFON_API_KEY;
+  const apiKey = getNovofonCallApiToken();
   if (!apiKey) {
     throw new TelephonyError(
       "TELEPHONY_NOT_CONFIGURED",
@@ -385,7 +390,7 @@ export async function getRecordingUrl(callLogId: string): Promise<string | null>
 // === HEALTH ===
 
 export async function getTelephonyHealth() {
-  const apiKey = process.env.NOVOFON_API_KEY ?? "";
+  const apiKey = getNovofonDataApiToken();
   const novofonStatus = await novofonCheckStatus(apiKey);
 
   const today = new Date();
