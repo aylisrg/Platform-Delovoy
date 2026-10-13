@@ -1,11 +1,16 @@
 # Read-only: кто вызывает cron-роуты (Refs #1084).
 # Печатает ТОЛЬКО числа, имена роутов, HTTP-статусы и первый токен User-Agent.
 # Никогда не печатает строки crontab, unit-файлов, логов, IP, query, заголовки, .env.
-# Ничего не меняет на сервере.
+# Ничего не меняет на сервере. (c) только host:port и route из crontab, (d) только счётчики из docker logs app.
 name: Ops Cron Callers
 
 on:
   workflow_dispatch:
+    inputs:
+      since:
+        description: "Окно docker logs для app (например 2h, 30m)"
+        required: false
+        default: "2h"
 
 permissions:
   contents: read
@@ -23,12 +28,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Счётчики по crontab, systemd и nginx access log
+        env:
+          SINCE: ${{ inputs.since }}
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 8m
+          envs: SINCE
           script: |
             set -euo pipefail
             SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo -n"
@@ -140,4 +148,26 @@ jobs:
                 print r "\tstatus=" st "\tua=" substr(ua, 1, 40)
               }' "$TMP/log" > "$TMP/agg" || die "parse failed"
             if [ -s "$TMP/agg" ]; then sort "$TMP/agg" | uniq -c | sort -k2,2 -k1,1nr; else echo "cron_route_requests: 0"; fi
+            echo "=== (c) цели crontab: только host:port и route ==="
+            # Без заголовков, query и секретов: печатаем только host:port из URL и имя роута.
+            cat "$TMP/root_ct" "$TMP/spool" "$TMP/etc_cron" \
+              | grep -oE 'https?://[A-Za-z0-9.-]+(:[0-9]+)?/api/cron/[a-z/-]+' \
+              | sed -E 's#^https?://##; s#/api/cron/# #; s#/$##' \
+              | sort | uniq -c || echo "crontab_cron_urls: 0"
+
+            echo "=== (d) app container logs (delovoy-app), окно ${SINCE:-2h} ==="
+            SINCE_V="${SINCE:-2h}"
+            case "$SINCE_V" in *[!0-9smhd]*|"") die "bad since input" ;; esac
+            command -v docker >/dev/null || die "docker absent"
+            $SUDO docker logs --since "$SINCE_V" delovoy-app > "$TMP/app" 2>&1 || die "read failed: docker logs delovoy-app"
+            echo "app_log_lines_total: $(wc -l < "$TMP/app")"
+            # App не пишет access-строки для /api/cron (Next standalone без request-лога),
+            # 401/503 из cron-auth не логируются. Считаем то, что логируется.
+            echo "app_access_lines_api_cron: $(grep -cE '(GET|POST) /api/cron/' "$TMP/app" || true)"
+            echo "-- NEXTAUTH_SECRET fallback (#1084) по роуту:"
+            grep -F '[cron-auth]' "$TMP/app" | grep -F 'NEXTAUTH_SECRET' \
+              | sed -E 's/.*\[cron-auth\] ([A-Za-z0-9/_-]+):.*/\1/' | sort | uniq -c || echo "  0"
+            echo "nextauth_fallback_total: $(grep -F '[cron-auth]' "$TMP/app" | grep -cF 'NEXTAUTH_SECRET' || true)"
+            echo "-- ошибки cron-джобов по роуту:"
+            grep -oE '\[cron/[A-Za-z0-9/_-]+\]' "$TMP/app" | sort | uniq -c || echo "  0"
             echo "=== конец ==="
