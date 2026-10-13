@@ -258,10 +258,11 @@ export default function WebAppHome() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // Одна отсечка времени на рендер: относительные подписи не разъезжаются
-  // между карточками. На сервере лента пуста, поэтому Date.now() не участвует
-  // в SSR-разметке и рассинхрона гидрации не даёт.
-  const nowMs = Date.now();
+  // Одна отсечка времени на загруженную порцию ленты: относительные подписи
+  // не разъезжаются между карточками. Отсечка обновляется вместе с лентой
+  // (в loadFeed/loadMore), а не в рендере, чтобы рендер оставался чистым.
+  // На сервере лента пуста, поэтому nowMs не участвует в SSR-разметке.
+  const [nowMs, setNowMs] = useState(0);
 
   const quickLinks = useMemo(() => {
     const { tabs } = buildNavigation(capabilities);
@@ -279,6 +280,7 @@ export default function WebAppHome() {
     }
     try {
       const page = await apiFetch<FeedPage>(`/api/webapp/feed?limit=${PAGE_SIZE}`);
+      setNowMs(Date.now());
       setItems(page.items);
       setNextCursor(page.nextCursor);
       setUnreadCount(page.unreadCount);
@@ -304,6 +306,7 @@ export default function WebAppHome() {
       const page = await apiFetch<FeedPage>(
         `/api/webapp/feed?limit=${PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`
       );
+      setNowMs(Date.now());
       setItems((prev) => [...prev, ...page.items]);
       setNextCursor(page.nextCursor);
       setUnreadCount(page.unreadCount);

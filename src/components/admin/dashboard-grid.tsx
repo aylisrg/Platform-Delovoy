@@ -148,11 +148,12 @@ export function DashboardGrid({ storageKey, cards, className }: Props) {
     [storageKey]
   );
 
+  const defaultOrderKey = defaultOrder.join("|");
   const reset = useCallback(() => {
     setOrder(defaultOrder);
     saveOrder(storageKey, defaultOrder);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey, defaultOrder.join("|")]);
+  }, [storageKey, defaultOrderKey]);
 
   const byId = Object.fromEntries(cards.map((c) => [c.id, c.node]));
   const active = activeId ? byId[activeId] : null;
