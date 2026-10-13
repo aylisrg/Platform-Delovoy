@@ -92,7 +92,7 @@ describe("processOutgoing — channel fallback", () => {
 
     const result = await processOutgoing();
 
-    expect(result).toEqual({ sent: 1, failed: 0, processed: 1 });
+    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0, processed: 1 });
     expect(prisma.outgoingNotification.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "SENT" }) })
     );
@@ -106,7 +106,7 @@ describe("processOutgoing — channel fallback", () => {
 
     const result = await processOutgoing();
 
-    expect(result).toEqual({ sent: 0, failed: 0, processed: 1 });
+    expect(result).toEqual({ sent: 0, failed: 0, skipped: 0, processed: 1 });
     expect(prisma.outgoingNotification.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "PENDING" }) })
     );
@@ -124,7 +124,7 @@ describe("processOutgoing — channel fallback", () => {
     const result = await processOutgoing();
 
     // TG exhausted → FAILED, fallback to email queued
-    expect(result).toEqual({ sent: 0, failed: 1, processed: 1 });
+    expect(result).toEqual({ sent: 0, failed: 1, skipped: 0, processed: 1 });
     expect(prisma.outgoingNotification.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) })
     );
@@ -149,7 +149,7 @@ describe("processOutgoing — channel fallback", () => {
 
     const result = await processOutgoing();
 
-    expect(result).toEqual({ sent: 0, failed: 1, processed: 1 });
+    expect(result).toEqual({ sent: 0, failed: 1, skipped: 0, processed: 1 });
     expect(prisma.systemEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ level: "WARNING" }) })
     );
