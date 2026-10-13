@@ -3,7 +3,7 @@
 # Запуск: bash scripts/__tests__/cron-upsert.test.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FAKE="$(mktemp)"; trap 'rm -f "$FAKE" "$FAKE.new"' EXIT
+FAKE="$(mktemp)"; trap 'rm -f "$FAKE" "$FAKE.new" "$FAKE.writes"' EXIT
 MODE=ok   # ok | none | error
 # Как настоящий crontab: stdin читается целиком, потом файл заменяется.
 crontab() {
@@ -13,7 +13,7 @@ crontab() {
       error) echo "crontab: cannot open spool: Permission denied" >&2; return 1 ;;
       *)     cat "$FAKE" ;;
     esac
-  else cat > "$FAKE.new"; mv "$FAKE.new" "$FAKE"; fi
+  else echo w >> "$FAKE.writes"; cat > "$FAKE.new"; mv "$FAKE.new" "$FAKE"; fi
 }
 eval "$(sed -n '/# cron-upsert-begin/,/# cron-upsert-end/p' "$ROOT/.github/workflows/deploy.yml")"
 fail() { echo "FAIL: $1"; exit 1; }
@@ -41,6 +41,22 @@ grep -q 'cron-backup.sh' "$FAKE" || fail "unrelated line removed"
 grep -q 'notifications-digest' "$FAKE" || fail "similar-path line removed"
 for p in process-outgoing payments-reconcile 'notifications >'; do
   [ "$(grep -c "api/cron/$p" "$FAKE")" -eq 1 ] || fail "dup/missing $p"; done
+# 1b. Новые роуты (#1074): старые ?token= заменяются, идемпотентно, без дублей
+cat >> "$FAKE" <<'C'
+0 6 * * * curl -sS https://delovoy-park.ru/api/cron/rental-payment-reminders?token=OLD >/dev/null 2>&1
+*/5 * * * * curl -fsS "https://delovoy-park.ru/api/cron/overdue-session-reminders?token=OLD" > /dev/null 2>&1
+5 0 * * * curl -s https://delovoy-park.ru/api/cron/process-recurring?token=OLD
+C
+run2() {
+  for r in rental-payment-reminders overdue-session-reminders process-recurring; do
+    upsert_cron "/api/cron/$r" "0 0 * * * curl -H 'Authorization: Bearer $S' https://delovoy-park.ru/api/cron/$r > /dev/null 2>&1"
+  done
+}
+run2; run2
+grep -q 'token=' "$FAKE" && fail "old ?token= on new routes left"
+for r in rental-payment-reminders overdue-session-reminders process-recurring; do
+  [ "$(grep -c "api/cron/$r" "$FAKE")" -eq 1 ] || fail "dup/missing $r"; done
+[ "$(wc -l < "$FAKE")" -eq 8 ] || fail "expected 8 lines after new routes"
 # 2. Идемпотентность
 FIRST=$(cat "$FAKE"); run; [ "$FIRST" = "$(cat "$FAKE")" ] || fail "not idempotent"
 # 3. Ошибка чтения crontab: ничего не пишем, код != 0
@@ -55,4 +71,14 @@ MODE=ok
 [ "$(cat "$FAKE")" = "* * * * * new" ] || fail "no-crontab case"
 # 5. Пустой файл
 : > "$FAKE"; run; [ "$(wc -l < "$FAKE")" -eq 3 ] || fail "empty crontab case"
+# 6. Две одинаковые правильные строки -> ровно одна
+E="*/5 * * * * curl -H 'Authorization: Bearer $S' https://delovoy-park.ru/api/cron/overdue-session-reminders > /dev/null 2>&1"
+printf '%s\n%s\n%s\n' "30 1 * * * other" "$E" "$E" > "$FAKE"
+upsert_cron '/api/cron/overdue-session-reminders' "$E"
+[ "$(grep -c 'overdue-session-reminders' "$FAKE")" -eq 1 ] || fail "duplicate correct lines not collapsed"
+grep -q '^30 1 \* \* \* other$' "$FAKE" || fail "unrelated line lost on dedup"
+# 7. Ровно одна правильная строка -> crontab - (запись) не вызывается
+rm -f "$FAKE.writes"
+upsert_cron '/api/cron/overdue-session-reminders' "$E"
+[ ! -e "$FAKE.writes" ] || fail "crontab write invoked when line already correct"
 echo "PASS cron-upsert"
