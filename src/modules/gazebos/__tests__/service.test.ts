@@ -2658,3 +2658,68 @@ describe("createBooking — уведомление о новой брони", ()
     expect(createdEvent()).toBeUndefined();
   });
 });
+
+// ===== Буфер на уборку (#1067) =====
+
+describe("cleaning buffer (#1067)", () => {
+  type W = { id?: { not: string }; OR?: { startTime: { lt: Date }; endTime: { gt: Date } }[] };
+  const conflictCall = () =>
+    vi
+      .mocked(prisma.booking.findFirst)
+      .mock.calls.map((c) => c[0]!.where as W)
+      .filter((w) => w.OR)
+      .at(-1)!;
+  const spanMin = (w: W) => (w.OR![0].startTime.lt.getTime() - w.OR![0].endTime.gt.getTime()) / 60_000;
+
+  it("клиентская бронь беседки проверяет пересечение с запасом 60 минут", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createBooking("user-1", validBookingInput);
+
+    const w = conflictCall();
+    const [sh, sm] = validBookingInput.startTime.split(":").map(Number);
+    const [eh, em] = validBookingInput.endTime.split(":").map(Number);
+    expect(spanMin(w)).toBe(eh * 60 + em - (sh * 60 + sm) + 120);
+  });
+
+  it("клиентская бронь беседки отклоняется, если пересекается с буфером", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking() as never);
+
+    await expect(createBooking("user-1", validBookingInput)).rejects.toMatchObject({
+      code: "BOOKING_CONFLICT",
+    });
+  });
+
+  it("перенос клиентом тоже учитывает буфер", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockImplementation(((args: { where: W }) =>
+      Promise.resolve(args.where.OR ? null : mockBooking({ status: "CONFIRMED", metadata: {} }))) as never);
+    vi.mocked(prisma.booking.update).mockResolvedValue(mockBooking() as never);
+
+    await rescheduleBookingByClient("booking-1", {
+      date: FUTURE_DATE,
+      startTime: "12:00",
+      endTime: "16:00",
+    }).catch(() => undefined);
+
+    const w = conflictCall();
+    expect(w.id).toEqual({ not: "booking-1" });
+    expect(spanMin(w)).toBe(4 * 60 + 120);
+  });
+
+  it("админ может поставить бронь в буфер: проверка строгая", async () => {
+    vi.mocked(prisma.resource.findFirst).mockResolvedValue(mockResource() as never);
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.booking.create).mockResolvedValue(mockBooking() as never);
+
+    await createAdminBooking("admin-1", validAdminInput).catch(() => undefined);
+
+    const w = conflictCall();
+    const [sh, sm] = validAdminInput.startTime.split(":").map(Number);
+    const [eh, em] = validAdminInput.endTime.split(":").map(Number);
+    expect(spanMin(w)).toBe(eh * 60 + em - (sh * 60 + sm));
+  });
+});

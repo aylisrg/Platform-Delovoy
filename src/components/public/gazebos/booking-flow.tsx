@@ -20,6 +20,7 @@ import {
   freeHoursToFullDay,
   type ResourcePricing,
 } from "@/modules/gazebos/pricing";
+import { CleaningBufferHint } from "@/components/public/booking/cleaning-buffer-hint";
 
 type TimeSlot = {
   startTime: string;
@@ -397,6 +398,8 @@ export function BookingFlow() {
                   Минимум {minBookingHours} ч.
                 </span>
               </div>
+
+              <CleaningBufferHint className="text-[#86868b] font-[family-name:var(--font-inter)]" />
 
               {availability.map((item) => {
                 const isSelected = selectedResourceId === item.resource.id;

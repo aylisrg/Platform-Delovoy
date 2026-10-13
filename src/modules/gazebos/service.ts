@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { bufferedOverlapWhere, getCleaningBufferMinutes, isSlotBlocked } from "@/modules/booking/cleaning-buffer";
 import type { BookingStatus } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
@@ -402,6 +403,7 @@ export async function createBooking(
 
   // Конфликт-чек и запись — в одной транзакции под блокировкой слота, иначе
   // два одновременных запроса на популярный слот оба видят «свободно» (#429).
+  const bufferMinutes = await getCleaningBufferMinutes(MODULE_SLUG);
   const booking = await prisma.$transaction(async (tx) => {
     await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
 
@@ -412,9 +414,8 @@ export async function createBooking(
         resourceId,
         status: { in: ACTIVE_BOOKING_STATUSES },
         date: bookingDate,
-        OR: [
-          { startTime: { lt: end }, endTime: { gt: start } },
-        ],
+        // Клиентская бронь: учитываем буфер на уборку (#1067).
+        OR: [bufferedOverlapWhere(start, end, bufferMinutes)],
       },
     });
 
@@ -1697,6 +1698,7 @@ export async function rescheduleBookingByClient(
   );
   const priceDelta = Number(pricing.totalPrice) - Number(metadata.totalPrice ?? 0);
 
+  const bufferMinutes = await getCleaningBufferMinutes(MODULE_SLUG);
   const updated = await prisma
     .$transaction(async (tx) => {
       await lockSlot(tx, MODULE_SLUG, booking.resourceId, newDate);
@@ -1709,7 +1711,8 @@ export async function rescheduleBookingByClient(
           id: { not: booking.id },
           status: { in: ACTIVE_BOOKING_STATUSES },
           date: newDate,
-          OR: [{ startTime: { lt: end }, endTime: { gt: start } }],
+          // Перенос клиентом: буфер на уборку действует (#1067).
+          OR: [bufferedOverlapWhere(start, end, bufferMinutes)],
         },
       });
       if (conflict) throw new BookingError("BOOKING_CONFLICT", "Это время уже занято");
@@ -1903,9 +1906,10 @@ export async function getAvailability(
   date: string,
   resourceId?: string
 ): Promise<import("./types").AvailabilityResponse> {
-  const [minBookingHours, { openHour, closeHour }, resources] = await Promise.all([
+  const [minBookingHours, { openHour, closeHour }, bufferMinutes, resources] = await Promise.all([
     getMinBookingHours(),
     getOpenCloseHours(),
+    getCleaningBufferMinutes(MODULE_SLUG),
     resourceId
       ? prisma.resource.findMany({
           where: { id: resourceId, moduleSlug: MODULE_SLUG, isActive: true },
@@ -1940,8 +1944,9 @@ export async function getAvailability(
       const slotStartDt = parseDatetime(date, slotStart);
       const slotEndDt = parseDatetime(date, slotEnd);
 
-      const isBooked = resourceBookings.some(
-        (b) => b.startTime < slotEndDt && b.endTime > slotStartDt
+      // Буфер на уборку не показываем отдельно, слот просто недоступен (#1067).
+      const isBooked = resourceBookings.some((b) =>
+        isSlotBlocked(b, slotStartDt, slotEndDt, bufferMinutes)
       );
 
       slots.push({
