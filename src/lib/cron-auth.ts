@@ -64,9 +64,12 @@ export function verifyCronRequest(
     }
   }
 
+  const route = options.route ?? "cron";
   if (!cronSecret) {
+    console.info(`[cron-auth] denied route=${route} status=503 reason=no_cron_secret`);
     return apiError("SERVICE_UNAVAILABLE", "CRON_SECRET is not configured", 503);
   }
+  console.info(`[cron-auth] denied route=${route} status=401 reason=${token ? "bad_token" : "no_token"}`);
   return apiError("UNAUTHORIZED", "Invalid cron token", 401);
 }
 

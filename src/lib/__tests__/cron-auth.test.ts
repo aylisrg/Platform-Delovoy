@@ -103,3 +103,28 @@ describe("verifyLegacyCronRequest (переходный режим #1084, avito/
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("verifyCronRequest: лог отказа без токена", () => {
+  const saved = process.env.CRON_SECRET;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    vi.restoreAllMocks();
+  });
+
+  it("401 пишет роут и код, но не токен", () => {
+    process.env.CRON_SECRET = CRON;
+    const warn = vi.spyOn(console, "info").mockImplementation(() => {});
+    verifyCronRequest(req("Bearer leaked-token-value"), { route: "no-show" });
+    const out = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(out).toContain("route=no-show status=401 reason=bad_token");
+    expect(out).not.toContain("leaked-token-value");
+    expect(out).not.toContain(CRON);
+  });
+
+  it("503 пишет роут и код", () => {
+    delete process.env.CRON_SECRET;
+    const warn = vi.spyOn(console, "info").mockImplementation(() => {});
+    verifyCronRequest(req("Bearer x"), { route: "inventory" });
+    expect(warn.mock.calls.map((c) => c.join(" ")).join("\n")).toContain("route=inventory status=503");
+  });
+});
