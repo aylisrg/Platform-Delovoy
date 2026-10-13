@@ -1,3 +1,4 @@
+import { safeCompare } from "@/lib/cron-auth";
 /**
  * Novofon API HTTP client.
  * Knows only about HTTP protocol — no business logic, no DB.
@@ -87,16 +88,14 @@ export async function novofonCheckStatus(
   }
 
   try {
-    const res = await fetch("https://dataapi-jsonrpc.novofon.ru/2.0", {
+    // Data API: JSON-RPC 2.0, token goes in params.access_token (no Bearer)
+    const res = await fetch(NOVOFON_DATA_API_BASE, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        method: "account.get_balance",
-        params: {},
+        method: "get.account",
+        params: { access_token: apiKey },
         id: 1,
       }),
     });
@@ -106,7 +105,7 @@ export async function novofonCheckStatus(
     }
 
     const data = (await res.json()) as {
-      result?: { balance?: string };
+      result?: { data?: Array<{ balance?: number | string }> };
       error?: { message?: string };
     };
     if (data.error) {
@@ -115,7 +114,10 @@ export async function novofonCheckStatus(
 
     return {
       configured: true,
-      balance: data.result?.balance,
+      balance:
+        data.result?.data?.[0]?.balance !== undefined
+          ? String(data.result.data[0].balance)
+          : undefined,
     };
   } catch (err) {
     return {
@@ -123,6 +125,49 @@ export async function novofonCheckStatus(
       error: err instanceof Error ? err.message : "Network error",
     };
   }
+}
+
+/**
+ * Token resolution. Novofon 2.0 issues separate keys for the Data API
+ * (analytics/statistics) and the Call API (initiating calls).
+ * Fallback: NOVOFON_API_TOKEN, then legacy NOVOFON_API_KEY.
+ */
+export function getNovofonDataApiToken(env: NodeJS.ProcessEnv = process.env): string {
+  return env.NOVOFON_DATA_API_TOKEN || env.NOVOFON_API_TOKEN || env.NOVOFON_API_KEY || "";
+}
+
+export function getNovofonCallApiToken(env: NodeJS.ProcessEnv = process.env): string {
+  return env.NOVOFON_CALL_API_TOKEN || env.NOVOFON_API_TOKEN || env.NOVOFON_API_KEY || "";
+}
+
+/** Constant-time string comparison (crypto.timingSafeEqual via safeCompare). */
+export function safeEqual(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return safeCompare(a, b);
+}
+
+/**
+ * Authenticate an incoming Novofon webhook.
+ * Novofon 2.0 HTTP notifications are not HMAC-signed, so we also accept a
+ * shared secret passed as `?token=` in the notification URL or in the
+ * `X-Webhook-Token` header. Legacy HMAC (X-Novofon-Signature) still works.
+ */
+export async function verifyNovofonWebhook(
+  body: string,
+  headers: { get(name: string): string | null },
+  url: string,
+  secret: string
+): Promise<boolean> {
+  if (!secret) return false;
+  let queryToken: string | null = null;
+  try {
+    queryToken = new URL(url).searchParams.get("token");
+  } catch {
+    queryToken = null;
+  }
+  const token = headers.get("X-Webhook-Token") ?? queryToken;
+  if (token && safeEqual(token, secret)) return true;
+  return verifyNovofonSignature(body, headers.get("X-Novofon-Signature"), secret);
 }
 
 /**
