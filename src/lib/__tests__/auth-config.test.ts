@@ -61,8 +61,19 @@ describe("authorized(): платёжный контур", () => {
     expect(await authorize("GET", "/api/cron/payments-reconcile")).toBe(true);
   });
 
-  it("другие /api/cron/* остаются закрытыми (фикс отдельным issue)", async () => {
-    await expectAnon401(await authorize("GET", "/api/cron/process-outgoing"));
+  it("#917: GET кронов из crontab (process-outgoing, notifications) проходит", async () => {
+    expect(await authorize("GET", "/api/cron/process-outgoing")).toBe(true);
+    expect(await authorize("GET", "/api/cron/notifications")).toBe(true);
+  });
+
+  it("#917: кроны открыты только на GET, POST остаётся за сессией", async () => {
+    await expectAnon401(await authorize("POST", "/api/cron/process-outgoing"));
+    await expectAnon401(await authorize("POST", "/api/cron/notifications"));
+  });
+
+  it("остальные /api/cron/* без crontab-записи остаются закрытыми", async () => {
+    await expectAnon401(await authorize("GET", "/api/cron/process-recurring"));
+    await expectAnon401(await authorize("GET", "/api/cron/process-outgoing-x"));
   });
 
   it("POST /api/payments/{id}/refund остаётся за сессией", async () => {
