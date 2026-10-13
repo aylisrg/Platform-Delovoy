@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.1...v2.22.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* **gazebos:** верная точка на карте /gazebos ([#1086](https://github.com/aylisrg/Platform-Delovoy/issues/1086)) ([#1087](https://github.com/aylisrg/Platform-Delovoy/issues/1087)) ([defda10](https://github.com/aylisrg/Platform-Delovoy/commit/defda1077c395558106fecebfde4d84e91c97f2e))
+
 ## [2.22.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.22.0...v2.22.1) (2026-10-13)
 
 
