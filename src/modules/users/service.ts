@@ -206,5 +206,27 @@ export async function deleteUser(id: string, currentUserId: string) {
     throw new Error("USER_NOT_FOUND");
   }
 
-  await prisma.user.delete({ where: { id } });
+  // Subscription.userId — обязательная FK без каскада (RESTRICT): удаление
+  // упало бы с P2003 и отдало 500. Проверяем заранее и даём понятную ошибку.
+  // Брони (Booking.userId, ON DELETE SET NULL) удалению не мешают: они
+  // остаются в истории без владельца.
+  const subscriptions = await prisma.subscription.count({ where: { userId: id } });
+  if (subscriptions > 0) {
+    throw new Error("USER_HAS_SUBSCRIPTIONS");
+  }
+
+  try {
+    await prisma.user.delete({ where: { id } });
+  } catch (error) {
+    // Гонка: подписка появилась между проверкой и удалением, или новая
+    // RESTRICT-связь. Не отдаём 500 на нарушение FK.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: string }).code === "P2003"
+    ) {
+      throw new Error("USER_HAS_DEPENDENCIES");
+    }
+    throw error;
+  }
 }

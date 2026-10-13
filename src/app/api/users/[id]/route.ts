@@ -79,6 +79,20 @@ export async function DELETE(
       if (error.message === "USER_NOT_FOUND") {
         return apiError("NOT_FOUND", "Пользователь не найден", 404);
       }
+      if (error.message === "USER_HAS_SUBSCRIPTIONS") {
+        return apiError(
+          "USER_HAS_SUBSCRIPTIONS",
+          "Нельзя удалить пользователя с подпиской. Сначала отмените или удалите его подписки.",
+          409
+        );
+      }
+      if (error.message === "USER_HAS_DEPENDENCIES") {
+        return apiError(
+          "USER_HAS_DEPENDENCIES",
+          "Нельзя удалить пользователя: на него ссылаются другие записи.",
+          409
+        );
+      }
     }
     return apiError("INTERNAL_ERROR", "Ошибка удаления пользователя", 500);
   }

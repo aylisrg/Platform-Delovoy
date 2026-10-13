@@ -5,13 +5,23 @@ name: P3009 Recovery (one-shot)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Общая группа с apply-*, run-seed и job deploy в deploy.yml: операции,
+# меняющие прод/БД, никогда не идут параллельно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   recover:
     name: Fix migration history + apply park migration + seed
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Fix migration history and run seed via SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

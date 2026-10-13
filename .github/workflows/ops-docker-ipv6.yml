@@ -34,6 +34,9 @@ concurrency:
   group: ops-docker-ipv6
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   ipv6:
     name: "Docker IPv6: ${{ inputs.action || 'status (push)' }}"
@@ -41,7 +44,7 @@ jobs:
     environment: production
     steps:
       - name: Применение на VPS
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           ACTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.action) || 'status' }}
         with:

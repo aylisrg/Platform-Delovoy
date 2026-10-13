@@ -19,6 +19,15 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
+# Общая группа с apply-*, run-seed и job deploy в deploy.yml: операции,
+# меняющие прод/БД, никогда не идут параллельно.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   backup:
     name: Pre-migration backup (REQUIRED)
@@ -26,7 +35,7 @@ jobs:
     environment: production
     steps:
       - name: Run pre-migration backup on VPS (inline pg_dump)
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -88,10 +97,10 @@ jobs:
     environment: production
     needs: backup   # <-- НЕ стартует без успешного бекапа
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Apply migration via SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

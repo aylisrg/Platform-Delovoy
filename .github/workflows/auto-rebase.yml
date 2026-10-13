@@ -47,7 +47,7 @@ jobs:
       HAS_PAT: ${{ (secrets.AUTOMATION_TOKEN != '' || secrets.RELEASE_PLEASE_TOKEN != '') && 'yes' || 'no' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # persist-credentials по умолчанию true — этим же токеном пойдёт push ниже.
