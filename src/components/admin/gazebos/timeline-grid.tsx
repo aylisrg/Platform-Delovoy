@@ -23,7 +23,7 @@ import type { WeekTimelineBooking, WeekTimelineResource } from "@/modules/bookin
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { getMoscowHour as getMoscowHourUnified, parseMoscowDateTime, toISODate } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
-import { deriveCleaningBlocks, formatCleaningDuration } from "@/lib/cleaning-blocks";
+import { CLEANING_HATCH_STYLE, deriveCleaningBlocks, formatCleaningDuration } from "@/lib/cleaning-blocks";
 import {
   bookingHourRange,
   clampToWorkingHours,
@@ -91,10 +91,7 @@ function parseMoscowDatetime(date: string, hour: number): Date {
 export const BOOKING_BLOCK_COLOR = "bg-emerald-50 border border-emerald-200";
 
 /** Штриховка блока «Уборка» (#1085): серо-нейтральная диагональ. */
-const CLEANING_HATCH: React.CSSProperties = {
-  backgroundImage:
-    "repeating-linear-gradient(135deg, rgba(113,113,122,0.18) 0 6px, rgba(113,113,122,0.06) 6px 12px)",
-};
+const CLEANING_HATCH: React.CSSProperties = CLEANING_HATCH_STYLE;
 
 function TimelineLegend() {
   return (

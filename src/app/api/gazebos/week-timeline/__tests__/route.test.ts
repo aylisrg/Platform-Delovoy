@@ -29,6 +29,10 @@ vi.mock("@/modules/gazebos/service", () => ({
   getMinBookingHours: vi.fn().mockResolvedValue(2),
 }));
 
+vi.mock("@/modules/booking/cleaning-buffer", () => ({
+  getCleaningBufferMinutes: vi.fn().mockResolvedValue(60),
+}));
+
 import { GET } from "../route";
 
 function makeRequest(query: string) {
@@ -57,6 +61,7 @@ describe("GET /api/gazebos/week-timeline", () => {
       openHour: 8,
       closeHour: 23,
       minBookingHours: 2,
+      cleaningBufferMinutes: 60, // #1091: уборка в недельном виде
     });
   });
 

@@ -51,6 +51,8 @@ export type WeekTimelineData = {
   /** ["08:00", …] — как у дневного таймлайна, для расчёта загрузки. */
   hours: string[];
   minBookingHours: number;
+  /** Буфер на уборку после брони, минут (#1067/#1091). 0 = блоков «Уборка» нет. */
+  cleaningBufferMinutes: number;
 };
 
 /**
@@ -63,6 +65,8 @@ export type WeekTimelineHours = {
   openHour: number;
   closeHour: number;
   minBookingHours: number;
+  /** Только беседки (#1067); у PS Park не передаётся → 0. */
+  cleaningBufferMinutes?: number;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -152,5 +156,6 @@ export async function getWeekTimeline(
     })),
     hours: hoursRange(hours.openHour, hours.closeHour),
     minBookingHours: hours.minBookingHours,
+    cleaningBufferMinutes: hours.cleaningBufferMinutes ?? 0,
   };
 }

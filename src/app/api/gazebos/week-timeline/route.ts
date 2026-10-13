@@ -12,6 +12,7 @@ import { hasRole } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { getWeekTimeline } from "@/modules/booking/week-timeline";
 import { weekTimelineQuerySchema } from "@/modules/booking/validation";
+import { getCleaningBufferMinutes } from "@/modules/booking/cleaning-buffer";
 import { getMinBookingHours, getOpenCloseHours } from "@/modules/gazebos/service";
 
 /**
@@ -39,14 +40,16 @@ export async function GET(request: NextRequest) {
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    const [{ openHour, closeHour }, minBookingHours] = await Promise.all([
+    const [{ openHour, closeHour }, minBookingHours, cleaningBufferMinutes] = await Promise.all([
       getOpenCloseHours(),
       getMinBookingHours(),
+      getCleaningBufferMinutes("gazebos"),
     ]);
     const data = await getWeekTimeline("gazebos", parsed.data.weekStart, {
       openHour,
       closeHour,
       minBookingHours,
+      cleaningBufferMinutes,
     });
     return apiResponse(data);
   } catch {

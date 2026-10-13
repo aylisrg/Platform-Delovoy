@@ -63,3 +63,9 @@ export function formatCleaningDuration(minutes: number): string {
   if (h) return `${h} ч`;
   return `${m} мин`;
 }
+
+/** Штриховка блока «Уборка» (#1085, #1091): общая для дневного, недельного и мобильного видов. */
+export const CLEANING_HATCH_STYLE = {
+  backgroundImage:
+    "repeating-linear-gradient(135deg, rgba(113,113,122,0.18) 0 6px, rgba(113,113,122,0.06) 6px 12px)",
+} as const;
