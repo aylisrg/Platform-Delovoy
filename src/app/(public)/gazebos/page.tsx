@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { after } from "next/server";
 import { headers } from "next/headers";
-import { listResources, isPublicBookingEnabled } from "@/modules/gazebos/service";
+import { listResources, isPublicBookingEnabled, getMinBookingHours } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
+import { BookOnlineButton, StickyBookingCta } from "@/components/public/gazebos/booking-cta";
 import { GazeboList } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { PricingSection } from "@/components/public/gazebos/pricing-section";
@@ -103,10 +104,11 @@ export default async function GazebosPage() {
     });
   }
 
-  const [resources, phoneInfo, bookingEnabled] = await Promise.all([
+  const [resources, phoneInfo, bookingEnabled, minBookingHours] = await Promise.all([
     listResources(true),
     getPublicPhone("gazebos"),
     isPublicBookingEnabled(),
+    getMinBookingHours(),
   ]);
 
   return (
@@ -163,49 +165,38 @@ export default async function GazebosPage() {
               Беседки с мангалом. Запах шашлыка, друзья рядом — это и есть план.
               Забронируйте онлайн в пару кликов.
             </p>
-            {phoneInfo && (
-              <div className="flex items-center gap-3 mt-6">
+            <div className="flex flex-wrap items-center gap-3 mt-6">
+              {bookingEnabled && (
+                <BookOnlineButton
+                  source="hero"
+                  className="inline-flex items-center bg-[#16A34A] hover:bg-[#15803d] text-white font-[family-name:var(--font-manrope)] font-semibold text-base px-7 py-3.5 rounded-full shadow-lg shadow-black/20 transition-colors"
+                >
+                  Забронировать онлайн
+                </BookOnlineButton>
+              )}
+              {phoneInfo && (
                 <a
                   href={`tel:${phoneInfo.phone}`}
-                  className="inline-flex items-center gap-2 bg-white text-black font-[family-name:var(--font-manrope)] font-medium text-sm px-4 py-2.5 rounded-full hover:bg-white/90 transition-colors"
+                  data-testid="hero-phone"
+                  className="inline-flex items-center gap-2 border border-white/40 text-white/90 hover:text-white hover:border-white/70 font-[family-name:var(--font-manrope)] font-medium text-sm px-4 py-2.5 rounded-full transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                   </svg>
-                  Позвонить
-                </a>
-                <span className="text-white/80 font-[family-name:var(--font-inter)] text-sm">
                   {phoneInfo.displayPhone}
-                </span>
-              </div>
+                </a>
+              )}
+            </div>
+            {bookingEnabled && (
+              <p className="text-white/70 font-[family-name:var(--font-inter)] text-sm mt-3">
+                Мин. {minBookingHours} ч, подтверждение сразу
+              </p>
             )}
           </div>
         </section>
 
-        {/* Call widget */}
-        {phoneInfo && (
-          <CallWidget
-            phone={phoneInfo.phone}
-            displayPhone={phoneInfo.displayPhone}
-            variant="light"
-          />
-        )}
-
-        {/* Gazebo cards */}
-        <section className="px-6 pb-20">
-          <div className="max-w-[1200px] mx-auto">
-            <GazeboList resources={resources} />
-          </div>
-        </section>
-
-        {/* Pricing & extras */}
-        <PricingSection resources={resources} />
-
-        {/* Автостоянка */}
-        <ParkingSection />
-
-        {/* Booking flow */}
-        <section className="px-6 pb-24 border-t border-black/[0.04] pt-20">
+        {/* Booking flow: сразу после hero (#1085) */}
+        <section id="booking" className="px-6 pb-20 pt-16 scroll-mt-20">
           <div className="max-w-[800px] mx-auto">
             {bookingEnabled ? (
               <BookingFlow />
@@ -234,7 +225,33 @@ export default async function GazebosPage() {
           </div>
         </section>
 
-        <Footer />
+        {/* Call widget */}
+        {phoneInfo && (
+          <CallWidget
+            phone={phoneInfo.phone}
+            displayPhone={phoneInfo.displayPhone}
+            variant="light"
+          />
+        )}
+
+        {/* Gazebo cards */}
+        <section className="px-6 pb-20">
+          <div className="max-w-[1200px] mx-auto">
+            <GazeboList resources={resources} bookingEnabled={bookingEnabled} />
+          </div>
+        </section>
+
+        {/* Pricing & extras */}
+        <PricingSection resources={resources} />
+
+        {/* Автостоянка */}
+        <ParkingSection />
+
+        {/* Sticky CTA на мобиле (~70px) не должен перекрывать низ футера (#1085). */}
+        <div data-testid="footer-wrap" className={bookingEnabled ? "pb-24 md:pb-0" : undefined}>
+          <Footer />
+        </div>
+        {bookingEnabled && <StickyBookingCta />}
       </div>
     </>
   );

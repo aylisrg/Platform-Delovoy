@@ -23,6 +23,7 @@ import type { WeekTimelineBooking, WeekTimelineResource } from "@/modules/bookin
 import { getResourcePricing, type ResourcePricing } from "@/modules/gazebos/pricing";
 import { getMoscowHour as getMoscowHourUnified, parseMoscowDateTime, toISODate } from "@/lib/format";
 import { PaymentDot } from "@/components/admin/shared/payment-badge";
+import { deriveCleaningBlocks, formatCleaningDuration } from "@/lib/cleaning-blocks";
 import {
   bookingHourRange,
   clampToWorkingHours,
@@ -84,6 +85,31 @@ function getMoscowDateStr(d: Date): string {
 
 function parseMoscowDatetime(date: string, hour: number): Date {
   return new Date(`${date}T${hour.toString().padStart(2, "0")}:00:00+03:00`);
+}
+
+/** Цвет обычной (CONFIRMED) брони: и плашка на таймлайне, и образец в легенде. */
+export const BOOKING_BLOCK_COLOR = "bg-emerald-50 border border-emerald-200";
+
+/** Штриховка блока «Уборка» (#1085): серо-нейтральная диагональ. */
+const CLEANING_HATCH: React.CSSProperties = {
+  backgroundImage:
+    "repeating-linear-gradient(135deg, rgba(113,113,122,0.18) 0 6px, rgba(113,113,122,0.06) 6px 12px)",
+};
+
+function TimelineLegend() {
+  return (
+    <div data-testid="timeline-legend" className="flex items-center gap-4 mb-2 text-xs text-zinc-500">
+      <span className="inline-flex items-center gap-1.5">
+        <span data-testid="legend-booking" className={`inline-block w-4 h-3 rounded-sm ${BOOKING_BLOCK_COLOR}`} /> Бронь
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-block w-4 h-3 rounded-sm bg-zinc-100 border border-dashed border-zinc-300" style={CLEANING_HATCH} /> Уборка
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-block w-4 h-3 rounded-sm bg-white border border-zinc-200" /> Свободно
+      </span>
+    </div>
+  );
 }
 
 function parseDragId(id: string | number): { kind: "move" | "resize"; bookingId: string } | null {
@@ -272,7 +298,7 @@ export function GazeboTimelineGrid({
     return data.bookings.filter((b) => b.resourceId === resourceId);
   }
 
-  function getBookingStyle(booking: TimelineBooking) {
+  function getBookingStyle(booking: { startTime: string; endTime: string }) {
     const start = new Date(booking.startTime);
     const end = new Date(booking.endTime);
     const startHour = getMoscowHour(start) + getMoscowMinute(start) / 60;
@@ -282,6 +308,12 @@ export function GazeboTimelineGrid({
     const width = ((endHour - startHour) / totalHours) * 100;
     return { left: `${left}%`, width: `${width}%` };
   }
+
+  const cleaningBlocks = deriveCleaningBlocks(
+    data.bookings,
+    data.cleaningBufferMinutes,
+    parseMoscowDatetime(date, closeHour)
+  );
 
   function isSlotFree(resourceId: string, hour: number): boolean {
     const slotStart = parseMoscowDatetime(date, hour);
@@ -519,6 +551,8 @@ export function GazeboTimelineGrid({
         />
       )}
 
+      {view === "day" && <TimelineLegend />}
+
       {view === "day" && (
       <DndContext
         sensors={sensors}
@@ -581,6 +615,32 @@ export function GazeboTimelineGrid({
                     })}
                   </div>
 
+                  {cleaningBlocks
+                    .filter((c) => c.resourceId === resource.id)
+                    .map((c) => {
+                      const parent = bookings.find((b) => b.id === c.bookingId);
+                      const pos = getBookingStyle(c);
+                      return (
+                        <button
+                          type="button"
+                          key={`cleaning-${c.bookingId}`}
+                          data-testid={`cleaning-${c.bookingId}`}
+                          title={`Резерв на уборку после брони #${c.bookingId.slice(-6)}`}
+                          aria-label="Уборка после брони, открыть бронь"
+                          onClick={(e) => parent && handleBookingClick(parent, e)}
+                          className="absolute top-1 bottom-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-100 px-1.5 py-1 overflow-hidden text-left text-[11px] leading-tight text-zinc-500 select-none"
+                          style={{
+                            ...CLEANING_HATCH,
+                            left: `calc(${pos.left} + 2px)`,
+                            width: `calc(${pos.width} - 2px)`,
+                          }}
+                        >
+                          <span aria-hidden="true">🧹 </span>
+                          <span className="font-medium whitespace-nowrap">Уборка · {formatCleaningDuration(c.minutes)}</span>
+                        </button>
+                      );
+                    })}
+
                   {bookings.map((booking) => {
                     const style = getBookingStyle(booking);
                     const active = isActiveNow(booking);
@@ -603,7 +663,7 @@ export function GazeboTimelineGrid({
                             ? "bg-emerald-100 border-2 border-emerald-400 shadow-sm hover:shadow-md hover:brightness-95"
                             : isPending
                             ? "bg-amber-50 border border-dashed border-amber-300 hover:bg-amber-100/70"
-                            : "bg-emerald-50 border border-emerald-200 hover:bg-emerald-100/70"
+                            : `${BOOKING_BLOCK_COLOR} hover:bg-emerald-100/70`
                         }`}
                         title={`${booking.clientName ?? "—"} · Нажмите для подробностей, тяните для переноса`}
                         onClick={(e) => handleBookingClick(booking, e)}
