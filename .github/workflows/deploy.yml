@@ -117,7 +117,11 @@ jobs:
             exit 0
           fi
           DEPLOYED=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
-          if [ -n "$DEPLOYED" ] && [ "$DEPLOYED" = "$HEAD_SHA" ]; then
+          # SHA не секрет: печатаем оба значения, чтобы skip/не-skip было видно в логе.
+          echo "HEAD main: ${HEAD_SHA}; DEPLOYED_SHA_CURRENT: ${DEPLOYED:-<не прочитан>}; event: ${{ github.event_name }} ${{ github.event.workflow_run.conclusion }}"
+          # Skip только при точном совпадении полного SHA (40 hex). Пустое,
+          # нечитаемое или устаревшее значение = деплоим (fail-open).
+          if [[ "$DEPLOYED" =~ ^[0-9a-f]{40}$ ]] && [ "$DEPLOYED" = "$HEAD_SHA" ]; then
             echo "HEAD ${HEAD_SHA} уже задеплоен — skip (хвост трейна)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -213,7 +217,7 @@ jobs:
     environment: production
     permissions:
       contents: write
-      actions: write # repo variables DEPLOYED_SHA_CURRENT/PREVIOUS — issue #578
+      actions: read # чтение repo variables; запись через secrets.DEPLOY_STATE_TOKEN — issue #578, #1074
     steps:
       # Checkout the exact commit build-and-push resolved and built, not
       # whatever main HEAD happens to be when this job starts — a plain
@@ -952,25 +956,6 @@ jobs:
             echo "notified=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # error-budget-watch (issue #578, deploy-error-budget.yml) должен знать
-      # SHA, который реально задеплоен — а github.event.workflow_run.head_sha
-      # у *следующего* прогона deploy.yml этого не даёт при workflow_dispatch
-      # с явным sha (hotfix/rollback): head_sha там — это то, чем был ref на
-      # момент диспатча, а не значение inputs.sha. Пишем правду явно, в repo
-      # variables, независимо от типа триггера.
-      - name: Записать SHA деплоя для error-budget watch
-        if: success()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RESOLVED_SHA: ${{ needs.build-and-push.outputs.resolved_sha }}
-        run: |
-          OLD=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
-          if [ -n "$OLD" ] && [ "$OLD" != "$RESOLVED_SHA" ]; then
-            gh variable set DEPLOYED_SHA_PREVIOUS --body "$OLD"
-          fi
-          gh variable set DEPLOYED_SHA_CURRENT --body "$RESOLVED_SHA"
-
       # Fallback-канал: групповое подтверждение уходит, только если персонального
       # анонса не было и не могло быть (нет секрета, сеть/сервер не ответили).
       # already-announced (версия уже анонсирована более ранним раном — #525)
@@ -987,6 +972,36 @@ jobs:
             -d "chat_id=${TG_CHAT}" \
             -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ needs.build-and-push.outputs.resolved_sha }})" \
             -d "parse_mode=HTML" || true
+
+      # error-budget-watch (issue #578) и guard-дедуп читают DEPLOYED_SHA_CURRENT/
+      # PREVIOUS. GITHUB_TOKEN НЕ может писать repo variables (у него нет
+      # permission "variables", actions: write не помогает -> HTTP 403), поэтому
+      # пишем отдельным токеном DEPLOY_STATE_TOKEN (fine-grained PAT только на
+      # этот репо, Variables: Read and write). Шаг стоит последним и падает
+      # громко: приложение уже выкачено, но красный ран + Notify on failure
+      # сразу показывают, что состояние деплоя не записано (Refs #1074).
+      - name: Записать SHA деплоя для error-budget watch
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_STATE_TOKEN }}
+          RESOLVED_SHA: ${{ needs.build-and-push.outputs.resolved_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::DEPLOY_STATE_TOKEN не задан: деплой ${RESOLVED_SHA} прошел, но DEPLOYED_SHA_CURRENT/PREVIOUS не обновлены (GITHUB_TOKEN не умеет писать repo variables)"
+            exit 1
+          fi
+          OLD=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
+          if [ -n "$OLD" ] && [ "$OLD" != "$RESOLVED_SHA" ]; then
+            gh variable set DEPLOYED_SHA_PREVIOUS --body "$OLD"
+          fi
+          gh variable set DEPLOYED_SHA_CURRENT --body "$RESOLVED_SHA"
+          NOW=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value)
+          if [ "$NOW" != "$RESOLVED_SHA" ]; then
+            echo "::error::DEPLOYED_SHA_CURRENT=${NOW}, ожидалось ${RESOLVED_SHA}"
+            exit 1
+          fi
+          echo "DEPLOYED_SHA_CURRENT=${RESOLVED_SHA} (previous: ${OLD:-<нет>})"
 
       - name: Notify on failure
         if: failure()
