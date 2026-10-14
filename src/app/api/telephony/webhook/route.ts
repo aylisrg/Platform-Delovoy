@@ -14,12 +14,13 @@ import { verifyNovofonWebhook } from "@/modules/telephony/novofon-client";
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text();
+    // NOVOFON_WEBHOOK_TOKEN first, fallback NOVOFON_WEBHOOK_SECRET (repo secret name).
     const webhookSecret =
       process.env.NOVOFON_WEBHOOK_TOKEN || process.env.NOVOFON_WEBHOOK_SECRET || "";
 
     // Always verify signature — reject if secret not configured (fail-secure)
     if (!webhookSecret) {
-      return apiError("WEBHOOK_NOT_CONFIGURED", "Вебхук не настроен (NOVOFON_WEBHOOK_TOKEN отсутствует)", 503);
+      return apiError("WEBHOOK_NOT_CONFIGURED", "Вебхук не настроен (нет NOVOFON_WEBHOOK_TOKEN / NOVOFON_WEBHOOK_SECRET)", 503);
     }
 
     // Optional IP allowlist (comma-separated), e.g. Novofon notification servers

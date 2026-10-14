@@ -1,0 +1,102 @@
+# Синк ключей Novofon из GitHub Secrets в /opt/delovoy-park/.env (Refs #1066).
+# Модель: ops-env.yml. Значения никогда не печатаются; пустой секрет пропускается
+# (ключ в .env не трогается). Один ключ NOVOFON_API_TOKEN работает и для
+# Call API, и для Data API; отдельные NOVOFON_CALL/DATA_API_TOKEN не нужны.
+# Вебхук: NOVOFON_WEBHOOK_TOKEN || NOVOFON_WEBHOOK_SECRET -> .env NOVOFON_WEBHOOK_TOKEN. Запуск меняет prod .env — только с OK владельца.
+# push на не-main ветки регистрирует workflow; push-запуск — сухой прогон.
+name: Ops — Novofon .env
+
+on:
+  workflow_dispatch:
+    inputs:
+      restart:
+        description: "Какие контейнеры пересоздать (env_file читается только при recreate)"
+        type: choice
+        options: [none, app, bot, app-and-bot]
+        default: app
+  push:
+    branches-ignore: [main]
+    paths: [".github/workflows/ops-novofon-env.yml"]
+
+concurrency:
+  group: ops-env
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-novofon:
+    name: "Синк NOVOFON_* в .env"
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Гейт (только dispatch из main)
+        id: prep
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/main" ]; then
+            echo "Сухой прогон ($EVENT, $REF): изменений не будет."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Применение на VPS
+        if: steps.prep.outputs.proceed == 'true' && github.ref == 'refs/heads/main'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          V_API: ${{ secrets.NOVOFON_API_TOKEN }}
+          # В Secrets лежит NOVOFON_WEBHOOK_SECRET; NOVOFON_WEBHOOK_TOKEN приоритетнее, если появится.
+          V_HOOK: ${{ secrets.NOVOFON_WEBHOOK_TOKEN || secrets.NOVOFON_WEBHOOK_SECRET }}
+          RESTART: ${{ inputs.restart }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          envs: V_API,V_HOOK,RESTART
+          script: |
+            set -eu
+            cd /opt/delovoy-park
+            touch .env
+            chmod 600 .env
+
+            upsert() {
+              # $1 = имя ключа, $2 = значение. Значение не печатается.
+              if [ -z "$2" ]; then
+                echo "skip $1 (секрет пуст)"
+                return 0
+              fi
+              grep -v "^$1=" .env > .env.tmp || true
+              printf '%s=%s\n' "$1" "$2" >> .env.tmp
+              chmod 600 .env.tmp
+              mv .env.tmp .env
+              echo "set $1"
+            }
+            upsert NOVOFON_API_TOKEN "$V_API"
+            upsert NOVOFON_WEBHOOK_TOKEN "$V_HOOK"
+            chmod 600 .env
+
+            SERVICES=""
+            case "$RESTART" in
+              app) SERVICES="app" ;;
+              bot) SERVICES="bot" ;;
+              app-and-bot) SERVICES="app bot" ;;
+            esac
+            if [ -n "$SERVICES" ]; then
+              docker compose up -d --force-recreate --no-deps $SERVICES
+              echo "Пересозданы: $SERVICES"
+              sleep 20
+              for S in $SERVICES; do
+                C="delovoy-$S"
+                for K in NOVOFON_API_TOKEN NOVOFON_WEBHOOK_TOKEN; do
+                  PRESENT=$(docker exec "$C" sh -c "env | grep -c \"^${K}=\"" 2>/dev/null || echo 0)
+                  echo "$C: $K $([ "$PRESENT" -ge 1 ] && echo SET || echo UNSET)"
+                done
+              done
+              echo "--- Health app ---"
+              curl -s --max-time 15 http://127.0.0.1:3000/api/health | head -c 300 || echo "(health не ответил)"
+            fi

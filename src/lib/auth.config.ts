@@ -182,6 +182,9 @@ export const authConfig: NextAuthConfig = {
         // Вебхук ЮKassa: шлётся серверами провайдера без сессии; роут
         // fail-secure — timingSafeEqual по секрету в URL, 503 без env-секрета.
         pathname.startsWith("/api/payments/yookassa/webhook/") ||
+        // Вебхук Novofon: шлётся серверами Novofon без сессии; роут fail-secure —
+        // сверяет ?token= / X-Webhook-Token или HMAC, 503 без env-секрета.
+        pathname === "/api/telephony/webhook" ||
         // Public report form (Phase 5.4) — anonymous submission, IP rate-limited
         // (5/hour per IP) inside the route handler.
         pathname === "/api/tasks/report" ||

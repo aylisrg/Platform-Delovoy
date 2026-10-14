@@ -128,16 +128,17 @@ export async function novofonCheckStatus(
 }
 
 /**
- * Token resolution. Novofon 2.0 issues separate keys for the Data API
- * (analytics/statistics) and the Call API (initiating calls).
- * Fallback: NOVOFON_API_TOKEN, then legacy NOVOFON_API_KEY.
+ * Token resolution. One Novofon key (NOVOFON_API_TOKEN) works for both the
+ * Call API and the Data API, so it is the primary source for both.
+ * Backward-compatible fallback: the dedicated NOVOFON_CALL_API_TOKEN /
+ * NOVOFON_DATA_API_TOKEN, then legacy NOVOFON_API_KEY.
  */
 export function getNovofonDataApiToken(env: NodeJS.ProcessEnv = process.env): string {
-  return env.NOVOFON_DATA_API_TOKEN || env.NOVOFON_API_TOKEN || env.NOVOFON_API_KEY || "";
+  return env.NOVOFON_API_TOKEN || env.NOVOFON_DATA_API_TOKEN || env.NOVOFON_API_KEY || "";
 }
 
 export function getNovofonCallApiToken(env: NodeJS.ProcessEnv = process.env): string {
-  return env.NOVOFON_CALL_API_TOKEN || env.NOVOFON_API_TOKEN || env.NOVOFON_API_KEY || "";
+  return env.NOVOFON_API_TOKEN || env.NOVOFON_CALL_API_TOKEN || env.NOVOFON_API_KEY || "";
 }
 
 /** Constant-time string comparison (crypto.timingSafeEqual via safeCompare). */
