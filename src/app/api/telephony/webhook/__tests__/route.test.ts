@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     callLog: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     booking: { findFirst: vi.fn() },
+    novofonCall: { upsert: vi.fn() },
   },
 }));
 vi.mock("@/lib/logger", () => ({
@@ -19,6 +20,7 @@ import { POST } from "../route";
 const db = prisma as unknown as {
   callLog: { findFirst: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
   booking: { findFirst: ReturnType<typeof vi.fn> };
+  novofonCall: { upsert: ReturnType<typeof vi.fn> };
 };
 
 const SECRET = "test-webhook-secret";
@@ -174,5 +176,65 @@ describe("POST /api/telephony/webhook (Novofon 2.0)", () => {
   it("returns 400 for unknown payload", async () => {
     const res = await POST(req({ foo: 1 }, { token: SECRET }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/telephony/webhook: журнал звонков (#1066 PR2)", () => {
+  const V2_RECORD = {
+    notification_name: "call_record",
+    call_session_id: 1234567891,
+    notification_time: "2026-10-13 12:05:00.000",
+    file_link: "https://media.example.test/rec/abc",
+    file_duration: 42,
+  };
+
+  it("«Завершение звонка» пишет NovofonCall по call_session_id", async () => {
+    const res = await POST(req(V2_FINISHED, { token: SECRET }));
+    expect(res.status).toBe(200);
+    expect(db.novofonCall.upsert).toHaveBeenCalledTimes(1);
+    const arg = db.novofonCall.upsert.mock.calls[0][0];
+    expect(arg.where).toEqual({ id: "1234567891" });
+    expect(arg.create).toMatchObject({ direction: "INBOUND", isLost: false, talkDuration: 42, totalDuration: 55 });
+  });
+
+  it("«Записанный разговор» сохраняет ссылку на запись", async () => {
+    const res = await POST(req(V2_RECORD, { token: SECRET }));
+    expect(res.status).toBe(200);
+    const arg = db.novofonCall.upsert.mock.calls[0][0];
+    expect(arg.where).toEqual({ id: "1234567891" });
+    expect(arg.update).toEqual({ recordUrl: "https://media.example.test/rec/abc" });
+  });
+
+  it("неверный секрет -> 401, в журнал ничего не пишется", async () => {
+    const res = await POST(req(V2_FINISHED, { token: "wrong" }));
+    expect(res.status).toBe(401);
+    expect(db.novofonCall.upsert).not.toHaveBeenCalled();
+  });
+
+  it("без секрета -> 401", async () => {
+    const res = await POST(req(V2_RECORD));
+    expect(res.status).toBe(401);
+    expect(db.novofonCall.upsert).not.toHaveBeenCalled();
+  });
+
+  it("повтор уведомления = upsert той же строки, не create", async () => {
+    await POST(req(V2_FINISHED, { token: SECRET }));
+    await POST(req(V2_FINISHED, { token: SECRET }));
+    const ids = db.novofonCall.upsert.mock.calls.map((c) => c[0].where.id);
+    expect(ids).toEqual(["1234567891", "1234567891"]);
+  });
+
+  it("входящий (incoming_call) в журнал не пишется", async () => {
+    await POST(req(V2_INCOMING, { token: SECRET }));
+    expect(db.novofonCall.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ошибка БД -> 500, номер не попадает в лог", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    db.novofonCall.upsert.mockRejectedValueOnce(new Error("db down for 70000000098"));
+    const res = await POST(req(V2_FINISHED, { token: SECRET }));
+    expect(res.status).toBe(500);
+    expect(err.mock.calls.flat().map(String).join(" ")).not.toContain("70000000098");
+    err.mockRestore();
   });
 });

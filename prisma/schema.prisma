@@ -1308,6 +1308,8 @@ model NovofonCall {
   employeeId         String?
   employeeName       String?
   recordId           String?
+  /// file_link из уведомления «Записанный разговор». Отдаётся только через прокси с проверкой прав (PR4).
+  recordUrl          String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 

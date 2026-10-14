@@ -320,8 +320,8 @@ export async function handleWebhook(payload: NovofonWebhookPayload) {
       },
     });
 
+    // Номер не логируем (#1066): только факт и привязка к брони.
     await log.info("telephony", "inbound_call_received", {
-      caller,
       bookingId: bookingId ?? "unattributed",
       externalCallId: call_id,
     });
