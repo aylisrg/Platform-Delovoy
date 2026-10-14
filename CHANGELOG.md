@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.27.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.26.0...v2.27.0) (2026-10-14)
+
+
+### Features
+
+* **telephony:** вебхуки «Завершение звонка» и «Записанный разговор» в NovofonCall ([#1066](https://github.com/aylisrg/Platform-Delovoy/issues/1066) PR2) ([#1124](https://github.com/aylisrg/Platform-Delovoy/issues/1124)) ([193ab1f](https://github.com/aylisrg/Platform-Delovoy/commit/193ab1fc77e9dc14b9da770c620a4111c7c72b8b))
+
+
+### Bug Fixes
+
+* **notifications:** contract.expiring не ставится повторно, если алерт уже в очереди dispatch (Refs [#708](https://github.com/aylisrg/Platform-Delovoy/issues/708)) ([#1126](https://github.com/aylisrg/Platform-Delovoy/issues/1126)) ([21dd71b](https://github.com/aylisrg/Platform-Delovoy/commit/21dd71bc05894db7cb3aaaeac831085cb239d18f))
+
 ## [2.26.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.25.0...v2.26.0) (2026-10-14)
 
 
