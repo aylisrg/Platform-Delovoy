@@ -3,53 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-
-type NavItem = {
-  label: string;
-  href: string;
-  icon: string;
-  section: string;
-};
-
-type ParkContext = "delovoy" | "nedelovoy";
-
-const ALL_NAVIGATION: NavItem[] = [
-  { label: "Дашборд", href: "/admin/dashboard", icon: "📊", section: "dashboard" },
-  { label: "Барбекю Парк", href: "/admin/gazebos", icon: "🏕", section: "gazebos" },
-  { label: "Плей Парк", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
-  { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
-  { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
-  { label: "НеДеловой", href: "/admin/nedelovoy", icon: "🏗", section: "nedelovoy" },
-  { label: "Бани", href: "/admin/sauna", icon: "🧖", section: "sauna" },
-  { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
-  { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
-  { label: "Клиенты", href: "/admin/clients", icon: "🧑", section: "clients" },
-  { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
-  { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
-  { label: "Мессенджер", href: "/admin/messenger", icon: "✉️", section: "messenger" },
-  { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
-  { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
-  { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
-];
-
-const DELOVOY_SECTIONS = new Set([
-  "dashboard", "rental", "gazebos", "ps-park", "cafe",
-  "clients", "inventory", "analytics", "feedback",
-  "messenger", "monitoring", "architect", "modules",
-]);
-const NEDELOVOY_SECTIONS = new Set(["nedelovoy", "sauna"]);
-
-function detectParkFromPath(pathname: string | null): ParkContext | null {
-  if (!pathname) return null;
-  if (pathname.startsWith("/admin/nedelovoy") || pathname.startsWith("/admin/sauna")) return "nedelovoy";
-  const delovoyPrefixes = [
-    "/admin/dashboard", "/admin/rental", "/admin/gazebos", "/admin/ps-park",
-    "/admin/cafe", "/admin/clients", "/admin/inventory", "/admin/analytics",
-    "/admin/feedback", "/admin/monitoring", "/admin/architect", "/admin/modules",
-  ];
-  if (delovoyPrefixes.some((p) => pathname.startsWith(p))) return "delovoy";
-  return null;
-}
+import {
+  ALL_NAVIGATION,
+  DELOVOY_SECTIONS,
+  NEDELOVOY_SECTIONS,
+  detectParkFromPath,
+  type ParkContext,
+} from "./navigation";
 
 const PARK_STORAGE_KEY = "admin-park-context";
 const BADGE_POLL_INTERVAL = 30_000;

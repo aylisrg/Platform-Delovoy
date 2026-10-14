@@ -47,12 +47,9 @@ describe("каталог TEAM_SERVICES", () => {
     expect(TEAM_SERVICES.some((s) => s.section === "sauna")).toBe(false);
   });
 
-  it("superadminOnly стоит ровно на секциях вне грида прав", () => {
+  it("каждая карточка — секция из грида прав (её можно выдать)", () => {
     for (const service of TEAM_SERVICES) {
-      const inGrid = (ADMIN_SECTION_SLUGS as readonly string[]).includes(
-        service.section,
-      );
-      expect(service.superadminOnly ?? false).toBe(!inGrid);
+      expect(ADMIN_SECTION_SLUGS as readonly string[]).toContain(service.section);
     }
   });
 });
@@ -67,10 +64,17 @@ describe("visibleTeamServices", () => {
     expect(visible.map((s) => s.section).sort()).toEqual(["cafe", "inventory"]);
   });
 
-  it("MANAGER не видит секции вне грида прав, даже если их подсунули", () => {
-    // authorized() отправит его на /admin/forbidden — ссылки быть не должно.
+  it("MANAGER видит платежи и уведомления, когда право выдано (#914)", () => {
     const visible = visibleTeamServices("MANAGER", ["payments", "notifications"]);
-    expect(visible).toEqual([]);
+    expect(visible.map((s) => s.section).sort()).toEqual(["notifications", "payments"]);
+  });
+
+  it("MANAGER без гранта не видит платежи, обратную связь и уведомления", () => {
+    const visible = visibleTeamServices("MANAGER", ["cafe"]);
+    const sections = visible.map((s) => s.section);
+    for (const s of ["payments", "feedback", "notifications"]) {
+      expect(sections).not.toContain(s);
+    }
   });
 
   it("SUPERADMIN видит весь каталог, кроме строгого НеДелового без гранта", () => {
@@ -90,7 +94,7 @@ describe("visibleTeamServices", () => {
     expect(visible.map((s) => s.section)).toContain("nedelovoy");
   });
 
-  it("SUPERADMIN видит секции вне грида прав", () => {
+  it("SUPERADMIN видит платежи, обратную связь и уведомления", () => {
     const sections = visibleTeamServices("SUPERADMIN", SUPERADMIN_SECTIONS).map(
       (s) => s.section,
     );

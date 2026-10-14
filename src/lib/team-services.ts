@@ -4,21 +4,14 @@ import type { Role } from "@prisma/client";
  * Каталог внутренних сервисов для страницы «Для команды» (`/for-team`).
  *
  * Здесь только то, что РАБОТАЕТ сегодня: у каждой записи есть живая страница
- * в админке. Заглушки в каталог не попадают — «Бани» (`sauna`) числятся в
- * навигации и в гриде прав, но страницы `/admin/sauna` в проекте нет, поэтому
- * сюда они не включены (см. CLAUDE.md, модуль `sauna` — 🟡 stub).
+ * в админке. Заглушки в каталог не попадают — «Бани» (`sauna`) остаются
+ * модулем-заглушкой без страницы в админке (см. CLAUDE.md, #915).
  *
  * Видимость карточки обязана совпадать с реальным гейтом из
  * `auth.config.ts → authorized()`, иначе команда будет упираться в
  * `/admin/forbidden`:
  *   - SUPERADMIN проходит на любой `/admin/*`;
  *   - ADMIN и MANAGER — только на секции из своих `adminSections`.
- *
- * `superadminOnly` — про три секции (`payments`, `feedback`, `notifications`),
- * которых нет в `ADMIN_SECTIONS` из `permissions.ts`. Их нельзя выдать
- * ADMIN/MANAGER в принципе: `setUserAdminSections()` отфильтрует такой slug,
- * и `authorized()` отправит пользователя на `/admin/forbidden`. Фактически они
- * доступны только SUPERADMIN — так и показываем.
  */
 export type TeamServiceGroup =
   | "Операции парка"
@@ -35,8 +28,6 @@ export type TeamService = {
   href: string;
   icon: string;
   group: TeamServiceGroup;
-  /** Секция вне грида прав — выдать её ADMIN/MANAGER невозможно. */
-  superadminOnly?: boolean;
 };
 
 export const TEAM_SERVICES: TeamService[] = [
@@ -111,7 +102,6 @@ export const TEAM_SERVICES: TeamService[] = [
     href: "/admin/feedback",
     icon: "💬",
     group: "Клиенты и продажи",
-    superadminOnly: true,
   },
   {
     section: "payments",
@@ -120,7 +110,6 @@ export const TEAM_SERVICES: TeamService[] = [
     href: "/admin/payments",
     icon: "💳",
     group: "Ресурсы и деньги",
-    superadminOnly: true,
   },
   {
     section: "inventory",
@@ -169,7 +158,6 @@ export const TEAM_SERVICES: TeamService[] = [
     href: "/admin/notifications",
     icon: "🔔",
     group: "Работа команды",
-    superadminOnly: true,
   },
   {
     section: "users",
@@ -232,10 +220,6 @@ export function visibleTeamServices(
   if (!isTeamRole(role)) return [];
   const granted = new Set(grantedSections);
   return TEAM_SERVICES.filter((service) => {
-    // Секции вне грида прав — только SUPERADMIN, и никакой грант этого не
-    // меняет: `authorized()` всё равно отправит ADMIN/MANAGER на
-    // /admin/forbidden, так что ссылка была бы заведомо битой.
-    if (service.superadminOnly) return role === "SUPERADMIN";
     return granted.has(service.section);
   });
 }

@@ -128,8 +128,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
     description: "Лиды с объявлений Авито",
     icon: "megaphone",
     // В ADR категория называлась «Обратная связь» с секцией feedback, но
-    // секции feedback в ADMIN_SECTIONS нет, а событий feedback.* нет в
-    // EVENT_ROUTING. Честный вариант: категория «Авито» под секцией avito
+    // событий feedback.* нет в EVENT_ROUTING. Честный вариант: категория «Авито» под секцией avito
     // с единственным реально существующим событием.
     sections: ["avito"],
     events: [
