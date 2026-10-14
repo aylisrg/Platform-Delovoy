@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.26.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.25.0...v2.26.0) (2026-10-14)
+
+
+### Features
+
+* **telephony:** модель NovofonCall и синк get.calls_report ([#1066](https://github.com/aylisrg/Platform-Delovoy/issues/1066) PR1) ([#1122](https://github.com/aylisrg/Platform-Delovoy/issues/1122)) ([973d4f9](https://github.com/aylisrg/Platform-Delovoy/commit/973d4f96af7221bc019197598b84ffeda2fb3e5c))
+
+
+### Bug Fixes
+
+* **admin:** платежи, обратная связь и уведомления в гриде прав, убрать «Бани» из меню ([#1119](https://github.com/aylisrg/Platform-Delovoy/issues/1119)) ([692c267](https://github.com/aylisrg/Platform-Delovoy/commit/692c267805ebfe73bddc4138802d4b3e9bab4181))
+* **deploy:** DEPLOYED_SHA write via DEPLOY_STATE_TOKEN, fail loudly (Refs [#1074](https://github.com/aylisrg/Platform-Delovoy/issues/1074)) ([#1083](https://github.com/aylisrg/Platform-Delovoy/issues/1083)) ([334485e](https://github.com/aylisrg/Platform-Delovoy/commit/334485e0c718a0280f6956d14989463460854d4d))
+* **notifications:** аренда записей очереди, экспоненциальный ретрай, health видит мёртвый крон ([#1118](https://github.com/aylisrg/Platform-Delovoy/issues/1118)) ([331b60a](https://github.com/aylisrg/Platform-Delovoy/commit/331b60a2b43ea4ae392c6a3c5f33b4b44b13860a))
+
 ## [2.25.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.24.0...v2.25.0) (2026-10-13)
 
 
