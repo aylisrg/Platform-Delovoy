@@ -57,6 +57,10 @@ describe("authorized(): платёжный контур", () => {
     ).toBe(true);
   });
 
+  it("POST вебхука Novofon проходит (роут сам сверяет токен/подпись)", async () => {
+    expect(await authorize("POST", "/api/telephony/webhook")).toBe(true);
+  });
+
   it("GET reconciliation-cron проходит (роут сам сверяет CRON_SECRET)", async () => {
     expect(await authorize("GET", "/api/cron/payments-reconcile")).toBe(true);
   });
