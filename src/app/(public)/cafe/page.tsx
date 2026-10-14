@@ -9,6 +9,7 @@ import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { auth } from "@/lib/auth";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 // Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -44,8 +45,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.519479,
-        longitude: 36.978566,
+        latitude: PARK_LOCATION.lat,
+        longitude: PARK_LOCATION.lon,
       },
       openingHoursSpecification: [
         {

@@ -6,6 +6,7 @@ import { RentalPageContent } from "@/components/public/rental/rental-page-conten
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 // Офисы живут в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -40,8 +41,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.519479,
-        longitude: 36.978566,
+        latitude: PARK_LOCATION.lat,
+        longitude: PARK_LOCATION.lon,
       },
       openingHoursSpecification: [
         {

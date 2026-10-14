@@ -11,7 +11,7 @@
 
 1. На лендинге `delovoy-park.ru` карта Яндекса не рендерится — CSP `frame-src https://oauth.telegram.org` блокирует iframe `https://yandex.ru/map-widget/v1/...`. Браузер режет молча.
 2. Карту нужно добавить на `/ps-park` перед футером (тёмная тема), переиспользуемо.
-3. Координаты единые для всех бизнесов: `55.519479, 36.978566` (Промышленная ул., с1, Селятино). Shortlink Яндекса экспирится — оставляем explicit-coords.
+3. Координаты единые для всех бизнесов и берутся из `src/lib/park-location.ts` (Промышленная ул., с1, Селятино). Числовая точка в этом ADR больше не источник истины — её сменил #1089. Shortlink Яндекса экспирится — оставляем explicit-coords из константы.
 
 ---
 
@@ -98,8 +98,8 @@ export function YandexMap({ lat, lon, zoom = 16, title, theme = "light", classNa
     </p>
   </div>
   <YandexMap
-    lat={55.519479}
-    lon={36.978566}
+    lat={PARK_LOCATION.lat}
+    lon={PARK_LOCATION.lon}
     title="Плей Парк — Бизнес-парк «Деловой», Селятино"
     theme="dark"
     className="aspect-[4/3] min-h-[400px] rounded-2xl"
