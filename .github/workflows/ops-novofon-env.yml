@@ -1,6 +1,7 @@
 # Синк ключей Novofon из GitHub Secrets в /opt/delovoy-park/.env (Refs #1066).
 # Модель: ops-env.yml. Значения никогда не печатаются; пустой секрет пропускается
-# (ключ в .env не трогается). Запуск меняет prod .env — только с OK владельца.
+# (ключ в .env не трогается). Один ключ NOVOFON_API_TOKEN работает и для
+# Call API, и для Data API; отдельные NOVOFON_CALL/DATA_API_TOKEN не нужны. Запуск меняет prod .env — только с OK владельца.
 # push на не-main ветки регистрирует workflow; push-запуск — сухой прогон.
 name: Ops — Novofon .env
 
@@ -46,8 +47,6 @@ jobs:
         if: steps.prep.outputs.proceed == 'true' && github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
-          V_DATA: ${{ secrets.NOVOFON_DATA_API_TOKEN }}
-          V_CALL: ${{ secrets.NOVOFON_CALL_API_TOKEN }}
           V_API: ${{ secrets.NOVOFON_API_TOKEN }}
           V_HOOK: ${{ secrets.NOVOFON_WEBHOOK_TOKEN }}
           RESTART: ${{ inputs.restart }}
@@ -56,7 +55,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 10m
-          envs: V_DATA,V_CALL,V_API,V_HOOK,RESTART
+          envs: V_API,V_HOOK,RESTART
           script: |
             set -eu
             cd /opt/delovoy-park
@@ -75,8 +74,6 @@ jobs:
               mv .env.tmp .env
               echo "set $1"
             }
-            upsert NOVOFON_DATA_API_TOKEN "$V_DATA"
-            upsert NOVOFON_CALL_API_TOKEN "$V_CALL"
             upsert NOVOFON_API_TOKEN "$V_API"
             upsert NOVOFON_WEBHOOK_TOKEN "$V_HOOK"
             chmod 600 .env
@@ -93,7 +90,7 @@ jobs:
               sleep 20
               for S in $SERVICES; do
                 C="delovoy-$S"
-                for K in NOVOFON_DATA_API_TOKEN NOVOFON_CALL_API_TOKEN NOVOFON_API_TOKEN NOVOFON_WEBHOOK_TOKEN; do
+                for K in NOVOFON_API_TOKEN NOVOFON_WEBHOOK_TOKEN; do
                   PRESENT=$(docker exec "$C" sh -c "env | grep -c \"^${K}=\"" 2>/dev/null || echo 0)
                   echo "$C: $K $([ "$PRESENT" -ge 1 ] && echo SET || echo UNSET)"
                 done
