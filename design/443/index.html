@@ -1,0 +1,69 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.tailwindcss.com"></script>
+<style>body{font-family:Inter,system-ui,sans-serif;color:#1d1d1f}.hatch{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.06) 0 6px,transparent 6px 12px)}.hatchr{background-image:repeating-linear-gradient(135deg,rgba(220,38,38,.12) 0 6px,transparent 6px 12px)}</style></head>
+<body class="bg-zinc-50"><div class="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-1.5">МАКЕТ. Все данные вымышленные (пример), номера замаскированы.</div>
+<div class="flex"><aside class="hidden lg:block w-60 shrink-0 bg-white border-r border-zinc-200 min-h-screen p-4 text-sm space-y-1"><div class="font-semibold mb-4">Деловой · Админка</div>
+<div class="px-3 py-2 rounded-lg text-zinc-600">📊 Дашборд</div><div class="px-3 py-2 rounded-lg bg-zinc-100 font-medium">🏕 Барбекю Парк</div><div class="px-3 py-2 rounded-lg text-zinc-600">🎮 Плей Парк</div><div class="px-3 py-2 rounded-lg text-zinc-600">📞 Звонки</div><div class="px-3 py-2 rounded-lg text-zinc-600">👥 Клиенты</div></aside><main class="flex-1 min-w-0 p-4 lg:p-8 space-y-10">
+<section class="space-y-4"><h2 class="text-xs uppercase tracking-wide text-zinc-400 font-semibold">1. Таймлайн с блоками</h2>
+<div class="flex items-center justify-between flex-wrap gap-3"><h1 class="text-2xl font-semibold">Барбекю Парк · Сб 17.10 (пример)</h1><div class="flex gap-2"><button class="px-3 py-2 rounded-lg border border-zinc-200 bg-white text-sm">⛔ Закрыть день</button><button class="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm">+ Блокировка</button></div></div>
+<div class="flex flex-wrap gap-4 text-xs text-zinc-500"><span>▮ <span class="inline-block w-4 h-3 rounded-sm bg-emerald-50 border border-emerald-200 align-middle"></span> Бронь</span><span><span class="inline-block w-4 h-3 rounded-sm bg-zinc-100 border border-dashed border-zinc-300 hatch align-middle"></span> Уборка</span><span><span class="inline-block w-4 h-3 rounded-sm bg-red-50 border border-red-300 hatchr align-middle"></span> Блокировка</span></div>
+<div class="rounded-xl border border-zinc-200 bg-white overflow-x-auto"><div class="min-w-[900px]"><div class="flex border-b border-zinc-200"><div class="w-36 shrink-0 px-3 py-2 text-xs text-zinc-500 border-r border-zinc-200">Ресурс</div><div class="flex-1 grid grid-cols-12 text-xs text-zinc-500">
+<div class="py-2 text-center border-r border-zinc-100">10:00</div>
+<div class="py-2 text-center border-r border-zinc-100">11:00</div>
+<div class="py-2 text-center border-r border-zinc-100">12:00</div>
+<div class="py-2 text-center border-r border-zinc-100">13:00</div>
+<div class="py-2 text-center border-r border-zinc-100">14:00</div>
+<div class="py-2 text-center border-r border-zinc-100">15:00</div>
+<div class="py-2 text-center border-r border-zinc-100">16:00</div>
+<div class="py-2 text-center border-r border-zinc-100">17:00</div>
+<div class="py-2 text-center border-r border-zinc-100">18:00</div>
+<div class="py-2 text-center border-r border-zinc-100">19:00</div>
+<div class="py-2 text-center border-r border-zinc-100">20:00</div>
+<div class="py-2 text-center border-r border-zinc-100">21:00</div>
+</div></div>
+<div class="flex border-b border-zinc-100 h-16"><div class="w-36 shrink-0 px-3 py-3 border-r border-zinc-200 text-sm font-medium">Беседка 1</div><div class="flex-1 relative"><div class="absolute top-1 bottom-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-xs" style="left:8.3%;width:25%">Пример: Олег · 4 ч</div><div class="absolute top-1 bottom-1 rounded-lg bg-zinc-100 border border-dashed border-zinc-300 hatch" style="left:33.3%;width:4%"></div></div></div>
+<div class="flex border-b border-zinc-100 h-16"><div class="w-36 shrink-0 px-3 py-3 border-r border-zinc-200 text-sm font-medium">Беседка 2</div><div class="flex-1 relative"><div class="absolute top-1 bottom-1 rounded-lg bg-red-50 border border-red-300 hatchr px-2 py-1 text-xs text-red-800" style="left:0;width:50%">🔧 Ремонт мангала · до 16:00<br><span class="text-red-600/70">комментарий: замена решётки</span></div><div class="absolute top-1 bottom-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-xs" style="left:58%;width:25%">Пример: Мария · 3 ч</div></div></div>
+<div class="flex h-16 bg-red-50/40"><div class="w-36 shrink-0 px-3 py-3 border-r border-zinc-200 text-sm font-medium">Беседка 3</div><div class="flex-1 relative"><div class="absolute top-1 bottom-1 rounded-lg bg-red-50 border border-red-300 hatchr px-2 py-1 text-xs text-red-800" style="left:0;width:100%">🌧 Погода · весь день · 2 брони отменены с уведомлением</div></div></div>
+</div></div><p class="text-xs text-zinc-500">Блок рисуется поверх слотов красной штриховкой: отличается и от брони (зелёная заливка), и от уборки (серая штриховка). Клик открывает карточку блока: изменить, снять.</p></section>
+
+<section class="space-y-4"><h2 class="text-xs uppercase tracking-wide text-zinc-400 font-semibold">2. Выходной день парка (все ресурсы)</h2>
+<div class="rounded-xl border border-red-200 bg-red-50 hatchr p-4 flex flex-wrap justify-between gap-3 items-center"><div><div class="font-semibold text-red-800">⛔ Пн 19.10 (пример): санитарный день. Парк закрыт</div><div class="text-sm text-red-700">Все беседки и Плей Парк. Публичная запись на этот день закрыта.</div></div><button class="px-3 py-1.5 rounded-lg bg-white border border-red-200 text-sm text-red-700">Снять выходной</button></div>
+<div class="rounded-xl border border-zinc-200 bg-white p-3"><div class="grid grid-cols-7 gap-1 text-center text-xs">
+<div class="rounded-lg p-2 bg-white border border-zinc-200">13.10</div>
+<div class="rounded-lg p-2 bg-white border border-zinc-200">14.10</div>
+<div class="rounded-lg p-2 bg-white border border-zinc-200">15.10</div>
+<div class="rounded-lg p-2 bg-white border border-zinc-200">16.10</div>
+<div class="rounded-lg p-2 bg-amber-50 border border-amber-200">17.10</div>
+<div class="rounded-lg p-2 bg-white border border-zinc-200">18.10</div>
+<div class="rounded-lg p-2 bg-red-50 border border-red-300 hatchr text-red-700">19.10</div>
+</div><div class="text-xs text-zinc-500 mt-2">В недельном виде: выходной красной штриховкой на весь столбец, день с частичными блоками отмечен жёлтым.</div></div></section>
+
+<section class="space-y-4"><h2 class="text-xs uppercase tracking-wide text-zinc-400 font-semibold">3. Диалог «Новая блокировка»</h2>
+<div class="max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg space-y-4 text-sm"><div class="text-lg font-semibold">Новая блокировка</div>
+<div><div class="text-xs text-zinc-500 mb-1">Ресурсы</div><div class="flex flex-wrap gap-2"><span class="px-2 py-1 rounded-md bg-zinc-900 text-white">Беседка 2 ✕</span><span class="px-2 py-1 rounded-md border border-zinc-200">+ добавить</span><span class="px-2 py-1 rounded-md border border-zinc-200">Все ресурсы модуля</span><span class="px-2 py-1 rounded-md border border-zinc-200">Весь парк</span></div></div>
+<div class="grid grid-cols-2 gap-3"><div><div class="text-xs text-zinc-500 mb-1">С</div><div class="border border-zinc-200 rounded-lg px-3 py-2">17.10 · 10:00</div></div><div><div class="text-xs text-zinc-500 mb-1">По</div><div class="border border-zinc-200 rounded-lg px-3 py-2">17.10 · 16:00</div></div></div><label class="flex gap-2 text-zinc-600"><input type="checkbox"> Весь день</label>
+<div><div class="text-xs text-zinc-500 mb-1">Причина</div><div class="flex gap-1 bg-zinc-100 rounded-lg p-1"><span class="flex-1 text-center py-1.5 rounded-md bg-white shadow-sm">🔧 Ремонт</span><span class="flex-1 text-center py-1.5 text-zinc-500">⛔ Выходной</span><span class="flex-1 text-center py-1.5 text-zinc-500">🌧 Погода</span></div></div>
+<div><div class="text-xs text-zinc-500 mb-1">Комментарий (виден только админам)</div><div class="border border-zinc-200 rounded-lg px-3 py-2 h-14 text-zinc-400">замена решётки</div></div>
+<div><div class="text-xs text-zinc-500 mb-1">Гостям покажем</div><div class="border border-zinc-200 rounded-lg px-3 py-2">Техническое обслуживание</div></div>
+<div class="flex justify-end gap-2"><button class="px-4 py-2 rounded-lg border border-zinc-200">Отмена</button><button class="px-4 py-2 rounded-lg bg-zinc-900 text-white">Далее</button></div></div></section>
+
+<section class="space-y-4"><h2 class="text-xs uppercase tracking-wide text-zinc-400 font-semibold">4. Конфликт с бронями</h2>
+<div class="max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg space-y-4 text-sm"><div class="text-lg font-semibold">Блок пересекает 2 брони</div>
+<div class="rounded-lg border border-zinc-200 divide-y divide-zinc-100"><div class="p-3 flex justify-between"><span>Пример: Олег · Беседка 3 · 12:00–16:00</span><span class="text-xs text-emerald-700">оплачено 🟢</span></div><div class="p-3 flex justify-between"><span>Пример: Мария · Беседка 3 · 17:00–20:00</span><span class="text-xs text-zinc-500">не оплачено</span></div></div>
+<label class="flex gap-2 items-start border border-zinc-200 rounded-lg p-3"><input type="radio"> <span><b>Оставить брони</b><br><span class="text-zinc-500">блок встанет только на свободное время</span></span></label>
+<label class="flex gap-2 items-start border-2 border-zinc-900 rounded-lg p-3"><input type="radio" checked> <span><b>Отменить и уведомить гостей</b><br><span class="text-zinc-500">причина «Погода», возврат по оплаченным по правилам отмены</span></span></label>
+<div class="rounded-lg bg-zinc-50 p-3 text-zinc-600 text-xs">Текст уведомления (Telegram / SMS): «Бронь на 17.10 отменена из-за погоды. Предоплата будет возвращена. Позвоните нам, чтобы перенести.»</div>
+<div class="flex justify-end gap-2"><button class="px-4 py-2 rounded-lg border border-zinc-200">Назад</button><button class="px-4 py-2 rounded-lg bg-red-600 text-white">Отменить 2 брони и заблокировать</button></div></div></section>
+
+<section class="space-y-4"><h2 class="text-xs uppercase tracking-wide text-zinc-400 font-semibold">5. Публичная страница записи</h2>
+<div class="max-w-md rounded-2xl border border-zinc-200 bg-white p-5 space-y-3 text-sm"><div class="font-semibold">Беседка 2 · Сб 17.10</div><div class="grid grid-cols-4 gap-2">
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">10:00</div>
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">11:00</div>
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">12:00</div>
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">13:00</div>
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">14:00</div>
+<div class="rounded-lg py-2 text-center bg-zinc-100 text-zinc-400 hatch line-through">15:00</div>
+<div class="rounded-lg py-2 text-center border border-zinc-200">16:00</div>
+<div class="rounded-lg py-2 text-center border border-zinc-200">17:00</div>
+</div><div class="text-xs text-zinc-500">10:00–16:00 недоступно: техническое обслуживание</div>
+<div class="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-zinc-600">Пн 19.10: парк закрыт (санитарный день). День в календаре серый и не выбирается.</div></div></section>
+</main></div></body></html>
