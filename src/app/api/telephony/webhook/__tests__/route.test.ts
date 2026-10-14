@@ -124,6 +124,27 @@ describe("POST /api/telephony/webhook (Novofon 2.0)", () => {
     expect(res.status).toBe(503);
   });
 
+  it("falls back to NOVOFON_WEBHOOK_SECRET when NOVOFON_WEBHOOK_TOKEN is unset", async () => {
+    delete process.env.NOVOFON_WEBHOOK_TOKEN;
+    process.env.NOVOFON_WEBHOOK_SECRET = SECRET;
+    const ok = await POST(req(V2_INCOMING, { token: SECRET }));
+    expect(ok.status).toBe(200);
+    const bad = await POST(req(V2_INCOMING, { token: "wrong-token" }));
+    expect(bad.status).toBe(401);
+  });
+
+  it("prefers NOVOFON_WEBHOOK_TOKEN over NOVOFON_WEBHOOK_SECRET", async () => {
+    process.env.NOVOFON_WEBHOOK_SECRET = "other-secret";
+    expect((await POST(req(V2_INCOMING, { token: SECRET }))).status).toBe(200);
+    expect((await POST(req(V2_INCOMING, { token: "other-secret" }))).status).toBe(401);
+  });
+
+  it("returns 503 when neither token nor secret is configured", async () => {
+    delete process.env.NOVOFON_WEBHOOK_TOKEN;
+    delete process.env.NOVOFON_WEBHOOK_SECRET;
+    expect((await POST(req(V2_INCOMING, { token: SECRET }))).status).toBe(503);
+  });
+
   it("rejects IP not in NOVOFON_WEBHOOK_IPS with 403", async () => {
     process.env.NOVOFON_WEBHOOK_IPS = "192.0.2.10";
     const r = req(V2_INCOMING, { token: SECRET });

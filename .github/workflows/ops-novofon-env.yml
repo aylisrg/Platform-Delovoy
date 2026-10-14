@@ -1,7 +1,8 @@
 # Синк ключей Novofon из GitHub Secrets в /opt/delovoy-park/.env (Refs #1066).
 # Модель: ops-env.yml. Значения никогда не печатаются; пустой секрет пропускается
 # (ключ в .env не трогается). Один ключ NOVOFON_API_TOKEN работает и для
-# Call API, и для Data API; отдельные NOVOFON_CALL/DATA_API_TOKEN не нужны. Запуск меняет prod .env — только с OK владельца.
+# Call API, и для Data API; отдельные NOVOFON_CALL/DATA_API_TOKEN не нужны.
+# Вебхук: NOVOFON_WEBHOOK_TOKEN || NOVOFON_WEBHOOK_SECRET -> .env NOVOFON_WEBHOOK_TOKEN. Запуск меняет prod .env — только с OK владельца.
 # push на не-main ветки регистрирует workflow; push-запуск — сухой прогон.
 name: Ops — Novofon .env
 
@@ -48,7 +49,8 @@ jobs:
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           V_API: ${{ secrets.NOVOFON_API_TOKEN }}
-          V_HOOK: ${{ secrets.NOVOFON_WEBHOOK_TOKEN }}
+          # В Secrets лежит NOVOFON_WEBHOOK_SECRET; NOVOFON_WEBHOOK_TOKEN приоритетнее, если появится.
+          V_HOOK: ${{ secrets.NOVOFON_WEBHOOK_TOKEN || secrets.NOVOFON_WEBHOOK_SECRET }}
           RESTART: ${{ inputs.restart }}
         with:
           host: ${{ secrets.VPS_HOST }}
