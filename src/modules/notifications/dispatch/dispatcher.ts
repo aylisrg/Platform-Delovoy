@@ -86,6 +86,26 @@ export const OUTGOING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const STALE_SKIP_REASON = "stale: older than 24h, not sent";
 
 /**
+ * Аренда записи на время отправки (#708/#917). Крон стреляет каждую минуту, а
+ * одна отправка в Telegram при обрыве VPS -> api.telegram.org висит до таймаута,
+ * поэтому прогоны накладываются. Перед отправкой запись атомарно «занимается»:
+ * scheduledFor сдвигается на now + lease при условии, что status и scheduledFor
+ * не изменились с момента выборки. Второй прогон получает count=0 и пропускает
+ * запись (нет дублей). Если процесс умер посреди отправки, запись остаётся
+ * PENDING/DEFERRED и сама возвращается в выборку после истечения аренды.
+ * Новой колонки и миграции не нужно.
+ */
+export const OUTGOING_CLAIM_LEASE_MS = 5 * 60_000;
+
+/** Ретрай с экспоненциальной паузой: 5, 10, 20 ... мин, не больше часа. */
+export const RETRY_BASE_MS = 5 * 60_000;
+export const RETRY_MAX_MS = 60 * 60_000;
+export function retryDelayMs(attempts: number): number {
+  const n = Math.max(1, attempts);
+  return Math.min(RETRY_BASE_MS * 2 ** (n - 1), RETRY_MAX_MS);
+}
+
+/**
  * Process a batch of due notifications. Called by cron.
  * Returns counts of sent/failed for monitoring.
  */
@@ -119,7 +139,23 @@ export async function processOutgoing(
       skipped++;
       continue;
     }
-    const result = await deliverOne(item);
+    const claimed = await prisma.outgoingNotification.updateMany({
+      where: { id: item.id, status: item.status, scheduledFor: item.scheduledFor },
+      data: { scheduledFor: new Date(Date.now() + OUTGOING_CLAIM_LEASE_MS) },
+    });
+    if (claimed.count === 0) continue; // занята параллельным прогоном
+    let result: "sent" | "failed" | "retry";
+    try {
+      result = await deliverOne(item);
+    } catch (err) {
+      // Не роняем весь батч из-за одной записи: она вернётся после аренды.
+      failed++;
+      await log.error(
+        EVENT_SOURCES.NOTIFICATIONS,
+        `processOutgoing: delivery threw for outgoingId=${item.id}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      continue;
+    }
     if (result === "sent") sent++;
     else if (result === "failed") failed++;
   }
@@ -175,7 +211,7 @@ async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "r
         status: "PENDING",
         failureReason: result.reason,
         attempts: nextAttempts,
-        scheduledFor: new Date(Date.now() + 5 * 60_000),
+        scheduledFor: new Date(Date.now() + retryDelayMs(nextAttempts)),
       },
     });
     return "retry";

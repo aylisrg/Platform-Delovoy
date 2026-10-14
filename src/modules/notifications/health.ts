@@ -62,6 +62,13 @@ const TELEGRAM_PROBE_TIMEOUT_MS = 5000;
  */
 const TELEGRAM_PROBE_RETRY_TIMEOUT_MS = 6000;
 
+/**
+ * Крон process-outgoing считается мёртвым, если он молчит дольше этого порога
+ * И при этом есть просроченные сообщения (#917). Раньше `ok` не смотрел ни на
+ * cron, ни на очередь: 19 сообщений висели, а health падал только из-за Telegram.
+ */
+export const OUTGOING_CRON_STALE_MINUTES = 10;
+
 export type NotificationsHealthCheck = {
   ok: boolean;
   /** Telegram-пробы не достучались по транспорту, но серия короче порога — терпим (issue #708). */
@@ -70,8 +77,8 @@ export type NotificationsHealthCheck = {
     botToken: { ok: boolean; username?: string; reason?: string; transportError?: boolean };
     adminChat: { ok: boolean; title?: string; reason?: string; transportError?: boolean };
     ownerChat: { ok: boolean; reason?: string; transportError?: boolean };
-    queue: { pending: number; failedLastHour: number };
-    cron: { lastRunAt: string | null; staleMin: number };
+    queue: { pending: number; failedLastHour: number; overdue?: number };
+    cron: { lastRunAt: string | null; staleMin: number; ok?: boolean; reason?: string };
     ownerDecisions: { ok: boolean; lastHeartbeatAt: string | null; staleMin: number; reason?: string };
   };
 };
@@ -200,7 +207,8 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     failedLastHour: 0,
   };
   try {
-    const [pending, failedLastHour] = await Promise.all([
+    const overdueBefore = new Date(Date.now() - OUTGOING_CRON_STALE_MINUTES * 60_000);
+    const [pending, failedLastHour, overdue] = await Promise.all([
       prisma.outgoingNotification.count({
         where: { status: { in: ["PENDING", "DEFERRED"] } },
       }),
@@ -210,8 +218,11 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
           updatedAt: { gte: oneHourAgo },
         },
       }),
+      prisma.outgoingNotification.count({
+        where: { status: { in: ["PENDING", "DEFERRED"] }, scheduledFor: { lte: overdueBefore } },
+      }),
     ]);
-    queueCheck = { pending, failedLastHour };
+    queueCheck = { pending, failedLastHour, overdue: overdue ?? 0 };
   } catch {
     // non-critical — queue stats unavailable
   }
@@ -308,7 +319,16 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     }
   }
 
-  const ok = telegramOk && queueCheck.failedLastHour === 0 && ownerDecisionsCheck.ok;
+  if ((queueCheck.overdue ?? 0) > 0 && cronCheck.staleMin >= OUTGOING_CRON_STALE_MINUTES) {
+    cronCheck = {
+      ...cronCheck,
+      ok: false,
+      reason: `process-outgoing молчит ${cronCheck.lastRunAt ? `${cronCheck.staleMin} мин` : "с момента запуска"}, в очереди ${queueCheck.overdue} просроченных`,
+    };
+  }
+  const cronOk = cronCheck.ok !== false;
+
+  const ok = telegramOk && queueCheck.failedLastHour === 0 && ownerDecisionsCheck.ok && cronOk;
 
   return {
     ok,
