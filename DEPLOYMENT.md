@@ -84,7 +84,8 @@ docker compose logs -f bot   # убедиться что бот стартану
 GitHub держит максимум «1 бегущий + 1 pending» ран, промежуточные отменяет сам.
 Каждый ран трейна деплоит **текущий HEAD `main`** (guard-джоба resolve-to-HEAD),
 а не SHA своего события, и скипается за ~10с, если HEAD уже задеплоен
-(repo variable `DEPLOYED_SHA_CURRENT`). Итог: N мержей = 1–2 деплоя новейшего
+(git-тег `deployed/current`, предыдущий — `deployed/previous`; пишет
+`scripts/deploy-state.sh` через `GITHUB_TOKEN`, без PAT). Итог: N мержей = 1–2 деплоя новейшего
 кода, без промежуточных выкаток. `workflow_dispatch` с явным `sha`
 (hotfix, авто-откат error-budget) едет вне трейна, своей группой.
 

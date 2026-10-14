@@ -20,15 +20,15 @@ on:
     types: [completed]
 
 permissions:
-  contents: read
+  contents: read # чтение тегов deployed/current|previous
   issues: write
-  actions: write
+  actions: write # dispatch авто-отката
 
 concurrency:
   # Фиксированная группа + cancel-in-progress (ADR 2026-08-20): деплой-трейн
   # может выкатить несколько HEAD подряд — окно наблюдения нужно только для
   # ИТОГОВОГО SHA. Новый успешный деплой отменяет спящее окно старого; SHA
-  # окно и так перечитывает из repo variables в начале, так что доживший ран
+  # окно и так перечитывает из тегов deployed/* в начале, так что доживший ран
   # всегда сравнивает вокруг последнего реального деплоя.
   group: deploy-error-budget
   cancel-in-progress: true
@@ -43,26 +43,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
 
-      # Захватываем СЕЙЧАС, до 15-минутного ожидания: repo variables
-      # DEPLOYED_SHA_CURRENT/PREVIOUS пишет deploy.yml сразу после успешного
+      # Захватываем СЕЙЧАС, до 15-минутного ожидания: git-теги
+      # deployed/current и deployed/previous пишет deploy.yml сразу после успешного
       # деплоя (шаг "Записать SHA деплоя для error-budget watch") — если ждать
       # с чтением до конца, второй деплой, стартовавший, пока этот job ещё
-      # спит, успеет перезаписать переменные раньше, чем мы их прочитаем.
+      # спит, успеет перезаписать теги раньше, чем мы их прочитаем.
       # github.event.workflow_run.head_sha НЕ используем даже как DEPLOY_SHA:
       # для workflow_dispatch с явным sha (hotfix/наш же авто-откат) head_sha —
       # это то, чем был ref (main) на момент диспатча, а не inputs.sha
       # (deploy.yml сам резолвит их так же в шаге "Resolve target SHA").
-      # Фоллбэк на head_sha — только если переменная вообще не задана (самый
+      # Фоллбэк на head_sha — только если тега вообще нет (самый
       # первый прогон после появления этого механизма).
       - name: Захватить SHA деплоя (пока свежий)
         id: sha
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CURRENT=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
-          PREVIOUS=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_PREVIOUS" --jq .value 2>/dev/null || echo "")
+          CURRENT=$(bash scripts/deploy-state.sh get current || echo "")
+          PREVIOUS=$(bash scripts/deploy-state.sh get previous || echo "")
           if [ -z "$CURRENT" ]; then
-            echo "::warning::DEPLOYED_SHA_CURRENT не задан — использую workflow_run.head_sha (менее надёжно для workflow_dispatch)"
+            echo "::warning::тег deployed/current не найден — использую workflow_run.head_sha (менее надёжно для workflow_dispatch)"
             CURRENT="${{ github.event.workflow_run.head_sha }}"
           fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"

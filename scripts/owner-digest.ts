@@ -4,7 +4,7 @@
  *
  *   npx tsx scripts/owner-digest.ts [--feedback-file feedback.json]
  *
- * Собирает: merged PR за 24ч + текущий DEPLOYED_SHA_CURRENT (repo variable —
+ * Собирает: merged PR за 24ч + текущий deployed/current (git-тег —
  * честная метка «что на проде», GitHub Releases не годятся: трейн выкатывает
  * и между ночными релизами), дельту бэклога, ждущие решения с сайта
  * (OWNER_DECISIONS_SECRET; сайт лежит — секция опускается), счётчики фидбека
@@ -61,8 +61,8 @@ function backlogCounts(now: Date): { totalOpen: number; opened24h: number; close
 
 function deployedShaShort(): string | null {
   try {
-    const v = ghApi<{ value: string }>(`/repos/${REPO}/actions/variables/DEPLOYED_SHA_CURRENT`);
-    return v.value ? v.value.slice(0, 8) : null;
+    const r = ghApi<{ object: { type: string; sha: string } }>(`/repos/${REPO}/git/ref/tags/deployed/current`);
+    return r.object?.type === 'commit' && r.object.sha ? r.object.sha.slice(0, 8) : null;
   } catch {
     return null;
   }

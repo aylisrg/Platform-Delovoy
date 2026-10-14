@@ -16,10 +16,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: read # в т.ч. тег deployed/current
   issues: read
   pull-requests: read
-  actions: read # чтение repo variable DEPLOYED_SHA_CURRENT
 
 concurrency:
   group: owner-digest
