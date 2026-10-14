@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.25.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.24.0...v2.25.0) (2026-10-13)
+
+
+### Features
+
+* **cron-auth:** log denied cron requests (route, status, reason; no token) ([#1111](https://github.com/aylisrg/Platform-Delovoy/issues/1111)) ([b1149ca](https://github.com/aylisrg/Platform-Delovoy/commit/b1149ca3b91c537d09206cc524abeb1d623fd897))
+* **gazebos:** блок «Уборка» в недельном виде и мобильном таймлайне админки ([#1091](https://github.com/aylisrg/Platform-Delovoy/issues/1091)) ([#1110](https://github.com/aylisrg/Platform-Delovoy/issues/1110)) ([9e57f45](https://github.com/aylisrg/Platform-Delovoy/commit/9e57f45f8012815449e63270d267e973cf15b337))
+
 ## [2.24.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.23.0...v2.24.0) (2026-10-13)
 
 
