@@ -1289,6 +1289,33 @@ model CallLog {
   @@index([externalCallId])
 }
 
+/// Звонки из Novofon Data API (get.calls_report), #1066.
+/// id = id сессии звонка в Novofon, синк идемпотентен по нему.
+/// contactPhone — PII: не логировать, в списках показывать только маской.
+model NovofonCall {
+  id                 String        @id
+  communicationId    String?
+  startedAt          DateTime
+  finishedAt         DateTime?
+  direction          CallDirection
+  isLost             Boolean       @default(false)
+  finishReason       String?
+  virtualPhoneNumber String?
+  contactPhone       String?
+  waitDuration       Int?
+  talkDuration       Int?
+  totalDuration      Int?
+  employeeId         String?
+  employeeName       String?
+  recordId           String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([startedAt])
+  @@index([contactPhone, startedAt])
+  @@index([isLost, startedAt])
+}
+
 enum CallDirection {
   OUTBOUND
   INBOUND

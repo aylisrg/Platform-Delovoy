@@ -714,6 +714,12 @@ jobs:
               || { echo "::error::crontab read failed, payments-reconcile cron NOT updated (#1074)"; exit 1; }
             echo "✅ payments-reconcile cron upserted (every 10 minutes)"
 
+            # Журнал звонков Novofon (#1066): инкремент get.calls_report.
+            upsert_cron '/api/cron/novofon-calls-sync' \
+              "*/10 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/novofon-calls-sync > /dev/null 2>&1" \
+              || { echo "::error::crontab read failed, novofon-calls-sync cron NOT updated (#1066)"; exit 1; }
+            echo "✅ novofon-calls-sync cron upserted (every 10 minutes)"
+
             # Напоминания о бронях + алерты истечения договоров.
             upsert_cron '/api/cron/notifications' \
               "*/5 * * * * curl -fsS -H 'Authorization: Bearer ${CRON_SECRET_VAL}' https://delovoy-park.ru/api/cron/notifications > /dev/null 2>&1" \
