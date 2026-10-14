@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.0...v2.27.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **maps:** единая точка парка во всех картах и JSON-LD ([#1134](https://github.com/aylisrg/Platform-Delovoy/issues/1134)) ([bc527f4](https://github.com/aylisrg/Platform-Delovoy/commit/bc527f450ff6cf002ecca2e9166268d1ebbcdacf))
+
 ## [2.27.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.26.0...v2.27.0) (2026-10-14)
 
 
