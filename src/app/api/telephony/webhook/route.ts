@@ -3,6 +3,7 @@ import { apiResponse, apiError } from "@/lib/api-response";
 import { handleWebhook } from "@/modules/telephony/service";
 import { normalizeNovofonWebhook } from "@/modules/telephony/validation";
 import { verifyNovofonWebhook } from "@/modules/telephony/novofon-client";
+import { recordNovofonNotification } from "@/modules/telephony/call-journal";
 
 /**
  * POST /api/telephony/webhook — receive Novofon events
@@ -55,9 +56,17 @@ export async function POST(request: NextRequest) {
 
     await handleWebhook(payload);
 
-    return apiResponse({ processed: true });
+    // Журнал звонков (#1066 PR2): «Завершение звонка» и «Записанный разговор».
+    // Идемпотентно по call_session_id, повтор уведомления не создаёт дубль.
+    const journal =
+      body && typeof body === "object" && "notification_name" in body
+        ? await recordNovofonNotification(body as Record<string, unknown>)
+        : null;
+
+    return apiResponse({ processed: true, journal });
   } catch (error) {
-    console.error("[telephony/webhook] Error:", error);
+    // Без тела ошибки: в нём может оказаться номер из payload.
+    console.error("[telephony/webhook] Error:", error instanceof Error ? error.name : "unknown");
     return apiError("WEBHOOK_ERROR", "Ошибка обработки вебхука", 500);
   }
 }
