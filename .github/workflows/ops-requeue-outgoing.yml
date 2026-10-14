@@ -1,0 +1,94 @@
+name: Ops Requeue Stale Outgoing Notifications
+
+# Ручной разовый запуск (#708, #917). Возвращает в очередь уведомления, которые
+# processOutgoing пометил SKIPPED «старше 24h» после простоя крона.
+# По умолчанию dry_run=true: в логе только id, тип и возраст (без payload/ПДн).
+# Перед apply: владелец смотрит dry-run и решает, какие типы ещё актуальны
+# (подтверждение прошедшей брони слать поздно, алерт сотрудникам можно).
+# Идемпотентно: повторный apply ничего не меняет.
+
+#
+# mode=stats: read-only диагностика за сутки по Дубаю (только SELECT, только
+# агрегаты: по часам × status/channel/eventType и дубли по dedupKey в виде хэша).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "requeue или stats (read-only агрегаты)"
+        type: choice
+        options: [requeue, stats]
+        default: requeue
+      date:
+        description: "stats: дата по Дубаю YYYY-MM-DD"
+        type: string
+        default: "2026-10-13"
+      top:
+        description: "stats: сколько dedupKey-дублей показать"
+        type: string
+        default: "20"
+      dry_run:
+        description: "Только показать, ничего не записывать"
+        type: boolean
+        default: true
+      since:
+        description: "Брать созданные не раньше (ISO), напр. 2026-10-01"
+        type: string
+        default: "2026-10-01"
+      event_types:
+        description: "Через запятую; пусто = все типы"
+        type: string
+        default: ""
+      limit:
+        description: "Максимум записей"
+        type: string
+        default: "50"
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  requeue:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Requeue via SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          SINCE: ${{ inputs.since }}
+          EVENT_TYPES: ${{ inputs.event_types }}
+          LIMIT: ${{ inputs.limit }}
+          MODE: ${{ inputs.mode }}
+          STATS_DATE: ${{ inputs.date }}
+          TOP: ${{ inputs.top }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DRY_RUN,SINCE,EVENT_TYPES,LIMIT,MODE,STATS_DATE,TOP
+          script: |
+            set -e
+            cd /opt/delovoy-park
+            APP_CONT=delovoy-app
+            if [ "$(cat ACTIVE_SLOT 2>/dev/null || echo a)" = "b" ]; then APP_CONT=delovoy-app-b; fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "$APP_CONT"; then
+              echo "❌ Контейнер $APP_CONT не запущен"; exit 1
+            fi
+            if [ "$MODE" = "stats" ]; then
+              case "$STATS_DATE" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) echo "bad date"; exit 1;; esac
+              case "$TOP" in ''|*[!0-9]*) echo "bad top"; exit 1;; esac
+              docker exec "$APP_CONT" npx tsx scripts/outgoing-stats.ts --date=$STATS_DATE --top=$TOP
+              exit 0
+            fi
+            case "$SINCE" in *[!0-9TZ:.-]*) echo "bad since"; exit 1;; esac
+            case "$LIMIT" in ''|*[!0-9]*) echo "bad limit"; exit 1;; esac
+            case "$EVENT_TYPES" in *[!A-Za-z0-9_,]*) echo "bad event_types"; exit 1;; esac
+            ARGS="--since=$SINCE --limit=$LIMIT"
+            [ -n "$EVENT_TYPES" ] && ARGS="$ARGS --event-types=$EVENT_TYPES"
+            [ "$DRY_RUN" = "true" ] || ARGS="$ARGS --apply"
+            docker exec "$APP_CONT" npx tsx scripts/requeue-stale-outgoing.ts $ARGS

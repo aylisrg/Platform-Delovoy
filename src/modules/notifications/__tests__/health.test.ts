@@ -167,6 +167,34 @@ describe("notificationsHealth", () => {
     expect(result.checks.cron.staleMin).toBeLessThan(5);
   });
 
+  it("#917: ok=false when process-outgoing cron is silent and overdue messages exist", async () => {
+    setupFetch({ getMe: getMeMock, getChat: getChatMock });
+    vi.mocked(prisma.outgoingNotification.count)
+      .mockResolvedValueOnce(19) // pending
+      .mockResolvedValueOnce(0) // failedLastHour
+      .mockResolvedValueOnce(19); // overdue
+    vi.mocked(prisma.systemEvent.findFirst).mockImplementation((async (args: { where: { source: string } }) =>
+      args.where.source === "cron.processOutgoing" ? null : { id: "hb", createdAt: new Date() }) as never);
+
+    const result = await notificationsHealth();
+
+    expect(result.ok).toBe(false);
+    expect(result.checks.queue.overdue).toBe(19);
+    expect(result.checks.cron.ok).toBe(false);
+    expect(result.checks.cron.reason).toContain("19");
+  });
+
+  it("#917: silent cron with an empty queue does not fail health", async () => {
+    setupFetch({ getMe: getMeMock, getChat: getChatMock });
+    vi.mocked(prisma.systemEvent.findFirst).mockImplementation((async (args: { where: { source: string } }) =>
+      args.where.source === "cron.processOutgoing" ? null : { id: "hb", createdAt: new Date() }) as never);
+
+    const result = await notificationsHealth();
+
+    expect(result.ok).toBe(true);
+    expect(result.checks.cron.ok).toBeUndefined();
+  });
+
   it("probes bot token, admin chat, and owner chat concurrently, not sequentially", async () => {
     // Issue #708 / #455 п.5: три Telegram-пробы шли по очереди, и при
     // деградации транспорта (каждая проба до 5с) суммарный бюджет здоровья
