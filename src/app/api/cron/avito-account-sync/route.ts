@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiResponse, apiServerError } from "@/lib/api-response";
 import { syncItemsRegistry, syncAccount } from "@/lib/avito";
-import { verifyLegacyCronRequest } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
 async function run(request: NextRequest) {
   try {
-    const denied = verifyLegacyCronRequest(request, "avito-account-sync");
+    const denied = verifyCronRequest(request, { route: "avito-account-sync" });
     if (denied) return denied;
 
     if (process.env.AVITO_CRON_ENABLED !== "true") {

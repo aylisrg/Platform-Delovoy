@@ -4,7 +4,7 @@ import { getExpiringBatches } from "@/modules/inventory/service-v2";
 import { runLowStockAlertSweep } from "@/modules/inventory/alerts";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
-import { verifyLegacyCronRequest } from "@/lib/cron-auth";
+import { verifyCronRequest } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/inventory — run inventory background jobs.
@@ -19,7 +19,7 @@ import { verifyLegacyCronRequest } from "@/lib/cron-auth";
  */
 export async function GET(request: NextRequest) {
   try {
-    const denied = verifyLegacyCronRequest(request, "inventory");
+    const denied = verifyCronRequest(request, { route: "inventory" });
     if (denied) return denied;
 
     const results: {

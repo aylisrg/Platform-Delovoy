@@ -28,21 +28,16 @@ export function safeCompare(a: string, b: string): boolean {
 }
 
 export interface VerifyCronOptions {
-  /**
-   * ПЕРЕХОДНЫЙ РЕЖИМ (#1084): дополнительно принимать NEXTAUTH_SECRET как Bearer.
-   * Только для avito-* и inventory. Удалить через неделю (см. issue в PR #1084).
-   */
-  allowLegacyNextAuthSecret?: boolean;
-  /** Имя маршрута для предупреждения в логе. */
+  /** Имя маршрута для лога отказа. */
   route?: string;
 }
 
 /**
  * Единая проверка cron-запроса (#1074).
  * Основной секрет: `process.env.CRON_SECRET`.
+ * NEXTAUTH_SECRET не принимается ни одним маршрутом (переходный режим #1084 снят в #1093).
  * - токен совпал с CRON_SECRET -> null (ok)
- * - allowLegacyNextAuthSecret и токен совпал с NEXTAUTH_SECRET -> null + warn (без значения)
- * - CRON_SECRET не задан и легаси-путь не сработал -> 503
+ * - CRON_SECRET не задан -> 503
  * - иначе 401
  */
 export function verifyCronRequest(
@@ -54,16 +49,6 @@ export function verifyCronRequest(
 
   if (cronSecret && token && safeCompare(token, cronSecret)) return null;
 
-  if (options.allowLegacyNextAuthSecret && token) {
-    const legacy = process.env.NEXTAUTH_SECRET ?? "";
-    if (legacy && safeCompare(token, legacy)) {
-      console.warn(
-        `[cron-auth] ${options.route ?? "cron"}: принят устаревший NEXTAUTH_SECRET, переведите вызов на CRON_SECRET (#1084)`
-      );
-      return null;
-    }
-  }
-
   const route = options.route ?? "cron";
   if (!cronSecret) {
     console.info(`[cron-auth] denied route=${route} status=503 reason=no_cron_secret`);
@@ -71,9 +56,4 @@ export function verifyCronRequest(
   }
   console.info(`[cron-auth] denied route=${route} status=401 reason=${token ? "bad_token" : "no_token"}`);
   return apiError("UNAUTHORIZED", "Invalid cron token", 401);
-}
-
-/** Переходный режим #1084: только для avito-* и inventory. */
-export function verifyLegacyCronRequest(request: NextRequest, route: string): NextResponse | null {
-  return verifyCronRequest(request, { allowLegacyNextAuthSecret: true, route });
 }

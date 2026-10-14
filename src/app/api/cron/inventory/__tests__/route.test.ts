@@ -49,25 +49,20 @@ describe("GET /api/cron/inventory", () => {
     expect(mockedGetExpiring).not.toHaveBeenCalled();
   });
 
-  it("transition #1084: accepts NEXTAUTH_SECRET even when CRON_SECRET is not set, warns without value", async () => {
-    delete process.env.CRON_SECRET;
+  it("#1093: NEXTAUTH_SECRET больше не принимается (CRON_SECRET задан) -> 401", async () => {
     process.env.NEXTAUTH_SECRET = "auth-secret";
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(200);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).not.toContain("auth-secret");
-    warn.mockRestore();
+    expect(res.status).toBe(401);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
     delete process.env.NEXTAUTH_SECRET;
   });
 
-  it("transition #1084: accepts NEXTAUTH_SECRET as bearer when CRON_SECRET is set", async () => {
+  it("#1093: NEXTAUTH_SECRET без CRON_SECRET -> 503", async () => {
+    delete process.env.CRON_SECRET;
     process.env.NEXTAUTH_SECRET = "auth-secret";
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const res = await GET(makeReq("auth-secret"));
-    expect(res.status).toBe(200);
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+    expect(res.status).toBe(503);
+    expect(mockedGetExpiring).not.toHaveBeenCalled();
     delete process.env.NEXTAUTH_SECRET;
   });
 
