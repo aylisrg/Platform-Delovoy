@@ -169,7 +169,8 @@ async function processBookingReminders(): Promise<void> {
 
 /**
  * Send alerts for contracts expiring within 30 days.
- * Idempotent: sends max once per contract.
+ * Идемпотентно: не больше одного раза на договор, с учётом и NotificationLog
+ * (групповой чат), и OutgoingNotification (очередь dispatch).
  */
 async function processContractExpiryAlerts(): Promise<void> {
   const now = new Date();
@@ -198,6 +199,22 @@ async function processContractExpiryAlerts(): Promise<void> {
         },
       });
       if (alreadySent) continue;
+
+      // Получатели, настроенные явно или подписанные сами, идут через очередь
+      // dispatch: там пишется OutgoingNotification, а NotificationLog нет.
+      // Без этой проверки каждый прогон крона (раз в 5 мин) ставил алерт
+      // заново, а 5-минутное окно dedup в dispatch() его не ловило. Учитываем
+      // и FAILED: повтор упавшей отправки делает сама очередь (ретрай и
+      // фолбэк), а не планировщик.
+      const alreadyQueued = await prisma.outgoingNotification.findFirst({
+        where: {
+          entityId: contract.id,
+          eventType: "contract.expiring",
+          status: { in: ["PENDING", "DEFERRED", "SENT", "FAILED"] },
+        },
+        select: { id: true },
+      });
+      if (alreadyQueued) continue;
 
       const daysLeft = Math.ceil(
         (contract.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)

@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
     notificationLog: { findFirst: vi.fn(), create: vi.fn() },
     resource: { findUnique: vi.fn() },
     rentalContract: { findMany: vi.fn() },
+    outgoingNotification: { findFirst: vi.fn() },
   },
 }));
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([]);
   vi.mocked(prisma.notificationLog.findFirst).mockResolvedValue(null);
   vi.mocked(prisma.notificationLog.create).mockResolvedValue({} as never);
+  vi.mocked(prisma.outgoingNotification.findFirst).mockResolvedValue(null);
   vi.mocked(prisma.resource.findUnique).mockResolvedValue({
     name: "Беседка №1",
   } as never);
@@ -147,5 +149,49 @@ describe("processEndingSoonReminders", () => {
         status: "SENT",
       }),
     });
+  });
+});
+
+describe("processContractExpiryAlerts", () => {
+  function makeContract() {
+    return {
+      id: "c1",
+      endDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+      monthlyRate: { toString: () => "50000" },
+      tenant: { companyName: "ООО Тест" },
+      office: { number: "101" },
+    };
+  }
+
+  it("ставит алерт, если договор ещё не уведомлялся", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([makeContract()] as never);
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "contract.expiring", entityId: "c1" })
+    );
+  });
+
+  it("не ставит повторно, если алерт уже в очереди dispatch (нет NotificationLog)", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.rentalContract.findMany).mockResolvedValue([makeContract()] as never);
+    vi.mocked(prisma.outgoingNotification.findFirst).mockResolvedValue({ id: "o1" } as never);
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "contract.expiring" })
+    );
+    expect(prisma.outgoingNotification.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          entityId: "c1",
+          eventType: "contract.expiring",
+          status: { in: ["PENDING", "DEFERRED", "SENT", "FAILED"] },
+        }),
+      })
+    );
   });
 });
