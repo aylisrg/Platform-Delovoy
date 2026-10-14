@@ -79,8 +79,8 @@ jobs:
   # раньше деплоил, не дожидаясь CI (блокирующие smoke/health и авто-откат
   # остаются последней линией).
   #
-  # Дедуп: HEAD уже задеплоен (repo var DEPLOYED_SHA_CURRENT, её пишет сам
-  # deploy.yml после успеха) ⇒ skip за ~10с — так схлопывается хвост pending
+  # Дедуп: HEAD уже задеплоен (git-тег deployed/current, его force-обновляет
+  # сам deploy.yml после успеха через GITHUB_TOKEN — scripts/deploy-state.sh) ⇒ skip за ~10с — так схлопывается хвост pending
   # рана после того, как бегущий уже выкатил тот же HEAD. Сбой API — fail-open
   # (деплоим). workflow_dispatch не скипается никогда: ручной редеплой того же
   # SHA — осознанное действие.
@@ -88,12 +88,16 @@ jobs:
     name: Resolve HEAD & skip already-deployed
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: read
     outputs:
       skip: ${{ steps.check.outputs.skip }}
       sha: ${{ steps.check.outputs.sha }}
     steps:
+      # Только scripts/deploy-state.sh — guard должен оставаться быстрым.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/deploy-state.sh
+          sparse-checkout-cone-mode: false
       - name: Resolve deploy target (HEAD for train, inputs.sha for manual)
         id: check
         env:
@@ -116,9 +120,9 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          DEPLOYED=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
+          DEPLOYED=$(bash scripts/deploy-state.sh get current || echo "")
           # SHA не секрет: печатаем оба значения, чтобы skip/не-skip было видно в логе.
-          echo "HEAD main: ${HEAD_SHA}; DEPLOYED_SHA_CURRENT: ${DEPLOYED:-<не прочитан>}; event: ${{ github.event_name }} ${{ github.event.workflow_run.conclusion }}"
+          echo "HEAD main: ${HEAD_SHA}; deployed/current: ${DEPLOYED:-<не прочитан>}; event: ${{ github.event_name }} ${{ github.event.workflow_run.conclusion }}"
           # Skip только при точном совпадении полного SHA (40 hex). Пустое,
           # нечитаемое или устаревшее значение = деплоим (fail-open).
           if [[ "$DEPLOYED" =~ ^[0-9a-f]{40}$ ]] && [ "$DEPLOYED" = "$HEAD_SHA" ]; then
@@ -217,7 +221,7 @@ jobs:
     environment: production
     permissions:
       contents: write
-      actions: read # чтение repo variables; запись через secrets.DEPLOY_STATE_TOKEN — issue #578, #1074
+      actions: read # одноразовое чтение старой repo variable DEPLOYED_SHA_CURRENT при миграции на теги (#1074)
     steps:
       # Checkout the exact commit build-and-push resolved and built, not
       # whatever main HEAD happens to be when this job starts — a plain
@@ -973,35 +977,18 @@ jobs:
             -d "text=✅ Deploy OK — v${{ needs.build-and-push.outputs.version }} (${{ needs.build-and-push.outputs.resolved_sha }})" \
             -d "parse_mode=HTML" || true
 
-      # error-budget-watch (issue #578) и guard-дедуп читают DEPLOYED_SHA_CURRENT/
-      # PREVIOUS. GITHUB_TOKEN НЕ может писать repo variables (у него нет
-      # permission "variables", actions: write не помогает -> HTTP 403), поэтому
-      # пишем отдельным токеном DEPLOY_STATE_TOKEN (fine-grained PAT только на
-      # этот репо, Variables: Read and write). Шаг стоит последним и падает
-      # громко: приложение уже выкачено, но красный ран + Notify on failure
-      # сразу показывают, что состояние деплоя не записано (Refs #1074).
-      - name: Записать SHA деплоя для error-budget watch
+      # error-budget-watch (issue #578) и guard-дедуп читают git-теги
+      # deployed/current и deployed/previous. Пишем их GITHUB_TOKEN
+      # (contents: write, force-update тега), без PAT и repo variables.
+      # Шаг стоит последним и падает громко: приложение уже выкачено, но
+      # красный ран + Notify on failure сразу показывают, что состояние
+      # деплоя не записано (Refs #1074).
+      - name: Записать SHA деплоя (теги deployed/current, deployed/previous)
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.DEPLOY_STATE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           RESOLVED_SHA: ${{ needs.build-and-push.outputs.resolved_sha }}
-        run: |
-          set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::DEPLOY_STATE_TOKEN не задан: деплой ${RESOLVED_SHA} прошел, но DEPLOYED_SHA_CURRENT/PREVIOUS не обновлены (GITHUB_TOKEN не умеет писать repo variables)"
-            exit 1
-          fi
-          OLD=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value 2>/dev/null || echo "")
-          if [ -n "$OLD" ] && [ "$OLD" != "$RESOLVED_SHA" ]; then
-            gh variable set DEPLOYED_SHA_PREVIOUS --body "$OLD"
-          fi
-          gh variable set DEPLOYED_SHA_CURRENT --body "$RESOLVED_SHA"
-          NOW=$(gh api "repos/${{ github.repository }}/actions/variables/DEPLOYED_SHA_CURRENT" --jq .value)
-          if [ "$NOW" != "$RESOLVED_SHA" ]; then
-            echo "::error::DEPLOYED_SHA_CURRENT=${NOW}, ожидалось ${RESOLVED_SHA}"
-            exit 1
-          fi
-          echo "DEPLOYED_SHA_CURRENT=${RESOLVED_SHA} (previous: ${OLD:-<нет>})"
+        run: bash scripts/deploy-state.sh record "$RESOLVED_SHA"
 
       - name: Notify on failure
         if: failure()

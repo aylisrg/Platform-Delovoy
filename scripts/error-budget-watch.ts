@@ -6,8 +6,8 @@
  *   DEPLOY_SHA=... PREVIOUS_SHA=... BEFORE_COUNT=N AFTER_COUNT=N RUN_URL=... \
  *     npx tsx scripts/error-budget-watch.ts
  *
- * DEPLOY_SHA/PREVIOUS_SHA передаёт workflow — САМ deploy.yml пишет их в repo
- * variables DEPLOYED_SHA_CURRENT/PREVIOUS сразу после успешного деплоя, а не
+ * DEPLOY_SHA/PREVIOUS_SHA передаёт workflow — САМ deploy.yml пишет их в git-теги
+ * deployed/current и deployed/previous сразу после успешного деплоя, а не
  * этот скрипт вычисляет их из github.event.workflow_run.head_sha: у
  * workflow_dispatch head_sha — это то, чем был ref (main) на момент диспатча,
  * а не значение inputs.sha, поэтому для hotfix/rollback-редеплоя (именно то,

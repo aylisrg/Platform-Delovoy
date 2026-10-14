@@ -143,7 +143,7 @@ describe('errorBudgetMarker / errorBudgetIssue — дедуп по SHA', () => {
 
   it('rollback БЕЗ previousSha — issue НЕ должен заявлять, что откат запущен (QA #578, БАГ-1)', () => {
     // Реальный кейс: самый первый деплой после появления этого механизма —
-    // DEPLOYED_SHA_PREVIOUS ещё не задан. workflow (deploy-error-budget.yml)
+    // тега deployed/previous ещё нет. workflow (deploy-error-budget.yml)
     // в этом случае dispatch НЕ делает (гейт previous_sha != '') — issue не
     // должен утверждать обратное.
     const issue = errorBudgetIssue({
