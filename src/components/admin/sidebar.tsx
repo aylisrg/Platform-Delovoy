@@ -21,13 +21,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-type NavItem = {
-  label: string;
-  href: string;
-  icon: string;
-  section: string;
-};
+import {
+  ALL_NAVIGATION,
+  DELOVOY_SECTIONS,
+  NEDELOVOY_SECTIONS,
+  detectParkFromPath,
+  type NavItem,
+  type ParkContext,
+} from "./navigation";
 
 type NavGroup = {
   id: string;
@@ -40,64 +41,12 @@ type SidebarLayout = {
   groups: NavGroup[];
 };
 
-type ParkContext = "delovoy" | "nedelovoy";
-
-const ALL_NAVIGATION: NavItem[] = [
-  { label: "Дашборд", href: "/admin/dashboard", icon: "📊", section: "dashboard" },
-  { label: "Барбекю Парк", href: "/admin/gazebos", icon: "🏕", section: "gazebos" },
-  { label: "Плей Парк", href: "/admin/ps-park", icon: "🎮", section: "ps-park" },
-  { label: "Кафе", href: "/admin/cafe", icon: "☕", section: "cafe" },
-  { label: "Аренда", href: "/admin/rental", icon: "🏢", section: "rental" },
-  { label: "НеДеловой", href: "/admin/nedelovoy", icon: "🏗", section: "nedelovoy" },
-  { label: "Бани", href: "/admin/sauna", icon: "🧖", section: "sauna" },
-  { label: "Модули", href: "/admin/modules", icon: "📦", section: "modules" },
-  { label: "Пользователи", href: "/admin/users", icon: "👥", section: "users" },
-  { label: "Гости (CRM)", href: "/admin/clients", icon: "🧑", section: "clients" },
-  { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
-  { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
-  { label: "Платежи", href: "/admin/payments", icon: "💳", section: "payments" },
-  { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
-  { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
-  { label: "Задачи", href: "/admin/tasks", icon: "📌", section: "tasks" },
-  { label: "Мессенджер", href: "/admin/messenger", icon: "💬", section: "messenger" },
-  { label: "Деловой Авито", href: "/admin/avito", icon: "📣", section: "avito" },
-  { label: "Уведомления", href: "/admin/notifications", icon: "🔔", section: "notifications" },
-  { label: "Мониторинг", href: "/admin/monitoring", icon: "🔍", section: "monitoring" },
-  { label: "Архитектор", href: "/admin/architect", icon: "🗺", section: "architect" },
-];
-
-// Sections that belong to each park context.
-// "users" is global — pinned separately above the park nav.
-const DELOVOY_SECTIONS = new Set([
-  "dashboard", "rental", "gazebos", "ps-park", "cafe",
-  "clients", "inventory", "analytics", "payments", "management",
-  "feedback", "tasks", "messenger", "avito", "notifications", "monitoring",
-  "architect", "modules",
-]);
-const NEDELOVOY_SECTIONS = new Set(["nedelovoy", "sauna"]);
-
 // Within НеДеловой context the "nedelovoy" module is labelled "Аренда"
 function resolveLabel(item: NavItem, park: ParkContext): NavItem {
   if (item.section === "nedelovoy" && park === "nedelovoy") {
     return { ...item, label: "Аренда" };
   }
   return item;
-}
-
-function detectParkFromPath(pathname: string | null): ParkContext | null {
-  if (!pathname) return null;
-  if (pathname.startsWith("/admin/nedelovoy") || pathname.startsWith("/admin/sauna")) {
-    return "nedelovoy";
-  }
-  const delovoyPrefixes = [
-    "/admin/dashboard", "/admin/rental", "/admin/gazebos", "/admin/ps-park",
-    "/admin/cafe", "/admin/clients", "/admin/inventory", "/admin/analytics",
-    "/admin/payments", "/admin/management", "/admin/feedback", "/admin/tasks", "/admin/avito",
-    "/admin/notifications", "/admin/monitoring", "/admin/architect", "/admin/modules",
-    "/admin/messenger",
-  ];
-  if (delovoyPrefixes.some((p) => pathname.startsWith(p))) return "delovoy";
-  return null;
 }
 
 const STORAGE_KEY = "admin-sidebar-layout";

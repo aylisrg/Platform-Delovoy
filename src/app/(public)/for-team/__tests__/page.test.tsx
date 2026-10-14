@@ -97,7 +97,7 @@ describe("/for-team — состав карточек", () => {
     expect(hrefs.some((h) => h.startsWith("/admin/"))).toBe(false);
   });
 
-  it("SUPERADMIN получает и секции вне грида прав, и без заглушки /admin/sauna", async () => {
+  it("SUPERADMIN получает платежи, обратную связь и уведомления, и без заглушки /admin/sauna", async () => {
     mockAuth.mockResolvedValue({
       user: { id: "s1", role: "SUPERADMIN", name: "Владелец", email: "s@example.com" },
     });
@@ -105,6 +105,9 @@ describe("/for-team — состав карточек", () => {
       "dashboard",
       "cafe",
       "monitoring",
+      "payments",
+      "feedback",
+      "notifications",
       "sauna",
     ]);
 

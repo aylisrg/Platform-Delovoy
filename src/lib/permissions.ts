@@ -19,18 +19,20 @@ export const ADMIN_SECTIONS = [
   { slug: "cafe", label: "Кафе", icon: "☕" },
   { slug: "rental", label: "Аренда", icon: "🏢" },
   { slug: "nedelovoy", label: "НеДеловой", icon: "🏗" },
-  { slug: "sauna", label: "Бани", icon: "🛁" },
   { slug: "modules", label: "Модули", icon: "📦" },
   { slug: "users", label: "Пользователи", icon: "👥" },
   { slug: "clients", label: "Гости (CRM)", icon: "🧑" },
   { slug: "inventory", label: "Склад", icon: "📋" },
   { slug: "analytics", label: "Аналитика", icon: "📈" },
+  { slug: "payments", label: "Платежи", icon: "💳" },
   { slug: "management", label: "Управленка", icon: "💰" },
+  { slug: "feedback", label: "Обратная связь", icon: "💬" },
   { slug: "monitoring", label: "Мониторинг", icon: "🔍" },
   { slug: "architect", label: "Архитектор", icon: "🗺" },
   { slug: "tasks", label: "Задачи", icon: "📌" },
   { slug: "messenger", label: "Мессенджер", icon: "💬" },
   { slug: "avito", label: "Деловой Авито", icon: "📣" },
+  { slug: "notifications", label: "Уведомления", icon: "🔔" },
 ] as const;
 
 /**
