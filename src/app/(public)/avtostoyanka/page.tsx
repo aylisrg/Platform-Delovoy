@@ -6,6 +6,7 @@ import { YandexMap } from "@/components/ui/yandex-map";
 import { CallWidget } from "@/components/public/call-widget";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 // Телефон берётся из конфигурации в БД (getPublicPhone) — рендерим по запросу,
 // как на странице /gazebos, чтобы сборка не пыталась пререндерить без БД.
@@ -13,8 +14,6 @@ export const dynamic = "force-dynamic";
 
 const APP_URL = "https://delovoy-park.ru";
 const ACCENT = "#16A34A";
-const PARK_LAT = 55.519479;
-const PARK_LON = 36.978566;
 
 const fmt = (n: number) => n.toLocaleString("ru-RU") + " ₽";
 
@@ -41,7 +40,7 @@ const jsonLd = {
         addressRegion: "Московская область",
         addressCountry: "RU",
       },
-      geo: { "@type": "GeoCoordinates", latitude: PARK_LAT, longitude: PARK_LON },
+      geo: { "@type": "GeoCoordinates", latitude: PARK_LOCATION.lat, longitude: PARK_LOCATION.lon },
       openingHoursSpecification: {
         "@type": "OpeningHoursSpecification",
         dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -313,8 +312,8 @@ export default async function AvtostoyankaPage() {
               </p>
             </div>
             <YandexMap
-              lat={PARK_LAT}
-              lon={PARK_LON}
+              lat={PARK_LOCATION.lat}
+              lon={PARK_LOCATION.lon}
               zoom={16}
               title="Охраняемая автостоянка — бизнес-парк «Деловой», Селятино"
               theme="light"

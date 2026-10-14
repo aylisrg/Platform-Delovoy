@@ -5,6 +5,7 @@ import { SessionProvider } from "@/components/providers/session-provider";
 import { StagingBanner } from "@/components/StagingBanner";
 import { ClientErrorBeacon } from "@/components/ClientErrorBeacon";
 import { ChunkReloadGuard } from "@/components/ChunkReloadGuard";
+import { PARK_LOCATION } from "@/lib/park-location";
 import "./globals.css";
 
 const YM_ID = 73068007;
@@ -116,8 +117,8 @@ export const metadata: Metadata = {
     // GEO tags for local SEO (Selyatino, Moscow Oblast)
     "geo.region": "RU-MOS",
     "geo.placename": "Селятино, Московская область",
-    "geo.position": "55.519479;36.978566",
-    ICBM: "55.519479, 36.978566",
+    "geo.position": `${PARK_LOCATION.lat};${PARK_LOCATION.lon}`,
+    ICBM: `${PARK_LOCATION.lat}, ${PARK_LOCATION.lon}`,
     // Yandex Metrika additional hints
     "yandex-tableau-widget": `logo=https://delovoy-park.ru/favicon.ico, color=#09090b`,
   },

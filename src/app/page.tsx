@@ -8,6 +8,7 @@ import { ReviewsSection } from "@landing/components/reviews-section";
 import { ContactsSection } from "@landing/components/contacts-section";
 import { Footer } from "@landing/components/footer";
 import { FadeInSection } from "@/components/ui/fade-in-section";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 export const metadata: Metadata = {
   title: "Деловой Парк — Бизнес-парк в Селятино",
@@ -45,8 +46,8 @@ const jsonLd = {
   },
   geo: {
     "@type": "GeoCoordinates",
-    latitude: 55.519479,
-    longitude: 36.978566,
+    latitude: PARK_LOCATION.lat,
+    longitude: PARK_LOCATION.lon,
   },
   openingHoursSpecification: [
     {

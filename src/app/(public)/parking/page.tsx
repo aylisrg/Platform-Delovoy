@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 // Static parking info — cache the page (ISR) and revalidate periodically so
 // edits propagate without rebuilding, while still serving from cache.
@@ -37,8 +38,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.519479,
-        longitude: 36.978566,
+        latitude: PARK_LOCATION.lat,
+        longitude: PARK_LOCATION.lon,
       },
       openingHoursSpecification: {
         "@type": "OpeningHoursSpecification",

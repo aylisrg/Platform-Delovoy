@@ -15,6 +15,7 @@ import type { PSTableResource } from "@/modules/ps-park/types";
 import type { DayAvailability } from "@/modules/ps-park/types";
 import { toISODate } from "@/lib/format";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
+import { PARK_LOCATION } from "@/lib/park-location";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +45,8 @@ const jsonLd = {
       },
       geo: {
         "@type": "GeoCoordinates",
-        latitude: 55.516945,
-        longitude: 36.978520,
+        latitude: PARK_LOCATION.lat,
+        longitude: PARK_LOCATION.lon,
       },
       openingHoursSpecification: [
         {
@@ -430,9 +431,9 @@ export default async function PSParkPage() {
           {/* Источник: https://yandex.ru/maps/org/145969813767/ — карточка организации «Плей Парк». */}
           <YandexMap
             orgId="145969813767"
-            lat={55.516945}
-            lon={36.978520}
-            zoom={17}
+            lat={PARK_LOCATION.lat}
+            lon={PARK_LOCATION.lon}
+            zoom={PARK_LOCATION.zoom}
             title="Плей Парк — Бизнес-парк «Деловой», Селятино"
             theme="dark"
             className="aspect-[16/9] min-h-[420px]"
