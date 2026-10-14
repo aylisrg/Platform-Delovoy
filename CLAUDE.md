@@ -391,7 +391,7 @@ PR не уезжает никогда (замерено на #712: две нед
 
 ## Monitoring
 
-**Level 1 — Infrastructure:** `GET /api/health` — DB, Redis, memory, event-loop lag. Log `CRITICAL` to `SystemEvent` on failure. Four vantage points (ADR `2026-07-23-ru-availability-edge-architecture`): (1) `.github/workflows/site-watchdog.yml` — GitHub runners, probes site + `/api/notifications/health` + client-beacon divergence, auto-remediates via SSH (`scripts/watchdog-remediate.sh`), tracks `site-down`/`notifications-down` issues; (2) `scripts/local-watchdog.sh` — per-minute VPS cron; (3) Hetzner probe (`ops-hetzner-probe.yml`) — independent external cron, alerts Telegram directly from DE; (4) client-error beacon → `SystemEvent` `client-beacon` with `metadata.connection` (wifi vs 4g) — the only RU-mobile vantage.
+**Level 1 — Infrastructure:** `GET /api/health` — DB, Redis, memory, event-loop lag. Log `CRITICAL` to `SystemEvent` on failure. Three live vantage points (ADR `2026-07-23-ru-availability-edge-architecture`): (1) `.github/workflows/site-watchdog.yml` — GitHub runners, probes site + `/api/notifications/health` + client-beacon divergence, auto-remediates via SSH (`scripts/watchdog-remediate.sh`), tracks `site-down`/`notifications-down` issues; (2) `scripts/local-watchdog.sh` — per-minute VPS cron; (3) Hetzner probe — removed 2026-08-10 together with the box, no independent external probe now (replacement: #456/#584); (4) client-error beacon → `SystemEvent` `client-beacon` with `metadata.connection` (wifi vs 4g) — the only RU-mobile vantage.
 
 **Level 2 — Module health:** `GET /api/{module}/health` — req/hr, avg response time, last error. Alert on 5xx spike.
 
