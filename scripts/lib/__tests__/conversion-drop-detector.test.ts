@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_DROP_OPTIONS,
   baselineAverage,
   conversionDropIssue,
   conversionDropMarker,
@@ -27,10 +26,20 @@ describe('detectConversionDrop', () => {
     expect(detectConversionDrop(null, today, base)).toBeNull();
   });
 
-  it('returns null below min reaches (noise filter)', () => {
-    const today = day('2026-10-15', 1, 100); // < 3
+  it('returns null when expected volume is noise', () => {
+    // 10% baseline × 5 visits = 0.5 expected reaches < 3
+    const today = day('2026-10-15', 0, 5);
     const base = Array.from({ length: 7 }, (_, i) => day(`2026-10-0${i + 1}`, 10, 100));
     expect(detectConversionDrop(42, today, base)).toBeNull();
+  });
+
+  it('detects a total collapse to zero reaches', () => {
+    const today = day('2026-10-15', 0, 200);
+    const base = Array.from({ length: 7 }, (_, i) => day(`2026-10-0${i + 1}`, 20, 100));
+    const drop = detectConversionDrop(42, today, base);
+    expect(drop).not.toBeNull();
+    expect(drop!.factor).toBeGreaterThanOrEqual(2);
+    expect(drop!.today.reaches).toBe(0);
   });
 
   it('detects ≥2× drop with enough volume', () => {
@@ -56,7 +65,7 @@ describe('detectConversionDrop', () => {
 });
 
 describe('issue generation', () => {
-  it('includes marker and labels', () => {
+  it('includes goal marker without the date and labels', () => {
     const drop = detectConversionDrop(
       7,
       day('2026-10-15', 4, 200),
@@ -64,7 +73,9 @@ describe('issue generation', () => {
     )!;
     const issue = conversionDropIssue(drop);
     expect(issue.labels).toContain('auto:ready');
-    expect(issue.body).toContain(conversionDropMarker(7, '2026-10-15'));
+    expect(issue.body).toContain(conversionDropMarker(7));
+    expect(issue.body).not.toContain('conversion-drop:7:2026-10-15');
+    expect(issue.body).toContain('2026-10-15');
     expect(issue.title).toContain('7');
   });
 });

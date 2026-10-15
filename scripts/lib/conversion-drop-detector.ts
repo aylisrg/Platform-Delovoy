@@ -2,7 +2,8 @@
  * Детектор обвала конверсии главной цели (US-4, issue #727).
  *
  * Чистая логика: сравнение конверсии за сегодня с средним за предыдущие 7 дней.
- * Падение ≥2× при достаточном объёме → сигнал. Дедуп по маркеру в теле issue.
+ * Падение ≥2× при достаточном ожидаемом объёме → сигнал. Дедуп по маркеру цели
+ * (без даты): продолжающееся падение не плодит issue каждый день (AC-4.3).
  *
  * Часовой пояс: МСК (Europe/Moscow), как остальные кроны проекта.
  */
@@ -19,15 +20,19 @@ export interface DailyConversion {
 export interface DropDetectionOptions {
   /** Во сколько раз должна упасть конверсия. */
   dropFactor: number;
-  /** Минимум reaches за сегодня, ниже — шум, не сигналим (QA-заметка к PRD). */
-  minReachesToday: number;
+  /**
+   * Минимум ожидаемых reaches (средняя конверсия × визиты сегодня).
+   * Ниже — шум малого объёма, не сигналим. Ноль достижений при нормальном
+   * трафике сюда не попадает: ожидаемые reaches остаются высокими.
+   */
+  minExpectedReaches: number;
   /** Минимум дней в базлайне с visits>0. */
   minBaselineDays: number;
 }
 
 export const DEFAULT_DROP_OPTIONS: DropDetectionOptions = {
   dropFactor: 2,
-  minReachesToday: 3, // избегаем срабатывания на 1–2 событиях
+  minExpectedReaches: 3,
   minBaselineDays: 3,
 };
 
@@ -55,6 +60,7 @@ export function baselineAverage(baseline: DailyConversion[]): {
 /**
  * Возвращает drop если условия выполнены, иначе null.
  * primaryGoalId null → null (AC-4.4).
+ * reaches=0 при достаточном трафике — обвал, не шум.
  */
 export function detectConversionDrop(
   primaryGoalId: number | null,
@@ -63,12 +69,15 @@ export function detectConversionDrop(
   options: DropDetectionOptions = DEFAULT_DROP_OPTIONS,
 ): ConversionDrop | null {
   if (primaryGoalId == null || today == null) return null;
-  if (today.reaches < options.minReachesToday) return null;
+  if (today.visits <= 0) return null;
 
   const { avg, days } = baselineAverage(baseline);
   if (days < options.minBaselineDays || avg <= 0) return null;
 
-  const factor = avg / (today.conversion || Number.EPSILON);
+  const expectedReaches = avg * today.visits;
+  if (expectedReaches < options.minExpectedReaches) return null;
+
+  const factor = avg / (today.conversion > 0 ? today.conversion : Number.EPSILON);
   if (factor < options.dropFactor) return null;
 
   return {
@@ -80,9 +89,9 @@ export function detectConversionDrop(
   };
 }
 
-/** Маркер для дедупа: одна issue на цель + дату сегодня (state=all окно). */
-export function conversionDropMarker(goalId: number, date: string): string {
-  return `<!-- conversion-drop:${goalId}:${date} -->`;
+/** Маркер дедупа: одна issue на цель в окне state=all, без даты (AC-4.3). */
+export function conversionDropMarker(goalId: number): string {
+  return `<!-- conversion-drop:${goalId} -->`;
 }
 
 export function conversionDropIssue(drop: ConversionDrop): {
@@ -95,7 +104,7 @@ export function conversionDropIssue(drop: ConversionDrop): {
   return {
     title: `🔴 Обвал конверсии цели ${drop.goalId}: ×${drop.factor.toFixed(1)} за ${drop.today.date}`,
     labels: ['bug', 'auto-detected', 'prio:P1', 'auto:ready'],
-    body: `${conversionDropMarker(drop.goalId, drop.today.date)}
+    body: `${conversionDropMarker(drop.goalId)}
 
 ## Обвал конверсии главной цели
 
