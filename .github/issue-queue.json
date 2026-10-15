@@ -11,7 +11,7 @@
     "decisionGraceMinutes — окно «Отменить» после аппрува merge-hold в Telegram: мерж исполняется свипером не раньше, чем через столько минут.",
     "releaseNightWindowUtc — [start,end) UTC-часов, когда свипер мержит release-please PR (мерж release-PR = деплой без кода; ему не место в трафик-часы)."
   ],
-  "enabled": true,
+  "enabled": false,
   "autoMerge": true,
   "maxOpenPrs": 2,
   "staleWipHours": 6,
