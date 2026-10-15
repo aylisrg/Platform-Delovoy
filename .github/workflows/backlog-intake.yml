@@ -178,6 +178,83 @@ jobs:
           jq -e 'type == "object" and (.current | type == "array") and (.baseline | type == "array")' perf-aggregate.json > /dev/null
           echo "perf current: $(jq '.current | length' perf-aggregate.json) сэмплов, baseline: $(jq '.baseline | length' perf-aggregate.json) сэмплов"
 
+      - name: Дамп конверсии главной цели (US-4)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          YANDEX_OAUTH_TOKEN: ${{ secrets.YANDEX_OAUTH_TOKEN }}
+          YANDEX_METRIKA_COUNTER_ID: ${{ secrets.YANDEX_METRIKA_COUNTER_ID }}
+        run: |
+          # Ошибка Метрики не должна ронять разбор ошибок и фидбека.
+          set +e
+          set +o pipefail
+          write_empty() {
+            echo '{"primaryGoalId":null,"today":null,"baseline":[]}' > conversion.json
+          }
+          if [ ! -f ~/.ssh/intake_key ] || [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ]; then
+            echo "SSH интейка недоступен — пропуск дампа конверсии"
+            write_empty
+            exit 0
+          fi
+          GOAL_SQL=$(cat <<'SQL'
+          SELECT COALESCE(config->>'primaryGoalId', 'null')
+          FROM "Module"
+          WHERE slug = 'analytics'
+          LIMIT 1;
+          SQL
+          )
+          B64=$(printf '%s' "$GOAL_SQL" | base64 -w0)
+          GOAL=$(ssh -i ~/.ssh/intake_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              "$VPS_USER@$VPS_HOST" \
+              "echo $B64 | base64 -d | docker exec -i delovoy-postgres psql -U delovoy -d delovoy_park -At" \
+            | tr -d '[:space:]')
+          if ! printf '%s' "$GOAL" | grep -Eq '^[0-9]+$'; then
+            echo "primaryGoalId не задан — AC-4.4, тихий no-op"
+            write_empty
+            exit 0
+          fi
+          if [ -z "$YANDEX_OAUTH_TOKEN" ] || [ -z "$YANDEX_METRIKA_COUNTER_ID" ]; then
+            echo "Секреты Метрики не заданы в Actions — день не запрашиваем"
+            printf '{"primaryGoalId":%s,"today":null,"baseline":[]}\n' "$GOAL" > conversion.json
+            exit 0
+          fi
+          TODAY=$(TZ=Europe/Moscow date +%F)
+          RAW=$(curl -sS --max-time 20 \
+            -H "Authorization: OAuth $YANDEX_OAUTH_TOKEN" \
+            --get \
+            --data-urlencode "ids=$YANDEX_METRIKA_COUNTER_ID" \
+            --data-urlencode "metrics=ym:s:visits,ym:s:goal${GOAL}reaches" \
+            --data-urlencode "dimensions=ym:s:date" \
+            --data-urlencode "date1=8daysAgo" \
+            --data-urlencode "date2=today" \
+            --data-urlencode "limit=20" \
+            --data-urlencode "accuracy=full" \
+            --data-urlencode "sort=ym:s:date" \
+            "https://api-metrika.yandex.net/stat/v1/data")
+          echo "$RAW" | jq -e --argjson goal "$GOAL" --arg today "$TODAY" '
+            def row:
+              {
+                date: .dimensions[0].name,
+                visits: ((.metrics[0] // 0) | round),
+                reaches: ((.metrics[1] // 0) | round)
+              }
+              | .conversion = (if .visits > 0 then (.reaches / .visits) else 0 end);
+            (.data // []) | map(row) | {
+              primaryGoalId: $goal,
+              today: (map(select(.date == $today)) | .[0] // null),
+              baseline: [ .[] | select(.date != $today) ]
+            }
+          ' > conversion.json
+          if [ $? -ne 0 ]; then
+            echo "Метрика не вернула JSON — пропуск дня, интейк продолжается"
+            printf '{"primaryGoalId":%s,"today":null,"baseline":[]}\n' "$GOAL" > conversion.json
+          else
+            echo "conversion.json: goal=$GOAL today=$TODAY baseline_days=$(jq '.baseline | length' conversion.json)"
+          fi
+          exit 0
+
       - name: Флаг dry-run
         id: dry
         env:
@@ -216,6 +293,19 @@ jobs:
           npx tsx scripts/analyze-perf.ts --events-file perf-aggregate.json ${{ steps.dry.outputs.flag }} \
             | tee perf.log
 
+      - name: Обвал конверсии → issues (US-4)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -f conversion.json ]; then
+            npx tsx scripts/analyze-conversion-drop.ts --data-file conversion.json ${{ steps.dry.outputs.flag }} \
+              | tee conversion.log
+          else
+            echo "conversion.json отсутствует — пропуск"
+          fi
+
       - name: Итог в summary
         if: always()
         run: |
@@ -237,6 +327,10 @@ jobs:
             echo '### Perf-регрессии (nginx p95/5xx)'
             echo '```'
             tail -10 perf.log 2>/dev/null || echo 'шаг не дошёл'
+            echo '```'
+            echo '### Обвал конверсии (US-4)'
+            echo '```'
+            tail -10 conversion.log 2>/dev/null || echo 'шаг не дошёл'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -262,3 +356,4 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
+
