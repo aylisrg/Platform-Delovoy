@@ -262,3 +262,16 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
+
+      - name: Обвал конверсии → issues (US-4)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Данные (primaryGoalId + daily conversions) готовятся отдельно:
+          # дамп Module.config + Metrika API. Пока файл отсутствует — no-op.
+          if [ -f conversion.json ]; then
+            npx tsx scripts/analyze-conversion-drop.ts --data-file conversion.json ${{ steps.dry.outputs.flag }} \
+              | tee conversion.log
+          else
+            echo "conversion.json отсутствует — пропуск (ожидается дамп + Metrika)"
+          fi
