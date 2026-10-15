@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.1...v2.27.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* **analytics:** daily conversion drop detector (US-4, [#727](https://github.com/aylisrg/Platform-Delovoy/issues/727)) ([59960ab](https://github.com/aylisrg/Platform-Delovoy/commit/59960abf172cd27dbbc5ba01090a9fb867e09963))
+
 ## [2.27.1](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.0...v2.27.1) (2026-10-14)
 
 
