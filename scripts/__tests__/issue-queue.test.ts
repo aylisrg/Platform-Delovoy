@@ -16,6 +16,7 @@ import {
   claimedByQueue,
   countAttempts,
   countBackpressurePrs,
+  decisionsSyncMode,
   dependabotHealAction,
   dependabotRecreateMarker,
   graceElapsed,
@@ -1093,6 +1094,21 @@ describe('graceElapsed', () => {
 
   it('окно прошло — можно мержить', () => {
     expect(graceElapsed('2026-08-20T11:44:00Z', NOW, 15)).toBe(true);
+  });
+});
+
+describe('decisionsSyncMode (issue #1141)', () => {
+  it('очередь работает и секрет есть — полный проход', () => {
+    expect(decisionsSyncMode(config({ enabled: true }), true)).toBe('full');
+  });
+
+  it('пауза очереди — только heartbeat, иначе контур «молчит» и шлёт ложный CRITICAL', () => {
+    expect(decisionsSyncMode(config({ enabled: false }), true)).toBe('heartbeat-only');
+  });
+
+  it('без секрета heartbeat невозможен — и при паузе, и без неё', () => {
+    expect(decisionsSyncMode(config({ enabled: true }), false)).toBe('no-secret');
+    expect(decisionsSyncMode(config({ enabled: false }), false)).toBe('no-secret');
   });
 });
 
