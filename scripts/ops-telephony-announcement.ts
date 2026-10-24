@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { fetch as telegramFetch, ProxyAgent } from "undici";
+import { fetch as proxyFetch, ProxyAgent } from "undici";
 import { isInQuietHours } from "../src/modules/notifications/dispatch/quiet-hours";
 
 export const CAMPAIGN = "telephony-daily-summary-2026-10-24";
@@ -62,6 +62,27 @@ const telegramResponse = z.object({
 });
 const messageResult = z.object({ message_id: z.number().int(), chat: z.object({ id: z.number(), type: z.literal("private") }) });
 type TelegramCall = (method: string, payload: Record<string, unknown>) => Promise<z.infer<typeof telegramResponse>>;
+
+/** Probe with read-only getMe; pin one working route before any sendMessage. */
+export async function chooseTransport(configured: TelegramCall, direct: TelegramCall, hasCustomTransport: boolean) {
+  const routes = hasCustomTransport
+    ? [{ name: "configured", call: configured }, { name: "direct", call: direct }]
+    : [{ name: "direct", call: direct }];
+  for (const route of routes) {
+    let identity: Awaited<ReturnType<TelegramCall>>;
+    try { identity = await route.call("getMe", {}); } catch { continue; }
+    if (!identity.ok) continue;
+    const bot = z.object({ id: z.number(), username: z.string() }).safeParse(identity.result);
+    if (!bot.success) continue;
+    if (bot.data.username.toLowerCase() !== "delovoypark_bot") throw new Error("UNEXPECTED_BOT");
+    return {
+      name: route.name,
+      bot: bot.data.username,
+      call: ((method, payload) => method === "getMe" ? Promise.resolve(identity) : route.call(method, payload)) as TelegramCall,
+    };
+  }
+  throw new Error("TELEGRAM_UNREACHABLE");
+}
 
 export async function runAnnouncement(db: PrismaClient, call: TelegramCall, options: {
   mode: "preview" | "send";
@@ -152,17 +173,23 @@ async function main() {
   const db = new PrismaClient();
   const proxy = process.env.TELEGRAM_PROXY_URL ? new ProxyAgent(process.env.TELEGRAM_PROXY_URL) : undefined;
   const root = (process.env.TELEGRAM_API_ROOT || "https://api.telegram.org").replace(/\/+$/, "");
-  const call: TelegramCall = async (method, payload) => {
+  const makeCall = (direct: boolean): TelegramCall => async (method, payload) => {
     if (!process.env.TELEGRAM_BOT_TOKEN) throw new Error("BOT_NOT_CONFIGURED");
-    const response = await telegramFetch(`${root}/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    const url = `${direct ? "https://api.telegram.org" : root}/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`;
+    const init = {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000), ...(proxy ? { dispatcher: proxy } : {}),
-    });
+      signal: AbortSignal.timeout(method === "getMe" ? 8000 : 15000),
+    };
+    // Match the application's native fetch on the direct path; undici is only needed for CONNECT proxying.
+    const response = !direct && proxy
+      ? await proxyFetch(url, { ...init, dispatcher: proxy })
+      : await fetch(url, init);
     return telegramResponse.parse(await response.json());
   };
   try {
-    const result = await runAnnouncement(db, call, options);
-    console.log(JSON.stringify(result));
+    const transport = await chooseTransport(makeCall(false), makeCall(true), Boolean(proxy) || root !== "https://api.telegram.org");
+    const result = await runAnnouncement(db, transport.call, options);
+    console.log(JSON.stringify({ ...result, transport: transport.name, bot: transport.bot }));
     if (result.failed || result.unresolved) process.exitCode = 1;
   } finally {
     await db.$disconnect();
@@ -171,5 +198,9 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(() => { console.error("Announcement failed; inspect delivery records before retrying."); process.exitCode = 1; });
+  main().catch(error => {
+    const safeCodes = ["UNEXPECTED_BOT", "TELEGRAM_UNREACHABLE", "BOT_NOT_CONFIGURED", "AUDIENCE_CHANGED: run preview again"];
+    console.error(error instanceof Error && safeCodes.includes(error.message) ? error.message : "Announcement failed; inspect delivery records before retrying.");
+    process.exitCode = 1;
+  });
 }
