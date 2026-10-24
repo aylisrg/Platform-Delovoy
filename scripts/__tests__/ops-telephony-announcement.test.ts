@@ -1,8 +1,44 @@
 import { describe, expect, it, vi } from "vitest";
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { audience, deliveryId, recipientAddress, runAnnouncement, type AudienceUser } from "../ops-telephony-announcement";
+import { audience, chooseTransport, deliveryId, recipientAddress, runAnnouncement, type AudienceUser } from "../ops-telephony-announcement";
 
 const now = new Date("2026-10-24T12:00:00Z");
+
+describe("Telegram route preflight", () => {
+  const identity = { ok: true, result: { id: 1, username: "DelovoyPark_bot" } };
+  it("falls back using getMe before sending, then never retries sendMessage", async () => {
+    const configured = vi.fn().mockRejectedValue(new Error("proxy unavailable"));
+    const direct = vi.fn().mockResolvedValue(identity);
+    const transport = await chooseTransport(configured, direct, true);
+    expect(transport.name).toBe("direct");
+    expect(configured.mock.calls).toEqual([["getMe", {}]]);
+    expect(direct.mock.calls).toEqual([["getMe", {}]]);
+    direct.mockRejectedValue(new Error("send timed out"));
+    await expect(transport.call("sendMessage", { chat_id: "123" })).rejects.toThrow("send timed out");
+    expect(direct).toHaveBeenCalledTimes(2);
+    expect(configured).toHaveBeenCalledTimes(1);
+  });
+  it("uses a working configured route and caches its identity", async () => {
+    const configured = vi.fn().mockResolvedValue(identity);
+    const direct = vi.fn();
+    const transport = await chooseTransport(configured, direct, true);
+    await transport.call("getMe", {});
+    expect(transport.name).toBe("configured");
+    expect(configured).toHaveBeenCalledTimes(1);
+    expect(direct).not.toHaveBeenCalled();
+  });
+  it("fails before writes or sends if every read-only probe fails", async () => {
+    const unavailable = vi.fn().mockResolvedValue({ ok: false });
+    await expect(chooseTransport(unavailable, unavailable, true)).rejects.toThrow("TELEGRAM_UNREACHABLE");
+    expect(unavailable.mock.calls).toEqual([["getMe", {}], ["getMe", {}]]);
+  });
+  it("does not mask an unexpected bot by changing routes", async () => {
+    const configured = vi.fn().mockResolvedValue({ ok: true, result: { id: 1, username: "Other_bot" } });
+    const direct = vi.fn();
+    await expect(chooseTransport(configured, direct, true)).rejects.toThrow("UNEXPECTED_BOT");
+    expect(direct).not.toHaveBeenCalled();
+  });
+});
 function user(overrides: Partial<AudienceUser> = {}): AudienceUser {
   return { id: "admin", role: "ADMIN", mergedIntoUserId: null, telegramId: "12345", notificationChannels: [], notificationGlobalPref: null, notificationEventPrefs: [], ...overrides };
 }
