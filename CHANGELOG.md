@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.28.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.2...v2.28.0) (2026-10-24)
+
+
+### Features
+
+* **telephony:** статистика Novofon и ежедневная сводка в Mini App ([#1151](https://github.com/aylisrg/Platform-Delovoy/issues/1151)) ([969510a](https://github.com/aylisrg/Platform-Delovoy/commit/969510aeecef39c35dd1d8483a570e5df00ad279))
+
+
+### Bug Fixes
+
+* **ops:** проверять маршрут Telegram до личного анонса ([#1154](https://github.com/aylisrg/Platform-Delovoy/issues/1154)) ([7939918](https://github.com/aylisrg/Platform-Delovoy/commit/79399183f50c4e77da156903961607d6483c8395))
+* **queue:** heartbeat контура решений во время паузы очереди ([#1148](https://github.com/aylisrg/Platform-Delovoy/issues/1148)) ([eb580d4](https://github.com/aylisrg/Platform-Delovoy/commit/eb580d4c7932b1c5a5f889a0f0cc31017472ebf0)), closes [#1141](https://github.com/aylisrg/Platform-Delovoy/issues/1141)
+
 ## [2.27.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.1...v2.27.2) (2026-10-15)
 
 
