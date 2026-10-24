@@ -21,6 +21,8 @@ export type ManagedEvent = {
   eventType: string;
   label: string;
   description: string;
+  /** In-app summaries requested by the owner are on until explicitly disabled. */
+  defaultEnabled?: boolean;
 };
 
 export type ManagedCategory = {
@@ -33,10 +35,29 @@ export type ManagedCategory = {
   sections: AdminSection[];
   /** true → категория дополнительно доступна роли SUPERADMIN без секций */
   superadminAlways?: boolean;
+  /** Unlike grandfathered external subscriptions, this requires the current role. */
+  superadminOnly?: boolean;
+  delivery?: "in-app";
   events: ManagedEvent[];
 };
 
 export const NOTIFICATION_CATALOG: ManagedCategory[] = [
+  {
+    key: "telephony",
+    label: "Звонки",
+    description: "Итоги дня в ленте Mini App",
+    icon: "bell",
+    sections: ["telephony"],
+    superadminAlways: true,
+    superadminOnly: true,
+    delivery: "in-app",
+    events: [{
+      eventType: "telephony.daily_summary",
+      label: "Ежедневная сводка звонков",
+      description: "После 09:00 МСК за предыдущий день: всего, принято и пропущено. Только в ленте Mini App.",
+      defaultEnabled: true,
+    }],
+  },
   {
     key: "bookings",
     label: "Бронирования",

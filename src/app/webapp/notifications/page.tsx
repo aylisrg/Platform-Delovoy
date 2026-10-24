@@ -44,7 +44,7 @@ interface CenterCategory {
   label: string;
   description: string;
   icon: WebAppIconName;
-  delivery: "personal" | "group";
+  delivery: "personal" | "group" | "in-app";
   events: CenterEvent[];
 }
 
@@ -184,6 +184,18 @@ export default function NotificationCenterPage() {
         </Card>
       </div>
 
+      {data.categories.some((category) => category.delivery === "in-app") && (
+        <div className="px-4 mt-3">
+          <Card>
+            <InfoRow
+              icon="news"
+              title="Сообщения внутри приложения"
+              subtitle="Сводки появляются в ленте на главной. Активный Telegram-канал для них не нужен."
+            />
+          </Card>
+        </div>
+      )}
+
       {data.categories.length === 0 && (
         <EmptyState
           icon="bell"
@@ -207,6 +219,12 @@ export default function NotificationCenterPage() {
           >
             {category.description} · {deliveryHint(category)}
           </p>
+
+          {category.delivery === "in-app" && category.events.some((event) => event.eventType === "telephony.daily_summary") && (
+            <p className="px-4 pb-3 text-[13px] leading-relaxed" style={{ color: "var(--tg-text)" }}>
+              Каждый день в 09:00 МСК — итоги предыдущего дня. Только в ленте приложения, без сообщений от бота.
+            </p>
+          )}
 
           <div className="px-4">
             <Card>
@@ -337,6 +355,7 @@ function channelSubtitle(channel: CenterChannel): string {
 }
 
 function deliveryHint(category: CenterCategory): string {
+  if (category.delivery === "in-app") return "в ленте приложения";
   if (category.delivery === "personal") return "приходят вам лично";
   // У «Системных» группового канала нет вовсе — обещать общий чат нельзя.
   return category.key === "system"
@@ -358,7 +377,7 @@ function applyToggle(
       }
       return {
         ...category,
-        delivery: enabled ? "personal" : category.delivery,
+        delivery: category.delivery === "in-app" ? "in-app" : enabled ? "personal" : category.delivery,
         events: category.events.map((event) =>
           event.eventType === eventType
             ? { ...event, enabled, source: "explicit" }

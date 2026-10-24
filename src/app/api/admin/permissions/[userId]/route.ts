@@ -12,6 +12,7 @@ import {
   ADMIN_SECTIONS,
   ADMIN_SECTION_SLUGS,
   STRICT_ACCESS_MODULES,
+  SUPERADMIN_ONLY_SECTIONS,
 } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
@@ -50,7 +51,7 @@ export async function GET(
     userName: user.name,
     userRole: user.role,
     grantedSections,
-    allSections: ADMIN_SECTIONS,
+    allSections: ADMIN_SECTIONS.filter((section) => !SUPERADMIN_ONLY_SECTIONS.has(section.slug)),
     strictSections: [...STRICT_ACCESS_MODULES],
   });
 }
@@ -90,7 +91,7 @@ export async function PUT(
     }
 
     const validSections = parsed.data.sections.filter((s) =>
-      (ADMIN_SECTION_SLUGS as readonly string[]).includes(s)
+      (ADMIN_SECTION_SLUGS as readonly string[]).includes(s) && !SUPERADMIN_ONLY_SECTIONS.has(s)
     );
 
     const strictSections = validSections.filter((s) => STRICT_ACCESS_MODULES.has(s));

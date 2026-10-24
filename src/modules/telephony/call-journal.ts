@@ -95,7 +95,9 @@ export async function recordNovofonNotification(
     str(body.contact_phone_number) ??
     str(dir === "OUTBOUND" ? body.called_phone_number : body.calling_phone_number);
   const fields: Prisma.NovofonCallUpdateInput = {
-    isLost: name === "lost_call" || talk === 0,
+    // A partial retry must not erase a confirmed missed call. Missing talk time
+    // carries no new outcome; explicit lost_call remains authoritative.
+    isLost: name === "lost_call" ? true : talk === null ? undefined : talk === 0,
     finishReason: str(body.finish_reason),
     virtualPhoneNumber: str(body.virtual_phone_number),
     contactPhone: contact,

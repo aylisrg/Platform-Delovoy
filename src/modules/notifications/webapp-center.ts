@@ -54,7 +54,7 @@ export type NotificationCenterCategory = {
   label: string;
   description: string;
   icon: WebAppIconName;
-  delivery: "personal" | "group";
+  delivery: "personal" | "group" | "in-app";
   events: NotificationCenterEvent[];
 };
 
@@ -198,8 +198,8 @@ export async function getNotificationCenter(
     getPreferences(staff.id),
   ]);
 
-  // Отсутствие строки = подписки нет (принцип явной подписки, ADR §3.3):
-  // дефолт `enabled: true` из mergePreferences к staff-фанауту не применяется.
+  // Внешние подписки требуют явного включения (ADR §3.3). Заказанная владельцем
+  // in-app сводка включена по умолчанию; её defaultEnabled не включает внешнюю доставку.
   const explicit = new Map(
     preferences.events.map((row) => [row.eventType, row.enabled])
   );
@@ -216,7 +216,7 @@ export async function getNotificationCenter(
         eventType: event.eventType,
         label: event.label,
         description: event.description,
-        enabled: row ?? false,
+        enabled: row ?? event.defaultEnabled ?? false,
         source: row === undefined ? "default" : "explicit",
       };
     });
@@ -230,7 +230,7 @@ export async function getNotificationCenter(
       label: category.label,
       description: category.description,
       icon: category.icon,
-      delivery:
+      delivery: category.delivery === "in-app" ? "in-app" :
         groupFanoutKeys.has(category.key) || subscribed ? "personal" : "group",
       events,
     };

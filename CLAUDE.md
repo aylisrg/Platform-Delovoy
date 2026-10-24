@@ -120,7 +120,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `feedback` | ✅ | User feedback & office linkage — PRD `2026-04-15`, `2026-04-25` |
 | `inventory` | ✅ | Cafe & module stock management — PRD `2026-04-12` |
 | `management` | ✅ | Park expense tracking & financial accounting — PRD `2026-04-18` |
-| `telephony` | ✅ | Novofon integration for call tracking — PRD `2026-04-12` |
+| `telephony` | ✅ | Novofon call tracking; owner dashboard и ежедневные сводки в ленте Mini App после 09:00 МСК за вчера (`InAppNotification`, без внешней рассылки) — PRD `2026-10-24-telephony-daily-summary-prd` |
 | `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications` |
 | `pipeline-metrics` | ✅ (infrastructure-only) | CI pipeline self-diagnostics for agents; not a business module, no public API |
 | `owner-decisions` | ✅ (infrastructure-only) | Решения владельца Telegram-кнопками (merge-hold PR, blocked-вопросы, идеи, ротация PAT); API только для свипера очереди (секрет) и бота — ADR `2026-08-20-owner-out-of-github` |

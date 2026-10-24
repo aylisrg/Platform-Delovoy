@@ -37,13 +37,16 @@ export async function resolveManagedCategories(
   user: { id: string; role: Role },
   sections: string[]
 ): Promise<ManagedCategory[]> {
-  const accessible = NOTIFICATION_CATALOG.filter(
+  const eligible = NOTIFICATION_CATALOG.filter(
+    (category) => !category.superadminOnly || user.role === "SUPERADMIN"
+  );
+  const accessible = eligible.filter(
     (category) =>
       category.sections.some((section) => sections.includes(section)) ||
       (category.superadminAlways === true && user.role === "SUPERADMIN")
   );
 
-  const missing = NOTIFICATION_CATALOG.filter(
+  const missing = eligible.filter(
     (category) => !accessible.includes(category)
   );
   if (missing.length === 0) return accessible;

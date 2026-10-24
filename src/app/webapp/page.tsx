@@ -15,6 +15,12 @@ import {
 } from "@/components/webapp/ui";
 import { buildNavigation } from "@/lib/webapp/navigation";
 import type { WebAppIconName } from "@/lib/webapp/icon-names";
+import { TelephonyDailySummaryCard } from "@/components/webapp/telephony-daily-summary-card";
+import {
+  TELEPHONY_DAILY_EVENT,
+  telephonyDailySummarySchema,
+  type TelephonyDailySummary,
+} from "@/modules/telephony/daily-summary-types";
 
 /**
  * Главный экран Mini App (US-2, ADR §3.1).
@@ -40,6 +46,7 @@ interface FeedItem {
   createdAt: string;
   readAt: string | null;
   moduleSlug: string | null;
+  telephonySummary?: TelephonyDailySummary;
 }
 
 interface FeedPage {
@@ -189,6 +196,20 @@ function FeedCard({
 }) {
   const unread = item.readAt === null;
   const action = item.actions[0];
+
+  if (item.eventType === TELEPHONY_DAILY_EVENT) {
+    const summary = telephonyDailySummarySchema.safeParse(item.telephonySummary);
+    if (summary.success) {
+      return (
+        <TelephonyDailySummaryCard
+          summary={summary.data}
+          unread={unread}
+          onRead={() => onOpen({ ...item, actions: [] })}
+        />
+      );
+    }
+    // Older or malformed payloads retain the regular text notification.
+  }
 
   return (
     <Card>

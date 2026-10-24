@@ -31,6 +31,7 @@ export const ALL_NAVIGATION: NavItem[] = [
   { label: "Гости (CRM)", href: "/admin/clients", icon: "🧑", section: "clients" },
   { label: "Склад", href: "/admin/inventory", icon: "📋", section: "inventory" },
   { label: "Аналитика", href: "/admin/analytics", icon: "📈", section: "analytics" },
+  { label: "Звонки", href: "/admin/telephony", icon: "☎", section: "telephony" },
   { label: "Платежи", href: "/admin/payments", icon: "💳", section: "payments" },
   { label: "Управленка", href: "/admin/management", icon: "💰", section: "management" },
   { label: "Обратная связь", href: "/admin/feedback", icon: "💬", section: "feedback" },
@@ -45,7 +46,7 @@ export const ALL_NAVIGATION: NavItem[] = [
 // Секции каждого парка. "users" — глобальная, закреплена над меню парка.
 export const DELOVOY_SECTIONS = new Set([
   "dashboard", "rental", "gazebos", "ps-park", "cafe",
-  "clients", "inventory", "analytics", "payments", "management",
+  "clients", "inventory", "analytics", "telephony", "payments", "management",
   "feedback", "tasks", "messenger", "avito", "notifications", "monitoring",
   "architect", "modules",
 ]);
