@@ -64,6 +64,7 @@ model User {
   notificationChannels   UserNotificationChannel[]     @relation("UNCUser")
   notificationEventPrefs NotificationEventPreference[] @relation("NEPUser")
   notificationGlobalPref NotificationGlobalPreference? @relation("NGPUser")
+  inAppNotifications     InAppNotification[]
   webPushSubscriptions   WebPushSubscription[]         @relation("WPSUser")
 
   mergeCandidatesPrimary   MergeCandidate[] @relation("MergeCandidatePrimary")
@@ -1826,6 +1827,21 @@ model NotificationGlobalPreference {
   dndUntil       DateTime?
   feedSeenAt     DateTime? // watermark просмотра новостей парка в ленте Mini App
   updatedAt      DateTime  @updatedAt
+}
+
+/// Personal Mini App inbox; independent of external delivery channels.
+/// Producers may set deterministic ids for durable idempotency.
+model InAppNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 
 model OutgoingNotification {
