@@ -200,6 +200,18 @@ describe("getUserModules", () => {
 // hasAdminSectionAccess
 // ============================================================
 describe("hasAdminSectionAccess", () => {
+  it.each(["USER", "MANAGER", "ADMIN"])("keeps global telephony private from %s even with a stale grant", async (role) => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({ id: "grant" } as never);
+    expect(await hasAdminSectionAccess("user", "telephony")).toBe(false);
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows SUPERADMIN to read global telephony", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    expect(await hasAdminSectionAccess("owner", "telephony")).toBe(true);
+  });
+
   it("returns false when user not found", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     const result = await hasAdminSectionAccess("unknown-user", "dashboard");
@@ -261,6 +273,14 @@ describe("hasAdminSectionAccess", () => {
 // getUserAdminSections
 // ============================================================
 describe("getUserAdminSections", () => {
+  it.each(["ADMIN", "MANAGER"])("hides telephony from %s despite a stale grant", async (role) => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role } as never);
+    vi.mocked(prisma.adminPermission.findMany).mockResolvedValue([
+      { section: "telephony" }, { section: "cafe" },
+    ] as never);
+    expect(await getUserAdminSections("staff")).toEqual(["cafe"]);
+  });
+
   it("returns empty array when user not found", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     const result = await getUserAdminSections("unknown");
@@ -316,6 +336,14 @@ describe("getUserAdminSections", () => {
 // setUserAdminSections
 // ============================================================
 describe("setUserAdminSections", () => {
+  it("does not create a misleading grant for global telephony", async () => {
+    vi.mocked(prisma.$transaction).mockResolvedValue([]);
+    await setUserAdminSections("staff", ["telephony", "cafe"]);
+    expect(prisma.adminPermission.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "staff", section: "cafe" }],
+    });
+  });
+
   it("calls transaction with deleteMany and createMany", async () => {
     vi.mocked(prisma.$transaction).mockResolvedValue(undefined as never);
 

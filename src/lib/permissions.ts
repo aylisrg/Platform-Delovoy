@@ -24,6 +24,7 @@ export const ADMIN_SECTIONS = [
   { slug: "clients", label: "Гости (CRM)", icon: "🧑" },
   { slug: "inventory", label: "Склад", icon: "📋" },
   { slug: "analytics", label: "Аналитика", icon: "📈" },
+  { slug: "telephony", label: "Звонки", icon: "☎" },
   { slug: "payments", label: "Платежи", icon: "💳" },
   { slug: "management", label: "Управленка", icon: "💰" },
   { slug: "feedback", label: "Обратная связь", icon: "💬" },
@@ -41,6 +42,9 @@ export const ADMIN_SECTIONS = [
  * regardless of role. Used for parks/tenants with separate ownership.
  */
 export const STRICT_ACCESS_MODULES = new Set(["nedelovoy"]);
+
+/** Global call records have no module attribution; grants cannot safely scope them. */
+export const SUPERADMIN_ONLY_SECTIONS = new Set(["telephony"]);
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number]["slug"];
 
@@ -165,6 +169,7 @@ export async function hasAdminSectionAccess(
 
   if (!user) return false;
   if (user.role === "USER") return false;
+  if (SUPERADMIN_ONLY_SECTIONS.has(section)) return user.role === "SUPERADMIN";
 
   if (user.role === "SUPERADMIN" && !STRICT_ACCESS_MODULES.has(section)) {
     return true;
@@ -207,7 +212,7 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
     select: { section: true },
   });
 
-  return permissions.map((p) => p.section);
+  return permissions.map((p) => p.section).filter((section) => !SUPERADMIN_ONLY_SECTIONS.has(section));
 }
 
 /**
@@ -334,7 +339,7 @@ export async function setUserAdminSections(
 ): Promise<void> {
   // Validate sections
   const validSections = sections.filter((s) =>
-    ADMIN_SECTION_SLUGS.includes(s as AdminSection)
+    ADMIN_SECTION_SLUGS.includes(s as AdminSection) && !SUPERADMIN_ONLY_SECTIONS.has(s)
   );
 
   await prisma.$transaction([
