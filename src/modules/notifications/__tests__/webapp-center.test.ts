@@ -129,11 +129,34 @@ describe("getNotificationCenter — видимость категорий", () =
     // значит и строго-доступная не появится без явного гранта.
     const view = await getNotificationCenter(staff("SUPERADMIN", []), "555");
 
-    expect(view.categories.map((c) => c.key)).toEqual(["system"]);
+    expect(view.categories.map((c) => c.key)).toEqual(["telephony", "system"]);
   });
 });
 
 describe("getNotificationCenter — состояние событий и доставка", () => {
+  it("daily summary is on by default and works without a Telegram channel", async () => {
+    const view = await getNotificationCenter(staff("SUPERADMIN", []), null);
+    expect(view.channel.status).toBe("inactive");
+    expect(view.categories.find((category) => category.key === "telephony")).toMatchObject({
+      delivery: "in-app", events: [{ eventType: "telephony.daily_summary", enabled: true, source: "default" }],
+    });
+    expect(prisma.userNotificationChannel.create).not.toHaveBeenCalled();
+  });
+
+  it("respects the explicit daily summary opt-out", async () => {
+    prefs([{ eventType: "telephony.daily_summary", enabled: false }]);
+    const view = await getNotificationCenter(staff("SUPERADMIN", []), null);
+    expect(view.categories.find((category) => category.key === "telephony")?.events[0]).toMatchObject({ enabled: false, source: "explicit" });
+  });
+
+  it("does not grandfather a daily summary subscription after demotion", async () => {
+    vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([{ eventType: "telephony.daily_summary" }] as never);
+    const view = await getNotificationCenter(staff("MANAGER", ["telephony"]), null);
+    expect(view.categories.some((category) => category.key === "telephony")).toBe(false);
+    await expect(setEventPreference(staff("MANAGER", ["telephony"]), "telephony.daily_summary", true)).rejects.toMatchObject({ status: 403 });
+    expect(upsertEventPreference).not.toHaveBeenCalled();
+  });
+
   it("отсутствие строки = не подписан (source default, enabled false)", async () => {
     const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
     const events = view.categories[0].events;

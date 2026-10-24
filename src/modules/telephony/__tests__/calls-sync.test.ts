@@ -99,6 +99,16 @@ describe("fetchCallsReportPage", () => {
   const sleep = vi.fn(async () => {});
   beforeEach(() => sleep.mockClear());
 
+  it("не превращает некорректный ответ в пустой отчёт", async () => {
+    for (const body of [{}, { result: {} }, { result: { data: null } }, { result: { data: {} } }]) {
+      const fetchImpl = vi.fn(async () => rpc(body));
+      await expect(fetchCallsReportPage(
+        { token: "t", from: NOW, till: NOW, offset: 0, limit: 10 },
+        { fetchImpl, sleep },
+      )).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
   it("шлёт get.calls_report с датами, пагинацией и токеном в params", async () => {
     const fetchImpl = vi.fn(async () => rpc({ result: { data: [row(1)] } }));
     const rows = await fetchCallsReportPage(
