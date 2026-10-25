@@ -28,6 +28,9 @@ export const MERGE_TEXTS = {
   chooseHint: "По умолчанию основной — аккаунт с более высокой ролью, при равенстве — тот, у кого есть email.",
   rolesHint: "Роль и права итогового аккаунта — как у основного. Права второго аккаунта не переносятся.",
   submit: "Объединить",
+  blockedTitle: "Объединить нельзя:",
+  hintConfirm: "Отметьте подтверждение выше",
+  hintTelegram: "Подтвердите, какой Telegram оставить",
 } as const;
 
 const ROLE_LABEL: Record<string, string> = {
@@ -156,6 +159,18 @@ function MergeWizardBody({ initialUserId, initialSecondaryId, mergeRequestId, on
   const blocked = (preview?.blockers.length ?? 0) > 0;
   const canSubmit =
     Boolean(preview) && !blocked && confirmIrreversible && (!telegramConflict || confirmTelegram) && !submitting;
+  // Why «Объединить» is disabled — next to the button: the preview is long and
+  // its top (where blockers are listed) is scrolled away on a phone.
+  const submitHint =
+    !preview || submitting
+      ? null
+      : blocked
+        ? preview.blockers[0]?.message ?? null
+        : !confirmIrreversible
+          ? MERGE_TEXTS.hintConfirm
+          : telegramConflict && !confirmTelegram
+            ? MERGE_TEXTS.hintTelegram
+            : null;
 
   async function submit() {
     if (!preview || !canSubmit) return;
@@ -221,6 +236,11 @@ function MergeWizardBody({ initialUserId, initialSecondaryId, mergeRequestId, on
   } else if (step === "preview") {
     footer = (
       <>
+        {submitHint && (
+          <p role="status" data-testid="merge-submit-hint" className="min-w-0 flex-1 text-left text-xs text-red-600">
+            {submitHint}
+          </p>
+        )}
         <FooterBack canGoBack={canGoBack} onBack={back} onClose={onClose} />
         <button type="button" onClick={submit} disabled={!canSubmit} className={dangerButtonClass}>
           {submitting ? "Объединяем..." : MERGE_TEXTS.submit}
@@ -615,6 +635,15 @@ function PreviewStep({
             ))}
           </ul>
         </Section>
+      )}
+
+      {preview.blockers.length > 0 && (
+        <div role="alert" data-testid="merge-blockers-bottom" className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+          <p className="font-medium">{MERGE_TEXTS.blockedTitle}</p>
+          {preview.blockers.map((b) => (
+            <p key={b.code}>{b.message}</p>
+          ))}
+        </div>
       )}
 
       {preview.blockers.length === 0 && (

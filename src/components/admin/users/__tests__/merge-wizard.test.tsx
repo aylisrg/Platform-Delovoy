@@ -153,9 +153,31 @@ describe("MergeWizard", () => {
     await screen.findAllByRole("radio");
     fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
 
-    expect(await screen.findByText("Нельзя объединить аккаунт, под которым вы вошли. Выберите его основным")).toBeTruthy();
+    const reason = "Нельзя объединить аккаунт, под которым вы вошли. Выберите его основным";
+    expect((await screen.findAllByText(reason)).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(MERGE_TEXTS.irreversible)).toBeNull();
     expect((screen.getByRole("button", { name: MERGE_TEXTS.submit }) as HTMLButtonElement).disabled).toBe(true);
+    // The top of a long preview is scrolled away on a phone: the reason is also
+    // at the bottom, where the checkbox would be, and next to the button.
+    expect(screen.getByTestId("merge-blockers-bottom").textContent).toContain(reason);
+    expect(screen.getByTestId("merge-submit-hint").textContent).toBe(reason);
+  });
+
+  it("a disabled «Объединить» says what's missing: the confirmation, then the Telegram choice", async () => {
+    const withConflict = preview(MGR, BOT, {
+      conflicts: [{ field: "telegram", primaryValue: "привязан", secondaryValue: "привязан", requiresConfirmation: true }],
+    });
+    mockFetch(() => ({ success: true, data: withConflict }));
+    render(<MergeWizard open initialUserId="p-mgr" initialSecondaryId="s-bot" onClose={vi.fn()} onMerged={vi.fn()} />);
+    await screen.findAllByRole("radio");
+    fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
+    await screen.findByTestId("merge-preview");
+
+    expect(screen.getByTestId("merge-submit-hint").textContent).toBe(MERGE_TEXTS.hintConfirm);
+    fireEvent.click(screen.getByLabelText(MERGE_TEXTS.irreversible));
+    expect(screen.getByTestId("merge-submit-hint").textContent).toBe(MERGE_TEXTS.hintTelegram);
+    fireEvent.click(screen.getByLabelText(MERGE_TEXTS.telegramConfirm));
+    expect(screen.queryByTestId("merge-submit-hint")).toBeNull();
   });
 
   it("shows the server error of the merge (e.g. ALREADY_MERGED) inside the dialog", async () => {
