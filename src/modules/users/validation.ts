@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MANAGED_EVENT_TYPES } from "@/modules/notifications/catalog";
 
 export const createUserSchema = z.object({
   email: z.string().email("Некорректный email"),
@@ -52,3 +53,29 @@ export const listUsersSchema = z.object({
 });
 
 export type ListUsersInput = z.infer<typeof listUsersSchema>;
+
+/** GET /api/users/team — the team review screen (US-B2, ADR 2026-10-25 §6.2). */
+const queryBoolean = z
+  .enum(["true", "false", "1", "0"])
+  .transform((v) => v === "true" || v === "1");
+
+export const teamOverviewQuerySchema = z.object({
+  role: z.enum(["SUPERADMIN", "ADMIN", "MANAGER"]).optional(),
+  problems: queryBoolean.optional(),
+  bot: z.enum(["not_started", "blocked"]).optional(),
+  noTelegram: queryBoolean.optional(),
+  sort: z.enum(["lastLogin", "name"]).optional(),
+});
+
+export type TeamOverviewQueryInput = z.infer<typeof teamOverviewQuerySchema>;
+
+/** PATCH /api/users/[id]/notifications — admin toggles a staff subscription (US-C2). */
+export const userNotificationToggleSchema = z
+  .object({
+    eventType: z.enum(MANAGED_EVENT_TYPES),
+    enabled: z.boolean(),
+    source: z.enum(["profile", "team", "matrix"]).optional(),
+  })
+  .strict();
+
+export type UserNotificationToggleInput = z.infer<typeof userNotificationToggleSchema>;

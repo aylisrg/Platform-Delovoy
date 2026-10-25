@@ -230,6 +230,8 @@ describe("listUsers", () => {
     const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
     expect(callArgs?.where).toEqual({
       AND: [
+        { mergedIntoUserId: null },
+        { id: { not: "system" } },
         {
           OR: [
             { name: { contains: "test", mode: "insensitive" } },
@@ -250,8 +252,22 @@ describe("listUsers", () => {
 
     const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
     expect(callArgs?.where).toEqual({
-      AND: [{ role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } }],
+      AND: [
+        { mergedIntoUserId: null },
+        { id: { not: "system" } },
+        { role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } },
+      ],
     });
+  });
+
+  it("never lists merged tombstones or the technical system user (ADR 2026-10-25 §5.1)", async () => {
+    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.user.count).mockResolvedValue(0);
+
+    await listUsers();
+
+    const callArgs = vi.mocked(prisma.user.findMany).mock.calls[0][0];
+    expect(callArgs?.where).toEqual({ AND: [{ mergedIntoUserId: null }, { id: { not: "system" } }] });
   });
 
   it("respects limit and offset", async () => {

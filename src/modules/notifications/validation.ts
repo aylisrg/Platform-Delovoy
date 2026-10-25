@@ -83,3 +83,12 @@ export const historyFilterSchema = z.object({
 });
 
 export type HistoryFilter = z.infer<typeof historyFilterSchema>;
+
+/** GET /api/admin/notifications/matrix — team × events (US-C4, ADR 2026-10-25 §6.2). */
+export const notificationMatrixQuerySchema = z.object({
+  category: z.string().max(40).optional(),
+  role: z.enum(["SUPERADMIN", "ADMIN", "MANAGER"]).optional(),
+  problems: z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1").optional(),
+});
+
+export type NotificationMatrixQuery = z.infer<typeof notificationMatrixQuerySchema>;

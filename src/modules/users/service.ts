@@ -76,7 +76,12 @@ export async function listUsers(options?: {
 }) {
   const { search, role, limit = 50, offset = 0 } = options ?? {};
 
-  const conditions: Record<string, unknown>[] = [];
+  // Merged tombstones and the technical `system` user are not people
+  // (ADR 2026-10-25-team-access-notifications §5.1).
+  const conditions: Record<string, unknown>[] = [
+    { mergedIntoUserId: null },
+    { id: { not: "system" } },
+  ];
 
   if (search) {
     conditions.push({
@@ -93,7 +98,7 @@ export async function listUsers(options?: {
     conditions.push({ role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } });
   }
 
-  const where = conditions.length > 0 ? { AND: conditions } : undefined;
+  const where = { AND: conditions };
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({

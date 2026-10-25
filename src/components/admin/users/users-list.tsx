@@ -652,7 +652,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
   );
 }
 
-function ResetPasswordModal({
+export function ResetPasswordModal({
   userId,
   userName,
   userEmail,
