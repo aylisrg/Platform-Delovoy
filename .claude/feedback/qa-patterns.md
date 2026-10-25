@@ -36,6 +36,7 @@
 - Дедуп/выбор «самой свежей записи», зависящий от `orderBy` в Prisma-запросе, тестируется с мокнутым `findMany` — если тест ассертит только `where`, а мок-данные подаются уже вручную отсортированными, смена реального `orderBy` (`desc`→`asc`) молча проходит тесты: мок не сортирует по переданному аргументу, порядок в тестовых данных решает всё → отдельно ассертить `orderBy` в `toHaveBeenCalledWith(expect.objectContaining({ orderBy: ... }))`, не полагаться на порядок мок-массива (issue #666).
 - Live/E2E-проверка App Router страниц с `forbidden()`/`notFound()`/`unauthorized()` через сырой HTTP-статус ответа обманчива: стриминг коммитит статус 200 ещё до броска ошибки, реальный сигнал — `digest: "NEXT_HTTP_ERROR_FALLBACK;403/404"` внутри RSC-payload тела → ассертить по телу ответа (наличие digest/error-boundary разметки), не по `response.status` (issue #636).
 - Пустое состояние UI под условием `items.length === 0` недостижимо, если в список всегда добавляется «служебный» элемент (`staffAlways`-категория «Системные» в Центре уведомлений) → unit-тест на моке резолвера без этого элемента зелёный, на реальных данных сообщение не появляется никогда → empty-state проверять на ответе настоящего API/БД с минимальным пользователем (без прав), а не на моке (issue #1155, AC-C3.4).
+- Подсказка к disabled-кнопке добавлена в футер общего `DialogShell` как `flex-1 min-w-0` в один ряд с кнопками → на телефоне колонка сжимается до 22–92 px: слово шире колонки налезает на «Назад», длинная русская причина раздувает футер до 40–50% диалога, а jsdom-тест на текст подсказки этого не видит (нет layout) → для нового текста в футере/шапке модалки смотреть в реальном Chromium (Playwright) на 320/360/375 px с самым длинным реальным сообщением и ставить его отдельной строкой (`flex-wrap` + `w-full`), не в ряд с кнопками (issue #1157).
 
 ### RBAC / Безопасность
 - Route проверяет `hasRole(session.user, "MANAGER")`, но не вызывает `requireAdminSection(session, <module>)` → менеджер одного модуля мутирует/читает данные в чужом → сразу после role-check: `const denied = await requireAdminSection(session, "<slug>"); if (denied) return denied;` (issues #560, #561, #622 — 5 write-роутов в последнем).
@@ -172,3 +173,4 @@
 | unknown | issue-725-qa-report.md | 10 | rbac, api, typescript, tests, scope_creep |
 | 2026-09-18 | 2026-09-18-for-team-qa-report.md | 17 | rbac, api, tests, scope_creep |
 | 2026-10-25 | 2026-10-25-team-access-notifications-qa-report.md | 15 | rbac, api, typescript, tests, scope_creep |
+| unknown | pr-1157-qa-report.md | 12 | rbac, api, tests |

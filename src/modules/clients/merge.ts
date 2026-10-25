@@ -385,9 +385,18 @@ export async function previewAccountMerge(input: {
     },
     channels: {
       kept: channels.filter((c) => c.userId === primaryId).map((c) => channelLabel(c.kind)),
-      moved: secondaryChannels
-        .filter((c) => !primaryChannelKeys.has(`${c.kind}::${c.address}`))
-        .map((c) => channelLabel(c.kind)),
+      moved: [
+        ...secondaryChannels
+          .filter((c) => !primaryChannelKeys.has(`${c.kind}::${c.address}`))
+          .map((c) => channelLabel(c.kind)),
+        // The merge creates it for a staff primary (see runMerge, after step 16).
+        ...(primary.role !== "USER" &&
+        !primary.telegramId &&
+        secondary.telegramId &&
+        !secondaryChannels.some((c) => c.kind === "TELEGRAM" && c.address === secondary.telegramId)
+          ? [channelLabel("TELEGRAM")]
+          : []),
+      ],
       duplicates: secondaryChannels
         .filter((c) => primaryChannelKeys.has(`${c.kind}::${c.address}`))
         .map((c) => channelLabel(c.kind)),
@@ -898,6 +907,29 @@ async function runMerge(
   }
   if (Object.keys(fill).length > 0) {
     await tx.user.update({ where: { id: primaryId }, data: fill });
+  }
+
+  // The Telegram that moved in starts delivering to a staff primary right away;
+  // without the channel row the team screen keeps «Нет рабочего канала» until
+  // the person opens the Center in the Mini App (ensureTelegramChannel).
+  if (fill.telegramId && primary.role !== "USER" && secondary.telegramId) {
+    const existing = await tx.userNotificationChannel.findFirst({
+      where: { userId: primaryId, kind: "TELEGRAM", address: secondary.telegramId },
+      select: { id: true },
+    });
+    if (!existing) {
+      await tx.userNotificationChannel.create({
+        data: {
+          userId: primaryId,
+          kind: "TELEGRAM",
+          address: secondary.telegramId,
+          label: "Telegram",
+          priority: 10,
+          isActive: true,
+          verifiedAt: now,
+        },
+      });
+    }
   }
 
   // ── 17. AuditLog (AC-E2.8): actor, both accounts, resulting role, counters,

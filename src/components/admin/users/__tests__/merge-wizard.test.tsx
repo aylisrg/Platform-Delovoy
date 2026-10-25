@@ -88,10 +88,16 @@ describe("MergeWizard", () => {
     await screen.findByTestId("merge-preview");
     expect(screen.getByTestId("merge-transfer").textContent).toContain("Брони — 2");
 
+    // The bot account's Telegram moves to the primary: the person signs in either way into one account.
+    expect(screen.getByTestId("merge-preview").textContent).toContain("Вход через Telegram будет вести в аккаунт Пётр");
+
     const submit = screen.getByRole("button", { name: MERGE_TEXTS.submit }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+    expect(screen.getByTestId("merge-submit-hint").textContent).toBe(MERGE_TEXTS.hintConfirm);
+    expect(submit.getAttribute("aria-describedby")).toBe(screen.getByTestId("merge-submit-hint").id);
     fireEvent.click(screen.getByLabelText(MERGE_TEXTS.irreversible));
     expect(submit.disabled).toBe(false);
+    expect(screen.queryByTestId("merge-submit-hint")).toBeNull();
     fireEvent.click(submit);
 
     await waitFor(() => expect(onMerged).toHaveBeenCalledWith({ primaryId: "p-mgr" }));
@@ -154,13 +160,54 @@ describe("MergeWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
 
     const reason = "Нельзя объединить аккаунт, под которым вы вошли. Выберите его основным";
-    expect((await screen.findAllByText(reason)).length).toBeGreaterThan(0);
+    // Top of the preview, bottom of the preview, next to the button.
+    expect(await screen.findAllByText(reason)).toHaveLength(3);
     expect(screen.queryByLabelText(MERGE_TEXTS.irreversible)).toBeNull();
     expect((screen.getByRole("button", { name: MERGE_TEXTS.submit }) as HTMLButtonElement).disabled).toBe(true);
     // The top of a long preview is scrolled away on a phone: the reason is also
     // at the bottom, where the checkbox would be, and next to the button.
     expect(screen.getByTestId("merge-blockers-bottom").textContent).toContain(reason);
     expect(screen.getByTestId("merge-submit-hint").textContent).toBe(reason);
+  });
+
+  it("several blockers: all of them at the bottom and next to the button", async () => {
+    const blocked = preview(MGR, BOT, {
+      blockers: [
+        { code: "SECONDARY_IS_ACTOR", message: "Нельзя объединить аккаунт, под которым вы вошли. Выберите его основным" },
+        { code: "ACTIVE_SUBSCRIPTION_CONFLICT", message: "У обоих аккаунтов активный абонемент — объединение невозможно, пока один не завершён" },
+      ],
+    });
+    mockFetch(() => ({ success: true, data: blocked }));
+    render(<MergeWizard open initialUserId="p-mgr" initialSecondaryId="s-bot" onClose={vi.fn()} onMerged={vi.fn()} />);
+    await screen.findAllByRole("radio");
+    fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
+    await screen.findByTestId("merge-preview");
+
+    for (const b of blocked.blockers) {
+      expect(screen.getByTestId("merge-blockers-bottom").textContent).toContain(b.message);
+    }
+    // One reason per line — the messages carry no trailing dot, so they must not run together.
+    expect(screen.getByTestId("merge-submit-hint").textContent).toBe(blocked.blockers.map((b) => b.message).join("\n"));
+  });
+
+  it("no hint while the merge is being sent", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    const fetchMock = vi.fn((url: string) =>
+      url === "/api/users/merge"
+        ? new Promise((resolve) => (release = resolve))
+        : Promise.resolve({ json: () => Promise.resolve({ success: true, data: preview(MGR, BOT) }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MergeWizard open initialUserId="p-mgr" initialSecondaryId="s-bot" onClose={vi.fn()} onMerged={vi.fn()} />);
+    await screen.findAllByRole("radio");
+    fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
+    await screen.findByTestId("merge-preview");
+    fireEvent.click(screen.getByLabelText(MERGE_TEXTS.irreversible));
+    fireEvent.click(screen.getByRole("button", { name: MERGE_TEXTS.submit }));
+
+    expect(await screen.findByRole("button", { name: "Объединяем..." })).toBeTruthy();
+    expect(screen.queryByTestId("merge-submit-hint")).toBeNull();
+    release({ json: () => Promise.resolve({ success: true, data: { primaryId: "p-mgr" } }) });
   });
 
   it("a disabled «Объединить» says what's missing: the confirmation, then the Telegram choice", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import type {
   AccountMergePreview,
   AccountSide,
@@ -157,20 +157,21 @@ function MergeWizardBody({ initialUserId, initialSecondaryId, mergeRequestId, on
 
   const telegramConflict = Boolean(preview?.conflicts.some((c) => c.field === "telegram" && c.requiresConfirmation));
   const blocked = (preview?.blockers.length ?? 0) > 0;
-  const canSubmit =
-    Boolean(preview) && !blocked && confirmIrreversible && (!telegramConflict || confirmTelegram) && !submitting;
-  // Why «Объединить» is disabled — next to the button: the preview is long and
-  // its top (where blockers are listed) is scrolled away on a phone.
-  const submitHint =
-    !preview || submitting
-      ? null
-      : blocked
-        ? preview.blockers[0]?.message ?? null
-        : !confirmIrreversible
-          ? MERGE_TEXTS.hintConfirm
-          : telegramConflict && !confirmTelegram
-            ? MERGE_TEXTS.hintTelegram
-            : null;
+  // One source for «why not yet»: it disables «Объединить» and is shown next to
+  // it — the preview is long and its top (where blockers are listed) is scrolled
+  // away on a phone.
+  const pending: { text: string; tone: "error" | "hint" } | null = !preview
+    ? { text: "", tone: "hint" }
+    : blocked
+      ? { text: preview.blockers.map((b) => b.message).join("\n"), tone: "error" }
+      : !confirmIrreversible
+        ? { text: MERGE_TEXTS.hintConfirm, tone: "hint" }
+        : telegramConflict && !confirmTelegram
+          ? { text: MERGE_TEXTS.hintTelegram, tone: "hint" }
+          : null;
+  const canSubmit = pending === null && !submitting;
+  const submitHint = !submitting && pending?.text ? pending : null;
+  const submitHintId = useId();
 
   async function submit() {
     if (!preview || !canSubmit) return;
@@ -235,17 +236,29 @@ function MergeWizardBody({ initialUserId, initialSecondaryId, mergeRequestId, on
     );
   } else if (step === "preview") {
     footer = (
-      <>
+      // Wraps: on a phone the hint takes its own line above the buttons
+      // instead of being squeezed between them.
+      <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2">
         {submitHint && (
-          <p role="status" data-testid="merge-submit-hint" className="min-w-0 flex-1 text-left text-xs text-red-600">
-            {submitHint}
+          <p
+            id={submitHintId}
+            data-testid="merge-submit-hint"
+            className={`w-full whitespace-pre-line break-words text-left text-xs ${submitHint.tone === "error" ? "text-red-600" : "text-zinc-500"}`}
+          >
+            {submitHint.text}
           </p>
         )}
         <FooterBack canGoBack={canGoBack} onBack={back} onClose={onClose} />
-        <button type="button" onClick={submit} disabled={!canSubmit} className={dangerButtonClass}>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!canSubmit}
+          aria-describedby={submitHint ? submitHintId : undefined}
+          className={dangerButtonClass}
+        >
           {submitting ? "Объединяем..." : MERGE_TEXTS.submit}
         </button>
-      </>
+      </div>
     );
   } else {
     footer = (
@@ -557,11 +570,27 @@ function PreviewStep({
 }) {
   const conflictFields = new Set(preview.conflicts.map((c) => c.field));
   const t = preview.transfer;
+  const primaryName = preview.primary.name || "Без имени";
+  // Sign-in methods of the second account that move to the primary (it has
+  // none of its own there); conflicting ones stay with the primary and are
+  // listed under «Конфликты».
+  const movedLogins = [
+    preview.secondary.email && !preview.primary.email ? "почту" : null,
+    preview.secondary.hasTelegram && !preview.primary.hasTelegram ? "Telegram" : null,
+    preview.secondary.hasVk && !preview.primary.hasVk ? "VK" : null,
+  ].filter((v): v is string => v !== null);
   return (
     <div className="space-y-4" data-testid="merge-preview">
       <p>
-        Основной: <b>{preview.primary.name || "Без имени"}</b>. Второй аккаунт{" "}
-        <b>{preview.secondary.name || "Без имени"}</b> будет скрыт и не сможет войти.
+        Основной: <b>{primaryName}</b>. Второй аккаунт <b>{preview.secondary.name || "Без имени"}</b> исчезнет из
+        списков, его история перейдёт к основному.
+        {movedLogins.length > 0 && (
+          <>
+            {" "}
+            Вход через {movedLogins.join(" и ")} будет вести в аккаунт <b>{primaryName}</b> — человек входит любым
+            способом в один аккаунт.
+          </>
+        )}
       </p>
 
       {preview.blockers.length > 0 && (
@@ -638,7 +667,7 @@ function PreviewStep({
       )}
 
       {preview.blockers.length > 0 && (
-        <div role="alert" data-testid="merge-blockers-bottom" className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+        <div data-testid="merge-blockers-bottom" className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
           <p className="font-medium">{MERGE_TEXTS.blockedTitle}</p>
           {preview.blockers.map((b) => (
             <p key={b.code}>{b.message}</p>

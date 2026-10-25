@@ -476,6 +476,39 @@ describe("mergeAccounts — what moves (ADR §Q6)", () => {
     expect(result.moved).toMatchObject({ outgoingRepointed: 1, outgoingNotifications: 2, notificationChannels: 1, webPushSubscriptions: 1 });
   });
 
+  it("a staff primary gets a Telegram delivery channel for the Telegram that moved in (no «Нет рабочего канала» after merge)", async () => {
+    const tables = install({
+      user: [
+        actor(),
+        makeUser({ id: "p", role: "ADMIN", email: "lp@mail.ru" }),
+        makeUser({ id: "s", telegramId: "7777" }),
+      ],
+    });
+    const preview = await previewAccountMerge({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(preview.channels.moved).toEqual(["Telegram"]);
+
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(user(tables, "p").telegramId).toBe("7777");
+    expect(tables.userNotificationChannel).toEqual([
+      expect.objectContaining({ userId: "p", kind: "TELEGRAM", address: "7777", isActive: true }),
+    ]);
+  });
+
+  it("…but not for a client primary, and never a duplicate when the channel already moved", async () => {
+    const clients = install({
+      user: [actor(), makeUser({ id: "p", email: "c@mail.ru" }), makeUser({ id: "s", telegramId: "7777" })],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(clients.userNotificationChannel ?? []).toEqual([]);
+
+    const staff = install({
+      user: [actor(), makeUser({ id: "p", role: "MANAGER" }), makeUser({ id: "s", telegramId: "7777" })],
+      userNotificationChannel: [{ id: "s-tg", userId: "s", kind: "TELEGRAM", address: "7777" }],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(staff.userNotificationChannel.map((c) => [c.id, c.userId, c.address])).toEqual([["s-tg", "p", "7777"]]);
+  });
+
   it("moves chats (participants dedup by chat, receipts dedup by message), in-app feed, skips, links", async () => {
     const tables = install({
       user: [actor(), makeUser({ id: "p" }), makeUser({ id: "s" })],
