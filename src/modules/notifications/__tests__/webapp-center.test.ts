@@ -145,6 +145,25 @@ describe("getNotificationCenter — правда о доставке (AC-C3.1…
     expect(view.protected.length).toBeGreaterThan(0);
   });
 
+  it("AC-C3.4: без разделов, но с «Системными» (видны всем сотрудникам) — пустое состояние всё равно есть", async () => {
+    explainWith([
+      category("system", [event({ eventType: "system.release" })], true),
+      category("cafe", [event()], false),
+    ]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.categories.map((c) => c.key)).toEqual(["system"]);
+    expect(view.emptyState).toBe(EMPTY_STATE);
+  });
+
+  it("есть хоть один раздел кроме «Системных» — пустого состояния нет", async () => {
+    explainWith([
+      category("system", [event({ eventType: "system.release" })], true),
+      category("cafe", [event()], true),
+    ]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.emptyState).toBeNull();
+  });
+
   it("подсказка «Запустите бота» / «Бот заблокирован» с кнопкой (AC-C3.5)", async () => {
     explainWith([], { state: "NOT_STARTED", trackingSince: null });
     let view = await getNotificationCenter(staff("MANAGER"), "555");

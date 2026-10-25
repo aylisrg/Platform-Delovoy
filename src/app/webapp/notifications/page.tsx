@@ -234,10 +234,10 @@ export default function NotificationCenterPage() {
         </div>
       )}
 
-      {data.categories.length === 0 && (
+      {(data.emptyState || data.categories.length === 0) && (
         <EmptyState
           icon="bell"
-          title="Пока нечего настраивать"
+          title={data.categories.length === 0 ? "Пока нечего настраивать" : "Пока нет разделов"}
           hint={data.emptyState ?? "У вас пока нет разделов. Обратитесь к суперадмину"}
         />
       )}

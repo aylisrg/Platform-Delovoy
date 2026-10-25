@@ -80,6 +80,13 @@ describe("Center tells the truth (ADR 2026-10-25 §Q7, AC-C3.1/C3.5/C3.6)", () =
     expect(screen.getByText(data.transparencyNote)).toBeTruthy();
   });
 
+  it("AC-C3.4: the no-sections hint shows even while «Системные» is listed", async () => {
+    mocks.apiFetch.mockResolvedValue({ ...data, emptyState: "У вас пока нет разделов. Обратитесь к суперадмину" });
+    render(<NotificationCenterPage />);
+    expect(await screen.findByText("У вас пока нет разделов. Обратитесь к суперадмину")).toBeTruthy();
+    expect(screen.getByText("Пока нет разделов")).toBeTruthy();
+  });
+
   it("empty state comes from the server when there are no sections", async () => {
     mocks.apiFetch.mockResolvedValue({ ...data, categories: [], emptyState: "У вас пока нет разделов. Обратитесь к суперадмину" });
     render(<NotificationCenterPage />);

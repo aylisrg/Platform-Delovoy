@@ -30,14 +30,14 @@ export async function PATCH(
 
   const { id } = await params;
 
+  // Broken JSON is a validation error, not a 500 (QA BUG-3).
+  const body: unknown = await request.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return apiError("VALIDATION_ERROR", "enabled must be a boolean", 400);
+  }
+
   try {
-    const body = await request.json();
-    const parsed = schema.safeParse(body);
-
-    if (!parsed.success) {
-      return apiError("VALIDATION_ERROR", "enabled must be a boolean", 400);
-    }
-
     await setStaffEventSubscription({
       targetUserId: id,
       eventType: RELEASE_EVENT_TYPE,

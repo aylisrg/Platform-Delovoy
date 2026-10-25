@@ -2,7 +2,7 @@ import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { WebAppStaffContext } from "@/lib/webapp-auth";
 import type { WebAppIconName } from "@/lib/webapp/icon-names";
-import { MANAGED_EVENT_TYPES } from "./catalog";
+import { MANAGED_EVENT_TYPES, NOTIFICATION_CATALOG } from "./catalog";
 import { explainStaffNotifications, type ExplainEvent } from "./explain";
 import { setStaffEventSubscription } from "./subscriptions";
 import { NotificationDomainError } from "./errors";
@@ -84,6 +84,8 @@ export type NotificationCenterView = {
 
 export const TRANSPARENCY_NOTE = "Руководитель видит, доставлены ли вам уведомления и открывали ли вы их";
 export const EMPTY_STATE = "У вас пока нет разделов. Обратитесь к суперадмину";
+
+const STAFF_ALWAYS_KEYS = new Set(NOTIFICATION_CATALOG.filter((c) => c.staffAlways).map((c) => c.key));
 
 /**
  * Неотключаемое — показывается строкой-пояснением в категории «Системные».
@@ -251,7 +253,9 @@ export async function getNotificationCenter(
     botStatus: explain.botStatus,
     channel,
     transparencyNote: TRANSPARENCY_NOTE,
-    emptyState: categories.length === 0 ? EMPTY_STATE : null,
+    // «Системные» видны любому сотруднику (staffAlways), поэтому «нет разделов»
+    // — это когда кроме них показать нечего (AC-C3.4, QA BUG-2).
+    emptyState: categories.some((c) => !STAFF_ALWAYS_KEYS.has(c.key)) ? null : EMPTY_STATE,
     hint: botHint(explain.botStatus),
     categories,
     protected: PROTECTED_NOTICES,

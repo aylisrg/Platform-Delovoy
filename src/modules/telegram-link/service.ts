@@ -60,6 +60,7 @@ export const LINK_MESSAGES = {
     "Этот Telegram уже используется в другом аккаунте. Мы передали запрос администратору — он объединит аккаунты. Пока вы можете пользоваться текущим аккаунтом",
   INVALID_TOKEN: "Недействительный или истёкший токен",
   ALREADY_LINKED_SELF: "Telegram уже привязан к вашему аккаунту",
+  ALREADY_LINKED_OTHER: "К этому аккаунту уже привязан другой Telegram. Чтобы сменить его, обратитесь к суперадмину",
 } as const;
 
 function otpKey(telegramId: string) {
@@ -281,7 +282,7 @@ async function attachTelegram(target: LinkTarget, telegramId: string): Promise<{
 
   if (!tgUser) {
     if (target.telegramId && target.telegramId !== telegramId) {
-      throw new LinkError("TELEGRAM_ALREADY_LINKED", LINK_MESSAGES.ALREADY_LINKED_SELF, 409);
+      throw new LinkError("TELEGRAM_ALREADY_LINKED", LINK_MESSAGES.ALREADY_LINKED_OTHER, 409);
     }
     try {
       await prisma.user.update({ where: { id: target.id }, data: { telegramId } });

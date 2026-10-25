@@ -472,6 +472,19 @@ describe("processDeepLink (web session → bot, ADR §Q9)", () => {
     expect(mergeAccounts).toHaveBeenCalledWith({ mode: "self_link", primaryId: "u-web", secondaryId: "u-tg", actorId: "u-web" });
   });
 
+  it("the web account already has another Telegram → 409 that says so (not «уже привязан к вашему»)", async () => {
+    h.store.set(`tg-link:token:${token}`, "u-web");
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce({ ...webUser, telegramId: "999" } as never)
+      .mockResolvedValueOnce(null);
+    await expect(processDeepLink({ token, telegramId: TG })).rejects.toMatchObject({
+      code: "TELEGRAM_ALREADY_LINKED",
+      status: 409,
+      message: LINK_MESSAGES.ALREADY_LINKED_OTHER,
+    });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
   it("AC-E4.1: the Telegram account has history → merge request + 409", async () => {
     h.store.set(`tg-link:token:${token}`, "u-web");
     vi.mocked(prisma.user.findUnique)
