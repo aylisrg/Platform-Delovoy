@@ -144,6 +144,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "Деловой — уведомление";
   const body = data.body || "Открыть админку для деталей";
   const url = data.url || "/admin/dashboard";
+  // Tracking links (/r/{code}) hide where they land; `target` is that path.
+  const target = typeof data.target === "string" ? data.target : undefined;
   const tag = data.tag || undefined;
   const icon = data.icon || "/icons/admin-192.png";
 
@@ -152,7 +154,7 @@ self.addEventListener("push", (event) => {
     tag,
     icon,
     badge: "/icons/admin-192.png",
-    data: { url },
+    data: { url, target },
     requireInteraction: false,
   };
 
@@ -184,9 +186,12 @@ self.addEventListener("notificationclick", (event) => {
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((windowClients) => {
         // Prefer a window that's already open at the target path.
-        // Support both /admin/* and /webapp/* origins.
-        const isAdminUrl = targetUrl.includes("/admin");
-        const isWebappUrl = targetUrl.includes("/webapp");
+        // Support both /admin/* and /webapp/* origins. For a tracking link the
+        // window is picked by where it lands (`data.target`), but we still
+        // navigate through the link so the click is counted.
+        const landing = (event.notification.data && event.notification.data.target) || targetUrl;
+        const isAdminUrl = landing.includes("/admin");
+        const isWebappUrl = landing.includes("/webapp");
 
         for (const client of windowClients) {
           const matchAdmin = isAdminUrl && client.url.includes("/admin");

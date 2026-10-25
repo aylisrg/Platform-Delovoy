@@ -8,45 +8,70 @@ vi.mock("@/lib/db", () => ({
       create: vi.fn(),
       update: vi.fn(),
     },
-    notificationEventPreference: { findMany: vi.fn() },
-    module: { findMany: vi.fn() },
   },
 }));
 
-vi.mock("../dispatch/preferences-service", () => ({
-  getPreferences: vi.fn(),
-  upsertEventPreference: vi.fn(),
+// The Center is a view over the shared explanation (ADR 2026-10-25 §Q7);
+// routing itself is covered by audience/explain tests.
+const mockExplain = vi.fn();
+vi.mock("../explain", () => ({
+  explainStaffNotifications: (...a: unknown[]) => mockExplain(...a),
 }));
-
-// Трек D владеет release-notify — мокаем, чтобы тесты Центра были независимы
-// и проверяли именно маршрутизацию записи (ADR §6.4).
-vi.mock("../release-notify", () => ({
-  RELEASE_EVENT_TYPE: "system.release",
-  setReleaseSubscription: vi.fn(),
+const mockSetSubscription = vi.fn();
+vi.mock("../subscriptions", () => ({
+  setStaffEventSubscription: (...a: unknown[]) => mockSetSubscription(...a),
 }));
 
 import { prisma } from "@/lib/db";
-import {
-  getPreferences,
-  upsertEventPreference,
-} from "../dispatch/preferences-service";
-import { setReleaseSubscription } from "../release-notify";
+import { NotificationDomainError } from "../errors";
+import type { ExplainCategory, ExplainEvent, StaffNotificationExplain } from "../explain";
 import {
   CenterError,
+  EMPTY_STATE,
+  TRANSPARENCY_NOTE,
   ensureTelegramChannel,
   getNotificationCenter,
   setEventPreference,
 } from "../webapp-center";
 
-function staff(role: Role, sections: string[], id = "u1") {
+function staff(role: Role, sections: string[] = [], id = "u1") {
   return { id, role, sections };
 }
 
-function prefs(rows: Array<{ eventType: string; enabled: boolean }>) {
-  vi.mocked(getPreferences).mockResolvedValue({
-    global: null,
-    events: rows,
-  } as never);
+function event(overrides: Partial<ExplainEvent> = {}): ExplainEvent {
+  return {
+    eventType: "booking.created",
+    label: "Новая бронь",
+    description: "…",
+    status: "NOT_RECEIVING",
+    toggle: { enabled: false, editable: true, source: "default" },
+    paths: [],
+    contexts: [],
+    deliveryChannels: [],
+    blockers: [],
+    notes: [],
+    lastChange: null,
+    ...overrides,
+  };
+}
+
+function category(key: string, events: ExplainEvent[], ok = true, delivery: "personal" | "in-app" = "personal"): ExplainCategory {
+  return {
+    key,
+    label: key,
+    description: "",
+    icon: "bell",
+    delivery,
+    access: ok ? { ok: true } : { ok: false, reason: "NO_SECTION", label: "Нет доступа" },
+    groupChat: [],
+    events,
+  };
+}
+
+function explainWith(categories: ExplainCategory[], botStatus: StaffNotificationExplain["botStatus"] = { state: "STARTED", startedAt: null }) {
+  mockExplain.mockResolvedValue(
+    new Map([["u1", { userId: "u1", role: "MANAGER", botStatus, channels: [], globalNotes: [], categories }]]),
+  );
 }
 
 beforeEach(() => {
@@ -54,170 +79,103 @@ beforeEach(() => {
   vi.mocked(prisma.userNotificationChannel.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.userNotificationChannel.create).mockResolvedValue({} as never);
   vi.mocked(prisma.userNotificationChannel.update).mockResolvedValue({} as never);
-  // Grandfather-запрос из resolveManagedCategories: строк нет по умолчанию.
-  vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([] as never);
-  vi.mocked(prisma.module.findMany).mockResolvedValue([] as never);
-  prefs([]);
+  explainWith([]);
 });
 
-describe("getNotificationCenter — видимость категорий", () => {
-  it("отказывает роли USER (сервис не полагается только на роут)", async () => {
-    await expect(
-      getNotificationCenter(staff("USER", []), "555")
-    ).rejects.toBeInstanceOf(CenterError);
+describe("getNotificationCenter — правда о доставке (AC-C3.1…C3.6)", () => {
+  it("отказывает роли USER и не провижинит канал", async () => {
+    await expect(getNotificationCenter(staff("USER"), "555")).rejects.toBeInstanceOf(CenterError);
     expect(prisma.userNotificationChannel.create).not.toHaveBeenCalled();
+    expect(mockExplain).not.toHaveBeenCalled();
   });
 
-  it("MANAGER с одной секцией gazebos видит только «Бронирования»", async () => {
-    const view = await getNotificationCenter(staff("MANAGER", ["gazebos"]), "555");
-
+  it("показывает только категории с доступом; канал провижинится до расчёта", async () => {
+    explainWith([category("bookings", [event()]), category("cafe", [event({ eventType: "order.placed" })], false)]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
     expect(view.categories.map((c) => c.key)).toEqual(["bookings"]);
-    expect(view.categories[0].events.map((e) => e.eventType)).toEqual([
-      "booking.created",
-      "booking.cancelled",
-    ]);
+    expect(prisma.userNotificationChannel.create).toHaveBeenCalled();
+    const createOrder = vi.mocked(prisma.userNotificationChannel.create).mock.invocationCallOrder[0];
+    expect(createOrder).toBeLessThan(mockExplain.mock.invocationCallOrder[0]);
   });
 
-  it("ADMIN и MANAGER с одинаковыми секциями получают одинаковый набор (AC-5.4)", async () => {
-    const asManager = await getNotificationCenter(
-      staff("MANAGER", ["gazebos", "cafe"]),
-      "555"
-    );
-    const asAdmin = await getNotificationCenter(
-      staff("ADMIN", ["gazebos", "cafe"]),
-      "555"
-    );
-
-    expect(asAdmin.categories).toEqual(asManager.categories);
-  });
-
-  it("«Системные» видны SUPERADMIN без секций (superadminAlways)", async () => {
-    const view = await getNotificationCenter(staff("SUPERADMIN", []), "555");
-
-    expect(view.categories.map((c) => c.key)).toContain("system");
-  });
-
-  it("«Системные» видны при секции monitoring", async () => {
-    const view = await getNotificationCenter(
-      staff("MANAGER", ["monitoring"]),
-      "555"
-    );
-
-    expect(view.categories.map((c) => c.key)).toContain("system");
-  });
-
-  it("«Системные» не видны MANAGER без monitoring", async () => {
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-
-    expect(view.categories.map((c) => c.key)).not.toContain("system");
-  });
-
-  it("«Системные» видны MANAGER без monitoring с унаследованной строкой (grandfather)", async () => {
-    vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([
-      { eventType: "system.release" },
-    ] as never);
-    prefs([{ eventType: "system.release", enabled: true }]);
-
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-
-    expect(view.categories.map((c) => c.key)).toContain("system");
-  });
-
-  it("SUPERADMIN без секций получает только superadminAlways-категорию (strict-access наследуется)", async () => {
-    // Строгий доступ (nedelovoy) живёт в getUserAdminSections: секции приходят
-    // снаружи. Роль сама по себе не открывает ни одной секционной категории —
-    // значит и строго-доступная не появится без явного гранта.
-    const view = await getNotificationCenter(staff("SUPERADMIN", []), "555");
-
-    expect(view.categories.map((c) => c.key)).toEqual(["telephony", "system"]);
-  });
-});
-
-describe("getNotificationCenter — состояние событий и доставка", () => {
-  it("daily summary is on by default and works without a Telegram channel", async () => {
-    const view = await getNotificationCenter(staff("SUPERADMIN", []), null);
-    expect(view.channel.status).toBe("inactive");
-    expect(view.categories.find((category) => category.key === "telephony")).toMatchObject({
-      delivery: "in-app", events: [{ eventType: "telephony.daily_summary", enabled: true, source: "default" }],
-    });
-    expect(prisma.userNotificationChannel.create).not.toHaveBeenCalled();
-  });
-
-  it("respects the explicit daily summary opt-out", async () => {
-    prefs([{ eventType: "telephony.daily_summary", enabled: false }]);
-    const view = await getNotificationCenter(staff("SUPERADMIN", []), null);
-    expect(view.categories.find((category) => category.key === "telephony")?.events[0]).toMatchObject({ enabled: false, source: "explicit" });
-  });
-
-  it("does not grandfather a daily summary subscription after demotion", async () => {
-    vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([{ eventType: "telephony.daily_summary" }] as never);
-    const view = await getNotificationCenter(staff("MANAGER", ["telephony"]), null);
-    expect(view.categories.some((category) => category.key === "telephony")).toBe(false);
-    await expect(setEventPreference(staff("MANAGER", ["telephony"]), "telephony.daily_summary", true)).rejects.toMatchObject({ status: 403 });
-    expect(upsertEventPreference).not.toHaveBeenCalled();
-  });
-
-  it("отсутствие строки = не подписан (source default, enabled false)", async () => {
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-    const events = view.categories[0].events;
-
-    expect(events.every((e) => e.enabled === false)).toBe(true);
-    expect(events.every((e) => e.source === "default")).toBe(true);
-  });
-
-  it("явная строка определяет enabled и помечается source explicit", async () => {
-    prefs([
-      { eventType: "order.placed", enabled: true },
-      { eventType: "order.cancelled", enabled: false },
-    ]);
-
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-    const events = view.categories[0].events;
-
-    expect(events.find((e) => e.eventType === "order.placed")).toMatchObject({
+  it("участник списка раздела видит «Вкл» с подписью (AC-C3.1)", async () => {
+    explainWith([category("bookings", [event({
+      status: "RECEIVES",
+      toggle: { enabled: true, editable: true, source: "default" },
+      paths: [{ kind: "module_list", label: "Список получателей раздела «Барбекю Парк»", moduleSlug: "gazebos" }],
+    })])]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.categories[0].events[0]).toMatchObject({
       enabled: true,
-      source: "explicit",
+      source: "default",
+      caption: "Вы в списке получателей раздела «Барбекю Парк»",
     });
-    expect(events.find((e) => e.eventType === "order.cancelled")).toMatchObject({
-      enabled: false,
-      source: "explicit",
-    });
-  });
-
-  it("delivery = group без подписки и без места в notificationRecipients", async () => {
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-
-    expect(view.categories[0].delivery).toBe("group");
-  });
-
-  it("delivery = personal, если пользователь в Module.config.notificationRecipients", async () => {
-    vi.mocked(prisma.module.findMany).mockResolvedValue([
-      { slug: "cafe", config: { notificationRecipients: ["u1"] } },
-    ] as never);
-
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-
     expect(view.categories[0].delivery).toBe("personal");
   });
 
-  it("delivery = personal при явной подписке", async () => {
-    prefs([{ eventType: "order.placed", enabled: true }]);
-
-    const view = await getNotificationCenter(staff("MANAGER", ["cafe"]), "555");
-
-    expect(view.categories[0].delivery).toBe("personal");
-  });
-
-  it("отдаёт защищённый блок и роль", async () => {
-    const view = await getNotificationCenter(staff("ADMIN", ["cafe"]), "555");
-
-    expect(view.role).toBe("ADMIN");
-    expect(view.protected).toEqual([
-      {
-        label: "Критические алерты инфраструктуры",
-        note: "Приходят всегда и не отключаются",
-      },
+  it("Авито по роли — «Вкл» с подписью; без маршрута — group", async () => {
+    explainWith([
+      category("avito", [event({ eventType: "avito.lead.new", toggle: { enabled: true, editable: true, source: "default" }, paths: [{ kind: "role_avito", label: "", moduleSlug: null }] })]),
+      category("cafe", [event({ eventType: "order.placed" })]),
     ]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.categories[0].events[0].caption).toBe("По роли: суперадмины и назначенные на модуль");
+    expect(view.categories[1].delivery).toBe("group");
+    expect(view.categories[1].events[0]).toMatchObject({ enabled: false, caption: null });
+  });
+
+  it("in-app категория остаётся in-app; блокировки прокидываются", async () => {
+    explainWith([category("telephony", [event({
+      eventType: "telephony.daily_summary",
+      toggle: { enabled: true, editable: true, source: "default" },
+      paths: [{ kind: "in_app_superadmin", label: "", moduleSlug: null }],
+      blockers: [{ code: "DND", label: "Не беспокоить до 18:00" }],
+    })], true, "in-app")]);
+    const view = await getNotificationCenter(staff("SUPERADMIN"), "555");
+    expect(view.categories[0].delivery).toBe("in-app");
+    expect(view.categories[0].events[0].blockers).toEqual([{ code: "DND", label: "Не беспокоить до 18:00" }]);
+  });
+
+  it("пустое состояние без разделов (AC-C3.4) и заметка о прозрачности (AC-C3.6)", async () => {
+    explainWith([category("cafe", [event()], false)]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.categories).toEqual([]);
+    expect(view.emptyState).toBe(EMPTY_STATE);
+    expect(view.transparencyNote).toBe(TRANSPARENCY_NOTE);
+    expect(view.protected.length).toBeGreaterThan(0);
+  });
+
+  it("AC-C3.4: без разделов, но с «Системными» (видны всем сотрудникам) — пустое состояние всё равно есть", async () => {
+    explainWith([
+      category("system", [event({ eventType: "system.release" })], true),
+      category("cafe", [event()], false),
+    ]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.categories.map((c) => c.key)).toEqual(["system"]);
+    expect(view.emptyState).toBe(EMPTY_STATE);
+  });
+
+  it("есть хоть один раздел кроме «Системных» — пустого состояния нет", async () => {
+    explainWith([
+      category("system", [event({ eventType: "system.release" })], true),
+      category("cafe", [event()], true),
+    ]);
+    const view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.emptyState).toBeNull();
+  });
+
+  it("подсказка «Запустите бота» / «Бот заблокирован» с кнопкой (AC-C3.5)", async () => {
+    explainWith([], { state: "NOT_STARTED", trackingSince: null });
+    let view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.hint).toMatchObject({ code: "START_BOT", botUrl: expect.stringMatching(/^https:\/\/t\.me\//) });
+
+    explainWith([], { state: "BLOCKED", blockedAt: "2026-10-20T00:00:00.000Z" });
+    view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.hint?.code).toBe("UNBLOCK_BOT");
+
+    explainWith([], { state: "STARTED", startedAt: null });
+    view = await getNotificationCenter(staff("MANAGER"), "555");
+    expect(view.hint).toBeNull();
   });
 });
 
@@ -330,53 +288,29 @@ describe("ensureTelegramChannel", () => {
   });
 });
 
-describe("setEventPreference", () => {
+describe("setEventPreference — тот же путь записи, что у суперадмина (AC-C2.2)", () => {
   it("отказывает на eventType вне каталога", async () => {
-    await expect(
-      setEventPreference(staff("SUPERADMIN", ["monitoring"]), "health.down", true)
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR", status: 422 });
-
-    expect(upsertEventPreference).not.toHaveBeenCalled();
-    expect(setReleaseSubscription).not.toHaveBeenCalled();
-  });
-
-  it("отказывает при отсутствии доступа к секции категории", async () => {
-    await expect(
-      setEventPreference(staff("MANAGER", ["cafe"]), "booking.created", true)
-    ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
-
-    expect(upsertEventPreference).not.toHaveBeenCalled();
+    await expect(setEventPreference(staff("MANAGER"), "x.y", true)).rejects.toMatchObject({ status: 422 });
+    expect(mockSetSubscription).not.toHaveBeenCalled();
   });
 
   it("отказывает роли USER", async () => {
-    await expect(
-      setEventPreference(staff("USER", []), "booking.created", true)
-    ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+    await expect(setEventPreference(staff("USER"), "booking.created", true)).rejects.toBeInstanceOf(CenterError);
   });
 
-  it("system.release пишется через setReleaseSubscription", async () => {
-    const result = await setEventPreference(
-      staff("SUPERADMIN", ["monitoring"]),
-      "system.release",
-      true
-    );
-
-    expect(setReleaseSubscription).toHaveBeenCalledWith("u1", true);
-    expect(upsertEventPreference).not.toHaveBeenCalled();
-    expect(result).toEqual({ eventType: "system.release", enabled: true });
-  });
-
-  it("остальные типы идут через upsertEventPreference", async () => {
-    const result = await setEventPreference(
-      staff("MANAGER", ["gazebos"]),
-      "booking.created",
-      false
-    );
-
-    expect(upsertEventPreference).toHaveBeenCalledWith("u1", "booking.created", {
+  it("делегирует setStaffEventSubscription от имени самого сотрудника (via miniapp)", async () => {
+    mockSetSubscription.mockResolvedValue({ eventType: "system.release", enabled: false, before: true });
+    expect(await setEventPreference(staff("MANAGER"), "system.release", false)).toEqual({ eventType: "system.release", enabled: false });
+    expect(mockSetSubscription).toHaveBeenCalledWith({
+      targetUserId: "u1",
+      eventType: "system.release",
       enabled: false,
+      actor: { userId: "u1", via: "miniapp" },
     });
-    expect(setReleaseSubscription).not.toHaveBeenCalled();
-    expect(result).toEqual({ eventType: "booking.created", enabled: false });
+  });
+
+  it("нет доступа к категории → 403 FORBIDDEN", async () => {
+    mockSetSubscription.mockRejectedValue(new NotificationDomainError("NO_ACCESS_TO_CATEGORY", "Нет доступа к разделу «Кафе»", 422));
+    await expect(setEventPreference(staff("MANAGER"), "order.placed", true)).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   });
 });

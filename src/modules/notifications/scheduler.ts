@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { enqueueNotification } from "./queue";
 import { processTelephonyDailySummaries } from "@/modules/telephony/daily-summary-service";
+import { runNotificationHousekeeping } from "./housekeeping";
 
 /**
  * Process all scheduled notifications.
@@ -15,6 +16,9 @@ export async function processScheduledNotifications(): Promise<void> {
     processTelephonyDailySummaries().catch(() => {
       // No provider payload/PII in logs; the next five-minute run retries.
       console.error("[Scheduler] Telephony daily summary failed; retry on next run");
+    }),
+    runNotificationHousekeeping().catch((err) => {
+      console.error("[Scheduler] Notification housekeeping failed:", err instanceof Error ? err.message : err);
     }),
   ]);
 }

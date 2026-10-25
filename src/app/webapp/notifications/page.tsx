@@ -35,8 +35,12 @@ interface CenterEvent {
   eventType: string;
   label: string;
   description: string;
+  /** Effective: you actually get it (any path, no opt-out). */
   enabled: boolean;
   source: "explicit" | "default";
+  /** Why it comes to you («Вы в списке получателей раздела …»). */
+  caption: string | null;
+  blockers: Array<{ code: string; label: string }>;
 }
 
 interface CenterCategory {
@@ -53,9 +57,18 @@ interface CenterProtectedNotice {
   note: string;
 }
 
+interface CenterHint {
+  code: "START_BOT" | "UNBLOCK_BOT";
+  text: string;
+  botUrl?: string;
+}
+
 interface CenterData {
   role: string;
   channel: CenterChannel;
+  transparencyNote: string;
+  emptyState: string | null;
+  hint: CenterHint | null;
   categories: CenterCategory[];
   protected: CenterProtectedNotice[];
 }
@@ -113,6 +126,11 @@ export default function NotificationCenterPage() {
         body: JSON.stringify({ eventType, enabled: next }),
       });
       haptic.notification("success");
+      // Re-read the server's truth: captions and blockers depend on every
+      // delivery path, not just this toggle (ADR 2026-10-25 §Q7).
+      apiFetch<CenterData>("/api/webapp/notification-center")
+        .then(setData)
+        .catch(() => {});
     } catch (err: unknown) {
       // Откат оптимистичного переключения — экран не врёт о состоянии.
       setData(snapshot);
@@ -196,11 +214,31 @@ export default function NotificationCenterPage() {
         </div>
       )}
 
-      {data.categories.length === 0 && (
+      {data.hint && (
+        <div className="px-4 mt-3">
+          <Card>
+            <InfoRow
+              icon="alert"
+              iconTone="hint"
+              title={data.hint.code === "START_BOT" ? "Бот не запущен" : "Бот заблокирован"}
+              subtitle={data.hint.text}
+              right={
+                data.hint.botUrl ? (
+                  <Button variant="secondary" className="!w-auto px-3 py-1.5 text-[14px]" onClick={() => openTelegram(data.hint?.botUrl ?? "")}>
+                    Открыть бота
+                  </Button>
+                ) : undefined
+              }
+            />
+          </Card>
+        </div>
+      )}
+
+      {(data.emptyState || data.categories.length === 0) && (
         <EmptyState
           icon="bell"
-          title="Пока нечего настраивать"
-          hint="Категории появятся, когда вам выдадут доступ к разделам админ-панели."
+          title={data.categories.length === 0 ? "Пока нечего настраивать" : "Пока нет разделов"}
+          hint={data.emptyState ?? "У вас пока нет разделов. Обратитесь к суперадмину"}
         />
       )}
 
@@ -255,8 +293,22 @@ export default function NotificationCenterPage() {
           </div>
         </section>
       ))}
+
+      <p className="px-4 mt-6 text-[12px] leading-snug" style={{ color: "var(--tg-hint)" }}>
+        {data.transparencyNote}
+      </p>
     </div>
   );
+}
+
+function openTelegram(url: string): void {
+  if (!url) return;
+  const webapp = typeof window === "undefined" ? undefined : window.Telegram?.WebApp;
+  if (webapp && typeof webapp.openTelegramLink === "function") {
+    webapp.openTelegramLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /**
@@ -334,6 +386,20 @@ function EventRow({
         >
           {event.description}
         </span>
+        {event.caption && (
+          <span className="block text-[12px] mt-1 leading-snug" style={{ color: "var(--tg-accent)" }}>
+            {event.caption}
+          </span>
+        )}
+        {(event.blockers ?? []).map((blocker) => (
+          <span
+            key={blocker.code}
+            className="block text-[12px] mt-1 leading-snug"
+            style={{ color: "var(--tg-destructive, #d93025)" }}
+          >
+            {blocker.code === "OPTED_OUT" ? blocker.label : `Не дойдёт: ${blocker.label}`}
+          </span>
+        ))}
       </span>
       <Toggle
         checked={event.enabled}

@@ -60,6 +60,8 @@ A manager can be assigned to multiple modules. Check via `hasModuleAccess(userId
 
 Middleware chain: `Rate Limit → Auth → Role → Module Access → Handler → Logging`
 
+Отзыв доступа: исключение из команды, понижение роли, снятие раздела и вливание аккаунта инкрементируют `User.sessionVersion`; полный `jwt`-callback сверяет `sv` через Redis-кэш (TTL 60 с), админка опрашивает `/api/auth/session` (`SessionWatcher`), Mini App сверяет `sv` в своём токене. `src/proxy.ts` остаётся без БД. `getUserAdminSections` — единственный источник разделов (ADMIN: гранты ∪ gazebos/ps-park/inventory). ADR `2026-10-25-team-access-notifications`.
+
 ---
 
 ## API conventions
@@ -101,7 +103,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 |--------|--------|---------|
 | `auth` | ✅ | NextAuth, magic-link, providers |
 | `monitoring` | ✅ | Health checks, SystemEvent logging |
-| `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry`; Центр уведомлений в Mini App (`catalog.ts`, `webapp-center.ts` — персональные подписки сотрудников по типам событий); идемпотентный релиз-анонс `system.release` (`ReleaseAnnouncement`, `release-notify.ts`) — ADR `2026-08-13-miniapp-role-rebuild` |
+| `notifications` | ✅ | Channel-agnostic dispatcher (`src/modules/notifications/dispatch/`), `INotificationChannel`, `ChannelRegistry`; Центр уведомлений в Mini App (`catalog.ts`, `webapp-center.ts` — персональные подписки сотрудников по типам событий); идемпотентный релиз-анонс `system.release` (`ReleaseAnnouncement`, `release-notify.ts`) — ADR `2026-08-13-miniapp-role-rebuild`; единый резолвер получателей `audience.ts`/`audience-rules.ts` (рассылка и экраны считают одной функцией, явное «выкл» сильнее любого пути), списки получателей разделов в `ModuleNotificationRecipient`, трекинг-ссылки `/r/[code]` (`NotificationLink`), пропуски доставки (`NotificationDeliverySkip`), статистика доставки и реакций `/admin/notifications/stats`, матрица «кто что получает» `/admin/notifications/matrix` — ADR `2026-10-25-team-access-notifications` |
 | `gazebos` | ✅ | Gazebo bookings; публичная оферта и акцепт перед оплатой — PRD `2026-08-21` |
 | `ps-park` | ✅ | PlayStation Park bookings |
 | `cafe` | ✅ | Menu CRUD (+фото), заказы, гостевой QR-чекаут с онлайн-оплатой (ЮKassa, `PaymentSubjectType.ORDER`), статистика продаж — PRD `2026-07-22` |
@@ -110,9 +112,9 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `rental` | ✅ | Office rental B2B (park: Деловой) — park-aware, parkSlug discriminator |
 | `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
 | `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
-| `clients` | ✅ | Tenant CRM |
+| `clients` | ✅ | Tenant CRM; движок объединения аккаунтов `merge.ts` (клиенты и сотрудники: превью, роль и права основного, перенос истории, очередь запросов на объединение на `MergeCandidate`) — ADR `2026-10-25-team-access-notifications` |
 | `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation` |
-| `users` | ✅ | Admin user management |
+| `users` | ✅ | Admin user management; «Исключить из команды» (offboarding без удаления, атомарно, с отзывом сессий `User.sessionVersion`), страница сотрудника `/admin/users/[id]`, таб «Команда» как экран ревью, объяснение блокеров удаления — ADR `2026-10-25-team-access-notifications` |
 | `profile` | ⚠️ webapp only | USER contact API (`/api/profile/*`) |
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |
 | `subscriptions` | ✅ | PS Park prepaid-hour passes |
@@ -121,7 +123,7 @@ If a module is not here it does not exist. If it is here but not in the roadmap,
 | `inventory` | ✅ | Cafe & module stock management — PRD `2026-04-12` |
 | `management` | ✅ | Park expense tracking & financial accounting — PRD `2026-04-18` |
 | `telephony` | ✅ | Novofon call tracking; owner dashboard и ежедневные сводки в ленте Mini App после 09:00 МСК за вчера (`InAppNotification`, без внешней рассылки) — PRD `2026-10-24-telephony-daily-summary-prd` |
-| `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications` |
+| `telegram-link` | ✅ | Telegram account linking for notification delivery; functionally part of `notifications`; признак «бот запущен/заблокирован» (`TelegramBotContact`), OTP-самопривязка по email (код письмом) со слиянием пустого Telegram-аккаунта, запрос на объединение при конфликте |
 | `pipeline-metrics` | ✅ (infrastructure-only) | CI pipeline self-diagnostics for agents; not a business module, no public API |
 | `owner-decisions` | ✅ (infrastructure-only) | Решения владельца Telegram-кнопками (merge-hold PR, blocked-вопросы, идеи, ротация PAT); API только для свипера очереди (секрет) и бота — ADR `2026-08-20-owner-out-of-github` |
 | `backups` | ✅ | Backup logging (`BackupLog`); approved in project memory |

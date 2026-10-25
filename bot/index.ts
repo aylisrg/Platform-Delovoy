@@ -14,7 +14,7 @@ import { registerGazeboHandlers } from "./handlers/gazebos";
 import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
-import { handleLinkDeepLink } from "./handlers/link";
+import { handleLinkDeepLink, registerLinkHandler } from "./handlers/link";
 import {
   AUTH_DEEPLINK_PREFIX,
   handleAuthDeepLink,
@@ -25,6 +25,7 @@ import { registerOwnerDecisionsHandlers } from "./handlers/owner-decisions";
 import { buildWelcomeText, mainMenuKeyboard } from "./handlers/welcome";
 import { registerUnknownTextHandler } from "./handlers/unknown";
 import { mintBotLoginUrl } from "./lib/bot-login";
+import { createBotContactTracker } from "./middleware/bot-contact";
 import { prisma } from "../src/lib/db";
 import { logEvent } from "../src/lib/logger";
 import { getTelegramApiRoot, getTelegramProxyUrl, telegramApi } from "../src/lib/telegram/client";
@@ -97,6 +98,13 @@ export async function sendAlert(
 const WEBAPP_URL = `${APP_URL}/webapp`;
 
 /**
+ * Update types the bot consumes. Telegram remembers the last `allowed_updates`
+ * across getUpdates calls, so the list is explicit: `my_chat_member` carries
+ * «бот заблокирован» (ADR 2026-10-25 §Q5). Add a type here before handling it.
+ */
+export const BOT_ALLOWED_UPDATES = ["message", "edited_message", "callback_query", "my_chat_member"] as const;
+
+/**
  * Start the bot in long-polling mode.
  */
 async function startBot() {
@@ -126,6 +134,12 @@ async function startBot() {
         : {}),
     },
   });
+
+  // «Бот запущен / заблокирован» (ADR 2026-10-25 §Q5): registered before any
+  // handler so every private-chat action is seen; never blocks the chain.
+  const botContact = createBotContactTracker();
+  bot.use(botContact.middleware);
+  bot.on("my_chat_member", botContact.onMyChatMember);
 
   // /start — main menu (supports deep linking: /start gazebos, /start ps-park)
   bot.command("start", async (ctx) => {
@@ -252,6 +266,7 @@ async function startBot() {
   registerMyBookingsHandler(bot);
   registerTeamSettingsHandlers(bot);
   registerAuthDeepLinkHandlers(bot);
+  registerLinkHandler(bot);
   // Решения владельца (кнопки автоочереди) — до catch-all: его text-хендлер
   // перехватывает «идея:…» и реплаи на сообщения решений, остальное передаёт дальше.
   registerOwnerDecisionsHandlers(bot);
@@ -284,6 +299,7 @@ async function startBot() {
   // Start
   console.log("[Bot] Starting @DelovoyPark_bot...");
   await bot.start({
+    allowed_updates: BOT_ALLOWED_UPDATES,
     onStart: () => console.log("[Bot] @DelovoyPark_bot is running"),
   });
 }

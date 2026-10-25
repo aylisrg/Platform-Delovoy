@@ -1,9 +1,16 @@
 import { z } from "zod";
 
+/**
+ * POST /api/webapp/link/request (ADR 2026-10-25 §6.2). `phone` is still
+ * accepted by the contract and answered 422 PHONE_LINK_UNAVAILABLE by the
+ * service (AC-E3.6); emails are checked by `linkEmailSchema`.
+ */
 export const linkRequestSchema = z.object({
   type: z.enum(["email", "phone"]),
-  value: z.string().min(1).max(255),
+  value: z.string().trim().min(3).max(255),
 });
+
+export const linkEmailSchema = z.string().trim().toLowerCase().email();
 
 export const linkConfirmSchema = z.object({
   code: z
@@ -18,6 +25,8 @@ export const deepLinkSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   username: z.string().optional(),
+  /** Only say whose link it is — the bot asks the person to confirm before linking. */
+  preview: z.boolean().optional(),
 });
 
 export const linkSkipSchema = z.object({}).strict();

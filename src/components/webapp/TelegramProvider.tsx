@@ -130,6 +130,23 @@ const getThemeParamsSnapshot = (): Record<string, string> => cachedThemeParams;
 const getColorSchemeServerSnapshot = (): "light" | "dark" => "light";
 const getThemeParamsServerSnapshot = (): Record<string, string> => SERVER_THEME_PARAMS;
 
+type WebAppSessionPayload = {
+  token: string;
+  user: WebAppUser;
+  capabilities?: WebAppCapabilities;
+  needsLinking?: boolean;
+};
+
+async function requestWebAppSession(initData: string): Promise<WebAppSessionPayload | null> {
+  const res = await fetch("/api/webapp/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData }),
+  });
+  const data = await res.json();
+  return data.success ? (data.data as WebAppSessionPayload) : null;
+}
+
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<WebAppUser | null>(null);
@@ -233,19 +250,14 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      fetch("/api/webapp/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData }),
-      })
-        .then((res) => res.json())
+      requestWebAppSession(initData)
         .then((data) => {
           if (cancelled) return;
-          if (data.success) {
-            setToken(data.data.token);
-            setUser(data.data.user);
-            if (data.data.capabilities) setCapabilities(data.data.capabilities);
-            if (data.data.needsLinking) setNeedsLinking(true);
+          if (data) {
+            setToken(data.token);
+            setUser(data.user);
+            if (data.capabilities) setCapabilities(data.capabilities);
+            if (data.needsLinking) setNeedsLinking(true);
           }
           setReady(true);
         })
@@ -291,13 +303,34 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     getWebApp()?.expand();
   }, []);
 
+  // A revoked token (exclusion, demotion — ADR 2026-10-25 §Q1) answers 401:
+  // re-issue it once from fresh initData so the new role/capabilities apply
+  // without reopening the Mini App.
+  const reauthenticate = useCallback(async (): Promise<string | null> => {
+    const initData = getWebApp()?.initData;
+    if (!initData) return null;
+    const data = await requestWebAppSession(initData).catch(() => null);
+    if (!data) return null;
+    setToken(data.token);
+    setUser(data.user);
+    setCapabilities(data.capabilities ?? GUEST_CAPABILITIES);
+    return data.token;
+  }, []);
+
   const apiFetch = useCallback(
     async <T = unknown>(url: string, options: RequestInit = {}): Promise<T> => {
-      const headers = new Headers(options.headers);
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      headers.set("Content-Type", "application/json");
+      const send = (bearer: string | null) => {
+        const headers = new Headers(options.headers);
+        if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
+        headers.set("Content-Type", "application/json");
+        return fetch(url, { ...options, headers });
+      };
 
-      const res = await fetch(url, { ...options, headers });
+      let res = await send(token);
+      if (res.status === 401 && token) {
+        const fresh = await reauthenticate();
+        if (fresh) res = await send(fresh);
+      }
       const data = await res.json();
 
       if (!data.success) {
@@ -311,7 +344,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
 
       return data.data as T;
     },
-    [token]
+    [token, reauthenticate]
   );
 
   return (

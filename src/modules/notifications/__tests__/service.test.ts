@@ -6,13 +6,10 @@ vi.mock("@/lib/db", () => ({
     notificationLog: { create: vi.fn() },
     booking: { findUnique: vi.fn() },
     resource: { findUnique: vi.fn() },
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn() },
+    notificationEventPreference: { findMany: vi.fn() },
+    moduleNotificationRecipient: { findMany: vi.fn(), count: vi.fn() },
   },
-}));
-
-vi.mock("../recipients", () => ({
-  getRecipientUserIds: vi.fn(),
-  getExplicitRecipientUserIds: vi.fn(),
 }));
 
 vi.mock("../channels/telegram", () => ({
@@ -27,13 +24,11 @@ vi.mock("../dispatch/dispatcher", () => ({
   dispatch: vi.fn(),
 }));
 
-vi.mock("../subscribers", () => ({
-  getSelfSubscribedUserIds: vi.fn(),
-}));
+const mockRecordSkips = vi.fn();
+vi.mock("../skips", () => ({ recordSkips: (...a: unknown[]) => mockRecordSkips(...a) }));
 
 import { prisma } from "@/lib/db";
-import { getExplicitRecipientUserIds } from "../recipients";
-import { getSelfSubscribedUserIds } from "../subscribers";
+import { installStaffFixtures, type StaffFixture } from "./helpers/staff-fixture";
 import { telegramAdapter } from "../channels/telegram";
 import { dispatch } from "../dispatch/dispatcher";
 import { notify } from "../service";
@@ -65,12 +60,21 @@ function mockGazebosConfig(config: Record<string, unknown> | null) {
   }) as never);
 }
 
+// Staff seen by the real recipient resolver (ADR 2026-10-25 §Q7).
+let staff: StaffFixture[] = [];
+/** On the gazebos recipient list (was Module.config.notificationRecipients). */
+const listed = (id: string): StaffFixture => ({ id, role: "MANAGER", assignments: ["gazebos"], lists: ["gazebos"] });
+/** Turned the event on in the Mini App Center, has the section. */
+const subscribed = (id: string, eventType: string): StaffFixture => ({
+  id, role: "MANAGER", grants: ["gazebos"], prefs: { [eventType]: true },
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   vi.stubEnv("TELEGRAM_ADMIN_CHAT_ID", "");
-  vi.mocked(getExplicitRecipientUserIds).mockResolvedValue([]);
-  vi.mocked(getSelfSubscribedUserIds).mockResolvedValue([]);
+  staff = [];
+  installStaffFixtures(prisma as never, () => staff);
   vi.mocked(telegramAdapter.send).mockResolvedValue({ success: true });
   vi.mocked(prisma.notificationLog.create).mockResolvedValue({} as never);
   vi.mocked(dispatch).mockResolvedValue({ status: "skipped", reason: "test" });
@@ -116,7 +120,7 @@ describe("notifyAdmin — telegramAdminChatEnabled kill switch", () => {
       telegramAdminChatId: "-100111",
       telegramAdminChatEnabled: false,
     });
-    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["user-1"]);
+    staff = [listed("user-1")];
 
     await notify(cancelledEvent);
 
@@ -133,7 +137,7 @@ describe("notifyAdmin — telegramAdminChatEnabled kill switch", () => {
 describe("notifyAdmin — путь 2b: самоподписанные сотрудники", () => {
   it("самоподписанный с доступом к секции получает персональный dispatch", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+    staff = [subscribed("self-1", "booking.cancelled")];
 
     await notify(cancelledEvent);
 
@@ -148,20 +152,18 @@ describe("notifyAdmin — путь 2b: самоподписанные сотру
     );
   });
 
-  it("аудитория ищется по секциям категории события из каталога", async () => {
+  it("подписка без доступа к разделу (и без назначения) не даёт доставки", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [{ id: "cafe-only", role: "MANAGER", grants: ["cafe"], prefs: { "booking.cancelled": true } }];
 
     await notify(cancelledEvent);
 
-    expect(getSelfSubscribedUserIds).toHaveBeenCalledWith("booking.cancelled", [
-      "gazebos",
-      "ps-park",
-    ]);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("групповая отправка (путь 1) сохраняется при наличии самоподписанных", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+    staff = [subscribed("self-1", "booking.cancelled")];
 
     await notify(cancelledEvent);
 
@@ -184,8 +186,10 @@ describe("notifyAdmin — путь 2b: самоподписанные сотру
 
   it("не дублирует dispatch тому, кто уже в explicit-получателях", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["user-1"]);
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["user-1", "self-2"]);
+    staff = [
+      { ...listed("user-1"), prefs: { "booking.cancelled": true } },
+      subscribed("self-2", "booking.cancelled"),
+    ];
 
     await notify(cancelledEvent);
 
@@ -202,7 +206,7 @@ describe("notifyAdmin — путь 2b: самоподписанные сотру
       telegramAdminChatId: "-100111",
       telegramAdminChatEnabled: false,
     });
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+    staff = [subscribed("self-1", "booking.cancelled")];
 
     await notify(cancelledEvent);
 
@@ -366,7 +370,7 @@ describe("notifyAdmin — staffAudience", () => {
 
   it("none — персоналу не доставляется вовсе, даже самоподписанным", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+    staff = [subscribed("self-1", "booking.created")];
 
     await notify({ ...personalEvent, staffAudience: "none" });
 
@@ -393,8 +397,7 @@ describe("notifyAdmin — staffAudience", () => {
 
   it("явные получатели (замена чата) его не получают, самоподписанные — получают", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["explicit-1"]);
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["self-1"]);
+    staff = [listed("explicit-1"), subscribed("self-1", "booking.created")];
 
     await notify(personalEvent);
 
@@ -404,12 +407,49 @@ describe("notifyAdmin — staffAudience", () => {
 
   it("самоподписанный, который ещё и явный получатель, всё равно получает", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    vi.mocked(getExplicitRecipientUserIds).mockResolvedValue(["user-1"]);
-    vi.mocked(getSelfSubscribedUserIds).mockResolvedValue(["user-1"]);
+    staff = [{ ...listed("user-1"), prefs: { "booking.created": true } }];
 
     await notify(personalEvent);
 
     const dispatched = vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId);
     expect(dispatched).toEqual(["user-1"]);
+  });
+});
+
+// ADR 2026-10-25-team-access-notifications §Q7: one resolver, honest toggles.
+describe("notifyAdmin — единый резолвер (AC-C2.1, AC-C3.1)", () => {
+  it("явное «выкл» перекрывает список раздела и пишется пропуском OPTED_OUT", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [{ ...listed("muted"), prefs: { "booking.cancelled": false } }, listed("user-2")];
+
+    await notify(cancelledEvent);
+
+    expect(vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId)).toEqual(["user-2"]);
+    expect(mockRecordSkips).toHaveBeenCalledWith([
+      expect.objectContaining({ userId: "muted", eventType: "booking.cancelled", reason: "OPTED_OUT", entityId: "b1" }),
+    ]);
+    // the list is not empty → the group chat stays replaced, as before
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+  });
+
+  it("исключённый (USER) или влитый из списка ничего не получает", async () => {
+    mockGazebosConfig({});
+    staff = [
+      { id: "ex", role: "USER", assignments: ["gazebos"], lists: ["gazebos"] },
+      { ...listed("merged"), merged: true },
+    ];
+
+    await notify(cancelledEvent);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("SUPERADMIN в списке раздела получает как обычный участник", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [{ id: "sa", role: "SUPERADMIN", lists: ["gazebos"] }];
+
+    await notify(cancelledEvent);
+
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ userId: "sa" }));
   });
 });

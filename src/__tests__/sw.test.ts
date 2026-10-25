@@ -78,13 +78,26 @@ class FailingCacheStorage {
 }
 
 let t: Testables;
+type FakeClient = { url: string; focus: () => unknown; navigate: (url: string) => Promise<FakeClient> };
+const listeners = new Map<string, (event: unknown) => void>();
+let windowClients: FakeClient[] = [];
+const openedWindows: string[] = [];
 
 beforeAll(() => {
   const source = readFileSync(join(process.cwd(), "public", "sw.js"), "utf8");
   const self = {
-    addEventListener: () => undefined,
+    addEventListener: (type: string, handler: (event: unknown) => void) => {
+      listeners.set(type, handler);
+    },
     skipWaiting: () => Promise.resolve(),
-    clients: { claim: () => Promise.resolve() },
+    clients: {
+      claim: () => Promise.resolve(),
+      matchAll: async () => windowClients,
+      openWindow: async (url: string) => {
+        openedWindows.push(url);
+        return null;
+      },
+    },
     registration: {},
     location: { origin: "https://delovoy-park.ru" },
   } as Record<string, unknown>;
@@ -235,5 +248,52 @@ describe("webappNavigationResponse", () => {
 describe("cache versioning", () => {
   it("cache name is derived from SW_VERSION (deploy bumps invalidate old caches)", () => {
     expect(t.WEBAPP_SHELL_CACHE).toBe(`webapp-shell-${t.SW_VERSION}`);
+  });
+});
+
+describe("notificationclick (ADR 2026-10-25 §Q4)", () => {
+  function client(url: string) {
+    const navigated: string[] = [];
+    const c: FakeClient & { navigated: string[] } = {
+      url,
+      navigated,
+      focus: () => c,
+      navigate: async (to: string) => {
+        navigated.push(to);
+        return c;
+      },
+    };
+    return c;
+  }
+
+  async function click(data: Record<string, unknown>) {
+    let pending: Promise<unknown> = Promise.resolve();
+    listeners.get("notificationclick")?.({
+      notification: { data, close: () => undefined },
+      waitUntil: (p: Promise<unknown>) => {
+        pending = p;
+      },
+    });
+    await pending;
+  }
+
+  it("a tracking link focuses the window of its landing page, but still navigates through /r/", async () => {
+    const admin = client("https://delovoy-park.ru/admin/dashboard");
+    const webapp = client("https://delovoy-park.ru/webapp");
+    windowClients = [admin, webapp];
+    await click({ url: "https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA", target: "/webapp/bookings" });
+    expect(admin.navigated).toEqual([]);
+    expect(webapp.navigated).toEqual(["https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA"]);
+  });
+
+  it("without a matching window opens a new one; a foreign origin falls back to the dashboard", async () => {
+    windowClients = [client("https://delovoy-park.ru/webapp")];
+    openedWindows.length = 0;
+    await click({ url: "https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA", target: "/admin/gazebos" });
+    expect(openedWindows).toEqual(["https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA"]);
+
+    windowClients = [];
+    await click({ url: "https://evil.example/x" });
+    expect(openedWindows.at(-1)).toBe("/admin/dashboard");
   });
 });

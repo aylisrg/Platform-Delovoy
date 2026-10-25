@@ -34,6 +34,7 @@ function feed(value: object) {
   mocks.apiFetch.mockImplementation(async (url: string) => {
     if (url.startsWith("/api/webapp/feed?")) return { items: [value], nextCursor: null, unreadCount: 1 };
     if (url === "/api/webapp/feed/read") return { updated: 1, unreadCount: 0, feedSeenAt: null };
+    if (url === "/api/webapp/feed/open") return { readAt: "2026-10-24T06:00:00.000Z", clicked: false };
     throw new Error("unexpected request");
   });
 }
@@ -43,8 +44,8 @@ describe("Daily telephony report in the Mini App feed", () => {
     feed(item);
     render(<WebAppHome />);
     fireEvent.click(await screen.findByRole("button", { name: "Подробнее о звонках за 23-10-2026" }));
-    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledWith("/api/webapp/feed/read", {
-      method: "POST", body: JSON.stringify({ ids: ["in:daily-1"] }),
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledWith("/api/webapp/feed/open", {
+      method: "POST", body: JSON.stringify({ id: "in:daily-1" }),
     }));
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.queryByRole("img", { name: "Не прочитано" })).toBeNull();

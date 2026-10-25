@@ -1,6 +1,7 @@
 import type { Role } from "@prisma/client";
-import { prisma } from "@/lib/db";
 import { getUserAdminSections } from "@/lib/permissions";
+import { loadStaffSnapshots } from "@/modules/notifications/audience";
+import { hasEventAccess } from "@/modules/notifications/subscriptions";
 import {
   NOTIFICATION_CATALOG,
   type ManagedCategory,
@@ -22,52 +23,18 @@ export type { WebAppCapabilities };
 export { GUEST_CAPABILITIES };
 
 /**
- * Категории каталога, доступные пользователю:
- * - секционный доступ: хотя бы одна секция категории входит в его секции;
- * - superadminAlways: роль SUPERADMIN (кроме strict-access — те приходят
- *   только через getUserAdminSections);
- * - grandfather (ADR §4): категория видна и тогда, когда у пользователя уже
- *   есть явная строка предпочтения по её событию — унаследованный подписчик
- *   не должен оказаться в ловушке «получаю, но не могу отключить».
- *
- * Используется и в capabilities (навигация), и в Центре уведомлений —
- * единые правила видимости.
+ * Категории каталога, доступные пользователю — то же правило доступа, что у
+ * реальной рассылки (`contextAccess`, ADR 2026-10-25-team-access-notifications
+ * §Q7): доступ хотя бы в одном контексте модуля. Прежний «grandfather» (видна
+ * без доступа, если есть строка предпочтения) убран: без доступа доставки нет,
+ * ловушки «получаю, но не могу отключить» больше не существует.
  */
-export async function resolveManagedCategories(
-  user: { id: string; role: Role },
-  sections: string[]
-): Promise<ManagedCategory[]> {
-  const eligible = NOTIFICATION_CATALOG.filter(
-    (category) => !category.superadminOnly || user.role === "SUPERADMIN"
-  );
-  const accessible = eligible.filter(
-    (category) =>
-      category.sections.some((section) => sections.includes(section)) ||
-      (category.superadminAlways === true && user.role === "SUPERADMIN")
-  );
-
-  const missing = eligible.filter(
-    (category) => !accessible.includes(category)
-  );
-  if (missing.length === 0) return accessible;
-
-  const missingEventTypes = missing.flatMap((category) =>
-    category.events.map((event) => event.eventType)
-  );
-  const explicitRows = await prisma.notificationEventPreference.findMany({
-    where: { userId: user.id, eventType: { in: missingEventTypes } },
-    select: { eventType: true },
-  });
-  if (explicitRows.length === 0) return accessible;
-
-  const grandfathered = new Set(explicitRows.map((row) => row.eventType));
-  const inherited = missing.filter((category) =>
-    category.events.some((event) => grandfathered.has(event.eventType))
-  );
-
-  // Порядок каталога сохраняем — UI рисует категории стабильно.
-  return NOTIFICATION_CATALOG.filter(
-    (category) => accessible.includes(category) || inherited.includes(category)
+export async function resolveManagedCategories(user: { id: string; role: Role }): Promise<ManagedCategory[]> {
+  if (user.role === "USER") return [];
+  const [snapshot] = await loadStaffSnapshots({ userIds: [user.id] });
+  if (!snapshot) return [];
+  return NOTIFICATION_CATALOG.filter((category) =>
+    category.events.some((event) => hasEventAccess(snapshot, event.eventType))
   );
 }
 
@@ -78,8 +45,10 @@ export async function getWebAppCapabilities(user: {
   // USER — без запросов в БД: гостю ничего сотруднического не положено.
   if (user.role === "USER") return GUEST_CAPABILITIES;
 
-  const sections = await getUserAdminSections(user.id);
-  const categories = await resolveManagedCategories(user, sections);
+  const [sections, categories] = await Promise.all([
+    getUserAdminSections(user.id),
+    resolveManagedCategories(user),
+  ]);
 
   return {
     isStaff: true,

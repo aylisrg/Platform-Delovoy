@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/logger";
 import { dispatch } from "./dispatch/dispatcher";
+import { resolveStaffRouting } from "./audience";
 
 /** Единственный тип события релиза. `system.deploy` сознательно не вводится (ADR §4). */
 export const RELEASE_EVENT_TYPE = "system.release";
@@ -122,21 +123,13 @@ export async function announceRelease(
 
 /**
  * Аудитория релиза — только явные персональные подписки (принцип ADR §3.3:
- * отсутствие строки ≠ подписка). Фильтр по роли — чтобы разжалованный
- * сотрудник перестал получать релизы немедленно, не дожидаясь чистки строк;
- * слитые (`mergedIntoUserId`) аккаунты исключаются вместе с ними.
+ * отсутствие строки ≠ подписка), через единый резолвер получателей
+ * (ADR 2026-10-25 §Q7): разжалованный или слитый сотрудник выпадает сразу,
+ * экран «кто что получает» считает той же функцией.
  */
 export async function resolveReleaseAudience(): Promise<string[]> {
-  const rows = await prisma.notificationEventPreference.findMany({
-    where: {
-      eventType: RELEASE_EVENT_TYPE,
-      enabled: true,
-      user: { role: { not: "USER" }, mergedIntoUserId: null },
-    },
-    select: { userId: true },
-  });
-
-  return rows.map((row) => row.userId);
+  const routing = await resolveStaffRouting({ eventType: RELEASE_EVENT_TYPE, moduleSlug: null });
+  return routing.recipients.map((r) => r.userId);
 }
 
 /**
@@ -173,12 +166,14 @@ export async function getReleaseSubscribers(): Promise<
  */
 export async function setReleaseSubscription(
   userId: string,
-  enabled: boolean
+  enabled: boolean,
+  meta: { updatedByUserId?: string; updatedVia?: string } = {}
 ): Promise<void> {
+  const actor = { updatedByUserId: meta.updatedByUserId ?? null, updatedVia: meta.updatedVia ?? null };
   await prisma.notificationEventPreference.upsert({
     where: { userId_eventType: { userId, eventType: RELEASE_EVENT_TYPE } },
-    create: { userId, eventType: RELEASE_EVENT_TYPE, enabled },
-    update: { enabled },
+    create: { userId, eventType: RELEASE_EVENT_TYPE, enabled, ...actor },
+    update: { enabled, ...actor },
   });
 
   await prisma.notificationPreference.upsert({
@@ -211,7 +206,7 @@ export async function ensureManagerNotifyDefaults(userId: string): Promise<void>
 
   await prisma.notificationEventPreference.upsert({
     where: { userId_eventType: { userId, eventType: RELEASE_EVENT_TYPE } },
-    create: { userId, eventType: RELEASE_EVENT_TYPE, enabled: true },
+    create: { userId, eventType: RELEASE_EVENT_TYPE, enabled: true, updatedVia: "system" },
     update: {}, // do not clobber an existing opt-out
   });
 

@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getUserAdminSections } from "@/lib/permissions";
+import { getAuthState } from "@/lib/session-revocation";
 
 /**
  * Единый слой аутентификации Telegram Mini App.
@@ -46,11 +47,14 @@ export async function signWebAppToken(payload: {
   sub: string;
   telegramId: string;
   role: string;
+  /** User.sessionVersion at issue time (ADR 2026-10-25 §Q1). */
+  sv: number;
 }): Promise<string> {
   return new SignJWT({
     sub: payload.sub,
     telegramId: payload.telegramId,
     role: payload.role,
+    sv: payload.sv,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -60,7 +64,9 @@ export async function signWebAppToken(payload: {
 
 /**
  * Verify Mini App JWT from Authorization header.
- * Returns the user payload or null if invalid.
+ * Returns the user payload or null if invalid, issued for a merged/deleted
+ * account, or revoked by a session-version bump (exclusion, demotion — the
+ * client re-authenticates once with fresh initData).
  */
 export async function verifyWebAppToken(
   request: NextRequest
@@ -73,6 +79,13 @@ export async function verifyWebAppToken(
   try {
     const { payload } = await jwtVerify(token, getWebAppJwtSecret());
     if (!payload.sub || !payload.telegramId) return null;
+
+    const state = await getAuthState(payload.sub);
+    if (state === null) return null;
+    if (state !== "unavailable") {
+      const sv = typeof payload.sv === "number" ? payload.sv : 0;
+      if (state.merged || sv !== state.sessionVersion) return null;
+    }
 
     return {
       id: payload.sub,

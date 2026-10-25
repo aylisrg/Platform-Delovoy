@@ -2,21 +2,32 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
+    user: { findMany: vi.fn() },
     notificationEventPreference: { findMany: vi.fn() },
+    moduleNotificationRecipient: { findMany: vi.fn(), count: vi.fn() },
   },
 }));
 
 const mockGetUserAdminSections = vi.fn();
-vi.mock("@/lib/permissions", () => ({
+vi.mock("@/lib/permissions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/permissions")>()),
   getUserAdminSections: (...args: unknown[]) => mockGetUserAdminSections(...args),
 }));
 
 import { prisma } from "@/lib/db";
+import { installStaffFixtures, type StaffFixture } from "@/modules/notifications/__tests__/helpers/staff-fixture";
 import { getWebAppCapabilities, resolveManagedCategories } from "../capabilities";
+
+let staff: StaffFixture[] = [];
+const keys = async (fixture: StaffFixture) => {
+  staff = [fixture];
+  return (await resolveManagedCategories({ id: fixture.id, role: fixture.role })).map((c) => c.key);
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([]);
+  staff = [];
+  installStaffFixtures(prisma as never, () => staff);
 });
 
 describe("getWebAppCapabilities", () => {
@@ -29,88 +40,60 @@ describe("getWebAppCapabilities", () => {
       canNotificationCenter: false,
     });
     expect(mockGetUserAdminSections).not.toHaveBeenCalled();
-    expect(prisma.notificationEventPreference.findMany).not.toHaveBeenCalled();
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 
-  it("MANAGER с секцией gazebos: категория bookings, Центр доступен", async () => {
+  it("MANAGER с секцией gazebos: bookings + системные, Центр доступен", async () => {
+    staff = [{ id: "u1", role: "MANAGER", grants: ["gazebos"] }];
     mockGetUserAdminSections.mockResolvedValue(["gazebos"]);
     const caps = await getWebAppCapabilities({ id: "u1", role: "MANAGER" });
     expect(caps.isStaff).toBe(true);
     expect(caps.staffSections).toEqual(["gazebos"]);
-    expect(caps.notificationCategories).toEqual(["bookings"]);
+    expect(caps.notificationCategories).toEqual(["bookings", "system"]);
     expect(caps.canNotificationCenter).toBe(true);
   });
 
-  it("MANAGER без секций и явных подписок: Центр недоступен", async () => {
-    mockGetUserAdminSections.mockResolvedValue([]);
-    const caps = await getWebAppCapabilities({ id: "u1", role: "MANAGER" });
-    expect(caps.isStaff).toBe(true);
-    expect(caps.notificationCategories).toEqual([]);
-    expect(caps.canNotificationCenter).toBe(false);
-  });
-
   it("staffSections — passthrough из getUserAdminSections (strict-access учтён там)", async () => {
-    // getUserAdminSections для SUPERADMIN без гранта не возвращает nedelovoy
+    staff = [{ id: "sa", role: "SUPERADMIN" }];
     mockGetUserAdminSections.mockResolvedValue(["gazebos", "monitoring"]);
     const caps = await getWebAppCapabilities({ id: "sa", role: "SUPERADMIN" });
     expect(caps.staffSections).not.toContain("nedelovoy");
   });
 });
 
+// Same access rule as the delivery (ADR 2026-10-25-team-access-notifications §Q7).
 describe("resolveManagedCategories", () => {
-  it("SUPERADMIN видит system без секции monitoring (superadminAlways)", async () => {
-    const categories = await resolveManagedCategories(
-      { id: "sa", role: "SUPERADMIN" },
-      []
-    );
-    expect(categories.map((c) => c.key)).toContain("system");
+  it("SUPERADMIN видит всё, включая звонки и системные", async () => {
+    expect(await keys({ id: "sa", role: "SUPERADMIN" })).toEqual([
+      "telephony", "bookings", "cafe", "rental", "payments", "avito", "system",
+    ]);
   });
 
-  it("MANAGER с monitoring видит system; без — нет (AC-5.3)", async () => {
-    const withMonitoring = await resolveManagedCategories(
-      { id: "m1", role: "MANAGER" },
-      ["monitoring"]
-    );
-    expect(withMonitoring.map((c) => c.key)).toContain("system");
-
-    const without = await resolveManagedCategories(
-      { id: "m2", role: "MANAGER" },
-      ["cafe"]
-    );
-    expect(without.map((c) => c.key)).not.toContain("system");
+  it("системные (релизы) доступны любому сотруднику — как и реальная доставка релизов", async () => {
+    expect(await keys({ id: "m1", role: "MANAGER", grants: ["cafe"] })).toEqual(["cafe", "system"]);
   });
 
-  it("ADMIN и MANAGER с одинаковыми секциями получают одинаковый набор (AC-5.4)", async () => {
-    const admin = await resolveManagedCategories(
-      { id: "a", role: "ADMIN" },
-      ["gazebos", "cafe"]
-    );
-    const manager = await resolveManagedCategories(
-      { id: "m", role: "MANAGER" },
-      ["gazebos", "cafe"]
-    );
-    expect(admin.map((c) => c.key)).toEqual(manager.map((c) => c.key));
+  it("ADMIN без явных грантов видит бронирования по роли (AC-C3.4)", async () => {
+    expect(await keys({ id: "a", role: "ADMIN" })).toEqual(["bookings", "system"]);
   });
 
-  it("grandfather: явная строка system.release открывает категорию system (AC-6.5)", async () => {
-    vi.mocked(prisma.notificationEventPreference.findMany).mockResolvedValue([
-      { eventType: "system.release" },
-    ] as never);
-
-    const categories = await resolveManagedCategories(
-      { id: "m1", role: "MANAGER" },
-      ["cafe"]
-    );
-    expect(categories.map((c) => c.key)).toEqual(
-      expect.arrayContaining(["cafe", "system"])
-    );
+  it("назначение на модуль открывает категорию без секции (как список получателей и Авито)", async () => {
+    expect(await keys({ id: "m", role: "MANAGER", assignments: ["cafe"] })).toEqual(["cafe", "payments", "system"]);
   });
 
-  it("без строк-подписок grandfather не срабатывает", async () => {
-    const categories = await resolveManagedCategories(
-      { id: "m1", role: "MANAGER" },
-      ["cafe"]
-    );
-    expect(categories.map((c) => c.key)).toEqual(["cafe"]);
+  it("без доступа категория не видна даже при старой строке подписки (grandfather убран)", async () => {
+    expect(await keys({ id: "m", role: "MANAGER", grants: ["cafe"], prefs: { "booking.created": true } })).toEqual([
+      "cafe",
+      "system",
+    ]);
+  });
+
+  it("звонки — только суперадмину, даже с грантом раздела", async () => {
+    expect(await keys({ id: "m", role: "MANAGER", grants: ["telephony"] })).not.toContain("telephony");
+  });
+
+  it("исключённый / влитый — ничего", async () => {
+    expect(await resolveManagedCategories({ id: "x", role: "USER" })).toEqual([]);
+    expect(await keys({ id: "y", role: "MANAGER", grants: ["cafe"], merged: true })).toEqual([]);
   });
 });

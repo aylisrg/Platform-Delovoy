@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MANAGED_EVENT_TYPES } from "@/modules/notifications/catalog";
 
 export const createUserSchema = z.object({
   email: z.string().email("Некорректный email"),
@@ -21,9 +22,28 @@ export const updateUserSchema = z.object({
   name: z.string().min(1, "Имя не может быть пустым").optional(),
   phone: z.string().optional(),
   telegramId: z.string().nullable().optional(),
+  // Подтверждение для сидированного суперадмина при понижении/исключении (AC-A1.7).
+  confirmSeeded: z.boolean().optional(),
 });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+/** Path param `[id]` / `[userId]` of the users and permissions routes. */
+export const userIdParamSchema = z.string().min(1).max(64);
+
+/** POST /api/users/[id]/exclude (ADR 2026-10-25 §6.2). */
+export const excludeUserSchema = z
+  .object({ confirmSeeded: z.boolean().optional() })
+  .strict();
+
+export type ExcludeUserInput = z.infer<typeof excludeUserSchema>;
+
+/** PUT /api/admin/permissions/[userId] (ADR 2026-10-25 §6.2). */
+export const permissionsUpdateSchema = z.object({
+  sections: z.array(z.string().max(50)).max(50),
+});
+
+export type PermissionsUpdateInput = z.infer<typeof permissionsUpdateSchema>;
 
 export const listUsersSchema = z.object({
   search: z.string().max(200).optional(),
@@ -33,3 +53,29 @@ export const listUsersSchema = z.object({
 });
 
 export type ListUsersInput = z.infer<typeof listUsersSchema>;
+
+/** GET /api/users/team — the team review screen (US-B2, ADR 2026-10-25 §6.2). */
+const queryBoolean = z
+  .enum(["true", "false", "1", "0"])
+  .transform((v) => v === "true" || v === "1");
+
+export const teamOverviewQuerySchema = z.object({
+  role: z.enum(["SUPERADMIN", "ADMIN", "MANAGER"]).optional(),
+  problems: queryBoolean.optional(),
+  bot: z.enum(["not_started", "blocked"]).optional(),
+  noTelegram: queryBoolean.optional(),
+  sort: z.enum(["lastLogin", "name"]).optional(),
+});
+
+export type TeamOverviewQueryInput = z.infer<typeof teamOverviewQuerySchema>;
+
+/** PATCH /api/users/[id]/notifications — admin toggles a staff subscription (US-C2). */
+export const userNotificationToggleSchema = z
+  .object({
+    eventType: z.enum(MANAGED_EVENT_TYPES),
+    enabled: z.boolean(),
+    source: z.enum(["profile", "team", "matrix"]).optional(),
+  })
+  .strict();
+
+export type UserNotificationToggleInput = z.infer<typeof userNotificationToggleSchema>;

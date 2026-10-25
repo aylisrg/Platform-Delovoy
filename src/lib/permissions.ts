@@ -183,9 +183,70 @@ export async function hasAdminSectionAccess(
 }
 
 /**
- * Get all admin sections a user has access to.
- * SUPERADMIN gets all non-strict sections, plus strict ones if they have explicit grants.
- * ADMIN and MANAGER get only granted ones.
+ * Pure section policy — the single source of truth for which admin sections a
+ * role + explicit grants yield (JWT, proxy via token, Notification Center,
+ * team review screens). ADR 2026-10-25-team-access-notifications §Q10.
+ *
+ * - SUPERADMIN: every non-strict section + strict ones only by explicit grant.
+ * - ADMIN: explicit grants ∪ ADMIN_EDITABLE_MODULES (owned by role, matching
+ *   the API policy in canEditModule).
+ * - MANAGER: explicit grants only.
+ * - Nobody but SUPERADMIN gets SUPERADMIN_ONLY_SECTIONS, even with a stale grant.
+ */
+export function computeAdminSections(role: Role, grants: readonly string[]): string[] {
+  if (role === "USER") return [];
+
+  if (role === "SUPERADMIN") {
+    const nonStrict = ADMIN_SECTION_SLUGS.filter((s) => !STRICT_ACCESS_MODULES.has(s));
+    const strictGrants = grants.filter((s) => STRICT_ACCESS_MODULES.has(s));
+    return [...nonStrict, ...new Set(strictGrants)];
+  }
+
+  const sections = grants.filter((section) => !SUPERADMIN_ONLY_SECTIONS.has(section));
+  if (role === "ADMIN") {
+    for (const owned of ADMIN_EDITABLE_MODULES) {
+      if (!sections.includes(owned)) sections.push(owned);
+    }
+  }
+  return [...new Set(sections)];
+}
+
+export type GrantableSections = {
+  /** Sections the role yields by itself — read-only in the permissions modal. */
+  roleSections: string[];
+  /** Non-strict sections a SUPERADMIN may grant or revoke for this role. */
+  grantableSections: string[];
+  /** Strict sections (explicit grant for everyone, incl. SUPERADMIN). */
+  strictSections: string[];
+};
+
+export function getGrantableSections(role: Role): GrantableSections {
+  const strictSections = ADMIN_SECTION_SLUGS.filter((s) => STRICT_ACCESS_MODULES.has(s));
+  const nonStrict = ADMIN_SECTION_SLUGS.filter((s) => !STRICT_ACCESS_MODULES.has(s));
+  switch (role) {
+    case "SUPERADMIN":
+      return { roleSections: nonStrict, grantableSections: [], strictSections };
+    case "ADMIN": {
+      const owned = new Set<string>(ADMIN_EDITABLE_MODULES);
+      return {
+        roleSections: nonStrict.filter((s) => owned.has(s)),
+        grantableSections: nonStrict.filter((s) => !owned.has(s) && !SUPERADMIN_ONLY_SECTIONS.has(s)),
+        strictSections,
+      };
+    }
+    case "MANAGER":
+      return {
+        roleSections: [],
+        grantableSections: nonStrict.filter((s) => !SUPERADMIN_ONLY_SECTIONS.has(s)),
+        strictSections,
+      };
+    default:
+      return { roleSections: [], grantableSections: [], strictSections: [] };
+  }
+}
+
+/**
+ * Get all admin sections a user has access to (see computeAdminSections).
  */
 export async function getUserAdminSections(userId: string): Promise<string[]> {
   const user = await prisma.user.findUnique({
@@ -196,23 +257,15 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
   if (!user) return [];
   if (user.role === "USER") return [];
 
-  if (user.role === "SUPERADMIN") {
-    const nonStrict = ADMIN_SECTION_SLUGS.filter(
-      (s) => !STRICT_ACCESS_MODULES.has(s)
-    );
-    const strictPermissions = await prisma.adminPermission.findMany({
-      where: { userId, section: { in: [...STRICT_ACCESS_MODULES] } },
-      select: { section: true },
-    });
-    return [...nonStrict, ...strictPermissions.map((p) => p.section)];
-  }
-
   const permissions = await prisma.adminPermission.findMany({
-    where: { userId },
+    where:
+      user.role === "SUPERADMIN"
+        ? { userId, section: { in: [...STRICT_ACCESS_MODULES] } }
+        : { userId },
     select: { section: true },
   });
 
-  return permissions.map((p) => p.section).filter((section) => !SUPERADMIN_ONLY_SECTIONS.has(section));
+  return computeAdminSections(user.role, permissions.map((p) => p.section));
 }
 
 /**

@@ -15,6 +15,8 @@ export interface TelegramWebAppUser {
   language_code?: string;
   is_premium?: boolean;
   photo_url?: string;
+  /** The bot may write to this user (signed by Telegram as part of initData). */
+  allows_write_to_pm?: boolean;
 }
 
 export interface ParsedInitData {

@@ -32,6 +32,11 @@ vi.mock("@/lib/webapp-auth", async () => {
   };
 });
 
+const mockRecordBotContact = vi.fn();
+vi.mock("@/modules/telegram-link/bot-contact", () => ({
+  recordBotContact: (...args: unknown[]) => mockRecordBotContact(...args),
+}));
+
 const mockGetCapabilities = vi.fn();
 vi.mock("@/lib/webapp/capabilities", () => ({
   getWebAppCapabilities: (...args: unknown[]) => mockGetCapabilities(...args),
@@ -126,6 +131,41 @@ describe("POST /api/webapp/auth", () => {
         data: expect.objectContaining({ role: "USER", telegramId: "42" }),
       })
     );
+  });
+
+  it("подписывает токен текущей sessionVersion и пишет lastLoginAt (ADR 2026-10-25 §Q1/§Q11)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "u1",
+      name: "Иван Петров",
+      role: "MANAGER",
+      image: null,
+      telegramId: "42",
+      sessionVersion: 4,
+    } as never);
+
+    const res = await POST(makeRequest({ initData: "ok" }));
+    expect(res.status).toBe(200);
+    expect(mockSignWebAppToken).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "u1", role: "MANAGER", sv: 4 })
+    );
+    expect(vi.mocked(prisma.user.update)).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
+
+  it("allows_write_to_pm из подписанного initData отмечает «бот запущен» (AC-E1.2)", async () => {
+    mockValidateInitData.mockReturnValue({ user: { ...tgUser, allows_write_to_pm: true }, auth_date: 1, hash: "h" });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "u1", name: "Иван Петров", role: "USER", image: null, telegramId: "42", sessionVersion: 0,
+    } as never);
+    await POST(makeRequest({ initData: "ok" }));
+    expect(mockRecordBotContact).toHaveBeenCalledWith("42");
+
+    mockRecordBotContact.mockClear();
+    mockValidateInitData.mockReturnValue({ user: tgUser, auth_date: 1, hash: "h" });
+    await POST(makeRequest({ initData: "ok" }));
+    expect(mockRecordBotContact).not.toHaveBeenCalled();
   });
 
   it("для ADMIN возвращает staff-capabilities из getWebAppCapabilities", async () => {

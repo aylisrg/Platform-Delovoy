@@ -5,13 +5,16 @@ import {
   signWebAppToken,
   WebAppAuthConfigError,
 } from "@/lib/webapp-auth";
+import { rateLimit } from "@/lib/rate-limit";
 import { linkConfirmSchema } from "@/modules/telegram-link/validation";
 import { confirmLink, LinkError } from "@/modules/telegram-link/service";
 
 /**
- * POST /api/webapp/link/confirm
- * Confirm OTP and link Telegram to an existing account.
- * Returns a new JWT with the correct userId.
+ * POST /api/webapp/link/confirm — check the emailed code and link Telegram
+ * (ADR 2026-10-25 §5.3). The Mini App's own Telegram account may have been
+ * folded into the email account (`merged: true`) — so the answer carries a new
+ * Mini App token for the TARGET account with its current session version.
+ * 409 TELEGRAM_IN_USE_MERGE_REQUESTED — a merge request went to the SUPERADMIN.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +23,10 @@ export async function POST(request: NextRequest) {
       return apiError("UNAUTHORIZED", "Необходима авторизация", 401);
     }
 
-    const body = await request.json();
+    const limited = await rateLimit(request, "authenticated", webappUser.id);
+    if (limited) return limited;
+
+    const body: unknown = await request.json().catch(() => null);
     const parsed = linkConfirmSchema.safeParse(body);
     if (!parsed.success) {
       return apiError(
@@ -32,16 +38,23 @@ export async function POST(request: NextRequest) {
 
     const result = await confirmLink(webappUser.telegramId, parsed.data.code);
 
-    // Issue new JWT with the linked user's ID
-    const newToken = await signWebAppToken({
+    const token = await signWebAppToken({
       sub: result.user.id,
-      telegramId: result.user.telegramId ?? webappUser.telegramId,
+      telegramId: result.user.telegramId,
       role: result.user.role,
+      sv: result.user.sessionVersion,
     });
 
     return apiResponse({
-      ...result,
-      token: newToken,
+      linked: result.linked,
+      merged: result.merged,
+      user: {
+        id: result.user.id,
+        name: result.user.name,
+        role: result.user.role,
+        telegramId: result.user.telegramId,
+      },
+      token,
     });
   } catch (error) {
     if (error instanceof LinkError) {
@@ -54,7 +67,7 @@ export async function POST(request: NextRequest) {
         503
       );
     }
-    console.error("[WebApp Link Confirm] Error:", error);
+    console.error("[WebApp Link Confirm] Error:", error instanceof Error ? error.message : error);
     return apiServerError();
   }
 }

@@ -371,17 +371,22 @@ export default function WebAppHome() {
         )
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
-      apiFetch<FeedReadResult>("/api/webapp/feed/read", {
-        method: "POST",
-        body: JSON.stringify({ ids: [item.id] }),
-      })
-        .then((result) => setUnreadCount(result.unreadCount))
-        .catch(() => {
-          /* отметка о прочтении не критична — не мешаем переходу */
-        });
     }
 
+    // Прочтение + переход — одна реакция для статистики (ADR 2026-10-25 §Q4):
+    // actionIndex только когда реально уходим по действию. Fire-and-forget —
+    // отметка не критична и не должна мешать переходу.
     const url = item.actions[0]?.url;
+    if (item.readAt === null || url) {
+      apiFetch<{ unreadCount: number }>("/api/webapp/feed/open", {
+        method: "POST",
+        body: JSON.stringify(url ? { id: item.id, actionIndex: 0 } : { id: item.id }),
+      })
+        // Server truth for the badge — the optimistic decrement can drift.
+        .then((result) => setUnreadCount(result.unreadCount))
+        .catch(() => {});
+    }
+
     if (!url) return;
     if (url.startsWith("/")) router.push(url);
     else openExternal(url);
