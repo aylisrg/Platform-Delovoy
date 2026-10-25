@@ -1,6 +1,6 @@
 # ADR: Команда, доступы и уведомления сотрудников
 
-**Статус:** Принято (Architect, 2026-10-25). Реализация — **один PR**, внутри него фазы-коммиты (§11).
+**Статус:** Принято (Architect, 2026-10-25) → Реализовано в PR #1155 (фазы 1–9, §11). Реализация — **один PR**, внутри него фазы-коммиты (§11).
 **RUN_ID:** `2026-10-25-team-access-notifications`
 **Основание:** PRD `docs/requirements/2026-10-25-team-access-notifications-prd.md`, контекст-лог `docs/context/2026-10-25-team-access-notifications-context.md`.
 **Затронутые модули:** `users`, `notifications`, `telegram-link`, `clients` (+ `src/lib/auth*`, `src/lib/permissions.ts`, `src/lib/webapp-auth.ts`, бот, админ-UI, Mini App). **Новых модулей нет.** Новых npm-пакетов нет.
