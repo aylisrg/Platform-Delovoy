@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { signWebAppToken, WebAppAuthConfigError } from "@/lib/webapp-auth";
 import { getWebAppCapabilities } from "@/lib/webapp/capabilities";
 import { initDataAuthSchema } from "@/lib/webapp/validation";
+import { recordBotContact } from "@/modules/telegram-link/bot-contact";
 
 /**
  * POST /api/webapp/auth — authenticate Telegram Mini App user.
@@ -65,6 +66,12 @@ export async function POST(request: NextRequest) {
         data: { name },
         select: { id: true, name: true, role: true, image: true, telegramId: true, sessionVersion: true },
       });
+    }
+
+    // Signed by Telegram: the bot may write to this person → «бот запущен»
+    // for delivery purposes (ADR 2026-10-25 §Q5). Best effort, never throws.
+    if (tgUser.allows_write_to_pm === true) {
+      await recordBotContact(telegramId);
     }
 
     // «Последний вход» counts Mini App opens too (ADR 2026-10-25 §Q11).

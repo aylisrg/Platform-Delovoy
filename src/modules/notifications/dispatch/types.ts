@@ -13,9 +13,24 @@ export type NotificationPayload = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * Normalized delivery failure (ADR 2026-10-25 §Q3/§Q5) — human labels in
+ * `delivery-labels.ts`, bot status signals from BOT_* codes.
+ */
+export type DeliveryFailureCode =
+  | "BOT_BLOCKED"
+  | "BOT_NOT_STARTED"
+  | "USER_DEACTIVATED"
+  | "NETWORK"
+  | "CHANNEL_UNAVAILABLE"
+  | "CHANNEL_EXPIRED"
+  | "CHANNEL_AUTH"
+  | "STALE"
+  | "OTHER";
+
 export type DeliveryResult =
   | { ok: true; externalId?: string }
-  | { ok: false; reason: string; retryable: boolean };
+  | { ok: false; reason: string; retryable: boolean; code?: DeliveryFailureCode };
 
 export type VerificationChallenge = {
   method: "code" | "link";

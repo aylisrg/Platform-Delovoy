@@ -151,6 +151,8 @@ describe("WebPushChannel", () => {
       const parsed = JSON.parse(body as string);
       expect(parsed.title).toBe("Сессия просрочена");
       expect(parsed.actions).toHaveLength(1);
+      // sw.js opens data.url — the first action, not the dashboard (ADR 2026-10-25 §Q4)
+      expect(parsed.url).toBe("/admin/ps-park");
       expect(opts).toEqual({ TTL: 60, urgency: "high" });
 
       // recordSuccessfulDelivery
@@ -160,6 +162,15 @@ describe("WebPushChannel", () => {
           data: expect.objectContaining({ lastSuccessAt: expect.any(Date) }),
         }),
       );
+    });
+
+    it("push without actions falls back to the dashboard url", async () => {
+      findUniqueMock.mockResolvedValue(ACTIVE_SUB);
+      sendNotificationMock.mockResolvedValue({ statusCode: 201, headers: {} });
+      const ch = new WebPushChannel(enabledEnv);
+      await ch.send(ENDPOINT, { title: "t", body: "b" });
+      const parsed = JSON.parse(sendNotificationMock.mock.calls[0][1] as string);
+      expect(parsed.url).toBe("/admin/dashboard");
     });
 
     it("HTTP 410 Gone deactivates subscription and UNC", async () => {

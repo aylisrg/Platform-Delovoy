@@ -532,16 +532,20 @@ export async function markFeedRead(
 
   let updated = 0;
 
-  if (inAppIds.length > 0 || upTo) {
+  // readVia: explicit ids = "mark", «Прочитать всё» (upTo) = "bulk" — bulk is
+  // not a reaction in stats (ADR 2026-10-25 §Q3). Already-read rows keep theirs.
+  if (inAppIds.length > 0) {
     const result = await prisma.inAppNotification.updateMany({
-      where: {
-        ...inAppAccess(userId), readAt: null,
-        OR: [
-          ...(inAppIds.length ? [{ id: { in: inAppIds } }] : []),
-          ...(upTo ? [{ createdAt: { lte: upTo } }] : []),
-        ],
-      },
-      data: { readAt: now },
+      where: { ...inAppAccess(userId), readAt: null, id: { in: inAppIds } },
+      data: { readAt: now, readVia: "mark" },
+    });
+    updated += result.count;
+  }
+
+  if (upTo) {
+    const result = await prisma.inAppNotification.updateMany({
+      where: { ...inAppAccess(userId), readAt: null, createdAt: { lte: upTo } },
+      data: { readAt: now, readVia: "bulk" },
     });
     updated += result.count;
   }
@@ -549,7 +553,7 @@ export async function markFeedRead(
   if (personalIds.length > 0) {
     const result = await prisma.outgoingNotification.updateMany({
       where: { userId, id: { in: personalIds }, readAt: null },
-      data: { readAt: now },
+      data: { readAt: now, readVia: "mark" },
     });
     updated += result.count;
   }
@@ -557,7 +561,7 @@ export async function markFeedRead(
   if (upTo) {
     const result = await prisma.outgoingNotification.updateMany({
       where: { userId, readAt: null, createdAt: { lte: upTo } },
-      data: { readAt: now },
+      data: { readAt: now, readVia: "bulk" },
     });
     updated += result.count;
   }
@@ -583,4 +587,89 @@ export async function markFeedRead(
     feedSeenAt: feedSeenAt ? feedSeenAt.toISOString() : null,
     unreadCount: await countUnread(userId, feedSeenAt),
   };
+}
+
+// ── Тап по карточке: прочтение + переход как одна реакция ───────────────────
+
+export interface FeedOpenInput {
+  id: string;
+  actionIndex?: number;
+}
+
+export interface FeedOpenResult {
+  readAt: string | null;
+  clicked: boolean;
+}
+
+/**
+ * Тап по карточке ленты (AC-D3.10): отмечает прочтение (`readVia = "open"`)
+ * и — если клиент перешёл по действию (`actionIndex`) — клик на корне
+ * цепочки fallback. Это одна реакция в статистике
+ * (ADR 2026-10-25-team-access-notifications §Q4). Строго `where.userId`:
+ * чужой id ничего не находит.
+ */
+export async function openFeedItem(userId: string, input: FeedOpenInput): Promise<FeedOpenResult> {
+  const now = new Date();
+  const { personalIds, campaignIds, inAppIds } = splitFeedIds([input.id]);
+
+  if (personalIds.length > 0) {
+    const row = await prisma.outgoingNotification.findFirst({
+      where: { id: personalIds[0], userId },
+      select: { id: true, fallbackOfId: true, readAt: true },
+    });
+    if (!row) return { readAt: null, clicked: false };
+    if (!row.readAt) {
+      await prisma.outgoingNotification.updateMany({
+        where: { id: row.id, userId, readAt: null },
+        data: { readAt: now, readVia: "open" },
+      });
+    }
+    const clicked = input.actionIndex !== undefined;
+    if (clicked) {
+      const rootId = row.fallbackOfId ?? row.id;
+      await prisma.outgoingNotification.updateMany({
+        where: { id: rootId, userId, clickedAt: null },
+        data: { clickedAt: now },
+      });
+      await prisma.outgoingNotification.updateMany({
+        where: { id: rootId, userId },
+        data: { clickCount: { increment: 1 } },
+      });
+    }
+    return { readAt: (row.readAt ?? now).toISOString(), clicked };
+  }
+
+  if (inAppIds.length > 0) {
+    const row = await prisma.inAppNotification.findFirst({
+      where: { ...inAppAccess(userId), id: inAppIds[0] },
+      select: { id: true, readAt: true },
+    });
+    if (!row) return { readAt: null, clicked: false };
+    const clicked = input.actionIndex !== undefined;
+    if (!row.readAt) {
+      await prisma.inAppNotification.updateMany({
+        where: { id: row.id, userId, readAt: null },
+        data: { readAt: now, readVia: "open" },
+      });
+    }
+    if (clicked) {
+      await prisma.inAppNotification.updateMany({
+        where: { id: row.id, userId, clickedAt: null },
+        data: { clickedAt: now },
+      });
+      await prisma.inAppNotification.updateMany({
+        where: { id: row.id, userId },
+        data: { clickCount: { increment: 1 } },
+      });
+    }
+    return { readAt: (row.readAt ?? now).toISOString(), clicked };
+  }
+
+  if (campaignIds.length > 0) {
+    // Новости: персональной строки нет — только watermark, как в markFeedRead.
+    const result = await markFeedRead(userId, { ids: [input.id] });
+    return { readAt: result.feedSeenAt, clicked: false };
+  }
+
+  return { readAt: null, clicked: false };
 }
