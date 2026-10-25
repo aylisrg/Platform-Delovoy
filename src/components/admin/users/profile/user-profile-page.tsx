@@ -12,6 +12,7 @@ import { PermissionsModal } from "../permissions-modal";
 import { ConfirmDialog } from "../dialog-shell";
 import { ResetPasswordModal } from "../users-list";
 import { NotificationsBlock } from "./notifications-block";
+import { UserStatsBlock } from "./stats-block";
 
 /**
  * Страница сотрудника (US-B1): профиль и идентичности, ревью прав,
@@ -268,6 +269,7 @@ export function UserProfilePage({ userId }: { userId: string }) {
       </Section>
 
       <NotificationsBlock key={`n-${reloadKey}`} userId={user.id} />
+      <UserStatsBlock userId={user.id} />
 
       {possibleDuplicates.length > 0 && (
         <Section title="Возможные дубли">

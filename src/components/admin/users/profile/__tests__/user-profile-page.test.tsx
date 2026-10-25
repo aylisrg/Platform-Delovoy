@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => params,
 }));
 vi.mock("../notifications-block", () => ({ NotificationsBlock: () => <div>notifications-block</div> }));
+vi.mock("../stats-block", () => ({ UserStatsBlock: ({ userId }: { userId: string }) => <div>stats-block:{userId}</div> }));
 
 import { UserProfilePage } from "../user-profile-page";
 
@@ -54,6 +55,7 @@ describe("UserProfilePage (US-B1)", () => {
     expect(screen.getByText(/запрос на объединение/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Исключить из команды" })).toBeNull();
     expect(screen.getByText("notifications-block")).toBeTruthy();
+    expect(screen.getByText("stats-block:u1")).toBeTruthy();
   });
 
   it("not found → message with a way back", async () => {

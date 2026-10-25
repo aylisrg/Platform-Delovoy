@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { AdminHeader } from "@/components/admin/header";
 import { MatrixTable } from "@/components/admin/notifications/matrix-table";
+import { NotificationsTabs } from "@/components/admin/notifications/notifications-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export default async function NotificationMatrixPage() {
   return (
     <>
       <AdminHeader title="Кто что получает" />
-      <div className="p-4 sm:p-8">
+      <div className="space-y-6 p-4 sm:p-8">
+        <NotificationsTabs active="matrix" isSuperadmin />
         <MatrixTable />
       </div>
     </>
