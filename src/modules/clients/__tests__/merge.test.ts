@@ -382,7 +382,7 @@ describe("mergeAccounts — contacts (AC-E2.4г)", () => {
 describe("mergeAccounts — what moves (ADR §Q6)", () => {
   it("AC-E2.6: recipient-list rows of the secondary point at the primary, without duplicates", async () => {
     const tables = install({
-      user: [actor(), makeUser({ id: "p" }), makeUser({ id: "s" })],
+      user: [actor(), makeUser({ id: "p", role: "ADMIN" }), makeUser({ id: "s" })],
       moduleNotificationRecipient: [
         { moduleSlug: "cafe", userId: "p", createdByUserId: "sa-actor" },
         { moduleSlug: "cafe", userId: "s", createdByUserId: "sa-actor" },
@@ -395,6 +395,42 @@ describe("mergeAccounts — what moves (ADR §Q6)", () => {
       ["gazebos", "p"],
     ]);
     expect(result.moved.recipientLists).toBe(1);
+  });
+
+  it("AC-E2.6: lists the primary isn't admitted to are dropped, not moved (they'd silence the group chat)", async () => {
+    const tables = install({
+      module: modules(),
+      user: [actor(), makeUser({ id: "p", role: "MANAGER" }), makeUser({ id: "s", role: "MANAGER" })],
+      moduleAssignment: [
+        { id: "ma1", userId: "p", moduleId: "mod-cafe" },
+        { id: "ma2", userId: "s", moduleId: "mod-gazebos" },
+      ],
+      moduleNotificationRecipient: [
+        { moduleSlug: "cafe", userId: "s", createdByUserId: "sa-actor" },
+        { moduleSlug: "gazebos", userId: "s", createdByUserId: "sa-actor" },
+      ],
+    });
+    const preview = await previewAccountMerge({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(preview.access.recipientLists).toEqual(["Кафе"]);
+    expect(preview.notTransferred).toContainEqual({
+      key: "recipientLists",
+      label: "Списки получателей, куда основной аккаунт не допущен",
+      items: ["Барбекю Парк"],
+    });
+
+    const result = await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(tables.moduleNotificationRecipient.map((r) => [r.moduleSlug, r.userId])).toEqual([["cafe", "p"]]);
+    expect(result.moved.recipientLists).toBe(1);
+  });
+
+  it("the technical `system` user is never a merge participant", async () => {
+    install({ user: [actor(), makeUser({ id: "system", role: "SUPERADMIN" }), makeUser({ id: "s" })] });
+    await expect(
+      mergeAccounts({ primaryId: "system", secondaryId: "s", actorId: "sa-actor", mode: "admin" }),
+    ).rejects.toMatchObject({ code: "USER_NOT_FOUND" });
+    await expect(
+      previewAccountMerge({ primaryId: "s", secondaryId: "system", actorId: "sa-actor", mode: "admin" }),
+    ).rejects.toMatchObject({ code: "USER_NOT_FOUND" });
   });
 
   it("AC-E2.4в: per eventType the primary's subscription wins, the rest moves", async () => {

@@ -125,6 +125,22 @@ describe("WebPushChannel", () => {
       expect(r.ok).toBe(false);
     });
 
+    it("a tracking link keeps its landing path in `target` for the service worker", async () => {
+      findUniqueMock.mockResolvedValue(ACTIVE_SUB);
+      sendNotificationMock.mockResolvedValue({ statusCode: 201, headers: {} });
+
+      const ch = new WebPushChannel(enabledEnv);
+      await ch.send(ENDPOINT, {
+        title: "Новая бронь",
+        body: "Беседка 2",
+        actions: [{ label: "Открыть", url: "https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA", target: "/webapp/bookings" }],
+      });
+
+      const parsed = JSON.parse(sendNotificationMock.mock.calls[0][1] as string);
+      expect(parsed.url).toBe("https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA");
+      expect(parsed.target).toBe("/webapp/bookings");
+    });
+
     it("happy path: sends payload with TTL/urgency and records success", async () => {
       findUniqueMock.mockResolvedValue(ACTIVE_SUB);
       sendNotificationMock.mockResolvedValue({ statusCode: 201, headers: {} });
@@ -153,6 +169,7 @@ describe("WebPushChannel", () => {
       expect(parsed.actions).toHaveLength(1);
       // sw.js opens data.url — the first action, not the dashboard (ADR 2026-10-25 §Q4)
       expect(parsed.url).toBe("/admin/ps-park");
+      expect(parsed.target).toBeUndefined();
       expect(opts).toEqual({ TTL: 60, urgency: "high" });
 
       // recordSuccessfulDelivery

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TeamFlag, TeamOverviewRow } from "@/modules/users/team";
 import { BotStatusBadge } from "./bot-status-badge";
 import { ExcludeDialog } from "./exclude-dialog";
@@ -71,8 +71,11 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
   const [excludeUser, setExcludeUser] = useState<TeamOverviewRow | null>(null);
   const [merge, setMerge] = useState<{ userAId?: string; userBId?: string; mergeRequestId?: string } | null>(null);
   const [mergeKey, setMergeKey] = useState(0);
+  // Only the latest request may update the table — fast filter changes race.
+  const requestSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
     const params = new URLSearchParams();
     if (filters.role) params.set("role", filters.role);
     if (filters.problems) params.set("problems", "true");
@@ -82,6 +85,7 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
     try {
       const res = await fetch(`/api/users/team?${params.toString()}`);
       const body = await res.json();
+      if (seq !== requestSeq.current) return;
       if (body.success) {
         setRows(body.data.rows);
         setPendingMergeRequests(body.data.pendingMergeRequests);
@@ -90,9 +94,9 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
         setError(body.error?.message ?? "Не удалось загрузить команду");
       }
     } catch {
-      setError("Ошибка сети");
+      if (seq === requestSeq.current) setError("Ошибка сети");
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   }, [filters]);
 

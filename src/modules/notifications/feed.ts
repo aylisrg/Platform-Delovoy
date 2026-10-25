@@ -599,6 +599,8 @@ export interface FeedOpenInput {
 export interface FeedOpenResult {
   readAt: string | null;
   clicked: boolean;
+  /** Server truth for the badge after this tap (same as `feed/read` returns). */
+  unreadCount: number;
 }
 
 /**
@@ -609,6 +611,11 @@ export interface FeedOpenResult {
  * чужой id ничего не находит.
  */
 export async function openFeedItem(userId: string, input: FeedOpenInput): Promise<FeedOpenResult> {
+  const result = await markOpened(userId, input);
+  return { ...result, unreadCount: await countUnread(userId, await getFeedSeenAt(userId)) };
+}
+
+async function markOpened(userId: string, input: FeedOpenInput): Promise<Omit<FeedOpenResult, "unreadCount">> {
   const now = new Date();
   const { personalIds, campaignIds, inAppIds } = splitFeedIds([input.id]);
 

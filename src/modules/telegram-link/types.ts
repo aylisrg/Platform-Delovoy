@@ -24,6 +24,12 @@ export interface LinkConfirmResult {
   token: string;
 }
 
+/** Whose link this is, shown by the bot before it links anything. */
+export interface DeepLinkPreview {
+  userName: string | null;
+  emailMasked: string | null;
+}
+
 export interface DeepLinkResult {
   linked: true;
   userName: string | null;

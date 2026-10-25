@@ -88,10 +88,13 @@ export class WebPushChannel implements INotificationChannel {
       // sw.js opens `data.url` on click; without it every push led to the
       // dashboard. The dispatcher has already swapped action URLs for tracking
       // links (ADR 2026-10-25 §Q4), so this click is measured too.
+      const primary = payload.actions?.find((a) => a.url);
       const body = JSON.stringify({
         title: payload.title,
         body: payload.body,
-        url: payload.actions?.find((a) => a.url)?.url ?? "/admin/dashboard",
+        url: primary?.url ?? "/admin/dashboard",
+        // Where the tracking link lands — sw.js picks the window by it.
+        ...(primary?.target ? { target: primary.target } : {}),
         actions: payload.actions ?? [],
         metadata: payload.metadata ?? {},
       });

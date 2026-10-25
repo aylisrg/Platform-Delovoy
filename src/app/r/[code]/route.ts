@@ -34,9 +34,10 @@ function homeUrl(): string {
 }
 
 async function handle(request: NextRequest, code: string, method: "GET" | "HEAD"): Promise<Response> {
+  // Over the limit → lose the click record, not the navigation (CGNAT, AC-D3.11).
+  let limited = false;
   try {
-    // Over the limit → lose the click record, not the navigation (CGNAT, AC-D3.11).
-    if (await rateLimit(request, "public")) return redirect(homeUrl());
+    limited = Boolean(await rateLimit(request, "public"));
   } catch {
     // limiter failure must not block the redirect
   }
@@ -49,7 +50,7 @@ async function handle(request: NextRequest, code: string, method: "GET" | "HEAD"
   }
   if (!resolved) return redirect(homeUrl());
 
-  if (!isAutomatedRequest(request.headers, method)) {
+  if (!limited && !isAutomatedRequest(request.headers, method)) {
     try {
       await recordLinkClick(resolved.linkId, resolved.rootId);
     } catch (err) {

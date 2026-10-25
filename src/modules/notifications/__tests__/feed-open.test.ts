@@ -25,6 +25,13 @@ beforeEach(() => {
 });
 
 describe("openFeedItem — read + click = one reaction (AC-D3.10)", () => {
+  it("returns the server unread count so the Mini App badge doesn't drift", async () => {
+    vi.mocked(prisma.outgoingNotification.findFirst).mockResolvedValue({ id: "on-1", fallbackOfId: null, readAt: null } as never);
+    vi.mocked(prisma.outgoingNotification.count).mockResolvedValue(2);
+    vi.mocked(prisma.inAppNotification.count).mockResolvedValue(1);
+    expect((await openFeedItem("u1", { id: "on:on-1" })).unreadCount).toBe(3);
+  });
+
   it("followed action: readVia=open on the row, click on the chain root", async () => {
     vi.mocked(prisma.outgoingNotification.findFirst).mockResolvedValue({
       id: "fb-2", fallbackOfId: "root-1", readAt: null, payload: withAction,
@@ -53,7 +60,7 @@ describe("openFeedItem — read + click = one reaction (AC-D3.10)", () => {
       id: "on-1", fallbackOfId: null, readAt, payload: { title: "t", body: "b" },
     } as never);
     const res = await openFeedItem("u1", { id: "on:on-1" });
-    expect(res).toEqual({ readAt: readAt.toISOString(), clicked: false });
+    expect(res).toEqual({ readAt: readAt.toISOString(), clicked: false, unreadCount: 0 });
     expect(prisma.outgoingNotification.updateMany).not.toHaveBeenCalled();
   });
 
@@ -66,7 +73,7 @@ describe("openFeedItem — read + click = one reaction (AC-D3.10)", () => {
 
   it("someone else's id finds nothing and writes nothing", async () => {
     vi.mocked(prisma.outgoingNotification.findFirst).mockResolvedValue(null);
-    expect(await openFeedItem("u1", { id: "on:foreign" })).toEqual({ readAt: null, clicked: false });
+    expect(await openFeedItem("u1", { id: "on:foreign" })).toEqual({ readAt: null, clicked: false, unreadCount: 0 });
     expect(prisma.outgoingNotification.updateMany).not.toHaveBeenCalled();
   });
 
@@ -84,7 +91,7 @@ describe("openFeedItem — read + click = one reaction (AC-D3.10)", () => {
   });
 
   it("unknown prefix is ignored", async () => {
-    expect(await openFeedItem("u1", { id: "zz:1" })).toEqual({ readAt: null, clicked: false });
+    expect(await openFeedItem("u1", { id: "zz:1" })).toEqual({ readAt: null, clicked: false, unreadCount: 0 });
   });
 });
 

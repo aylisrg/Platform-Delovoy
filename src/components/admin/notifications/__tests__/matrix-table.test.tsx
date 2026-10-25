@@ -79,4 +79,29 @@ describe("MatrixTable (US-C4)", () => {
       expect(fetchMock).toHaveBeenLastCalledWith("/api/admin/notifications/matrix?role=MANAGER&problems=true"),
     );
   });
+
+  it("category options come from the catalog, so picking one doesn't hide the others", async () => {
+    render(<MatrixTable />);
+    await screen.findByRole("link", { name: "Анна" });
+    const select = screen.getByLabelText("Категория") as HTMLSelectElement;
+    const before = [...select.options].map((o) => o.value);
+    expect(before.length).toBeGreaterThan(3);
+    fireEvent.change(select, { target: { value: "cafe" } });
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith("/api/admin/notifications/matrix?category=cafe"));
+    expect([...select.options].map((o) => o.value)).toEqual(before);
+  });
+
+  it("a late answer to an older filter doesn't overwrite the newer one", async () => {
+    let releaseOld: (v: unknown) => void = () => undefined;
+    fetchMock.mockReset();
+    fetchMock
+      .mockImplementationOnce(() => new Promise((resolve) => (releaseOld = resolve)))
+      .mockResolvedValue(ok({ ...matrix, rows: [{ ...matrix.rows[0], user: { id: "u2", name: "Борис", role: "ADMIN" } }] }));
+    render(<MatrixTable />);
+    fireEvent.change(screen.getByLabelText("Роль"), { target: { value: "ADMIN" } });
+    expect(await screen.findByRole("link", { name: "Борис" })).toBeTruthy();
+    releaseOld(ok(matrix));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole("link", { name: "Анна" })).toBeNull();
+  });
 });

@@ -859,7 +859,8 @@ GROUP BY GROUPING SETS ((), (event_type), (user_id), (channel));
 
 **`GET /api/users/team`** — `teamOverviewQuerySchema = z.object({ role: z.enum(["SUPERADMIN","ADMIN","MANAGER"]).optional(), problems: z.coerce.boolean().optional(), bot: z.enum(["not_started","blocked"]).optional(), noTelegram: z.coerce.boolean().optional(), sort: z.enum(["lastLogin","name"]).optional() })`
 ```ts
-200 { success: true, data: TeamOverviewRow[], meta: { total: number; pendingMergeRequests: number } }
+200 { success: true, data: { rows: TeamOverviewRow[]; pendingMergeRequests: number }, meta: { total: number } }
+// Реализация (фаза 6): счётчик запросов лежит в data рядом со строками — это данные экрана, а не пагинация.
 TeamOverviewRow = { id; name: string|null; image: string|null; role: "SUPERADMIN"|"ADMIN"|"MANAGER";
   email: string|null; emailVerified: boolean; hasTelegram: boolean; botStatus: BotStatusDto;
   sections: Array<{ slug; label; source: "role"|"grant"|"strict_grant" }>; modules: Array<{ slug; name }>;

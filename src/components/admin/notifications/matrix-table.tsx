@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MatrixCell, NotificationMatrix } from "@/modules/notifications/matrix";
 import type { ExplainStatus } from "@/modules/notifications/explain";
+import { NOTIFICATION_CATALOG } from "@/modules/notifications/catalog";
 
 /**
  * Матрица «сотрудники × события» (US-C4): за минуты видно события, которых
@@ -20,6 +21,10 @@ const CELL: Record<ExplainStatus, { symbol: string; tone: string; label: string 
 
 const ROLE_LABEL: Record<string, string> = { SUPERADMIN: "Суперадмин", ADMIN: "Администратор", MANAGER: "Менеджер" };
 
+// From the catalog, not from the loaded (already filtered) events — otherwise
+// picking a category would hide every other option.
+const CATEGORY_OPTIONS = NOTIFICATION_CATALOG.map((c) => [c.key, c.label] as const);
+
 export function MatrixTable() {
   const [data, setData] = useState<NotificationMatrix | null>(null);
   const [category, setCategory] = useState("");
@@ -27,8 +32,11 @@ export function MatrixTable() {
   const [problems, setProblems] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Only the latest request may update the screen — fast filter changes race.
+  const requestSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
     const params = new URLSearchParams();
     if (category) params.set("category", category);
     if (role) params.set("role", role);
@@ -36,12 +44,13 @@ export function MatrixTable() {
     try {
       const res = await fetch(`/api/admin/notifications/matrix?${params.toString()}`);
       const body = await res.json();
+      if (seq !== requestSeq.current) return;
       if (body.success) {
         setData(body.data);
         setError(null);
       } else setError(body.error?.message ?? "Не удалось загрузить матрицу");
     } catch {
-      setError("Ошибка сети");
+      if (seq === requestSeq.current) setError("Ошибка сети");
     }
   }, [category, role, problems]);
 
@@ -69,14 +78,12 @@ export function MatrixTable() {
     }
   }
 
-  const categories = data ? [...new Map(data.events.map((e) => [e.categoryKey, e.categoryLabel])).entries()] : [];
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 text-sm">
         <select aria-label="Категория" className="rounded-lg border border-zinc-200 px-2 py-1.5" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">Все категории</option>
-          {categories.map(([key, label]) => (
+          {CATEGORY_OPTIONS.map(([key, label]) => (
             <option key={key} value={key}>
               {label}
             </option>

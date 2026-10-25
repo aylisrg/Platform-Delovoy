@@ -70,6 +70,7 @@ import {
   skipLink,
   generateDeepLink,
   processDeepLink,
+  previewDeepLink,
   hasSkippedLinking,
   resetLinkServiceState,
   LinkError,
@@ -408,6 +409,29 @@ describe("confirmLink (US-E3 / US-E4)", () => {
     expect(result.merged).toBe(false);
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(mergeAccounts).not.toHaveBeenCalled();
+  });
+});
+
+describe("previewDeepLink — the bot asks before linking", () => {
+  const token = "b".repeat(48);
+
+  it("says whose link it is (masked email) and consumes / links nothing", async () => {
+    h.store.set(`tg-link:token:${token}`, "u-web");
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: "u-web", name: "Иван", email: "ivan@mail.ru", role: "MANAGER", telegramId: null, mergedIntoUserId: null,
+    } as never);
+
+    expect(await previewDeepLink(token)).toEqual({ userName: "Иван", emailMasked: "iv***@mail.ru" });
+    expect(h.store.has(`tg-link:token:${token}`)).toBe(true);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.telegramLinkToken.update).not.toHaveBeenCalled();
+    expect(mergeAccounts).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("an unknown token → 400 INVALID_TOKEN, same as the real call", async () => {
+    vi.mocked(prisma.telegramLinkToken.findUnique).mockResolvedValueOnce(null);
+    await expect(previewDeepLink(token)).rejects.toMatchObject({ code: "INVALID_TOKEN", status: 400 });
   });
 });
 

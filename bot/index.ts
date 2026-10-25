@@ -14,7 +14,7 @@ import { registerGazeboHandlers } from "./handlers/gazebos";
 import { registerPSParkHandlers } from "./handlers/ps-park";
 import { registerCafeHandlers } from "./handlers/cafe";
 import { registerMyBookingsHandler } from "./handlers/my-bookings";
-import { handleLinkDeepLink } from "./handlers/link";
+import { handleLinkDeepLink, registerLinkHandler } from "./handlers/link";
 import {
   AUTH_DEEPLINK_PREFIX,
   handleAuthDeepLink,
@@ -266,6 +266,7 @@ async function startBot() {
   registerMyBookingsHandler(bot);
   registerTeamSettingsHandlers(bot);
   registerAuthDeepLinkHandlers(bot);
+  registerLinkHandler(bot);
   // Решения владельца (кнопки автоочереди) — до catch-all: его text-хендлер
   // перехватывает «идея:…» и реплаи на сообщения решений, остальное передаёт дальше.
   registerOwnerDecisionsHandlers(bot);

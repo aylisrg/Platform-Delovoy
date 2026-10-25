@@ -87,11 +87,18 @@ describe("GET /r/[code] (US-D3)", () => {
     expect(mockRecord).not.toHaveBeenCalled();
   });
 
-  it("over the rate limit → home instead of a JSON 429 (AC-D3.11)", async () => {
+  it("over the rate limit → still the target, never a JSON 429; only the click record is lost (AC-D3.11)", async () => {
     mockRateLimit.mockResolvedValue(new Response("{}", { status: 429 }));
     const res = await GET(req(`/r/${CODE}`), params());
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(HOME);
-    expect(mockResolve).not.toHaveBeenCalled();
+    expect(res.headers.get("location")).toBe("https://delovoy-park.ru/admin/gazebos");
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("a limiter failure doesn't block the redirect or the click record", async () => {
+    mockRateLimit.mockRejectedValue(new Error("redis down"));
+    const res = await GET(req(`/r/${CODE}`), params());
+    expect(res.headers.get("location")).toBe("https://delovoy-park.ru/admin/gazebos");
+    expect(mockRecord).toHaveBeenCalledWith("l1", "root");
   });
 });

@@ -94,7 +94,9 @@ describe("ensureLinksForDelivery (AC-D3.1)", () => {
         { label: "Без ссылки" },
       ],
     );
-    expect(out).toEqual([{ label: "Открыть", url: "https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA" }]);
+    expect(out).toEqual([
+      { label: "Открыть", url: "https://delovoy-park.ru/r/AAAAAAAAAAAAAAAAAAAAAA", target: "/admin/gazebos" },
+    ]);
     expect(prisma.notificationLink.upsert).toHaveBeenCalledTimes(1);
     const call = vi.mocked(prisma.notificationLink.upsert).mock.calls[0][0];
     expect(call.where).toEqual({ outgoingId_actionIndex: { outgoingId: "root", actionIndex: 0 } });

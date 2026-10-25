@@ -34,11 +34,12 @@ describe("getAuthState", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 
-  it("cache miss → DB → cached for 60 s", async () => {
+  it("cache miss → DB → cached for 60 s, only if nobody published meanwhile (NX)", async () => {
     vi.mocked(redis.get).mockResolvedValue(null);
     vi.mocked(prisma.user.findUnique).mockResolvedValue(dbRow as never);
     expect(await getAuthState("u1")).toEqual({ sessionVersion: 3, role: "MANAGER", merged: false });
-    expect(redis.set).toHaveBeenCalledWith("auth:state:u1", expect.any(String), "EX", AUTH_STATE_TTL_SECONDS);
+    // A fill from a read that raced a revocation must not overwrite publishAuthState.
+    expect(redis.set).toHaveBeenCalledWith("auth:state:u1", expect.any(String), "EX", AUTH_STATE_TTL_SECONDS, "NX");
     expect(AUTH_STATE_TTL_SECONDS).toBe(60);
   });
 

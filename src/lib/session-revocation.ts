@@ -47,10 +47,19 @@ async function readFromDb(userId: string): Promise<AuthState | null> {
   return { sessionVersion: user.sessionVersion, role: user.role, merged: user.mergedIntoUserId !== null };
 }
 
-async function writeCache(userId: string, state: AuthState): Promise<void> {
+/**
+ * `onlyIfAbsent` is for the read path: a cache fill from a DB read that started
+ * before a revocation committed must not overwrite the state `publishAuthState`
+ * just wrote — publish always overwrites.
+ */
+async function writeCache(userId: string, state: AuthState, onlyIfAbsent = false): Promise<void> {
   if (!redisAvailable) return;
   try {
-    await redis.set(key(userId), JSON.stringify(state), "EX", AUTH_STATE_TTL_SECONDS);
+    if (onlyIfAbsent) {
+      await redis.set(key(userId), JSON.stringify(state), "EX", AUTH_STATE_TTL_SECONDS, "NX");
+    } else {
+      await redis.set(key(userId), JSON.stringify(state), "EX", AUTH_STATE_TTL_SECONDS);
+    }
   } catch {
     // TTL of any previous entry still bounds staleness
   }
@@ -74,7 +83,7 @@ export async function getAuthState(userId: string): Promise<AuthState | null | "
 
   try {
     const state = await readFromDb(userId);
-    if (state) await writeCache(userId, state);
+    if (state) await writeCache(userId, state, true);
     return state;
   } catch {
     return "unavailable";

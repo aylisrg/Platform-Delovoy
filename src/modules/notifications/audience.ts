@@ -27,7 +27,9 @@ const SNAPSHOT_SELECT = {
   role: true,
   mergedIntoUserId: true,
   adminPermissions: { select: { section: true } },
-  moduleAssignments: { select: { module: { select: { slug: true } } } },
+  // A deactivated module's assignment opens no notification context — Avito
+  // leads already skipped such managers before the unified resolver.
+  moduleAssignments: { where: { module: { isActive: true } }, select: { module: { select: { slug: true } } } },
   notificationEventPrefs: {
     where: { eventType: { in: MANAGED_EVENT_TYPES as string[] } },
     select: { eventType: true, enabled: true },
@@ -73,7 +75,7 @@ async function candidateUserIds(
             OR: [
               { role: "SUPERADMIN" },
               ...(eventType === AVITO_EVENT && moduleSlug
-                ? [{ role: { in: ["MANAGER", "ADMIN"] as Role[] }, moduleAssignments: { some: { module: { slug: moduleSlug } } } }]
+                ? [{ role: { in: ["MANAGER", "ADMIN"] as Role[] }, moduleAssignments: { some: { module: { slug: moduleSlug, isActive: true } } } }]
                 : []),
             ],
           },

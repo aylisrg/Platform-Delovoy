@@ -85,12 +85,12 @@ type ActionInput = { label: string; url?: string; callback?: string };
 export async function ensureLinksForDelivery(
   item: { id: string; fallbackOfId: string | null; userId: string; eventType: string },
   actions: ActionInput[] | undefined,
-): Promise<Array<{ label: string; url: string }>> {
+): Promise<Array<{ label: string; url: string; target?: string }>> {
   if (!actions?.length) return [];
   const opts = { appOrigin: getAppOrigin(), botUsername: getBotUsername() };
   const rootId = item.fallbackOfId ?? item.id;
   const origin = new URL(opts.appOrigin).origin;
-  const out: Array<{ label: string; url: string }> = [];
+  const out: Array<{ label: string; url: string; target?: string }> = [];
 
   for (const [index, action] of actions.entries()) {
     const target = normalizeTrackableTarget(action.url, opts);
@@ -109,7 +109,12 @@ export async function ensureLinksForDelivery(
       },
       select: { code: true },
     });
-    out.push({ label: action.label, url: `${origin}/r/${link.code}` });
+    const targetUrl = new URL(target);
+    out.push({
+      label: action.label,
+      url: `${origin}/r/${link.code}`,
+      ...(targetUrl.origin === origin ? { target: `${targetUrl.pathname}${targetUrl.search}` } : {}),
+    });
   }
   return out;
 }

@@ -4,6 +4,12 @@ export type NotificationAction = {
   label: string;
   url?: string;
   callback?: string;
+  /**
+   * Same-origin path the tracking link `url` redirects to. Only the service
+   * worker reads it — to focus the right window (admin vs Mini App) while
+   * still navigating through `/r/{code}` so the click is counted.
+   */
+  target?: string;
 };
 
 export type NotificationPayload = {

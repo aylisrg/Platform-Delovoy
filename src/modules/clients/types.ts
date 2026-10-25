@@ -259,7 +259,7 @@ export type AccountMergePreview = {
     auditLogs: number;
     notifications: number;
   };
-  notTransferred: Array<{ key: "secondaryRole" | "sections" | "modules"; label: string; items: string[] }>;
+  notTransferred: Array<{ key: "secondaryRole" | "sections" | "modules" | "recipientLists"; label: string; items: string[] }>;
   blockers: Array<{ code: string; message: string }>;
 };
 

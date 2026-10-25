@@ -21,6 +21,7 @@ vi.mock("@/modules/telegram-link/service", () => ({
   confirmLink: vi.fn(),
   skipLink: vi.fn(),
   processDeepLink: vi.fn(),
+  previewDeepLink: vi.fn(),
   LinkError: class LinkError extends Error {
     code: string;
     status: number;
@@ -34,7 +35,7 @@ vi.mock("@/modules/telegram-link/service", () => ({
 
 import { verifyWebAppToken, signWebAppToken } from "@/lib/webapp-auth";
 import { rateLimit } from "@/lib/rate-limit";
-import { requestLink, confirmLink, skipLink, processDeepLink, LinkError } from "@/modules/telegram-link/service";
+import { requestLink, confirmLink, skipLink, processDeepLink, previewDeepLink, LinkError } from "@/modules/telegram-link/service";
 import { POST as requestRoute } from "../request/route";
 import { POST as confirmRoute } from "../confirm/route";
 import { POST as skipRoute } from "../skip/route";
@@ -230,6 +231,20 @@ describe("POST /api/webapp/link/deep-link", () => {
 
     expect(res.status).toBe(200);
     expect(json.data).toEqual({ linked: true, userName: "Ivan", merged: false });
+  });
+
+  it("preview: true only says whose link it is — the real link isn't called", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    vi.mocked(previewDeepLink).mockResolvedValue({ userName: "Ivan", emailMasked: "iv***@mail.ru" });
+
+    const res = await deepLinkRoute(
+      makeRequest({ token: "a".repeat(48), telegramId: "tg-999", preview: true }, { "x-bot-token": "test-token" })
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toEqual({ userName: "Ivan", emailMasked: "iv***@mail.ru" });
+    expect(previewDeepLink).toHaveBeenCalledWith("a".repeat(48));
+    expect(processDeepLink).not.toHaveBeenCalled();
   });
 
   it("AC-E4.1: 409 TELEGRAM_IN_USE_MERGE_REQUESTED passes through for the bot", async () => {

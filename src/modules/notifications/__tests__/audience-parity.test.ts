@@ -125,4 +125,18 @@ describe("AC-C1.6 parity: delivery resolver = screen", () => {
     for (const r of routing.recipients) expect(suppressed.has(r.userId)).toBe(false);
     expect(suppressed.size).toBeGreaterThan(0);
   });
+
+  it("an assignment to a deactivated module opens no context — Avito leads skip such managers, as before", async () => {
+    staff = [
+      { id: "sa", role: "SUPERADMIN" },
+      { id: "m-active", role: "MANAGER", assignments: ["gazebos"] },
+      { id: "m-inactive", role: "MANAGER", inactiveAssignments: ["gazebos"] },
+    ];
+    const routing = await resolveStaffRouting({ eventType: "avito.lead.new", moduleSlug: "gazebos" });
+    expect(routing.recipients.map((r) => r.userId).sort()).toEqual(["m-active", "sa"]);
+
+    // …and the screen agrees: the explicit-id snapshot drops the inactive assignment too.
+    const routingById = await resolveStaffRouting({ eventType: "avito.lead.new", moduleSlug: "gazebos", userIds: ["m-inactive"] });
+    expect(routingById.recipients).toEqual([]);
+  });
 });

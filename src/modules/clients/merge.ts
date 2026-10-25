@@ -211,6 +211,18 @@ function blocker(code: MergeBlockerCode) {
  * «Превью» (AC-E2.3): what stays, what moves, what is not transferred and
  * which guards block the merge. Reads only — nothing is changed.
  */
+/**
+ * Who may sit in a module recipient list — the same rule as
+ * `setRecipientUserIds`: SUPERADMIN and ADMIN always, MANAGER only with an
+ * assignment to that module. A row the primary isn't admitted to is dropped on
+ * merge: it would never deliver, yet it would still count as a list member and
+ * silence the module's group chat.
+ */
+function admittedToRecipientList(role: Role, assignedSlugs: ReadonlySet<string>, moduleSlug: string): boolean {
+  if (role === "SUPERADMIN" || role === "ADMIN") return true;
+  return role === "MANAGER" && assignedSlugs.has(moduleSlug);
+}
+
 export async function previewAccountMerge(input: {
   primaryId: string;
   secondaryId: string;
@@ -219,6 +231,8 @@ export async function previewAccountMerge(input: {
 }): Promise<AccountMergePreview> {
   const { primaryId, secondaryId, actorId } = input;
   if (primaryId === secondaryId) throw mergeError("SAME_ACCOUNT");
+  // The technical `system` user is never a merge participant (it owns system rows).
+  if (primaryId === SYSTEM_USER_ID || secondaryId === SYSTEM_USER_ID) throw mergeError("USER_NOT_FOUND");
 
   const [primary, secondary] = await Promise.all([
     prisma.user.findUnique({ where: { id: primaryId }, select: USER_FIELDS }),
@@ -292,7 +306,12 @@ export async function previewAccountMerge(input: {
   const primaryModuleSlugs = new Set(primaryModules.map((m) => m.slug));
 
   const listNames = new Map<string, string>();
-  for (const l of lists) listNames.set(l.moduleSlug, l.module.name);
+  const droppedListNames = new Map<string, string>();
+  for (const l of lists) {
+    const keep = l.userId === primaryId || admittedToRecipientList(primary.role, primaryModuleSlugs, l.moduleSlug);
+    (keep ? listNames : droppedListNames).set(l.moduleSlug, l.module.name);
+  }
+  for (const slug of listNames.keys()) droppedListNames.delete(slug);
 
   const catalogPrefs = prefs.filter((p) => EVENT_LABELS.has(p.eventType));
   const prefLabel = (p: { eventType: string; enabled: boolean }) =>
@@ -317,6 +336,13 @@ export async function previewAccountMerge(input: {
   const lostModules = modulesOf(secondaryId).filter((m) => !primaryModuleSlugs.has(m.slug)).map((m) => m.name);
   if (lostModules.length > 0) {
     notTransferred.push({ key: "modules", label: "Назначения на модули второго аккаунта", items: lostModules });
+  }
+  if (droppedListNames.size > 0) {
+    notTransferred.push({
+      key: "recipientLists",
+      label: "Списки получателей, куда основной аккаунт не допущен",
+      items: [...droppedListNames.values()],
+    });
   }
 
   const blockers: AccountMergePreview["blockers"] = [];
@@ -722,13 +748,22 @@ async function runMerge(
   ).count;
 
   // ── 11. Module recipient lists: secondary → primary without duplicates (AC-E2.6).
-  const secondaryLists = await tx.moduleNotificationRecipient.findMany({
-    where: { userId: secondaryId },
-    select: { moduleSlug: true, createdByUserId: true, createdAt: true },
-  });
+  //     Only lists the primary is admitted to (its own role and assignments —
+  //     the secondary's rights were dropped in step 3).
+  const [secondaryLists, primaryAssignments] = await Promise.all([
+    tx.moduleNotificationRecipient.findMany({
+      where: { userId: secondaryId },
+      select: { moduleSlug: true, createdByUserId: true, createdAt: true },
+    }),
+    tx.moduleAssignment.findMany({ where: { userId: primaryId }, select: { module: { select: { slug: true } } } }),
+  ]);
+  const primaryAssigned = new Set(primaryAssignments.map((a) => a.module.slug));
+  const transferableLists = secondaryLists.filter((l) =>
+    admittedToRecipientList(primary.role, primaryAssigned, l.moduleSlug),
+  );
   if (secondaryLists.length > 0) {
     const created = await tx.moduleNotificationRecipient.createMany({
-      data: secondaryLists.map((l) => ({
+      data: transferableLists.map((l) => ({
         moduleSlug: l.moduleSlug,
         userId: primaryId,
         createdByUserId: l.createdByUserId,
@@ -919,6 +954,9 @@ export async function mergeAccounts(input: {
   }
   if (input.mode !== "clients_only" && input.secondaryId === input.actorId) {
     throw mergeError("SECONDARY_IS_ACTOR");
+  }
+  if (input.mode !== "clients_only" && (input.primaryId === SYSTEM_USER_ID || input.secondaryId === SYSTEM_USER_ID)) {
+    throw mergeError("USER_NOT_FOUND");
   }
 
   const result = await prisma.$transaction((tx) => runMerge(tx, input), MERGE_TX_OPTIONS);

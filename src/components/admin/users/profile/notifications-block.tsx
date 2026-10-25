@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExplainEvent, ExplainStatus, StaffNotificationExplain } from "@/modules/notifications/explain";
 
 /**
@@ -41,11 +41,15 @@ export function NotificationsBlock({ userId }: { userId: string }) {
   const [data, setData] = useState<StaffNotificationExplain | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  // A late answer for a previous load (or another user) must not win.
+  const requestSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
     try {
       const res = await fetch(`/api/users/${userId}/notifications`);
       const body = await res.json();
+      if (seq !== requestSeq.current) return;
       if (body.success) {
         setData(body.data);
         setError(null);
@@ -53,7 +57,7 @@ export function NotificationsBlock({ userId }: { userId: string }) {
         setError(body.error?.message ?? "Не удалось загрузить уведомления");
       }
     } catch {
-      setError("Ошибка сети");
+      if (seq === requestSeq.current) setError("Ошибка сети");
     }
   }, [userId]);
 

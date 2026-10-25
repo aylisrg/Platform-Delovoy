@@ -25,6 +25,8 @@ export const deepLinkSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   username: z.string().optional(),
+  /** Only say whose link it is — the bot asks the person to confirm before linking. */
+  preview: z.boolean().optional(),
 });
 
 export const linkSkipSchema = z.object({}).strict();

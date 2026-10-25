@@ -16,6 +16,7 @@ import { buildLinkOtpEmail, buildSuperadminLinkInfoEmail } from "./otp-email";
 import type {
   LinkRequestResult,
   LinkConfirmResult,
+  DeepLinkPreview,
   DeepLinkResult,
   GenerateLinkResult,
   OtpData,
@@ -460,16 +461,14 @@ export async function generateDeepLink(
  * SUPERADMIN — ownership is proven by the session, ADR §Q9). Same conflict
  * logic as the OTP: shell → self_link merge, otherwise a merge request + 409.
  */
-export async function processDeepLink(
-  input: DeepLinkInput
-): Promise<DeepLinkResult> {
+async function resolveDeepLinkUser(token: string) {
   // First try Redis for speed
-  let userId = await redis.get(tokenKey(input.token)).catch(() => null);
+  let userId = await redis.get(tokenKey(token)).catch(() => null);
 
   if (!userId) {
     // Fallback to DB
     const tokenRecord = await prisma.telegramLinkToken.findUnique({
-      where: { token: input.token },
+      where: { token },
       select: { userId: true, expiresAt: true, usedAt: true },
     });
 
@@ -482,11 +481,29 @@ export async function processDeepLink(
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, role: true, telegramId: true, mergedIntoUserId: true },
+    select: { id: true, name: true, email: true, role: true, telegramId: true, mergedIntoUserId: true },
   });
   if (!user || user.mergedIntoUserId) {
     throw new LinkError("INVALID_TOKEN", LINK_MESSAGES.INVALID_TOKEN, 400);
   }
+  return user;
+}
+
+/**
+ * Whose link this is — without consuming the token or touching any account.
+ * The bot shows it and links only after the person presses «Привязать»: a
+ * Start on someone else's link must never silently fold this Telegram's
+ * account into theirs (review finding, ADR 2026-10-25 §Q9).
+ */
+export async function previewDeepLink(token: string): Promise<DeepLinkPreview> {
+  const user = await resolveDeepLinkUser(token);
+  return { userName: user.name, emailMasked: user.email ? maskEmail(user.email) : null };
+}
+
+export async function processDeepLink(
+  input: DeepLinkInput
+): Promise<DeepLinkResult> {
+  const user = await resolveDeepLinkUser(input.token);
 
   const { merged } = await attachTelegram(user, input.telegramId);
 

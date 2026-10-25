@@ -378,10 +378,13 @@ export default function WebAppHome() {
     // отметка не критична и не должна мешать переходу.
     const url = item.actions[0]?.url;
     if (item.readAt === null || url) {
-      apiFetch("/api/webapp/feed/open", {
+      apiFetch<{ unreadCount: number }>("/api/webapp/feed/open", {
         method: "POST",
         body: JSON.stringify(url ? { id: item.id, actionIndex: 0 } : { id: item.id }),
-      }).catch(() => {});
+      })
+        // Server truth for the badge — the optimistic decrement can drift.
+        .then((result) => setUnreadCount(result.unreadCount))
+        .catch(() => {});
     }
 
     if (!url) return;
