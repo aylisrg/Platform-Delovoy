@@ -10,6 +10,7 @@ import { ExcludeDialog } from "../exclude-dialog";
 import { DeleteBlockedDialog } from "../delete-blocked-dialog";
 import { PermissionsModal } from "../permissions-modal";
 import { ConfirmDialog } from "../dialog-shell";
+import { MergeWizard } from "../merge-wizard";
 import { ResetPasswordModal } from "../users-list";
 import { NotificationsBlock } from "./notifications-block";
 import { UserStatsBlock } from "./stats-block";
@@ -77,6 +78,7 @@ export function UserProfilePage({ userId }: { userId: string }) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ busy: boolean; error: string | null } | null>(null);
   const [deleteBlocked, setDeleteBlocked] = useState<{ blockers: DeletionBlocker[]; isTeamMember: boolean } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [merge, setMerge] = useState<{ secondaryId?: string; mergeRequestId?: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -284,6 +286,13 @@ export function UserProfilePage({ userId }: { userId: string }) {
                     · {ROLE_LABEL[d.role]} · {d.reason === "phone" ? "совпадает телефон" : "запрос на объединение"}
                   </span>
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setMerge({ secondaryId: d.userId, mergeRequestId: d.mergeRequestId })}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  Объединить
+                </button>
               </li>
             ))}
           </ul>
@@ -295,6 +304,11 @@ export function UserProfilePage({ userId }: { userId: string }) {
           {actions.canExclude && (
             <button type="button" onClick={() => setExclude("exclude")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
               Исключить из команды
+            </button>
+          )}
+          {actions.canMerge && (
+            <button type="button" onClick={() => setMerge({})} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50">
+              Объединить аккаунты
             </button>
           )}
           {actions.canResetPassword && (
@@ -351,6 +365,18 @@ export function UserProfilePage({ userId }: { userId: string }) {
           }}
         />
       )}
+      <MergeWizard
+        open={merge !== null}
+        initialUserId={user.id}
+        initialSecondaryId={merge?.secondaryId}
+        mergeRequestId={merge?.mergeRequestId}
+        onClose={() => setMerge(null)}
+        onMerged={({ primaryId }) => {
+          setMerge(null);
+          if (primaryId === user.id) refresh();
+          else router.replace(`/admin/users/${primaryId}?mergedFrom=1`);
+        }}
+      />
       {showPassword && (
         <ResetPasswordModal userId={user.id} userName={user.name} userEmail={contacts.email} onClose={() => setShowPassword(false)} />
       )}

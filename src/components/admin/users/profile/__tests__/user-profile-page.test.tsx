@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
 const params = new URLSearchParams();
@@ -9,6 +9,20 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => params,
 }));
 vi.mock("../notifications-block", () => ({ NotificationsBlock: () => <div>notifications-block</div> }));
+vi.mock("../../merge-wizard", () => ({
+  MergeWizard: (p: {
+    open: boolean;
+    initialUserId?: string;
+    initialSecondaryId?: string;
+    mergeRequestId?: string;
+    onMerged: (r: { primaryId: string }) => void;
+  }) =>
+    p.open ? (
+      <button type="button" onClick={() => p.onMerged({ primaryId: "u2" })}>
+        wizard:{[p.initialUserId, p.initialSecondaryId, p.mergeRequestId].map((v) => v ?? "-").join(",")}
+      </button>
+    ) : null,
+}));
 vi.mock("../stats-block", () => ({ UserStatsBlock: ({ userId }: { userId: string }) => <div>stats-block:{userId}</div> }));
 
 import { UserProfilePage } from "../user-profile-page";
@@ -62,5 +76,20 @@ describe("UserProfilePage (US-B1)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ success: false, error: { message: "Пользователь не найден" } }) }) as Response));
     render(<UserProfilePage userId="x" />);
     expect(await screen.findByText(/Пользователь не найден/)).toBeTruthy();
+  });
+
+  it("AC-E2.1: «Объединить аккаунты» and a duplicate's «Объединить» open the wizard; merging into the other account moves there", async () => {
+    respond(overview);
+    render(<UserProfilePage userId="u1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Объединить аккаунты" }));
+    expect(screen.getByText("wizard:u1,-,-")).toBeTruthy();
+
+    cleanup();
+    respond(overview);
+    render(<UserProfilePage userId="u1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Объединить" }));
+    const wizard = screen.getByText("wizard:u1,u2,mr1");
+    fireEvent.click(wizard);
+    expect(replace).toHaveBeenCalledWith("/admin/users/u2?mergedFrom=1");
   });
 });

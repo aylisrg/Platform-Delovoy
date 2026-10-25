@@ -3,6 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TeamReviewTable } from "../team-review-table";
 
+vi.mock("../merge-requests-panel", () => ({
+  MergeRequestsPanel: ({ onMerge }: { onMerge: (p: { userAId: string; userBId: string; mergeRequestId: string }) => void }) => (
+    <button type="button" onClick={() => onMerge({ userAId: "a", userBId: "b", mergeRequestId: "mr1" })}>
+      merge-requests-panel
+    </button>
+  ),
+}));
+vi.mock("../merge-wizard", () => ({
+  MergeWizard: (p: { open: boolean; initialUserId?: string; initialSecondaryId?: string; mergeRequestId?: string }) =>
+    p.open ? <div>wizard:{[p.initialUserId, p.initialSecondaryId, p.mergeRequestId].map((v) => v ?? "-").join(",")}</div> : null,
+}));
+
 const row = {
   id: "m1",
   name: "Борис",
@@ -46,7 +58,21 @@ describe("TeamReviewTable (US-B2)", () => {
     expect(screen.getAllByText("Бот не запущен").length).toBeGreaterThan(0);
     expect(screen.getByText("2 из 5")).toBeTruthy();
     expect(screen.getByText("Давно не заходил")).toBeTruthy();
-    expect(screen.getByText(/Запросы на объединение: 1/)).toBeTruthy();
+    expect(screen.getByText("merge-requests-panel")).toBeTruthy();
+  });
+
+  it("AC-E4.2: the request queue opens the merge wizard on the pair; the panel hides with an empty queue", async () => {
+    const { unmount } = render(<TeamReviewTable />);
+    fireEvent.click(await screen.findByText("merge-requests-panel"));
+    expect(screen.getByText("wizard:a,b,mr1")).toBeTruthy();
+    unmount();
+
+    fetchMock.mockImplementation(async () => respond({ success: true, data: { rows: [row], pendingMergeRequests: 0 } }));
+    render(<TeamReviewTable />);
+    await screen.findByRole("link", { name: "Борис" });
+    expect(screen.queryByText("merge-requests-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Объединить аккаунты" }));
+    expect(screen.getByText("wizard:-,-,-")).toBeTruthy();
   });
 
   it("AC-B2.4: filters go to the API", async () => {

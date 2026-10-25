@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { TeamFlag, TeamOverviewRow } from "@/modules/users/team";
 import { BotStatusBadge } from "./bot-status-badge";
 import { ExcludeDialog } from "./exclude-dialog";
+import { MergeRequestsPanel } from "./merge-requests-panel";
+import { MergeWizard } from "./merge-wizard";
 import { PermissionsModal } from "./permissions-modal";
 import { ResetPasswordModal } from "./users-list";
 
@@ -67,6 +69,8 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
   const [permissionsUser, setPermissionsUser] = useState<TeamOverviewRow | null>(null);
   const [passwordUser, setPasswordUser] = useState<TeamOverviewRow | null>(null);
   const [excludeUser, setExcludeUser] = useState<TeamOverviewRow | null>(null);
+  const [merge, setMerge] = useState<{ userAId?: string; userBId?: string; mergeRequestId?: string } | null>(null);
+  const [mergeKey, setMergeKey] = useState(0);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -154,9 +158,16 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
           />
           Без Telegram
         </label>
+        <button
+          type="button"
+          className="ml-auto rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 hover:bg-zinc-50"
+          onClick={() => setMerge({})}
+        >
+          Объединить аккаунты
+        </button>
         <select
           aria-label="Сортировка"
-          className="ml-auto rounded-lg border border-zinc-200 px-2 py-1.5"
+          className="rounded-lg border border-zinc-200 px-2 py-1.5"
           value={filters.sort}
           onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as Filters["sort"] }))}
         >
@@ -165,11 +176,7 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
         </select>
       </div>
 
-      {pendingMergeRequests > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Запросы на объединение: {pendingMergeRequests}. Откройте страницу аккаунта, чтобы объединить или отклонить.
-        </div>
-      )}
+      {pendingMergeRequests > 0 && <MergeRequestsPanel key={mergeKey} onMerge={(pair) => setMerge(pair)} />}
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
@@ -294,6 +301,18 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
           onClose={() => setPasswordUser(null)}
         />
       )}
+      <MergeWizard
+        open={merge !== null}
+        initialUserId={merge?.userAId}
+        initialSecondaryId={merge?.userBId}
+        mergeRequestId={merge?.mergeRequestId}
+        onClose={() => setMerge(null)}
+        onMerged={() => {
+          setMerge(null);
+          setMergeKey((k) => k + 1);
+          void load();
+        }}
+      />
       {excludeUser && (
         <ExcludeDialog
           userId={excludeUser.id}

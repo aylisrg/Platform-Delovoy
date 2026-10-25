@@ -15,6 +15,7 @@ import {
   toBotStatusDto,
   type BotStatusDto,
 } from "@/modules/telegram-link/bot-contact";
+import { countPendingMergeRequests, MERGE_REQUEST_REASON_FIELD } from "@/modules/clients/merge-requests";
 import { DomainError } from "./errors";
 
 /**
@@ -128,7 +129,8 @@ export async function getTeamOverview(
         moduleAssignments: { select: { module: { select: { slug: true, name: true } } } },
       },
     }),
-    prisma.mergeCandidate.count({ where: { status: "PENDING" } }),
+    // Same definition as the merge-request queue panel (telegramId conflicts only).
+    countPendingMergeRequests(),
   ]);
 
   const explains = await explainStaffNotifications(users.map((u) => u.id), now);
@@ -271,7 +273,11 @@ export async function getUserOverview(userId: string, actorId: string): Promise<
         })
       : Promise.resolve([]),
     prisma.mergeCandidate.findMany({
-      where: { status: "PENDING", OR: [{ primaryUserId: user.id }, { candidateUserId: user.id }] },
+      where: {
+        status: "PENDING",
+        matchedFields: { has: MERGE_REQUEST_REASON_FIELD },
+        OR: [{ primaryUserId: user.id }, { candidateUserId: user.id }],
+      },
       select: {
         id: true,
         primary: { select: { id: true, name: true, role: true, mergedIntoUserId: true } },
