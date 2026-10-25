@@ -324,6 +324,7 @@ export async function previewAccountMerge(input: {
     channels.filter((c) => c.userId === primaryId).map((c) => `${c.kind}::${c.address}`),
   );
   const secondaryChannels = channels.filter((c) => c.userId === secondaryId);
+  const telegramConflict = hasTelegramConflict(primary, secondary);
 
   const notTransferred: AccountMergePreview["notTransferred"] = [];
   if (secondary.role !== "USER" && secondary.role !== primary.role) {
@@ -388,11 +389,14 @@ export async function previewAccountMerge(input: {
       moved: [
         ...secondaryChannels
           .filter((c) => !primaryChannelKeys.has(`${c.kind}::${c.address}`))
+          // Telegram conflict: the secondary's Telegram is unlinked, its channel goes off.
+          .filter((c) => !(telegramConflict && c.kind === "TELEGRAM" && c.address === secondary.telegramId))
           .map((c) => channelLabel(c.kind)),
         // The merge creates it for a staff primary (see runMerge, after step 16).
         ...(primary.role !== "USER" &&
         !primary.telegramId &&
         secondary.telegramId &&
+        !primaryChannelKeys.has(`TELEGRAM::${secondary.telegramId}`) &&
         !secondaryChannels.some((c) => c.kind === "TELEGRAM" && c.address === secondary.telegramId)
           ? [channelLabel("TELEGRAM")]
           : []),
@@ -707,6 +711,15 @@ async function runMerge(
       });
     }
     await tx.userNotificationChannel.delete({ where: { id: sc.id } });
+  }
+  // Telegram conflict: the secondary's Telegram is unlinked (the primary keeps
+  // its own), so its channel moves only as history — switched off, no more
+  // deliveries to that chat.
+  if (telegramConflict && secondary.telegramId) {
+    await tx.userNotificationChannel.updateMany({
+      where: { userId: secondaryId, kind: "TELEGRAM", address: secondary.telegramId },
+      data: { isActive: false },
+    });
   }
   moved.notificationChannels = (
     await tx.userNotificationChannel.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } })
