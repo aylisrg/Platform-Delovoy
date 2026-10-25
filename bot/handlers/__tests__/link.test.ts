@@ -57,3 +57,40 @@ describe("handleLinkDeepLink — экранирование userName (#534)", ()
     expect(text).toContain("Иван Петров");
   });
 });
+
+describe("handleLinkDeepLink — объединение и конфликт (ADR 2026-10-25 §Q9, AC-E4.1)", () => {
+  it("говорит об объединении, когда аккаунт из бота влит в аккаунт сайта", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: true, data: { userName: "Иван", merged: true } })
+    );
+    const ctx = makeCtx();
+
+    await handleLinkDeepLink(ctx as never, VALID_TOKEN);
+
+    const [text] = ctx.reply.mock.calls[0];
+    expect(text).toContain("Telegram привязан к аккаунту <b>Иван</b>");
+    expect(text).toContain("объединён");
+  });
+
+  it("без merged — прежний текст без строки об объединении", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, data: { userName: "Иван", merged: false } }));
+    const ctx = makeCtx();
+
+    await handleLinkDeepLink(ctx as never, VALID_TOKEN);
+
+    expect(ctx.reply.mock.calls[0][0]).not.toContain("объединён");
+  });
+
+  it("AC-E4.1: конфликт Telegram — текст запроса администратору, без «создайте новую ссылку»", async () => {
+    const message =
+      "Этот Telegram уже используется в другом аккаунте. Мы передали запрос администратору — он объединит аккаунты. Пока вы можете пользоваться текущим аккаунтом";
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ success: false, error: { code: "TELEGRAM_IN_USE_MERGE_REQUESTED", message } })
+    );
+    const ctx = makeCtx();
+
+    await handleLinkDeepLink(ctx as never, VALID_TOKEN);
+
+    expect(ctx.reply).toHaveBeenCalledWith(message);
+  });
+});

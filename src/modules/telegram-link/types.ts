@@ -1,11 +1,18 @@
+/**
+ * OTP request answer (AC-E3.3): identical whether or not the account exists —
+ * `maskedValue` masks the address the person typed.
+ */
 export interface LinkRequestResult {
-  sent: boolean;
+  sent: true;
   maskedValue: string;
   expiresIn: number;
+  message: string;
 }
 
 export interface LinkConfirmResult {
-  linked: boolean;
+  linked: true;
+  /** The disposable Telegram account was folded into the email account (self_link). */
+  merged: boolean;
   user: {
     id: string;
     name: string | null;
@@ -18,8 +25,10 @@ export interface LinkConfirmResult {
 }
 
 export interface DeepLinkResult {
-  linked: boolean;
+  linked: true;
   userName: string | null;
+  /** The disposable Telegram account was folded into the web account (self_link). */
+  merged: boolean;
 }
 
 export interface GenerateLinkResult {
@@ -28,10 +37,13 @@ export interface GenerateLinkResult {
   expiresAt: string;
 }
 
+/**
+ * Stored in Redis for 10 minutes. The code itself is never stored — only
+ * `sha256(code + telegramId)`; `emailHash` keys the per-address limits.
+ */
 export interface OtpData {
-  userId: string;
-  type: "email" | "phone";
-  value: string;
-  code: string;
+  targetUserId: string;
+  codeHash: string;
+  emailHash: string;
   attempts: number;
 }

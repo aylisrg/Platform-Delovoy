@@ -27,16 +27,34 @@ export type TransactionalEmailParams = {
   text?: string;
   from?: string;
   fromName?: string;
+  /**
+   * Secret content (one-time codes). Without SMTP the email is NOT "sent" to
+   * the console: returns `SMTP_NOT_CONFIGURED` and logs neither the body nor
+   * the recipient (ADR 2026-10-25-team-access-notifications §5.0, AC-E3.2).
+   */
+  sensitive?: boolean;
 };
+
+export const SMTP_NOT_CONFIGURED = "SMTP_NOT_CONFIGURED";
+
+/** Whether transactional email can actually leave the server (SMTP credentials set). */
+export function isTransactionalEmailConfigured(): boolean {
+  return Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+}
 
 /**
  * Send a transactional email (magic links, verification, etc.)
- * Falls back to console.log when SMTP_USER / SMTP_PASS are not configured.
+ * Falls back to console.log when SMTP_USER / SMTP_PASS are not configured —
+ * except `sensitive` emails, which fail with `SMTP_NOT_CONFIGURED` instead.
  */
 export async function sendTransactionalEmail(
   params: TransactionalEmailParams
 ): Promise<{ success: boolean; error?: string }> {
   const transporter = getTransporter();
+  if (!transporter && params.sensitive) {
+    console.warn("[Email] (no SMTP credentials) sensitive email not sent");
+    return { success: false, error: SMTP_NOT_CONFIGURED };
+  }
   const defaultFrom =
     process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@delovoy-park.ru";
   const fromAddress = params.from || defaultFrom;

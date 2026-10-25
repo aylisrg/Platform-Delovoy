@@ -56,11 +56,20 @@ export async function handleLinkDeepLink(
     if (data.success) {
       // #534: userName — User.name, не ограничено на входе.
       const name = escapeHtml(data.data.userName || "пользователь");
+      // ADR 2026-10-25 §Q9: the bot-created account of this Telegram was
+      // folded into the site account — say so, history now lives in one place.
+      const mergedNote = data.data.merged === true
+        ? `Аккаунт, созданный ботом, объединён с ним — брони, заказы и настройки теперь в одном аккаунте.\n\n`
+        : "";
       await ctx.reply(
         `Telegram привязан к аккаунту <b>${name}</b> на платформе «Деловой».\n\n` +
+          mergedNote +
           `Теперь вы будете получать уведомления о бронированиях и заказах в этот чат.`,
         { parse_mode: "HTML" }
       );
+    } else if (data.error?.code === "TELEGRAM_IN_USE_MERGE_REQUESTED") {
+      // AC-E4.1: not a dead end — the request is with the administrator.
+      await ctx.reply(String(data.error.message));
     } else {
       const errorMsg = data.error?.message || "Неизвестная ошибка";
       await ctx.reply(
