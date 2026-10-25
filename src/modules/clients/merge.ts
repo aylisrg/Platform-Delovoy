@@ -912,24 +912,24 @@ async function runMerge(
   // The Telegram that moved in starts delivering to a staff primary right away;
   // without the channel row the team screen keeps «Нет рабочего канала» until
   // the person opens the Center in the Mini App (ensureTelegramChannel).
+  // Upsert (as in telegram-link afterLinked): a row moved in step 7 is kept
+  // as is — a channel the person switched off stays off.
+  let telegramChannelEnsured = false;
   if (fill.telegramId && primary.role !== "USER" && secondary.telegramId) {
-    const existing = await tx.userNotificationChannel.findFirst({
-      where: { userId: primaryId, kind: "TELEGRAM", address: secondary.telegramId },
-      select: { id: true },
+    await tx.userNotificationChannel.upsert({
+      where: { userId_kind_address: { userId: primaryId, kind: "TELEGRAM", address: secondary.telegramId } },
+      update: {},
+      create: {
+        userId: primaryId,
+        kind: "TELEGRAM",
+        address: secondary.telegramId,
+        label: "Telegram",
+        priority: 10,
+        isActive: true,
+        verifiedAt: now,
+      },
     });
-    if (!existing) {
-      await tx.userNotificationChannel.create({
-        data: {
-          userId: primaryId,
-          kind: "TELEGRAM",
-          address: secondary.telegramId,
-          label: "Telegram",
-          priority: 10,
-          isActive: true,
-          verifiedAt: now,
-        },
-      });
-    }
+    telegramChannelEnsured = true;
   }
 
   // ── 17. AuditLog (AC-E2.8): actor, both accounts, resulting role, counters,
@@ -952,6 +952,7 @@ async function runMerge(
         transferredFields,
         conflicts,
         telegramConflictConfirmed: telegramConflict ? Boolean(input.confirmTelegramConflict) : null,
+        telegramChannelEnsured,
         droppedSecondaryRights: {
           role: secondary.role === "USER" ? null : secondary.role,
           sections: droppedGrants.map((g) => g.section),

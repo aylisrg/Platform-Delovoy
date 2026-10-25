@@ -587,8 +587,7 @@ function PreviewStep({
         {movedLogins.length > 0 && (
           <>
             {" "}
-            Вход через {movedLogins.join(" и ")} будет вести в аккаунт <b>{primaryName}</b> — человек входит любым
-            способом в один аккаунт.
+            Вход через {listRu(movedLogins)} будет вести в аккаунт <b>{primaryName}</b>.
           </>
         )}
       </p>
@@ -701,6 +700,11 @@ function PreviewStep({
       )}
     </div>
   );
+}
+
+/** «почту», «почту и Telegram», «почту, Telegram и VK». */
+function listRu(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} и ${items[items.length - 1]}`;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {

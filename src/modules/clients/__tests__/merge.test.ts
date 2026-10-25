@@ -492,6 +492,8 @@ describe("mergeAccounts — what moves (ADR §Q6)", () => {
     expect(tables.userNotificationChannel).toEqual([
       expect.objectContaining({ userId: "p", kind: "TELEGRAM", address: "7777", isActive: true }),
     ]);
+    const audit = tables.auditLog.find((a) => a.action === "auth.merge.manual")!.metadata as Record<string, unknown>;
+    expect(audit.telegramChannelEnsured).toBe(true);
   });
 
   it("…but not for a client primary, and never a duplicate when the channel already moved", async () => {
@@ -507,6 +509,14 @@ describe("mergeAccounts — what moves (ADR §Q6)", () => {
     });
     await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
     expect(staff.userNotificationChannel.map((c) => [c.id, c.userId, c.address])).toEqual([["s-tg", "p", "7777"]]);
+
+    // A moved channel the person switched off stays off.
+    const off = install({
+      user: [actor(), makeUser({ id: "p", role: "MANAGER" }), makeUser({ id: "s", telegramId: "7777" })],
+      userNotificationChannel: [{ id: "s-tg", userId: "s", kind: "TELEGRAM", address: "7777", isActive: false }],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(off.userNotificationChannel).toEqual([expect.objectContaining({ id: "s-tg", userId: "p", isActive: false })]);
   });
 
   it("moves chats (participants dedup by chat, receipts dedup by message), in-app feed, skips, links", async () => {

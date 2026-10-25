@@ -170,6 +170,33 @@ describe("MergeWizard", () => {
     expect(screen.getByTestId("merge-submit-hint").textContent).toBe(reason);
   });
 
+  it("AC-E2.6: the intro names exactly the sign-in methods that move to the primary", async () => {
+    const cases: Array<[AccountSide, AccountSide, string | null]> = [
+      [
+        side({ id: "p-mgr", name: "Пётр", role: "MANAGER" }),
+        side({ id: "s", email: "s@mail.ru", hasTelegram: true, hasVk: true }),
+        "Вход через почту, Telegram и VK будет вести в аккаунт Пётр.",
+      ],
+      [
+        side({ id: "p-mgr", name: "Пётр", role: "MANAGER" }),
+        side({ id: "s", email: "s@mail.ru", hasTelegram: true }),
+        "Вход через почту и Telegram будет вести в аккаунт Пётр.",
+      ],
+      // Both have them: the primary's stay, nothing moves (conflicts are listed separately).
+      [MGR, side({ id: "s", email: "other@mail.ru" }), null],
+    ];
+    for (const [primary, secondary, expected] of cases) {
+      cleanup();
+      mockFetch(() => ({ success: true, data: preview(primary, secondary) }));
+      render(<MergeWizard open initialUserId="p-mgr" initialSecondaryId="s" onClose={vi.fn()} onMerged={vi.fn()} />);
+      await screen.findAllByRole("radio");
+      fireEvent.click(screen.getByRole("button", { name: "Показать превью" }));
+      const intro = (await screen.findByTestId("merge-preview")).textContent ?? "";
+      if (expected) expect(intro).toContain(expected);
+      else expect(intro).not.toContain("Вход через");
+    }
+  });
+
   it("several blockers: all of them at the bottom and next to the button", async () => {
     const blocked = preview(MGR, BOT, {
       blockers: [
