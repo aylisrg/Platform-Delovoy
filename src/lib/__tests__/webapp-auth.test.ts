@@ -7,6 +7,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+const mockGetAuthState = vi.fn();
+vi.mock("@/lib/session-revocation", () => ({
+  getAuthState: (...args: unknown[]) => mockGetAuthState(...args),
+}));
+
 const mockGetUserAdminSections = vi.fn();
 vi.mock("@/lib/permissions", () => ({
   getUserAdminSections: (...args: unknown[]) => mockGetUserAdminSections(...args),
@@ -31,6 +36,7 @@ function makeRequest(token?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NEXTAUTH_SECRET", VALID_SECRET);
+  mockGetAuthState.mockResolvedValue({ sessionVersion: 0, role: "USER", merged: false });
 });
 
 afterEach(() => {
@@ -41,14 +47,14 @@ describe("signWebAppToken / verifyWebAppToken", () => {
   it("бросает WebAppAuthConfigError при пустом секрете (нет fallback)", async () => {
     vi.stubEnv("NEXTAUTH_SECRET", "");
     await expect(
-      signWebAppToken({ sub: "u1", telegramId: "123", role: "USER" })
+      signWebAppToken({ sub: "u1", telegramId: "123", role: "USER", sv: 0 })
     ).rejects.toBeInstanceOf(WebAppAuthConfigError);
   });
 
   it("бросает WebAppAuthConfigError при коротком секрете", async () => {
     vi.stubEnv("NEXTAUTH_SECRET", "short");
     await expect(
-      signWebAppToken({ sub: "u1", telegramId: "123", role: "USER" })
+      signWebAppToken({ sub: "u1", telegramId: "123", role: "USER", sv: 0 })
     ).rejects.toBeInstanceOf(WebAppAuthConfigError);
   });
 
@@ -57,6 +63,7 @@ describe("signWebAppToken / verifyWebAppToken", () => {
       sub: "u1",
       telegramId: "123",
       role: "MANAGER",
+      sv: 0,
     });
     const user = await verifyWebAppToken(makeRequest(token));
     expect(user).toEqual({ id: "u1", telegramId: "123", role: "MANAGER" });
@@ -71,6 +78,7 @@ describe("signWebAppToken / verifyWebAppToken", () => {
       sub: "u1",
       telegramId: "123",
       role: "USER",
+      sv: 0,
     });
     vi.stubEnv("NEXTAUTH_SECRET", "another-secret-with-enough-length");
     expect(await verifyWebAppToken(makeRequest(token))).toBeNull();
@@ -81,6 +89,7 @@ describe("signWebAppToken / verifyWebAppToken", () => {
       sub: "u1",
       telegramId: "123",
       role: "USER",
+      sv: 0,
     });
     vi.stubEnv("NEXTAUTH_SECRET", "");
     expect(await verifyWebAppToken(makeRequest(token))).toBeNull();
@@ -99,6 +108,7 @@ describe("loadWebAppStaff", () => {
       sub: "u1",
       telegramId: "123",
       role: "SUPERADMIN",
+      sv: 0,
     });
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       id: "u1",
@@ -116,6 +126,7 @@ describe("loadWebAppStaff", () => {
       sub: "gone",
       telegramId: "123",
       role: "MANAGER",
+      sv: 0,
     });
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     expect(await loadWebAppStaff(makeRequest(token))).toEqual({
@@ -129,6 +140,7 @@ describe("loadWebAppStaff", () => {
       sub: "u1",
       telegramId: "123",
       role: "MANAGER",
+      sv: 0,
     });
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       id: "u1",
@@ -146,6 +158,7 @@ describe("loadWebAppStaff", () => {
       sub: "u1",
       telegramId: "123",
       role: "USER", // токен намеренно врёт в другую сторону
+      sv: 0,
     });
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       id: "u1",
@@ -159,5 +172,33 @@ describe("loadWebAppStaff", () => {
       ok: true,
       staff: { id: "u1", role: "MANAGER", sections: ["gazebos", "cafe"] },
     });
+  });
+});
+
+describe("verifyWebAppToken — session revocation (ADR 2026-10-25 §Q1)", () => {
+  it("token with a stale sv is rejected (exclusion/demotion bumped the version)", async () => {
+    const token = await signWebAppToken({ sub: "u1", telegramId: "123", role: "MANAGER", sv: 0 });
+    mockGetAuthState.mockResolvedValue({ sessionVersion: 1, role: "USER", merged: false });
+    expect(await verifyWebAppToken(makeRequest(token))).toBeNull();
+  });
+
+  it("token of a merged account is rejected", async () => {
+    const token = await signWebAppToken({ sub: "u1", telegramId: "123", role: "USER", sv: 0 });
+    mockGetAuthState.mockResolvedValue({ sessionVersion: 0, role: "USER", merged: true });
+    expect(await verifyWebAppToken(makeRequest(token))).toBeNull();
+  });
+
+  it("token of a deleted account is rejected", async () => {
+    const token = await signWebAppToken({ sub: "u1", telegramId: "123", role: "USER", sv: 0 });
+    mockGetAuthState.mockResolvedValue(null);
+    expect(await verifyWebAppToken(makeRequest(token))).toBeNull();
+  });
+
+  it("matching sv passes; infrastructure outage fails open", async () => {
+    const token = await signWebAppToken({ sub: "u1", telegramId: "123", role: "MANAGER", sv: 3 });
+    mockGetAuthState.mockResolvedValue({ sessionVersion: 3, role: "MANAGER", merged: false });
+    expect(await verifyWebAppToken(makeRequest(token))).toMatchObject({ id: "u1", role: "MANAGER" });
+    mockGetAuthState.mockResolvedValue("unavailable");
+    expect(await verifyWebAppToken(makeRequest(token))).toMatchObject({ id: "u1" });
   });
 });

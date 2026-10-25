@@ -11,6 +11,8 @@ export interface LinkConfirmResult {
     name: string | null;
     role: string;
     telegramId: string;
+    /** For the Mini App token claim `sv` (ADR 2026-10-25 §Q1). */
+    sessionVersion: number;
   };
   token: string;
 }

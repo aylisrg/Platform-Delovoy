@@ -128,6 +128,27 @@ describe("POST /api/webapp/auth", () => {
     );
   });
 
+  it("подписывает токен текущей sessionVersion и пишет lastLoginAt (ADR 2026-10-25 §Q1/§Q11)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "u1",
+      name: "Иван Петров",
+      role: "MANAGER",
+      image: null,
+      telegramId: "42",
+      sessionVersion: 4,
+    } as never);
+
+    const res = await POST(makeRequest({ initData: "ok" }));
+    expect(res.status).toBe(200);
+    expect(mockSignWebAppToken).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "u1", role: "MANAGER", sv: 4 })
+    );
+    expect(vi.mocked(prisma.user.update)).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
+
   it("для ADMIN возвращает staff-capabilities из getWebAppCapabilities", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       id: "u-admin",

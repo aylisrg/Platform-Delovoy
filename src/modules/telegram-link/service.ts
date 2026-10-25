@@ -193,7 +193,7 @@ export async function confirmLink(
   const updatedUser = await prisma.user.update({
     where: { id: otpData.userId },
     data: { telegramId },
-    select: { id: true, name: true, role: true, telegramId: true },
+    select: { id: true, name: true, role: true, telegramId: true, sessionVersion: true },
   });
 
   // Clean up OTP
@@ -206,6 +206,7 @@ export async function confirmLink(
       name: updatedUser.name,
       role: updatedUser.role,
       telegramId: updatedUser.telegramId!,
+      sessionVersion: updatedUser.sessionVersion,
     },
     token: "", // JWT will be set by the route handler
   };

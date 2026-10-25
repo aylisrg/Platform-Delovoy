@@ -113,7 +113,7 @@ describe("confirmLink", () => {
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { telegramId: "tg-123" },
-      select: { id: true, name: true, role: true, telegramId: true },
+      select: { id: true, name: true, role: true, telegramId: true, sessionVersion: true },
     });
   });
 

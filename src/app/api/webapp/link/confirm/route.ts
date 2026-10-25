@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
       sub: result.user.id,
       telegramId: result.user.telegramId ?? webappUser.telegramId,
       role: result.user.role,
+      sv: result.user.sessionVersion,
     });
 
     return apiResponse({

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     let isNewUser = false;
     let user = await prisma.user.findUnique({
       where: { telegramId },
-      select: { id: true, name: true, role: true, image: true, telegramId: true },
+      select: { id: true, name: true, role: true, image: true, telegramId: true, sessionVersion: true },
     });
 
     if (!user) {
@@ -57,20 +57,28 @@ export async function POST(request: NextRequest) {
           image: tgUser.photo_url || null,
           role: "USER",
         },
-        select: { id: true, name: true, role: true, image: true, telegramId: true },
+        select: { id: true, name: true, role: true, image: true, telegramId: true, sessionVersion: true },
       });
     } else if (user.name !== name) {
       user = await prisma.user.update({
         where: { telegramId },
         data: { name },
-        select: { id: true, name: true, role: true, image: true, telegramId: true },
+        select: { id: true, name: true, role: true, image: true, telegramId: true, sessionVersion: true },
       });
+    }
+
+    // «Последний вход» counts Mini App opens too (ADR 2026-10-25 §Q11).
+    try {
+      await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    } catch (err) {
+      console.error("[WebApp Auth] lastLoginAt update failed:", err);
     }
 
     const token = await signWebAppToken({
       sub: user.id,
       telegramId,
       role: user.role,
+      sv: user.sessionVersion,
     });
 
     const capabilities = await getWebAppCapabilities(user);

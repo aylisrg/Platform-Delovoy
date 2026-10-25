@@ -123,7 +123,7 @@ describe("POST /api/webapp/link/confirm", () => {
     vi.mocked(verifyWebAppToken).mockResolvedValue(mockUser);
     vi.mocked(confirmLink).mockResolvedValue({
       linked: true,
-      user: { id: "user-1", name: "Ivan", role: "USER", telegramId: "tg-123" },
+      user: { id: "user-1", name: "Ivan", role: "USER", telegramId: "tg-123", sessionVersion: 0 },
       token: "",
     });
 
