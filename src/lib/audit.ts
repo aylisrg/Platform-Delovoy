@@ -26,7 +26,10 @@ export type AuthAuditAction =
   | "auth.merge.auto"
   | "auth.merge.manual"
   | "auth.merge.conflict"
-  | "auth.merge.skipped_admin";
+  | "auth.merge.skipped_admin"
+  // Telegram self-link folded the disposable bot account into the email /
+  // web account (ADR 2026-10-25-team-access-notifications §Q9).
+  | "auth.merge.self_link";
 
 export type AuthAuditMetadata = {
   /** Provider id, e.g. "telegram-token" / "magic-link" / "credentials" */
