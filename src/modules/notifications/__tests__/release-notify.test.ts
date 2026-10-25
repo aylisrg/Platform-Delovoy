@@ -36,6 +36,20 @@ vi.mock("../dispatch/dispatcher", () => ({
   dispatch: vi.fn(),
 }));
 
+const mockResolveStaffRouting = vi.fn();
+vi.mock("../audience", () => ({
+  resolveStaffRouting: (...args: unknown[]) => mockResolveStaffRouting(...args),
+}));
+
+/** Release audience as the shared resolver returns it (ADR 2026-10-25 §Q7). */
+function audience(rows: Array<{ userId: string }>) {
+  mockResolveStaffRouting.mockResolvedValue({
+    recipients: rows.map(({ userId }) => ({ userId, paths: ["personal"] })),
+    suppressed: [],
+    groupChat: { send: false, reason: "not_applicable" },
+  });
+}
+
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/logger";
 import { dispatch } from "../dispatch/dispatcher";
@@ -51,7 +65,6 @@ import {
 
 const mockCreate = vi.mocked(prisma.releaseAnnouncement.create);
 const mockUpdate = vi.mocked(prisma.releaseAnnouncement.update);
-const mockPrefFindMany = vi.mocked(prisma.notificationEventPreference.findMany);
 const mockPrefUpsert = vi.mocked(prisma.notificationEventPreference.upsert);
 const mockLegacyUpsert = vi.mocked(prisma.notificationPreference.upsert);
 const mockChannelUpsert = vi.mocked(prisma.userNotificationChannel.upsert);
@@ -74,16 +87,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockCreate.mockResolvedValue({} as never);
   mockUpdate.mockResolvedValue({} as never);
-  mockPrefFindMany.mockResolvedValue([] as never);
+  audience([]);
   mockDispatch.mockResolvedValue(queuedOutcome("out-1"));
 });
 
 describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   it("claims the version and dispatches to every subscriber", async () => {
-    mockPrefFindMany.mockResolvedValue([
+    audience([
       { userId: "u1" },
       { userId: "u2" },
-    ] as never);
+    ]);
 
     const result = await announceRelease(baseRelease);
 
@@ -108,7 +121,7 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("payload carries version, short sha and the notes", async () => {
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    audience([{ userId: "u1" }]);
 
     await announceRelease(baseRelease);
 
@@ -119,10 +132,10 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("audits the announcement with an INFO SystemEvent", async () => {
-    mockPrefFindMany.mockResolvedValue([
+    audience([
       { userId: "u1" },
       { userId: "u2" },
-    ] as never);
+    ]);
 
     await announceRelease(baseRelease);
 
@@ -134,10 +147,10 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("stores the recipient count on the claimed row", async () => {
-    mockPrefFindMany.mockResolvedValue([
+    audience([
       { userId: "u1" },
       { userId: "u2" },
-    ] as never);
+    ]);
 
     await announceRelease(baseRelease);
 
@@ -148,10 +161,10 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("does not count dispatches the dispatcher skipped", async () => {
-    mockPrefFindMany.mockResolvedValue([
+    audience([
       { userId: "u1" },
       { userId: "u2" },
-    ] as never);
+    ]);
     mockDispatch
       .mockResolvedValueOnce(queuedOutcome("out-1"))
       .mockResolvedValueOnce({ status: "skipped", reason: "no available channel" });
@@ -162,10 +175,10 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("survives a single failing dispatch and still announces the rest", async () => {
-    mockPrefFindMany.mockResolvedValue([
+    audience([
       { userId: "u1" },
       { userId: "u2" },
-    ] as never);
+    ]);
     mockDispatch
       .mockRejectedValueOnce(new Error("channel exploded"))
       .mockResolvedValueOnce(queuedOutcome("out-2"));
@@ -176,7 +189,7 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
   });
 
   it("announces with zero recipients when nobody is subscribed", async () => {
-    mockPrefFindMany.mockResolvedValue([] as never);
+    audience([]);
 
     const result = await announceRelease(baseRelease);
 
@@ -188,7 +201,7 @@ describe("announceRelease — claim (AC-6.1, 6.2)", () => {
 describe("announceRelease — repeat of the same version (AC-6.1, 6.2, 6.7)", () => {
   it("skips silently on P2002 and never dispatches", async () => {
     mockCreate.mockRejectedValue({ code: "P2002" });
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    audience([{ userId: "u1" }]);
 
     const result = await announceRelease(baseRelease);
 
@@ -214,7 +227,7 @@ describe("announceRelease — repeat of the same version (AC-6.1, 6.2, 6.7)", ()
 describe("announceRelease — fail-open on a non-P2002 error (AC-6.6)", () => {
   it("still dispatches when the claim itself failed", async () => {
     mockCreate.mockRejectedValue(new Error("connection refused"));
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    audience([{ userId: "u1" }]);
 
     const result = await announceRelease(baseRelease);
 
@@ -224,7 +237,7 @@ describe("announceRelease — fail-open on a non-P2002 error (AC-6.6)", () => {
 
   it("logs a WARNING and does not touch the (non-existent) row", async () => {
     mockCreate.mockRejectedValue(new Error("connection refused"));
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    audience([{ userId: "u1" }]);
 
     await announceRelease(baseRelease);
 
@@ -237,7 +250,7 @@ describe("announceRelease — fail-open on a non-P2002 error (AC-6.6)", () => {
   });
 
   it("does not fail the announcement when the recipient count cannot be stored", async () => {
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+    audience([{ userId: "u1" }]);
     mockUpdate.mockRejectedValue(new Error("write conflict"));
 
     await expect(announceRelease(baseRelease)).resolves.toEqual({
@@ -248,39 +261,19 @@ describe("announceRelease — fail-open on a non-P2002 error (AC-6.6)", () => {
 });
 
 describe("resolveReleaseAudience — explicit subscriptions only (ADR §3.3)", () => {
-  it("reads enabled rows of staff users, excluding merged accounts", async () => {
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
+  it("asks the shared resolver for system.release without a module context (ADR 2026-10-25 §Q7)", async () => {
+    audience([{ userId: "u1" }]);
 
-    const audience = await resolveReleaseAudience();
+    const result = await resolveReleaseAudience();
 
-    expect(mockPrefFindMany).toHaveBeenCalledWith({
-      where: {
-        eventType: "system.release",
-        enabled: true,
-        user: { role: { not: "USER" }, mergedIntoUserId: null },
-      },
-      select: { userId: true },
-    });
-    expect(audience).toEqual(["u1"]);
+    expect(mockResolveStaffRouting).toHaveBeenCalledWith({ eventType: "system.release", moduleSlug: null });
+    expect(result).toEqual(["u1"]);
   });
 
   it("a missing preference row is NOT a subscription (empty audience)", async () => {
-    mockPrefFindMany.mockResolvedValue([] as never);
+    audience([]);
 
     expect(await resolveReleaseAudience()).toEqual([]);
-  });
-
-  it("opted-out (enabled:false) and USER rows are filtered by the query, not in JS", async () => {
-    mockPrefFindMany.mockResolvedValue([{ userId: "u1" }] as never);
-
-    await resolveReleaseAudience();
-
-    const where = mockPrefFindMany.mock.calls[0][0]?.where as {
-      enabled: boolean;
-      user: { role: { not: string } };
-    };
-    expect(where.enabled).toBe(true);
-    expect(where.user.role).toEqual({ not: "USER" });
   });
 });
 
@@ -290,8 +283,8 @@ describe("setReleaseSubscription (AC-6.4)", () => {
 
     expect(mockPrefUpsert).toHaveBeenCalledWith({
       where: { userId_eventType: { userId: "user-1", eventType: "system.release" } },
-      create: { userId: "user-1", eventType: "system.release", enabled: true },
-      update: { enabled: true },
+      create: { userId: "user-1", eventType: "system.release", enabled: true, updatedByUserId: null, updatedVia: null },
+      update: { enabled: true, updatedByUserId: null, updatedVia: null },
     });
     expect(mockLegacyUpsert).toHaveBeenCalledWith({
       where: { userId: "user-1" },
@@ -304,7 +297,7 @@ describe("setReleaseSubscription (AC-6.4)", () => {
     await setReleaseSubscription("user-1", false);
 
     expect(mockPrefUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: { enabled: false } })
+      expect.objectContaining({ update: { enabled: false, updatedByUserId: null, updatedVia: null } })
     );
     expect(mockLegacyUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ update: { notifyReleases: false } })
@@ -329,7 +322,7 @@ describe("ensureManagerNotifyDefaults", () => {
 
     expect(mockPrefUpsert).toHaveBeenCalledWith({
       where: { userId_eventType: { userId: "user-42", eventType: "system.release" } },
-      create: { userId: "user-42", eventType: "system.release", enabled: true },
+      create: { userId: "user-42", eventType: "system.release", enabled: true, updatedVia: "system" },
       update: {},
     });
     expect(mockLegacyUpsert).toHaveBeenCalledWith({

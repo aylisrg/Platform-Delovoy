@@ -1,4 +1,12 @@
+import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
+
+/**
+ * Module recipient lists — `ModuleNotificationRecipient` rows (was the JSON
+ * `Module.config.notificationRecipients`; ADR 2026-10-25-team-access-notifications §Q2).
+ * Delivery reads them through the resolver (`audience.ts`), which re-checks
+ * role and access on every send; this file only manages the list.
+ */
 
 export type RecipientInfo = {
   userId: string;
@@ -9,128 +17,85 @@ export type RecipientInfo = {
   isSelected: boolean;
 };
 
-/**
- * Returns the full list of userIds who should receive admin notifications for
- * a given module. Always includes every SUPERADMIN. Optionally includes ADMIN /
- * MANAGER users listed in Module.config.notificationRecipients.
- */
-export async function getRecipientUserIds(moduleSlug: string): Promise<string[]> {
-  const [superadmins, mod] = await Promise.all([
-    prisma.user.findMany({
-      where: { role: "SUPERADMIN" },
-      select: { id: true },
-    }),
-    prisma.module.findUnique({
-      where: { slug: moduleSlug },
-      select: { config: true },
-    }),
-  ]);
-
-  const superadminIds = superadmins.map((u) => u.id);
-  const config = mod?.config as Record<string, unknown> | null;
-  const extra = (config?.notificationRecipients as string[] | undefined) ?? [];
-
-  return [...new Set([...superadminIds, ...extra])];
-}
-
-/**
- * Returns only the explicitly configured recipient userIds from
- * Module.config.notificationRecipients — without auto-merging SUPERADMINs.
- * Used to detect "group-only mode": when this list is empty and a group chatId
- * is configured, notifications go exclusively to the group chat.
- */
+/** Raw list for a module (who is on it, regardless of current access). */
 export async function getExplicitRecipientUserIds(moduleSlug: string): Promise<string[]> {
-  const mod = await prisma.module.findUnique({
-    where: { slug: moduleSlug },
-    select: { config: true },
+  const rows = await prisma.moduleNotificationRecipient.findMany({
+    where: { moduleSlug },
+    select: { userId: true },
+    orderBy: { createdAt: "asc" },
   });
-  const config = mod?.config as Record<string, unknown> | null;
-  return (config?.notificationRecipients as string[] | undefined) ?? [];
+  return rows.map((r) => r.userId);
 }
 
 /**
- * Persists the selected recipient userIds into Module.config.notificationRecipients.
- * Only ADMIN / MANAGER users with the required module access are accepted.
- * SUPERADMIN entries are silently ignored (they always receive notifications).
+ * Replace a module's recipient list. Admitted: SUPERADMIN, ADMIN, MANAGER
+ * assigned to the module (non-merged); everything else is dropped silently.
+ * Audited with before/after when an actor is given.
  */
 export async function setRecipientUserIds(
   moduleSlug: string,
-  userIds: string[]
-): Promise<void> {
+  userIds: string[],
+  actorId?: string,
+): Promise<string[]> {
+  const mod = await prisma.module.findUnique({ where: { slug: moduleSlug }, select: { id: true } });
+  if (!mod) throw new Error("MODULE_NOT_FOUND");
+
+  let validIds: string[] = [];
   if (userIds.length > 0) {
     const users = await prisma.user.findMany({
-      where: { id: { in: userIds }, role: { in: ["ADMIN", "MANAGER"] } },
-      select: { id: true, role: true },
+      where: {
+        id: { in: [...new Set(userIds)] },
+        mergedIntoUserId: null,
+        role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] as Role[] },
+      },
+      select: { id: true, role: true, moduleAssignments: { where: { moduleId: mod.id }, select: { id: true } } },
     });
-    const validIds = new Set(users.map((u) => u.id));
-
-    // MANAGER must have a ModuleAssignment to this module
-    const managerIds = users
-      .filter((u) => u.role === "MANAGER")
+    validIds = users
+      .filter((u) => u.role !== "MANAGER" || u.moduleAssignments.length > 0)
       .map((u) => u.id);
-    if (managerIds.length > 0) {
-      const mod = await prisma.module.findUnique({
-        where: { slug: moduleSlug },
-        select: { id: true },
-      });
-      if (mod) {
-        const assignments = await prisma.moduleAssignment.findMany({
-          where: { moduleId: mod.id, userId: { in: managerIds } },
-          select: { userId: true },
-        });
-        const assignedIds = new Set(assignments.map((a) => a.userId));
-        for (const mid of managerIds) {
-          if (!assignedIds.has(mid)) validIds.delete(mid);
-        }
-      }
-    }
-
-    userIds = [...validIds];
   }
 
-  // Read current config to merge — Prisma JSON updates replace the whole field
-  const current = await prisma.module.findUnique({
-    where: { slug: moduleSlug },
-    select: { config: true },
+  const before = await getExplicitRecipientUserIds(moduleSlug);
+  await prisma.$transaction(async (tx) => {
+    await tx.moduleNotificationRecipient.deleteMany({ where: { moduleSlug } });
+    if (validIds.length > 0) {
+      await tx.moduleNotificationRecipient.createMany({
+        data: validIds.map((userId) => ({ moduleSlug, userId, createdByUserId: actorId ?? null })),
+        skipDuplicates: true,
+      });
+    }
+    if (actorId) {
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          action: "notification.recipients.update",
+          entity: "Module",
+          entityId: moduleSlug,
+          metadata: { moduleSlug, before, after: validIds },
+        },
+      });
+    }
   });
-  const currentConfig = (current?.config as Record<string, unknown>) ?? {};
-
-  await prisma.module.update({
-    where: { slug: moduleSlug },
-    data: {
-      config: { ...currentConfig, notificationRecipients: userIds },
-    },
-  });
+  return validIds;
 }
 
 /**
- * Lists all users eligible to receive per-module notifications:
- * SUPERADMINs + ADMINs + MANAGERs assigned to the module.
+ * Users eligible for a module's list: SUPERADMINs, ADMINs and MANAGERs
+ * assigned to the module. `isSelected` is the real membership — SUPERADMINs
+ * included (they no longer «always receive», AC-C3.3).
  */
-export async function listEligibleRecipients(
-  moduleSlug: string
-): Promise<RecipientInfo[]> {
+export async function listEligibleRecipients(moduleSlug: string): Promise<RecipientInfo[]> {
   const mod = await prisma.module.findUnique({
     where: { slug: moduleSlug },
-    select: {
-      id: true,
-      config: true,
-      assignments: { select: { userId: true } },
-    },
+    select: { assignments: { select: { userId: true } } },
   });
-
-  const config = mod?.config as Record<string, unknown> | null;
-  const selectedIds = new Set<string>(
-    (config?.notificationRecipients as string[] | undefined) ?? []
-  );
-  const assignedManagerIds = new Set((mod?.assignments ?? []).map((a) => a.userId));
+  const assignedIds = (mod?.assignments ?? []).map((a) => a.userId);
+  const selected = new Set(await getExplicitRecipientUserIds(moduleSlug));
 
   const users = await prisma.user.findMany({
     where: {
-      OR: [
-        { role: { in: ["SUPERADMIN", "ADMIN"] } },
-        { role: "MANAGER", id: { in: [...assignedManagerIds] } },
-      ],
+      mergedIntoUserId: null,
+      OR: [{ role: { in: ["SUPERADMIN", "ADMIN"] as Role[] } }, { role: "MANAGER", id: { in: assignedIds } }],
     },
     select: {
       id: true,
@@ -152,6 +117,6 @@ export async function listEligibleRecipients(
     email: u.email,
     role: u.role,
     hasTelegramChannel: u.notificationChannels.length > 0,
-    isSelected: u.role === "SUPERADMIN" || selectedIds.has(u.id),
+    isSelected: selected.has(u.id),
   }));
 }

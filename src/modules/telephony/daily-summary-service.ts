@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getNovofonDataApiToken } from "./novofon-client";
 import { fetchCallsReportPage, formatNovofonDate, MAX_OFFSET, NovofonApiError, PAGE_LIMIT, parseNovofonDate } from "./calls-sync";
 import { TELEPHONY_DAILY_EVENT, TELEPHONY_DAILY_HOUR_MSK, type TelephonyDailyPayload, type TelephonyDailySummary } from "./daily-summary-types";
+import { resolveStaffRouting } from "@/modules/notifications/audience";
 
 const DAY_MS = 86_400_000;
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -116,13 +117,9 @@ export async function processTelephonyDailySummaries(
 
   // The user explicitly requested daily summaries: owners are subscribed by
   // default; a persisted per-event opt-out wins. A demoted/merged user is out.
-  const recipients = await prisma.user.findMany({
-    where: {
-      role: "SUPERADMIN", mergedIntoUserId: null,
-      notificationEventPrefs: { none: { eventType: TELEPHONY_DAILY_EVENT, enabled: false } },
-    },
-    select: { id: true },
-  });
+  // Same resolver the screens use (ADR 2026-10-25-team-access-notifications §Q7).
+  const routing = await resolveStaffRouting({ eventType: TELEPHONY_DAILY_EVENT, moduleSlug: null });
+  const recipients = routing.recipients.map(({ userId }) => ({ id: userId }));
   if (!recipients.length) return { reportDate, created: 0, skipped: 0 };
   const existing = await prisma.inAppNotification.findMany({
     where: { id: { in: recipients.map(({ id }) => dailySummaryId(reportDate, id)) } },
@@ -142,14 +139,11 @@ export async function processTelephonyDailySummaries(
     try {
       const inserted = await prisma.$transaction(async (tx) => {
         // Recheck after the network request: role or opt-out may have changed.
-        const owner = await tx.user.findFirst({
-          where: {
-            id: recipient.id, role: "SUPERADMIN", mergedIntoUserId: null,
-            notificationEventPrefs: { none: { eventType: TELEPHONY_DAILY_EVENT, enabled: false } },
-          },
-          select: { id: true },
-        });
-        if (!owner) return false;
+        const recheck = await resolveStaffRouting(
+          { eventType: TELEPHONY_DAILY_EVENT, moduleSlug: null, userIds: [recipient.id] },
+          tx,
+        );
+        if (recheck.recipients.length === 0) return false;
         await tx.inAppNotification.create({
           data: { id, userId: recipient.id, eventType: TELEPHONY_DAILY_EVENT, payload },
         });

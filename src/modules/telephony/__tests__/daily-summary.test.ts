@@ -11,6 +11,17 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 vi.mock("../novofon-client", () => ({ getNovofonDataApiToken: () => "test-token" }));
+// Recipients come from the shared resolver (ADR 2026-10-25 §Q7): the initial
+// audience query and the in-transaction recheck (with userIds) are separate mocks.
+vi.mock("@/modules/notifications/audience", () => ({
+  resolveStaffRouting: (input: { userIds?: string[] }, db?: unknown) =>
+    input.userIds ? mocks.owner(input, db) : mocks.users(input, db),
+}));
+const routing = (ids: string[]) => ({
+  recipients: ids.map((userId) => ({ userId, paths: ["in_app_superadmin"] })),
+  suppressed: [],
+  groupChat: { send: false, reason: "not_applicable" },
+});
 
 import { buildDailySummaryPayload, dailySummaryDate, dailySummaryId, fetchDailySummary, processTelephonyDailySummaries } from "../daily-summary-service";
 import { TELEPHONY_DAILY_EVENT, telephonyDailySummarySchema } from "../daily-summary-types";
@@ -26,9 +37,9 @@ const report = (rows: unknown[]) => vi.fn<typeof fetch>(async () => response({ r
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.users.mockResolvedValue([{ id: "owner" }]);
+  mocks.users.mockResolvedValue(routing(["owner"]));
   mocks.existing.mockResolvedValue([]);
-  mocks.owner.mockResolvedValue({ id: "owner" });
+  mocks.owner.mockResolvedValue(routing(["owner"]));
   mocks.insert.mockResolvedValue({});
   mocks.audit.mockResolvedValue({});
   mocks.transaction.mockImplementation(async (callback) => callback({
@@ -130,10 +141,12 @@ describe("processTelephonyDailySummaries", () => {
 
   it("creates an immutable in-app snapshot and its audit atomically for default-enabled owners only", async () => {
     await expect(processTelephonyDailySummaries(NOW, { fetchImpl: report([row(1)]) })).resolves.toEqual({ reportDate: REPORT_DATE, created: 1, skipped: 0 });
-    expect(mocks.users).toHaveBeenCalledWith({
-      where: { role: "SUPERADMIN", mergedIntoUserId: null, notificationEventPrefs: { none: { eventType: TELEPHONY_DAILY_EVENT, enabled: false } } },
-      select: { id: true },
-    });
+    expect(mocks.users.mock.calls[0][0]).toEqual({ eventType: TELEPHONY_DAILY_EVENT, moduleSlug: null });
+    // recheck inside the transaction, against the transaction client
+    expect(mocks.owner).toHaveBeenCalledWith(
+      { eventType: TELEPHONY_DAILY_EVENT, moduleSlug: null, userIds: ["owner"] },
+      expect.objectContaining({ inAppNotification: expect.anything() }),
+    );
     expect(mocks.insert).toHaveBeenCalledWith({ data: {
       id: dailySummaryId(REPORT_DATE, "owner"), userId: "owner", eventType: TELEPHONY_DAILY_EVENT,
       payload: expect.objectContaining({ telephonySummary: expect.objectContaining({ reportDate: REPORT_DATE, total: 1 }) }),
@@ -155,13 +168,13 @@ describe("processTelephonyDailySummaries", () => {
     await expect(processTelephonyDailySummaries(NOW, { fetchImpl: report([row(1)]) })).resolves.toMatchObject({ created: 0, skipped: 1 });
     expect(mocks.audit).not.toHaveBeenCalled();
     mocks.insert.mockClear();
-    mocks.owner.mockResolvedValue(null);
+    mocks.owner.mockResolvedValue(routing([]));
     await expect(processTelephonyDailySummaries(NOW, { fetchImpl: report([row(1)]) })).resolves.toMatchObject({ created: 0, skipped: 1 });
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("retries only missing recipients and never rewrites an existing snapshot", async () => {
-    mocks.users.mockResolvedValue([{ id: "one" }, { id: "two" }]);
+    mocks.users.mockResolvedValue(routing(["one", "two"]));
     mocks.existing.mockResolvedValue([{ id: dailySummaryId(REPORT_DATE, "one") }]);
     await expect(processTelephonyDailySummaries(NOW, { fetchImpl: report([row(1)]) })).resolves.toMatchObject({ created: 1, skipped: 1 });
     expect(mocks.insert).toHaveBeenCalledTimes(1);

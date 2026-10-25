@@ -2,195 +2,106 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
+    module: { findUnique: vi.fn() },
     user: { findMany: vi.fn() },
-    module: { findUnique: vi.fn(), update: vi.fn() },
-    moduleAssignment: { findMany: vi.fn() },
+    moduleNotificationRecipient: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    auditLog: { create: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
 import { prisma } from "@/lib/db";
 import {
-  getRecipientUserIds,
   getExplicitRecipientUserIds,
-  setRecipientUserIds,
   listEligibleRecipients,
+  setRecipientUserIds,
 } from "@/modules/notifications/recipients";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => unknown) => fn(prisma)) as never);
+  vi.mocked(prisma.moduleNotificationRecipient.findMany).mockResolvedValue([]);
 });
 
-describe("getRecipientUserIds", () => {
-  it("always includes all SUPERADMIN users", async () => {
-    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "sa-1" }] as never);
-    vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
-
-    const ids = await getRecipientUserIds("rental");
-
-    expect(ids).toContain("sa-1");
-  });
-
-  it("merges notificationRecipients from Module.config with superadmins", async () => {
-    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "sa-1" }] as never);
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      config: { notificationRecipients: ["mgr-1", "mgr-2"] },
-    } as never);
-
-    const ids = await getRecipientUserIds("rental");
-
-    expect(ids).toContain("sa-1");
-    expect(ids).toContain("mgr-1");
-    expect(ids).toContain("mgr-2");
-  });
-
-  it("deduplicates when a superadmin is also in notificationRecipients", async () => {
-    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: "sa-1" }] as never);
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      config: { notificationRecipients: ["sa-1", "mgr-1"] },
-    } as never);
-
-    const ids = await getRecipientUserIds("rental");
-
-    expect(ids.filter((id) => id === "sa-1")).toHaveLength(1);
-  });
-});
-
-describe("getExplicitRecipientUserIds", () => {
-  it("returns empty array when module has no config", async () => {
-    vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
-
-    const ids = await getExplicitRecipientUserIds("rental-inquiry");
-
-    expect(ids).toEqual([]);
-  });
-
-  it("returns only explicitly listed recipients without SUPERADMIN merge", async () => {
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      config: { notificationRecipients: ["mgr-1"] },
-    } as never);
-
-    const ids = await getExplicitRecipientUserIds("rental-inquiry");
-
-    expect(ids).toEqual(["mgr-1"]);
-    expect(prisma.user.findMany).not.toHaveBeenCalled();
+describe("getExplicitRecipientUserIds (ADR 2026-10-25 §Q2)", () => {
+  it("reads the table, not Module.config", async () => {
+    vi.mocked(prisma.moduleNotificationRecipient.findMany).mockResolvedValue([{ userId: "a" }, { userId: "b" }] as never);
+    expect(await getExplicitRecipientUserIds("gazebos")).toEqual(["a", "b"]);
+    expect(prisma.moduleNotificationRecipient.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { moduleSlug: "gazebos" } }),
+    );
+    expect(prisma.module.findUnique).not.toHaveBeenCalled();
   });
 });
 
 describe("setRecipientUserIds", () => {
-  it("rejects USER-role entries", async () => {
-    // findMany returns empty → no valid users with ADMIN/MANAGER role
-    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({ config: {} } as never);
-    vi.mocked(prisma.module.update).mockResolvedValue({} as never);
-
-    await setRecipientUserIds("rental", ["user-1"]);
-
-    const call = vi.mocked(prisma.module.update).mock.calls[0][0];
-    expect((call.data.config as { notificationRecipients: string[] }).notificationRecipients).toEqual([]);
+  beforeEach(() => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ id: "mod-gz" } as never);
   });
 
-  it("rejects MANAGER without ModuleAssignment", async () => {
+  it("admits SUPERADMIN, ADMIN and assigned MANAGER; drops unassigned MANAGER; audits before/after", async () => {
+    vi.mocked(prisma.moduleNotificationRecipient.findMany).mockResolvedValue([{ userId: "old" }] as never);
     vi.mocked(prisma.user.findMany).mockResolvedValue([
-      { id: "mgr-1", role: "MANAGER" },
+      { id: "sa", role: "SUPERADMIN", moduleAssignments: [] },
+      { id: "ad", role: "ADMIN", moduleAssignments: [] },
+      { id: "m-ok", role: "MANAGER", moduleAssignments: [{ id: "x" }] },
+      { id: "m-no", role: "MANAGER", moduleAssignments: [] },
     ] as never);
-    vi.mocked(prisma.module.findUnique)
-      .mockResolvedValueOnce({ config: {} } as never) // setRecipientUserIds lookup
-      .mockResolvedValueOnce({ id: "mod-1" } as never); // module id lookup
-    vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([] as never); // no assignment
-    vi.mocked(prisma.module.update).mockResolvedValue({} as never);
 
-    await setRecipientUserIds("rental", ["mgr-1"]);
+    const saved = await setRecipientUserIds("gazebos", ["sa", "ad", "m-ok", "m-no", "ghost"], "actor");
 
-    const call = vi.mocked(prisma.module.update).mock.calls[0][0];
-    expect((call.data.config as { notificationRecipients: string[] }).notificationRecipients).toEqual([]);
+    expect(saved).toEqual(["sa", "ad", "m-ok"]);
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ mergedIntoUserId: null, role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } }),
+    }));
+    expect(prisma.moduleNotificationRecipient.deleteMany).toHaveBeenCalledWith({ where: { moduleSlug: "gazebos" } });
+    expect(prisma.moduleNotificationRecipient.createMany).toHaveBeenCalledWith({
+      data: [
+        { moduleSlug: "gazebos", userId: "sa", createdByUserId: "actor" },
+        { moduleSlug: "gazebos", userId: "ad", createdByUserId: "actor" },
+        { moduleSlug: "gazebos", userId: "m-ok", createdByUserId: "actor" },
+      ],
+      skipDuplicates: true,
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "actor",
+        action: "notification.recipients.update",
+        metadata: { moduleSlug: "gazebos", before: ["old"], after: ["sa", "ad", "m-ok"] },
+      }),
+    });
   });
 
-  it("accepts MANAGER with ModuleAssignment", async () => {
-    vi.mocked(prisma.user.findMany).mockResolvedValue([
-      { id: "mgr-1", role: "MANAGER" },
-    ] as never);
-    vi.mocked(prisma.module.findUnique)
-      .mockResolvedValueOnce({ config: {} } as never)
-      .mockResolvedValueOnce({ id: "mod-1" } as never);
-    vi.mocked(prisma.moduleAssignment.findMany).mockResolvedValue([
-      { userId: "mgr-1" },
-    ] as never);
-    vi.mocked(prisma.module.update).mockResolvedValue({} as never);
-
-    await setRecipientUserIds("rental", ["mgr-1"]);
-
-    const call = vi.mocked(prisma.module.update).mock.calls[0][0];
-    expect((call.data.config as { notificationRecipients: string[] }).notificationRecipients).toContain("mgr-1");
+  it("empty list clears the module (group chat takes over again)", async () => {
+    await setRecipientUserIds("gazebos", [], "actor");
+    expect(prisma.moduleNotificationRecipient.deleteMany).toHaveBeenCalled();
+    expect(prisma.moduleNotificationRecipient.createMany).not.toHaveBeenCalled();
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 
-  it("preserves existing config keys when updating", async () => {
-    vi.mocked(prisma.user.findMany).mockResolvedValue([] as never);
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      config: { telegramAdminChatId: "12345", notificationRecipients: [] },
-    } as never);
-    vi.mocked(prisma.module.update).mockResolvedValue({} as never);
-
-    await setRecipientUserIds("rental", []);
-
-    const call = vi.mocked(prisma.module.update).mock.calls[0][0];
-    expect((call.data.config as Record<string, unknown>).telegramAdminChatId).toBe("12345");
+  it("unknown module → MODULE_NOT_FOUND, nothing written", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
+    await expect(setRecipientUserIds("nope", ["a"])).rejects.toThrow("MODULE_NOT_FOUND");
+    expect(prisma.moduleNotificationRecipient.deleteMany).not.toHaveBeenCalled();
   });
 });
 
 describe("listEligibleRecipients", () => {
-  it("marks SUPERADMIN as always selected", async () => {
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      id: "mod-1",
-      config: { notificationRecipients: [] },
-      assignments: [],
-    } as never);
+  it("isSelected is real membership — SUPERADMIN no longer pre-checked (AC-C3.3)", async () => {
+    vi.mocked(prisma.module.findUnique).mockResolvedValue({ assignments: [{ userId: "m1" }] } as never);
+    vi.mocked(prisma.moduleNotificationRecipient.findMany).mockResolvedValue([{ userId: "m1" }] as never);
     vi.mocked(prisma.user.findMany).mockResolvedValue([
-      { id: "sa-1", name: "Admin", email: "a@a.com", role: "SUPERADMIN", notificationChannels: [] },
+      { id: "sa", name: "Суперадмин", email: null, role: "SUPERADMIN", notificationChannels: [] },
+      { id: "m1", name: "Менеджер", email: null, role: "MANAGER", notificationChannels: [{ id: "c" }] },
     ] as never);
 
-    const result = await listEligibleRecipients("rental");
-
-    expect(result[0].isSelected).toBe(true);
-    expect(result[0].role).toBe("SUPERADMIN");
-  });
-
-  it("marks non-SUPERADMIN as selected only if in notificationRecipients", async () => {
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      id: "mod-1",
-      config: { notificationRecipients: ["mgr-1"] },
-      assignments: [{ userId: "mgr-1" }],
-    } as never);
-    vi.mocked(prisma.user.findMany).mockResolvedValue([
-      { id: "mgr-1", name: "Mgr", email: "m@m.com", role: "MANAGER", notificationChannels: [] },
-      { id: "mgr-2", name: "Mgr2", email: "m2@m.com", role: "MANAGER", notificationChannels: [] },
-    ] as never);
-
-    const result = await listEligibleRecipients("rental");
-
-    const mgr1 = result.find((r) => r.userId === "mgr-1");
-    const mgr2 = result.find((r) => r.userId === "mgr-2");
-    expect(mgr1?.isSelected).toBe(true);
-    expect(mgr2?.isSelected).toBe(false);
-  });
-
-  it("reports hasTelegramChannel=true when TELEGRAM channel is active", async () => {
-    vi.mocked(prisma.module.findUnique).mockResolvedValue({
-      id: "mod-1",
-      config: {},
-      assignments: [],
-    } as never);
-    vi.mocked(prisma.user.findMany).mockResolvedValue([
-      {
-        id: "sa-1",
-        name: "Admin",
-        email: "a@a.com",
-        role: "SUPERADMIN",
-        notificationChannels: [{ id: "ch-1" }],
-      },
-    ] as never);
-
-    const result = await listEligibleRecipients("rental");
-
-    expect(result[0].hasTelegramChannel).toBe(true);
+    const list = await listEligibleRecipients("gazebos");
+    expect(list).toEqual([
+      expect.objectContaining({ userId: "sa", isSelected: false, hasTelegramChannel: false }),
+      expect.objectContaining({ userId: "m1", isSelected: true, hasTelegramChannel: true }),
+    ]);
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ mergedIntoUserId: null }),
+    }));
   });
 });
