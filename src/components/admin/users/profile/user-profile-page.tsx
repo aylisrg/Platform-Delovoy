@@ -110,12 +110,18 @@ export function UserProfilePage({ userId }: { userId: string }) {
       return;
     }
     setRoleChange((r) => (r ? { ...r, busy: true, error: null } : r));
-    const res = await fetch(`/api/users/${userId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role, ...(confirmSeeded ? { confirmSeeded: true } : {}) }),
-    });
-    const body = await res.json();
+    let body;
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, ...(confirmSeeded ? { confirmSeeded: true } : {}) }),
+      });
+      body = await res.json();
+    } catch {
+      setRoleChange((r) => (r ? { ...r, busy: false, error: "Ошибка сети" } : r));
+      return;
+    }
     if (body.success) {
       setRoleChange(null);
       refresh();
@@ -130,8 +136,14 @@ export function UserProfilePage({ userId }: { userId: string }) {
 
   async function submitDelete() {
     setDeleteConfirm({ busy: true, error: null });
-    const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
-    const body = await res.json();
+    let body;
+    try {
+      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+      body = await res.json();
+    } catch {
+      setDeleteConfirm({ busy: false, error: "Ошибка сети" });
+      return;
+    }
     if (body.success) {
       setDeleteConfirm(null);
       router.replace("/admin/users?tab=team");

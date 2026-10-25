@@ -107,6 +107,8 @@ export function TeamReviewTable({ reloadKey = 0 }: { reloadKey?: number }) {
       const body = await res.json();
       if (body.success) await load();
       else setError(body.error?.message ?? "Не удалось изменить подписку");
+    } catch {
+      setError("Ошибка сети");
     } finally {
       setTogglingRelease(null);
     }

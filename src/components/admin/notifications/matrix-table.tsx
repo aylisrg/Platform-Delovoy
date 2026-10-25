@@ -59,8 +59,11 @@ export function MatrixTable() {
         body: JSON.stringify({ eventType, enabled: !cell.enabled, source: "matrix" }),
       });
       const body = await res.json();
-      if (!body.success) setError(body.error?.message ?? "Не удалось сохранить");
-      await load();
+      // Reload only on success: a successful load clears the error banner.
+      if (body.success) await load();
+      else setError(body.error?.message ?? "Не удалось сохранить");
+    } catch {
+      setError("Ошибка сети");
     } finally {
       setSaving(null);
     }
