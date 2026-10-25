@@ -6,7 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CreateUserForm } from "./create-user-form";
 import { PermissionsModal } from "./permissions-modal";
+import { ExcludeDialog } from "./exclude-dialog";
+import { DeleteBlockedDialog } from "./delete-blocked-dialog";
+import { ConfirmDialog, MessageDialog } from "./dialog-shell";
 import { formatDate } from "@/lib/format";
+import type { DeletionBlocker } from "@/modules/users/types";
 
 type Role = "SUPERADMIN" | "ADMIN" | "MANAGER" | "USER";
 
@@ -44,6 +48,17 @@ const roleLabel: Record<Role, string> = {
   USER: "Пользователь",
 };
 
+const SEEDED_ROLE_WARNING =
+  "Этот аккаунт назначен суперадмином в настройках сервера. При ближайшем обновлении платформы роль вернётся автоматически. Чтобы изменение осталось, сначала смените настройку сервера.";
+
+type ApiErrorBody = {
+  code?: string;
+  message?: string;
+  metadata?: { blockers?: DeletionBlocker[]; isTeamMember?: boolean };
+};
+
+const isStaff = (role: Role) => role !== "USER";
+
 function AuthProviderBadges({ providers }: { providers?: string[] }) {
   if (!providers || providers.length === 0) return <span className="text-zinc-300">—</span>;
   return (
@@ -74,6 +89,25 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
   const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
   const [togglingRelease, setTogglingRelease] = useState<string | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+  const [excludeTarget, setExcludeTarget] = useState<{
+    user: User;
+    via: "exclude" | "role_change";
+  } | null>(null);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteBlocked, setDeleteBlocked] = useState<{
+    user: User;
+    blockers: DeletionBlocker[];
+    isTeamMember: boolean;
+  } | null>(null);
+  const [seededRoleChange, setSeededRoleChange] = useState<{
+    user: User;
+    role: Role;
+    message: string;
+  } | null>(null);
+  const [seededRoleError, setSeededRoleError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
@@ -112,25 +146,68 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
     return () => clearTimeout(timer);
   }, [search, fetchUsers]);
 
-  async function handleRoleChange(userId: string, newRole: Role) {
-    setSavingRole(userId);
+  async function patchRole(user: User, newRole: Role, confirmSeeded = false) {
+    const res = await fetch(`/api/users/${user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        confirmSeeded ? { role: newRole, confirmSeeded: true } : { role: newRole }
+      ),
+    });
+    return (await res.json()) as { success: boolean; error?: ApiErrorBody };
+  }
+
+  async function handleRoleChange(user: User, newRole: Role) {
+    if (newRole === user.role) {
+      setEditingRole(null);
+      return;
+    }
+    // «Пользователь» for a team member = «Исключить из команды» (AC-A2.1).
+    if (newRole === "USER" && isStaff(user.role)) {
+      setEditingRole(null);
+      setExcludeTarget({ user, via: "role_change" });
+      return;
+    }
+    setSavingRole(user.id);
     try {
-      const res = await fetch(`/api/users/${userId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole }),
-      });
-      const data = await res.json();
+      const data = await patchRole(user, newRole);
       if (data.success) {
         setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+          prev.map((u) => (u.id === user.id ? { ...u, role: newRole } : u))
         );
         setEditingRole(null);
+      } else if (data.error?.code === "SEEDED_SUPERADMIN_CONFIRM_REQUIRED") {
+        setSeededRoleError(null);
+        setSeededRoleChange({ user, role: newRole, message: SEEDED_ROLE_WARNING });
       } else {
-        alert(data.error?.message || "Ошибка изменения роли");
+        setNotice({
+          title: "Роль не изменена",
+          message: data.error?.message || "Ошибка изменения роли",
+        });
       }
     } catch {
-      alert("Ошибка сети");
+      setNotice({ title: "Роль не изменена", message: "Ошибка сети" });
+    } finally {
+      setSavingRole(null);
+    }
+  }
+
+  async function confirmSeededRoleChange() {
+    if (!seededRoleChange) return;
+    const { user, role } = seededRoleChange;
+    setSavingRole(user.id);
+    setSeededRoleError(null);
+    try {
+      const data = await patchRole(user, role, true);
+      if (data.success) {
+        setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, role } : u)));
+        setEditingRole(null);
+        setSeededRoleChange(null);
+      } else {
+        setSeededRoleError(data.error?.message || "Ошибка изменения роли");
+      }
+    } catch {
+      setSeededRoleError("Ошибка сети");
     } finally {
       setSavingRole(null);
     }
@@ -161,31 +238,55 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
           )
         );
       } else {
-        alert(data.error?.message || "Ошибка обновления настроек");
+        setNotice({
+          title: "Настройка не сохранена",
+          message: data.error?.message || "Ошибка обновления настроек",
+        });
       }
     } catch {
-      alert("Ошибка сети");
+      setNotice({ title: "Настройка не сохранена", message: "Ошибка сети" });
     } finally {
       setTogglingRelease(null);
     }
   }
 
-  async function handleDelete(userId: string) {
-    if (!confirm("Удалить пользователя? Это действие необратимо.")) return;
-    setDeleting(userId);
+  function openDeleteConfirm(user: User) {
+    setDeleteError(null);
+    setDeleteConfirmUser(user);
+  }
+
+  async function handleDelete(user: User) {
+    setDeleting(user.id);
+    setDeleteError(null);
     try {
-      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
-      const data = await res.json();
+      const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
+      const data = (await res.json()) as { success: boolean; error?: ApiErrorBody };
       if (data.success) {
-        setUsers((prev) => prev.filter((u) => u.id !== userId));
+        setUsers((prev) => prev.filter((u) => u.id !== user.id));
+        setDeleteConfirmUser(null);
+      } else if (data.error?.code === "USER_HAS_HISTORY") {
+        // AC-A3.1: explain what blocks the delete instead of an error.
+        setDeleteConfirmUser(null);
+        setDeleteBlocked({
+          user,
+          blockers: data.error.metadata?.blockers ?? [],
+          isTeamMember: data.error.metadata?.isTeamMember ?? isStaff(user.role),
+        });
       } else {
-        alert(data.error?.message || "Ошибка удаления");
+        setDeleteError(data.error?.message || "Ошибка удаления");
       }
     } catch {
-      alert("Ошибка сети");
+      setDeleteError("Ошибка сети");
     } finally {
       setDeleting(null);
     }
+  }
+
+  function handleExcluded() {
+    const name = excludeTarget?.user.name || "Пользователь";
+    setExcludeTarget(null);
+    setBanner(`${name}: исключён из команды. Доступ закрыт, сессии завершены.`);
+    fetchUsers(search || undefined, page);
   }
 
   const stats = {
@@ -233,6 +334,23 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
         </div>
         <CreateUserForm onUserCreated={() => fetchUsers(search || undefined)} />
       </div>
+
+      {banner && (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+        >
+          <span>{banner}</span>
+          <button
+            type="button"
+            onClick={() => setBanner(null)}
+            className="text-green-700 hover:text-green-900"
+            aria-label="Скрыть"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Users table */}
       <div className="rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
@@ -319,7 +437,7 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                             defaultValue={user.role}
                             disabled={savingRole === user.id}
                             onChange={(e) =>
-                              handleRoleChange(user.id, e.target.value as Role)
+                              handleRoleChange(user, e.target.value as Role)
                             }
                             className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-blue-500 focus:outline-none"
                           >
@@ -393,11 +511,20 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
                         >
                           Права
                         </button>
+                        {isStaff(user.role) && (
+                          <button
+                            onClick={() => setExcludeTarget({ user, via: "exclude" })}
+                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors"
+                            title="Снять роль, права и рабочие уведомления; аккаунт останется клиентом"
+                          >
+                            Исключить из команды
+                          </button>
+                        )}
                         <Button
                           variant="danger"
                           size="sm"
                           disabled={deleting === user.id}
-                          onClick={() => handleDelete(user.id)}
+                          onClick={() => openDeleteConfirm(user)}
                         >
                           {deleting === user.id ? "..." : "Удалить"}
                         </Button>
@@ -444,6 +571,71 @@ export function UsersList({ filterRole }: { filterRole?: "team" | undefined }) {
           userRole={permissionsUser.role}
           onClose={() => setPermissionsUser(null)}
           onSaved={() => fetchUsers(search || undefined)}
+        />
+      )}
+
+      {/* Exclude from the team (US-A1 / US-A2) */}
+      {excludeTarget && (
+        <ExcludeDialog
+          userId={excludeTarget.user.id}
+          userName={excludeTarget.user.name}
+          submitVia={excludeTarget.via}
+          onClose={() => setExcludeTarget(null)}
+          onExcluded={handleExcluded}
+        />
+      )}
+
+      {/* Delete confirmation (replaces window.confirm) */}
+      {deleteConfirmUser && (
+        <ConfirmDialog
+          title="Удалить пользователя?"
+          message={
+            <p>
+              {deleteConfirmUser.name || "Без имени"} будет удалён без возможности
+              восстановления. Аккаунты с историей не удаляются — тогда мы покажем, что мешает.
+            </p>
+          }
+          confirmLabel="Удалить"
+          busy={deleting === deleteConfirmUser.id}
+          error={deleteError}
+          onConfirm={() => handleDelete(deleteConfirmUser)}
+          onClose={() => setDeleteConfirmUser(null)}
+        />
+      )}
+
+      {/* Delete blocked by history (US-A3) */}
+      {deleteBlocked && (
+        <DeleteBlockedDialog
+          userName={deleteBlocked.user.name}
+          blockers={deleteBlocked.blockers}
+          isTeamMember={deleteBlocked.isTeamMember}
+          onClose={() => setDeleteBlocked(null)}
+          onExclude={() => {
+            const user = deleteBlocked.user;
+            setDeleteBlocked(null);
+            setExcludeTarget({ user, via: "exclude" });
+          }}
+        />
+      )}
+
+      {/* Seeded superadmin demotion needs an explicit confirmation (AC-A1.7) */}
+      {seededRoleChange && (
+        <ConfirmDialog
+          title="Изменить роль?"
+          message={<p>{seededRoleChange.message}</p>}
+          confirmLabel="Всё равно изменить роль"
+          busy={savingRole === seededRoleChange.user.id}
+          error={seededRoleError}
+          onConfirm={confirmSeededRoleChange}
+          onClose={() => setSeededRoleChange(null)}
+        />
+      )}
+
+      {notice && (
+        <MessageDialog
+          title={notice.title}
+          message={notice.message}
+          onClose={() => setNotice(null)}
         />
       )}
 

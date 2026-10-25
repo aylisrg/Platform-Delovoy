@@ -21,9 +21,28 @@ export const updateUserSchema = z.object({
   name: z.string().min(1, "Имя не может быть пустым").optional(),
   phone: z.string().optional(),
   telegramId: z.string().nullable().optional(),
+  // Подтверждение для сидированного суперадмина при понижении/исключении (AC-A1.7).
+  confirmSeeded: z.boolean().optional(),
 });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+/** Path param `[id]` / `[userId]` of the users and permissions routes. */
+export const userIdParamSchema = z.string().min(1).max(64);
+
+/** POST /api/users/[id]/exclude (ADR 2026-10-25 §6.2). */
+export const excludeUserSchema = z
+  .object({ confirmSeeded: z.boolean().optional() })
+  .strict();
+
+export type ExcludeUserInput = z.infer<typeof excludeUserSchema>;
+
+/** PUT /api/admin/permissions/[userId] (ADR 2026-10-25 §6.2). */
+export const permissionsUpdateSchema = z.object({
+  sections: z.array(z.string().max(50)).max(50),
+});
+
+export type PermissionsUpdateInput = z.infer<typeof permissionsUpdateSchema>;
 
 export const listUsersSchema = z.object({
   search: z.string().max(200).optional(),
