@@ -476,6 +476,83 @@ describe("mergeAccounts — what moves (ADR §Q6)", () => {
     expect(result.moved).toMatchObject({ outgoingRepointed: 1, outgoingNotifications: 2, notificationChannels: 1, webPushSubscriptions: 1 });
   });
 
+  it("a staff primary gets a Telegram delivery channel for the Telegram that moved in (no «Нет рабочего канала» after merge)", async () => {
+    const tables = install({
+      user: [
+        actor(),
+        makeUser({ id: "p", role: "ADMIN", email: "lp@mail.ru" }),
+        makeUser({ id: "s", telegramId: "7777" }),
+      ],
+    });
+    const preview = await previewAccountMerge({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(preview.channels.moved).toEqual(["Telegram"]);
+
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(user(tables, "p").telegramId).toBe("7777");
+    expect(tables.userNotificationChannel).toEqual([
+      expect.objectContaining({ userId: "p", kind: "TELEGRAM", address: "7777", isActive: true }),
+    ]);
+    const audit = tables.auditLog.find((a) => a.action === "auth.merge.manual")!.metadata as Record<string, unknown>;
+    expect(audit.telegramChannelEnsured).toBe(true);
+  });
+
+  it("…but not for a client primary, and never a duplicate when the channel already moved", async () => {
+    const clients = install({
+      user: [actor(), makeUser({ id: "p", email: "c@mail.ru" }), makeUser({ id: "s", telegramId: "7777" })],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(clients.userNotificationChannel ?? []).toEqual([]);
+
+    const staff = install({
+      user: [actor(), makeUser({ id: "p", role: "MANAGER" }), makeUser({ id: "s", telegramId: "7777" })],
+      userNotificationChannel: [{ id: "s-tg", userId: "s", kind: "TELEGRAM", address: "7777" }],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(staff.userNotificationChannel.map((c) => [c.id, c.userId, c.address])).toEqual([["s-tg", "p", "7777"]]);
+
+    // A moved channel the person switched off stays off.
+    const off = install({
+      user: [actor(), makeUser({ id: "p", role: "MANAGER" }), makeUser({ id: "s", telegramId: "7777" })],
+      userNotificationChannel: [{ id: "s-tg", userId: "s", kind: "TELEGRAM", address: "7777", isActive: false }],
+    });
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(off.userNotificationChannel).toEqual([expect.objectContaining({ id: "s-tg", userId: "p", isActive: false })]);
+  });
+
+  it("AC-E2.4г: Telegram conflict — the secondary's Telegram channel moves only as switched-off history", async () => {
+    const tables = install({
+      user: [
+        actor(),
+        makeUser({ id: "p", role: "MANAGER", telegramId: "1111" }),
+        makeUser({ id: "s", telegramId: "2222" }),
+      ],
+      userNotificationChannel: [
+        { id: "p-tg", userId: "p", kind: "TELEGRAM", address: "1111", isActive: true },
+        { id: "s-tg", userId: "s", kind: "TELEGRAM", address: "2222", isActive: true },
+      ],
+      outgoingNotification: [{ id: "o1", userId: "s", channelId: "s-tg" }],
+    });
+    const preview = await previewAccountMerge({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(preview.channels.moved).toEqual([]);
+
+    await mergeAccounts({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin", confirmTelegramConflict: true });
+    expect(user(tables, "p").telegramId).toBe("1111");
+    expect(tables.userNotificationChannel.map((c) => [c.id, c.userId, c.isActive])).toEqual([
+      ["p-tg", "p", true],
+      ["s-tg", "p", false],
+    ]);
+    expect(tables.outgoingNotification[0]).toMatchObject({ userId: "p", channelId: "s-tg" });
+  });
+
+  it("the preview doesn't promise a new Telegram channel when the primary already has that row", async () => {
+    install({
+      user: [actor(), makeUser({ id: "p", role: "ADMIN" }), makeUser({ id: "s", telegramId: "7777" })],
+      userNotificationChannel: [{ id: "p-old", userId: "p", kind: "TELEGRAM", address: "7777", isActive: true }],
+    });
+    const preview = await previewAccountMerge({ primaryId: "p", secondaryId: "s", actorId: "sa-actor", mode: "admin" });
+    expect(preview.channels.moved).toEqual([]);
+  });
+
   it("moves chats (participants dedup by chat, receipts dedup by message), in-app feed, skips, links", async () => {
     const tables = install({
       user: [actor(), makeUser({ id: "p" }), makeUser({ id: "s" })],
@@ -663,7 +740,8 @@ describe("previewAccountMerge (AC-E2.3)", () => {
     expect(preview.access.recipientLists).toEqual(["Барбекю Парк"]);
     expect(preview.subscriptions.moved).toHaveLength(1);
     expect(preview.subscriptions.droppedConflicts).toHaveLength(1);
-    expect(preview.channels).toEqual({ kept: ["Telegram"], moved: ["Telegram"], duplicates: [] });
+    // Different Telegrams: the secondary's is unlinked, so its channel isn't listed as moving.
+    expect(preview.channels).toEqual({ kept: ["Telegram"], moved: [], duplicates: [] });
     expect(preview.transfer).toEqual({ bookings: 1, orders: 1, subscriptions: 0, tasks: 0, chatMessages: 0, auditLogs: 1, notifications: 1 });
     expect(preview.notTransferred).toEqual([
       { key: "secondaryRole", label: "Роль второго аккаунта", items: ["Менеджер"] },

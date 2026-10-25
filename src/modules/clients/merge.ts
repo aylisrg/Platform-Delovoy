@@ -324,6 +324,7 @@ export async function previewAccountMerge(input: {
     channels.filter((c) => c.userId === primaryId).map((c) => `${c.kind}::${c.address}`),
   );
   const secondaryChannels = channels.filter((c) => c.userId === secondaryId);
+  const telegramConflict = hasTelegramConflict(primary, secondary);
 
   const notTransferred: AccountMergePreview["notTransferred"] = [];
   if (secondary.role !== "USER" && secondary.role !== primary.role) {
@@ -385,9 +386,21 @@ export async function previewAccountMerge(input: {
     },
     channels: {
       kept: channels.filter((c) => c.userId === primaryId).map((c) => channelLabel(c.kind)),
-      moved: secondaryChannels
-        .filter((c) => !primaryChannelKeys.has(`${c.kind}::${c.address}`))
-        .map((c) => channelLabel(c.kind)),
+      moved: [
+        ...secondaryChannels
+          .filter((c) => !primaryChannelKeys.has(`${c.kind}::${c.address}`))
+          // Telegram conflict: the secondary's Telegram is unlinked, its channel goes off.
+          .filter((c) => !(telegramConflict && c.kind === "TELEGRAM" && c.address === secondary.telegramId))
+          .map((c) => channelLabel(c.kind)),
+        // The merge creates it for a staff primary (see runMerge, after step 16).
+        ...(primary.role !== "USER" &&
+        !primary.telegramId &&
+        secondary.telegramId &&
+        !primaryChannelKeys.has(`TELEGRAM::${secondary.telegramId}`) &&
+        !secondaryChannels.some((c) => c.kind === "TELEGRAM" && c.address === secondary.telegramId)
+          ? [channelLabel("TELEGRAM")]
+          : []),
+      ],
       duplicates: secondaryChannels
         .filter((c) => primaryChannelKeys.has(`${c.kind}::${c.address}`))
         .map((c) => channelLabel(c.kind)),
@@ -699,6 +712,15 @@ async function runMerge(
     }
     await tx.userNotificationChannel.delete({ where: { id: sc.id } });
   }
+  // Telegram conflict: the secondary's Telegram is unlinked (the primary keeps
+  // its own), so its channel moves only as history — switched off, no more
+  // deliveries to that chat.
+  if (telegramConflict && secondary.telegramId) {
+    await tx.userNotificationChannel.updateMany({
+      where: { userId: secondaryId, kind: "TELEGRAM", address: secondary.telegramId },
+      data: { isActive: false },
+    });
+  }
   moved.notificationChannels = (
     await tx.userNotificationChannel.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } })
   ).count;
@@ -900,6 +922,29 @@ async function runMerge(
     await tx.user.update({ where: { id: primaryId }, data: fill });
   }
 
+  // The Telegram that moved in starts delivering to a staff primary right away;
+  // without the channel row the team screen keeps «Нет рабочего канала» until
+  // the person opens the Center in the Mini App (ensureTelegramChannel).
+  // Upsert (as in telegram-link afterLinked): a row moved in step 7 is kept
+  // as is — a channel the person switched off stays off.
+  let telegramChannelEnsured = false;
+  if (fill.telegramId && primary.role !== "USER" && secondary.telegramId) {
+    await tx.userNotificationChannel.upsert({
+      where: { userId_kind_address: { userId: primaryId, kind: "TELEGRAM", address: secondary.telegramId } },
+      update: {},
+      create: {
+        userId: primaryId,
+        kind: "TELEGRAM",
+        address: secondary.telegramId,
+        label: "Telegram",
+        priority: 10,
+        isActive: true,
+        verifiedAt: now,
+      },
+    });
+    telegramChannelEnsured = true;
+  }
+
   // ── 17. AuditLog (AC-E2.8): actor, both accounts, resulting role, counters,
   // resolved conflicts and the dropped secondary rights.
   await tx.auditLog.create({
@@ -920,6 +965,7 @@ async function runMerge(
         transferredFields,
         conflicts,
         telegramConflictConfirmed: telegramConflict ? Boolean(input.confirmTelegramConflict) : null,
+        telegramChannelEnsured,
         droppedSecondaryRights: {
           role: secondary.role === "USER" ? null : secondary.role,
           sections: droppedGrants.map((g) => g.section),

@@ -96,6 +96,10 @@ export function createMemoryDb(tables: Tables = {}) {
   }
 
   function matchField(table: string, row: Row, key: string, cond: unknown): boolean {
+    // Prisma compound-unique selector: `userId_kind_address: { userId, kind, address }`.
+    if (isPlainObject(cond) && key.includes("_") && !(key in row) && UNIQUES[table]?.some((u) => u.fields.join("_") === key)) {
+      return matches(table, row, cond as Where);
+    }
     if (key === "OR") return (cond as Where[]).some((w) => matches(table, row, w));
     if (key === "AND") return (cond as Where[]).every((w) => matches(table, row, w));
     if (key === "NOT") return !matches(table, row, cond as Where);
