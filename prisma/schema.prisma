@@ -26,6 +26,12 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Отзыв сессий: bump = все выпущенные токены сверяют claim `sv` и теряют
+  // устаревшие роль/разделы (ADR 2026-10-25-team-access-notifications §Q1).
+  sessionVersion Int       @default(0)
+  // Последний успешный вход (сайт или Mini App) — колонка «Последний вход».
+  lastLoginAt    DateTime?
+
   // === CRM v1 (Wave 1) ===
   tags             String[]  @default([])
   notes            String?   @db.Text
@@ -66,6 +72,7 @@ model User {
   notificationGlobalPref NotificationGlobalPreference? @relation("NGPUser")
   inAppNotifications     InAppNotification[]
   webPushSubscriptions   WebPushSubscription[]         @relation("WPSUser")
+  notificationRecipientOf ModuleNotificationRecipient[] @relation("ModuleRecipientUser")
 
   mergeCandidatesPrimary   MergeCandidate[] @relation("MergeCandidatePrimary")
   mergeCandidatesSecondary MergeCandidate[] @relation("MergeCandidateSecondary")
@@ -160,7 +167,24 @@ model Module {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  assignments ModuleAssignment[]
+  assignments               ModuleAssignment[]
+  notificationRecipientRows ModuleNotificationRecipient[]
+}
+
+/// Списки получателей уведомлений раздела (было: Module.config.notificationRecipients).
+/// Ключ JSON сохранён на один релиз для blue-green и больше не читается
+/// (ADR 2026-10-25-team-access-notifications §Q2).
+model ModuleNotificationRecipient {
+  moduleSlug      String
+  userId          String
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  module Module @relation(fields: [moduleSlug], references: [slug], onDelete: Cascade, onUpdate: Cascade)
+  user   User   @relation("ModuleRecipientUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([moduleSlug, userId])
+  @@index([userId])
 }
 
 model ModuleAssignment {
@@ -1811,6 +1835,10 @@ model NotificationEventPreference {
   quietWeekdaysOnly Boolean                   @default(false)
   timezone          String                    @default("Europe/Moscow")
   dndUntil          DateTime?
+  // Последний актор изменения (AC-C2.3); plain column без FK.
+  updatedByUserId   String?
+  // "admin" | "miniapp" | "matrix" | "system"
+  updatedVia        String?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
 
@@ -1832,45 +1860,110 @@ model NotificationGlobalPreference {
 /// Personal Mini App inbox; independent of external delivery channels.
 /// Producers may set deterministic ids for durable idempotency.
 model InAppNotification {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  eventType String
-  payload   Json
-  readAt    DateTime?
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType  String
+  payload    Json
+  readAt     DateTime?
+  // "open" — тап по карточке, "mark" — отметка по id, "bulk" — «Прочитать всё»
+  // (bulk реакцией не считается — ADR 2026-10-25 §Q3).
+  readVia    String?
+  clickedAt  DateTime?
+  clickCount Int       @default(0)
+  createdAt  DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
 }
 
 model OutgoingNotification {
-  id            String                     @id @default(cuid())
-  userId        String
-  eventType     String
-  entityType    String?
-  entityId      String?
-  channelId     String
-  channel       UserNotificationChannel    @relation(fields: [channelId], references: [id])
-  payload       Json
-  status        OutgoingNotificationStatus @default(PENDING)
-  attempts      Int                        @default(0)
-  maxAttempts   Int                        @default(3)
-  scheduledFor  DateTime                   @default(now())
-  sentAt        DateTime?
-  failureReason String?                    @db.Text
+  id              String                     @id @default(cuid())
+  userId          String
+  eventType       String
+  entityType      String?
+  entityId        String?
+  channelId       String
+  channel         UserNotificationChannel    @relation(fields: [channelId], references: [id])
+  payload         Json
+  status          OutgoingNotificationStatus @default(PENDING)
+  attempts        Int                        @default(0)
+  maxAttempts     Int                        @default(3)
+  scheduledFor    DateTime                   @default(now())
+  sentAt          DateTime?
+  failureReason   String?                    @db.Text
   dedupKey        String
   triedChannelIds String[]                   @default([])
   fallbackOfId    String?
   readAt          DateTime? // отметка прочтения в ленте Mini App
+  readVia         String? // "open" | "mark" | "bulk"
+  // Нормализованная причина ошибки: BOT_BLOCKED | BOT_NOT_STARTED | USER_DEACTIVATED |
+  // NETWORK | CHANNEL_UNAVAILABLE | CHANNEL_EXPIRED | CHANNEL_AUTH | STALE | OTHER
+  failureCode     String?
+  externalId      String? // message_id Telegram / Location push-сервиса
+  clickedAt       DateTime? // первый клик (только на корне цепочки fallback)
+  clickCount      Int                        @default(0)
   createdAt       DateTime                   @default(now())
   updatedAt       DateTime                   @updatedAt
+
+  links NotificationLink[]
 
   @@index([status, scheduledFor])
   @@index([dedupKey, createdAt])
   @@index([userId, createdAt])
   @@index([entityType, entityId])
   @@index([userId, readAt])
+  @@index([fallbackOfId])
+}
+
+/// Трекинг-ссылка внешнего канала: цель хранится только здесь (AC-D3.3).
+/// Ссылка `/r/{code}` живёт 400 дней (кнопки работают ≥ 12 мес., AC-D3.8).
+model NotificationLink {
+  id           String    @id @default(cuid())
+  code         String    @unique // 22 символа base64url, 128 бит
+  outgoingId   String // корень цепочки OutgoingNotification
+  actionIndex  Int
+  userId       String // plain column (как OutgoingNotification.userId)
+  eventType    String
+  targetUrl    String    @db.Text
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  firstClickAt DateTime?
+  lastClickAt  DateTime?
+  clickCount   Int       @default(0)
+
+  outgoing OutgoingNotification @relation(fields: [outgoingId], references: [id], onDelete: Cascade)
+
+  @@unique([outgoingId, actionIndex])
+  @@index([expiresAt])
+  @@index([userId, createdAt])
+}
+
+/// Пропуск доставки (отправка не пыталась) — только типы каталога (AC-D4.3).
+model NotificationDeliverySkip {
+  id         String   @id @default(cuid())
+  userId     String // plain column
+  eventType  String
+  entityType String?
+  entityId   String?
+  // DUPLICATE | PREFERENCE_DISABLED | OPTED_OUT | DND | NO_CHANNEL
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+/// Контакт Telegram-аккаунта с ботом; существует и до привязки к User (AC-E1.3).
+model TelegramBotContact {
+  telegramId       String    @id
+  startedAt        DateTime? // первое обращение в личном чате; не перезаписывается
+  startedBackfill  Boolean   @default(false) // «запущен (дата неизвестна)»
+  lastContactAt    DateTime?
+  lastDeliveryOkAt DateTime?
+  blockedAt        DateTime? // дата последней блокировки; сохраняется после разблокировки
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 // === BROADCAST CAMPAIGNS ===
