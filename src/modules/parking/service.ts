@@ -1,4 +1,5 @@
 import type { ParkingInfo, ParkingPricing, GuardedParkingInfo } from "./types";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 const MODULE_SLUG = "parking";
 
@@ -35,7 +36,7 @@ export function getParkingInfo(): ParkingInfo {
       "Грузовой транспорт — только в зоне разгрузки",
     ],
     contacts: {
-      phone: "+7 (495) 000-00-00",
+      phone: PUBLIC_CONTACTS.rental.displayPhone,
     },
   };
 }

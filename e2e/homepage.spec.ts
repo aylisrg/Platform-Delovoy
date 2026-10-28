@@ -6,9 +6,9 @@ test.describe("Главная страница", () => {
     expect(response?.status()).toBe(200);
 
     await expect(page.getByRole("heading", { level: 1 })).toContainText("доверяют");
-    await expect(page.getByRole("link", { name: "Барбекю Парк" })).toHaveAttribute("href", "/gazebos");
-    await expect(page.getByRole("link", { name: "Плей Парк" })).toHaveAttribute("href", "/ps-park");
-    await expect(page.getByRole("link", { name: "Кафе" })).toHaveAttribute("href", "/cafe");
+    await expect(page.getByRole("link", { name: "Барбекю Парк", exact: true })).toHaveAttribute("href", "/gazebos");
+    await expect(page.getByRole("link", { name: "Плей Парк", exact: true })).toHaveAttribute("href", "/ps-park");
+    await expect(page.getByRole("link", { name: "Кафе", exact: true })).toHaveAttribute("href", "/cafe");
     await expect(page.locator("footer")).toBeVisible();
   });
 });

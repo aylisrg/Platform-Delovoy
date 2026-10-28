@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { PUBLIC_CONTACTS, getPublicContact } from "@/lib/public-contacts";
 import { log, logAudit } from "@/lib/logger";
 import {
   novofonStartCall,
@@ -41,12 +42,16 @@ export async function getTelephonyConfig(
 }
 
 /**
- * Get the shared public phone number (same for gazebos and ps-park).
- * Returns the phone from either module config or falls back to the other.
+ * Public contacts are independent of Novofon/SIP settings.
+ * Modules without a published contact keep their configured telephony number.
  */
 export async function getPublicPhone(
   moduleSlug: string
 ): Promise<{ phone: string; displayPhone: string } | null> {
+  if (Object.hasOwn(PUBLIC_CONTACTS, moduleSlug)) {
+    const { phone, displayPhone } = getPublicContact(moduleSlug);
+    return { phone, displayPhone };
+  }
   const config = await getTelephonyConfig(moduleSlug);
   if (!config?.publicPhone) return null;
   return {

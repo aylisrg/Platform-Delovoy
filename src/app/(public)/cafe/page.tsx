@@ -10,6 +10,7 @@ import { receiptsEnabled } from "@/lib/yookassa/receipts";
 import { auth } from "@/lib/auth";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 import { PARK_LOCATION } from "@/lib/park-location";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 // Меню живёт в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -35,6 +36,7 @@ const jsonLd = {
       name: "Кафе Деловой Парк",
       description: "Кафе в бизнес-парке Деловой с доставкой еды прямо в офис. Завтраки, обеды, пицца, напитки.",
       url: `${APP_URL}/cafe`,
+      telephone: PUBLIC_CONTACTS.cafe.phone,
       servesCuisine: ["Русская", "Европейская"],
       hasMenu: `${APP_URL}/cafe`,
       address: {
@@ -114,6 +116,12 @@ export default async function CafePage() {
               <p className="mt-2 text-zinc-600">
                 Меню кафе бизнес-парка Деловой. Закажите еду с доставкой в офис.
               </p>
+              <a
+                href={`tel:${PUBLIC_CONTACTS.cafe.phone}`}
+                className="mt-3 inline-block py-2 text-blue-600 hover:underline"
+              >
+                {PUBLIC_CONTACTS.cafe.displayPhone}
+              </a>
             </div>
           </header>
 

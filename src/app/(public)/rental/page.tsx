@@ -7,6 +7,7 @@ import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 import { PARK_LOCATION } from "@/lib/park-location";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 // Офисы живут в БД: ISR (revalidate) заставляет Next пререндерить страницу на
 // этапе Docker-сборки, где БД нет — билд падает, а после деплоя до 10 минут
@@ -32,7 +33,7 @@ const jsonLd = {
       name: "Аренда офисов — Деловой Парк",
       description: "Аренда офисов от 15 м² с готовой отделкой, интернетом, охраной и парковкой. Бизнес-парк Деловой, Селятино.",
       url: `${APP_URL}/rental`,
-      telephone: process.env.DELOVOY_PHONE || "+7-000-000-00-00",
+      telephone: PUBLIC_CONTACTS.rental.phone,
       address: {
         "@type": "PostalAddress",
         addressLocality: "Селятино",
@@ -113,6 +114,12 @@ export default async function RentalPage() {
               <p className="mt-2 text-zinc-600">
                 Бизнес-парк «Деловой» — современные офисы в Селятино, Московская область. Готовая отделка, интернет, охрана, парковка.
               </p>
+              <a
+                href={`tel:${PUBLIC_CONTACTS.rental.phone}`}
+                className="mt-3 inline-block py-2 text-blue-600 hover:underline"
+              >
+                {PUBLIC_CONTACTS.rental.displayPhone}
+              </a>
             </div>
           </header>
 

@@ -1,10 +1,7 @@
 import React from "react";
 import { YandexMap } from "@/components/ui/yandex-map";
 import { PARK_LOCATION } from "@/lib/park-location";
-
-const PHONE = "+74996774888";
-const PHONE_DISPLAY = "+7 (499) 677-48-88";
-const WHATSAPP_NUMBER = "74996774888";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 // Бизнес-парк "Деловой" — Промышленная ул., 1, пгт Селятино, 143345
 // Используем organization ID, не shortlink (последний экспирится).
@@ -14,14 +11,14 @@ const PARK_LAT = PARK_LOCATION.lat;
 const PARK_LON = PARK_LOCATION.lon;
 
 const contacts = [
-  {
-    type: "Телефон",
-    value: PHONE_DISPLAY,
-    href: `tel:${PHONE}`,
+  ...Object.values(PUBLIC_CONTACTS).map((contact) => ({
+    type: contact.label,
+    value: contact.displayPhone,
+    href: `tel:${contact.phone}`,
     icon: "phone",
     color: "#0071e3",
     bg: "#0071e3",
-  },
+  })),
   {
     type: "Telegram",
     value: "@DelovoyPark_bot",
@@ -31,9 +28,9 @@ const contacts = [
     bg: "#229ED9",
   },
   {
-    type: "WhatsApp",
-    value: PHONE_DISPLAY,
-    href: `https://wa.me/${WHATSAPP_NUMBER}`,
+    type: "WhatsApp — аренда офисов",
+    value: PUBLIC_CONTACTS.rental.displayPhone,
+    href: `https://wa.me/${PUBLIC_CONTACTS.rental.phone.slice(1)}`,
     icon: "whatsapp",
     color: "#25D366",
     bg: "#25D366",
