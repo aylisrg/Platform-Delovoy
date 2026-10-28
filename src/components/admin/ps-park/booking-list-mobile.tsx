@@ -123,6 +123,7 @@ export function BookingListMobile({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <BookingActions
                 bookingId={b.id}
+                canReschedule={(b.metadata as Record<string, unknown> | null)?.paymentPurpose === "reservation"}
                 currentStatus={b.status}
                 clientName={name}
                 resourceName={tableName}

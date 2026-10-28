@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { BookingStatus } from "@prisma/client";
 import { ConfirmDialog } from "@/components/admin/shared/confirm-dialog";
+import { RescheduleBookingButton } from "./reschedule-booking-button";
 
 type Props = {
   bookingId: string;
@@ -14,6 +15,7 @@ type Props = {
   resourceName?: string;
   /** Готовая строка вида «28.08.2026, 13:00–17:00». */
   timeLabel?: string;
+  canReschedule?: boolean;
 };
 
 type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
@@ -25,6 +27,7 @@ export function BookingActions({
   clientName,
   resourceName,
   timeLabel,
+  canReschedule = false,
 }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +110,7 @@ export function BookingActions({
   }
 
   if (currentStatus === "CANCELLED" || currentStatus === "COMPLETED") {
+    if (currentStatus === "CANCELLED" && canReschedule) return <RescheduleBookingButton bookingId={bookingId} />;
     return null;
   }
 
@@ -122,6 +126,7 @@ export function BookingActions({
 
   return (
     <div className="flex flex-col gap-1">
+      {canReschedule && ["CONFIRMED", "NO_SHOW"].includes(currentStatus) && <RescheduleBookingButton bookingId={bookingId} />}
       <div className="flex gap-2">
         {currentStatus === "PENDING" && (
           <Button size="sm" disabled={pending} onClick={() => handleInlineStatus("CONFIRMED")}>

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+
+const mockRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: (...args: unknown[]) => mockRateLimit(...args) }));
 
 const mockAuth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
@@ -22,7 +25,7 @@ vi.mock("@/modules/ps-park/service", async () => {
   );
   return {
     ...actual,
-    createBooking: (...args: unknown[]) => mockCreateBooking(...args),
+    createPrepaidBooking: (...args: unknown[]) => mockCreateBooking(...args),
   };
 });
 
@@ -43,33 +46,51 @@ const validBody = {
   date: "2026-06-15",
   startTime: "10:00",
   endTime: "12:00",
+  requestId: "0cfe64dd-7867-4f53-a68b-067c211bc2f1",
+  guestName: "Гость",
+  guestPhone: "+79991234567",
+  email: "guest@example.com",
+  acceptOffer: true,
+  offerVersionSlug: "test-offer",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRateLimit.mockResolvedValue(null);
   mockAuth.mockResolvedValue({ user: { id: "user-1", role: "USER" } });
-  mockCreateBooking.mockResolvedValue({ id: "bk-1", metadata: {} });
+  mockCreateBooking.mockResolvedValue({ id: "bk-1", payment: { id: "pay-1", confirmationUrl: "https://example.com/pay" } });
   mockProductEventCreate.mockRejectedValue(new Error("db down"));
 });
 
 describe("POST /api/ps-park/book", () => {
+  it("ограничивает гостевые запросы до авторизации и создания брони", async () => {
+    mockRateLimit.mockResolvedValue(NextResponse.json({ success: false, error: { code: "RATE_LIMITED" } }, { status: 429 }));
+    const request = makeRequest(validBody);
+    expect((await POST(request)).status).toBe(429);
+    expect(mockRateLimit).toHaveBeenCalledWith(request, "public");
+    expect(mockAuth).not.toHaveBeenCalled();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+    expect(mockLogAudit).not.toHaveBeenCalled();
+  });
   it("создаёт бронь авторизованному пользователю", async () => {
     const res = await POST(makeRequest(validBody));
     const body = await res.json();
 
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
-    expect(mockCreateBooking).toHaveBeenCalledWith("user-1", expect.objectContaining({ resourceId: "table-1" }));
+    expect(mockCreateBooking).toHaveBeenCalledWith("user-1", expect.objectContaining({ resourceId: "table-1" }), expect.any(Object));
+    expect(body.data.payment.confirmationUrl).toBe("https://example.com/pay");
     expect(mockLogAudit).toHaveBeenCalledWith("user-1", "booking.create", "Booking", "bk-1", expect.any(Object));
   });
 
-  it("требует авторизацию — гостевого бронирования в ps-park нет", async () => {
+  it("создаёт гостю платёж без регистрации и логирует действие", async () => {
     mockAuth.mockResolvedValue(null);
 
     const res = await POST(makeRequest(validBody));
 
-    expect(res.status).toBe(401);
-    expect(mockCreateBooking).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockCreateBooking).toHaveBeenCalledWith(null, expect.objectContaining({ guestName: "Гость" }), expect.any(Object));
+    expect(mockLogAudit).toHaveBeenCalledWith("system", "booking.create", "Booking", "bk-1", expect.any(Object));
   });
 
   it("отклоняет тело без resourceId — 422, сервис не вызван", async () => {

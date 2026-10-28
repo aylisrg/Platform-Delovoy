@@ -212,4 +212,5 @@ export type BookingBill = {
   itemsTotal: number;
   totalBill: number;
   onlinePaidAmount: number; // уже оплачено онлайн (ЮKassa) — вычитается из суммы к приёму
+  prepaidAmount?: number; // ранее принято наличными/картой; уже проведено в леджер
 };

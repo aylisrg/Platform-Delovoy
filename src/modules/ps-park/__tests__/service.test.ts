@@ -1133,6 +1133,26 @@ describe("extendBooking", () => {
 // ===== getBookingBill =====
 
 describe("getBookingBill", () => {
+  it("возвращает предоплату наличными/картой отдельно от онлайн-оплаты и полной стоимости", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(mockBooking({
+      status: "COMPLETED",
+      startTime: new Date(`${FUTURE_DATE}T10:00:00`),
+      endTime: new Date(`${FUTURE_DATE}T12:00:00`),
+      metadata: {
+        prepaidCashAmount: "200.10", prepaidCardAmount: "150.20", onlinePaidAmount: "300.00",
+      },
+    }) as never);
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue(mockTable({ pricePerHour: 500 }) as never);
+
+    const bill = await getBookingBill("booking-1");
+    expect(bill.totalBill).toBe(1000);
+    expect(bill.prepaidAmount).toBeCloseTo(350.30);
+    expect(bill.onlinePaidAmount).toBe(300);
+    expect(prisma.booking.findFirst).toHaveBeenCalledWith({
+      where: { id: "booking-1", moduleSlug: "ps-park", deletedAt: null },
+    });
+  });
+
   it("calculates bill correctly", async () => {
     vi.mocked(prisma.booking.findFirst).mockResolvedValue(
       mockBooking({
@@ -1183,6 +1203,7 @@ describe("getBookingBill", () => {
     expect(bill.items).toHaveLength(0);
     expect(bill.itemsTotal).toBe(0);
     expect(bill.totalBill).toBe(300);
+    expect(bill.prepaidAmount).toBe(0);
   });
 
   it("throws BOOKING_NOT_FOUND when booking does not exist", async () => {

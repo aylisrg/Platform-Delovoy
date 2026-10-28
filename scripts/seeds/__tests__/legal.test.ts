@@ -12,17 +12,17 @@ describe("seedLegalDocuments", () => {
     fake = createFakePrisma();
   });
 
-  it("сохраняет архивные редакции и публикует новые с актуальными телефонами", async () => {
+  it("сохраняет архивные редакции, актуальные контакты и оферту Плей Парка", async () => {
     await seedLegalDocuments(asPrisma(fake));
 
     const rows = fake.offerVersion.__store.rows;
-    expect(rows).toHaveLength(4);
-    expect([...new Set(rows.map((r) => r.documentKey))].sort()).toEqual(["gazebos-offer", "privacy-policy"]);
+    expect(rows).toHaveLength(5);
+    expect([...new Set(rows.map((r) => r.documentKey))].sort()).toEqual(["gazebos-offer", "privacy-policy", "ps-park-offer"]);
     for (const row of rows) {
       expect(row.slug).toBe(`v${row.number}`);
-      expect(row.isCurrent).toBe(row.number === 2);
+      expect(row.isCurrent).toBe(row.documentKey === "ps-park-offer" || row.number === 2);
       expect(String(row.body).length).toBeGreaterThan(1000);
-      if (row.isCurrent) {
+      if (row.isCurrent && row.documentKey !== "ps-park-offer") {
         const phone = row.documentKey === "gazebos-offer" ? "+7 (926) 900-81-20" : "+7 (499) 647-71-42";
         expect(row.body).toContain(phone);
         expect(row.body).not.toContain("+7 (499) 677-48-88");
@@ -46,7 +46,7 @@ describe("seedLegalDocuments", () => {
     await seedLegalDocuments(asPrisma(fake));
 
     const after = fake.offerVersion.__store.rows;
-    expect(after).toHaveLength(4);
+    expect(after).toHaveLength(5);
     expect(after.map((r) => r.body)).toEqual(before.map((r) => r.body));
     expect(after.map((r) => r.contentHash)).toEqual(before.map((r) => r.contentHash));
   });
@@ -72,7 +72,7 @@ describe("seedLegalDocuments", () => {
     });
     await seedLegalDocuments(asPrisma(fake));
 
-    for (const key of ["gazebos-offer", "privacy-policy"]) {
+    for (const key of ["gazebos-offer", "privacy-policy", "ps-park-offer"]) {
       const current = fake.offerVersion.__store.rows.filter(
         (r) => r.documentKey === key && r.isCurrent
       );

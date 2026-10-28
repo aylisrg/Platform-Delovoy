@@ -11,6 +11,7 @@ import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import { BookingStatusSelect, PAID_OPTION, type StatusSelectValue } from "@/components/admin/shared/booking-status-select";
 import { BookingPaymentModal } from "@/components/admin/shared/booking-payment-modal";
 import { getBookingPaymentSummary } from "@/modules/booking/payment-status";
+import { RescheduleBookingButton } from "./reschedule-booking-button";
 
 type ApiErrorBody = { success: false; error?: { code?: string; message?: string } };
 type ApiOkBody = { success: true; data: unknown };
@@ -308,6 +309,9 @@ export function BookingDetailCard({
       </div>
 
       {/* Body */}
+      {meta?.paymentPurpose === "reservation" && booking.status === "CONFIRMED" && (
+        <div className="px-4 py-2"><RescheduleBookingButton bookingId={booking.id} onChanged={onStatusChanged} /></div>
+      )}
       <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         {/* Resource */}
         <div>

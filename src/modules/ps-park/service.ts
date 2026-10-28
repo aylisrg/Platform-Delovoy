@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import type { BookingStatus, Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
+import type { Booking, BookingStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import {
   formatTime as formatTimeUnified,
@@ -32,7 +33,13 @@ import {
   debitFromSession,
   SubscriptionDebitError,
 } from "@/modules/subscriptions/debit";
-import { getBookingPaymentSummaries } from "@/modules/payments/service";
+import { createOnlinePayment, getBookingPaymentSummaries } from "@/modules/payments/service";
+import { PaymentError } from "@/modules/payments/types";
+import { isYooKassaConfigured } from "@/lib/yookassa/client";
+import { buildReceipt, ReceiptContactError, ReceiptVatCodeError } from "@/lib/yookassa/receipts";
+import { isPSParkReservation } from "@/modules/booking/payment-flow";
+import { buildAcceptance, getCurrentVersion, DOCUMENT_KEYS, type AcceptanceRecord } from "@/modules/booking/offer";
+import type { CreatePSCheckoutInput } from "./validation";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
 import type {
   CreatePSBookingInput,
@@ -219,7 +226,80 @@ export async function getBooking(id: string) {
   });
 }
 
-export async function createBooking(userId: string, input: CreatePSBookingInput) {
+type ReservationCheckout = {
+  id: string;
+  fingerprint: string;
+  acceptance: AcceptanceRecord;
+  name: string;
+  phone: string;
+  email: string;
+};
+
+/** Включается после публикации условий оплаты и переноса. */
+export async function getOnlineBookingOffer() {
+  const parkModule = await prisma.module.findUnique({ where: { slug: MODULE_SLUG }, select: { config: true } });
+  if ((parkModule?.config as Record<string, unknown> | null)?.onlineBookingEnabled !== true) return null;
+  return getCurrentVersion(DOCUMENT_KEYS.psParkOffer);
+}
+
+/** Публичная предоплата: снимок стоимости выбранного интервала, не live bill. */
+export async function createPrepaidBooking(
+  userId: string | null,
+  input: CreatePSCheckoutInput,
+  context: { ip: string | null; userAgent: string | null }
+) {
+  if (!isYooKassaConfigured()) {
+    throw new PaymentError("PAYMENTS_NOT_CONFIGURED", "Онлайн-оплата временно недоступна");
+  }
+  if (!input.acceptOffer) throw new PSBookingError("OFFER_REQUIRED", "Подтвердите согласие с условиями");
+  const id = `ps-${createHash("sha256").update(input.requestId).digest("hex")}`;
+  const fingerprint = createHash("sha256").update(JSON.stringify({ userId, ...input })).digest("hex");
+  let booking = await getBooking(id);
+  if (!booking) {
+    if (!await getOnlineBookingOffer()) {
+      throw new PSBookingError("ONLINE_BOOKING_UNAVAILABLE", "Онлайн-бронирование временно недоступно");
+    }
+    const acceptance = await buildAcceptance(DOCUMENT_KEYS.psParkOffer, {
+      offerVersionSlug: input.offerVersionSlug, acceptMarketing: false, ...context,
+    });
+    try {
+      booking = await createBooking(userId, input, {
+        id, fingerprint, acceptance, name: input.guestName, phone: input.guestPhone, email: input.email,
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      booking = await getBooking(id);
+      if (!booking) throw error;
+    }
+  }
+  const metadata = (booking.metadata as Record<string, unknown> | null) ?? {};
+  if (metadata.checkoutFingerprint !== fingerprint || metadata.paymentPurpose !== "reservation") {
+    throw new PSBookingError("CHECKOUT_CHANGED", "Параметры бронирования изменились. Выберите время заново.");
+  }
+  if (!["PENDING", "CONFIRMED"].includes(booking.status)) {
+    throw new PSBookingError("PAYMENT_CANCELED", "Бронирование больше недоступно. Выберите время заново.");
+  }
+  if (!booking.acceptedOfferAt) throw new PSBookingError("OFFER_REQUIRED", "Не сохранено согласие с условиями");
+  const payment = await createOnlinePayment({
+    subjectType: "BOOKING", subjectId: booking.id, moduleSlug: MODULE_SLUG,
+    amount: Number(metadata.totalPrice),
+    description: "Бронирование Плей Парка",
+    userId: booking.userId, customerEmail: String(metadata.email), customerPhone: booking.clientPhone,
+    receiptItems: [{ description: "Бронирование Плей Парка", amount: Number(metadata.totalPrice), paymentMode: "full_prepayment" }],
+    returnUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/payments/{paymentId}`,
+    idempotenceKey: createHash("sha256").update(`ps-reservation:${booking.id}`).digest("hex"),
+    metadata: { bookingId: booking.id, paymentPurpose: "reservation" },
+  });
+  return {
+    id: booking.id,
+    payment: {
+      id: payment.id,
+      confirmationUrl: payment.status === "SUCCEEDED" ? `/payments/${payment.id}` : payment.confirmationUrl,
+    },
+  };
+}
+
+export async function createBooking(userId: string | null, input: CreatePSBookingInput, checkout?: ReservationCheckout) {
   const { resourceId, date, startTime, endTime, playerCount, comment, items } = input;
 
   const resource = await prisma.resource.findFirst({
@@ -239,6 +319,17 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
   const bookingDate = new Date(date);
   const start = parseDatetime(date, startTime);
   const end = parseDatetime(date, endTime);
+
+  if (checkout) {
+    const { openHour, closeHour } = await getOpenCloseHours();
+    if (start <= new Date() || end <= start || Number(startTime.slice(0, 2)) < openHour ||
+        Number(endTime.slice(0, 2)) + Number(endTime.slice(3)) / 60 > closeHour) {
+      throw new PSBookingError("INVALID_BOOKING_TIME", "Выберите будущее время в пределах часов работы");
+    }
+    if (!resource.pricePerHour || Number(resource.pricePerHour) <= 0) {
+      throw new PSBookingError("PRICE_NOT_CONFIGURED", "Онлайн-бронирование этого стола временно недоступно");
+    }
+  }
 
   if (bookingDate < new Date(new Date().toISOString().split("T")[0])) {
     throw new PSBookingError("DATE_IN_PAST", "Нельзя бронировать на прошедшую дату");
@@ -271,10 +362,28 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
     itemsTotal
   );
 
+  if (checkout) {
+    try {
+      buildReceipt({ email: checkout.email, phone: checkout.phone }, [{
+        description: "Бронирование Плей Парка", amount: Number(pricing.totalPrice), paymentMode: "full_prepayment",
+      }]);
+    } catch (error) {
+      if (error instanceof ReceiptContactError || error instanceof ReceiptVatCodeError) {
+        throw new PaymentError(error.code, "Онлайн-оплата временно недоступна");
+      }
+      throw error;
+    }
+  }
+
   // Конфликт-чек и запись — в одной транзакции под блокировкой слота, иначе два
   // одновременных запроса на популярный стол оба видят «свободно» (#429).
   const booking = await prisma.$transaction(async (tx) => {
     await lockSlot(tx, MODULE_SLUG, resourceId, bookingDate);
+
+    if (checkout) {
+      const previous = await tx.booking.findUnique({ where: { id: checkout.id } });
+      if (previous) return previous;
+    }
 
     const conflict = await tx.booking.findFirst({
       where: {
@@ -293,6 +402,9 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
 
     return tx.booking.create({
       data: {
+        ...(checkout && {
+          id: checkout.id, clientName: checkout.name, clientPhone: checkout.phone, ...checkout.acceptance,
+        }),
         moduleSlug: MODULE_SLUG,
         resourceId,
         userId,
@@ -301,6 +413,12 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
         endTime: end,
         status: "PENDING",
         metadata: {
+          ...(checkout && {
+            paymentPurpose: "reservation", paymentFlow: "online", checkoutFingerprint: checkout.fingerprint,
+            email: checkout.email,
+            reservationDurationMinutes: (end.getTime() - start.getTime()) / 60_000,
+            reservationItemsTotal: itemsTotal.toFixed(2),
+          }),
           ...(playerCount && { playerCount }),
           ...(comment && { comment }),
           ...(itemSnapshots.length > 0 && {
@@ -320,16 +438,34 @@ export async function createBooking(userId: string, input: CreatePSBookingInput)
     throw err;
   });
 
-  enqueueNotification({
+  if (!checkout) enqueueNotification({
     type: "booking.created",
     moduleSlug: MODULE_SLUG,
     entityId: booking.id,
-    userId,
+    userId: userId ?? undefined,
     actor: "client",
     data: { resourceName: resource.name, date, startTime, endTime },
   });
 
   return booking;
+}
+
+function reservationWriteGuard(booking: Booking) {
+  return isPSParkReservation(booking) ? {
+    updatedAt: booking.updatedAt, startTime: booking.startTime, endTime: booking.endTime, status: booking.status,
+  } : {};
+}
+
+/** Do not apply a delayed manager/cron write over a moved or newly paid reservation. */
+async function writeBookingSnapshot(tx: Prisma.TransactionClient, booking: Booking, data: Prisma.BookingUpdateInput) {
+  try {
+    return await tx.booking.update({ where: { id: booking.id, ...reservationWriteGuard(booking) }, data });
+  } catch (error) {
+    if (isPSParkReservation(booking) && (error as { code?: string }).code === "P2025") {
+      throw new PSBookingError("BOOKING_CHANGED", "Бронь уже изменена. Обновите страницу");
+    }
+    throw error;
+  }
 }
 
 export async function updateBookingStatus(
@@ -349,6 +485,10 @@ export async function updateBookingStatus(
 
   if (!booking) {
     throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  }
+
+  if (status === "CONFIRMED" && isPSParkReservation(booking)) {
+    throw new PSBookingError("PAYMENT_REQUIRED", "Онлайн-бронь подтверждается автоматически после оплаты");
   }
 
   try {
@@ -421,7 +561,7 @@ export async function updateBookingStatus(
       : booking.endTime;
 
   if (status === "COMPLETED") {
-    completedPricePerHour = Number(resource?.pricePerHour ?? 0);
+    completedPricePerHour = Number(isPSParkReservation(booking) ? metadata?.pricePerHour ?? 0 : resource?.pricePerHour ?? 0);
     completedBilledHours = billedHours(booking.startTime, actualEndTime, await getSlotRoundingMinutes());
     const hoursCost = completedBilledHours * completedPricePerHour;
     const durationMin = Math.round((actualEndTime.getTime() - booking.startTime.getTime()) / (1000 * 60));
@@ -473,7 +613,7 @@ export async function updateBookingStatus(
     });
   } else if (
     status === "CANCELLED" &&
-    booking.status === "CONFIRMED" &&
+    (booking.status === "CONFIRMED" || (isPSParkReservation(booking) && booking.status === "NO_SHOW")) &&
     items.length > 0
   ) {
     // Atomically update booking status + return inventory.
@@ -481,7 +621,7 @@ export async function updateBookingStatus(
     // cron, second manager) cannot trigger a duplicate cancellation.
     updated = await prisma.$transaction(async (tx) => {
       const res = await tx.booking.updateMany({
-        where: { id, status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "NO_SHOW"] } },
+        where: { id, status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "NO_SHOW"] }, ...reservationWriteGuard(booking) },
         data: {
           status,
           ...(managerId && { managerId }),
@@ -661,7 +801,7 @@ export async function updateBookingStatus(
       // is already COMPLETED/CANCELLED (double click, cron-vs-manager race),
       // count===0 and we throw ALREADY_COMPLETED — FT is NOT created twice.
       const res = await tx.booking.updateMany({
-        where: { id, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
+        where: { id, status: { in: ["CONFIRMED", "CHECKED_IN"] }, ...reservationWriteGuard(booking) },
         data: {
           status,
           ...(managerId && { managerId }),
@@ -801,6 +941,7 @@ export async function updateBookingStatus(
         where: {
           id,
           status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "NO_SHOW"] },
+          ...reservationWriteGuard(booking),
         },
         data: {
           status,
@@ -879,6 +1020,9 @@ export async function cancelBooking(
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
   if (booking.userId !== userId) throw new PSBookingError("FORBIDDEN", "Нельзя отменить чужое бронирование");
+  if (isPSParkReservation(booking)) {
+    throw new PSBookingError("RESCHEDULE_REQUIRED", "Для переноса оплаченного времени или обращения по оплате свяжитесь с администратором: +7 (499) 677-48-88");
+  }
   if (booking.status === "CANCELLED" || booking.status === "COMPLETED") {
     throw new PSBookingError("INVALID_STATUS_TRANSITION", "Бронирование уже завершено или отменено");
   }
@@ -1199,13 +1343,10 @@ export async function checkInBooking(bookingId: string, managerId: string) {
     : { ...existingMetadata, ...checkinData }) as import("@prisma/client").Prisma.InputJsonValue;
 
   if (!isFromNoShow) {
-    return prisma.booking.update({
-      where: { id: bookingId },
-      data: {
+    return writeBookingSnapshot(prisma, booking, {
         status: "CHECKED_IN",
         managerId,
         metadata: newMetadata,
-      },
     });
   }
 
@@ -1232,13 +1373,10 @@ export async function checkInBooking(bookingId: string, managerId: string) {
       throw new PSBookingError("BOOKING_CONFLICT", "Слот уже занят другой бронью — реактивировать неявку нельзя");
     }
 
-    return tx.booking.update({
-      where: { id: bookingId },
-      data: {
+    return writeBookingSnapshot(tx, booking, {
         status: "CHECKED_IN",
         managerId,
         metadata: newMetadata,
-      },
     });
   }).catch(async (err) => {
     if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
@@ -1280,12 +1418,9 @@ export async function markNoShow(
   const noShowData = buildNoShowMetadata(reason, now, actorId);
   const existingMetadata = (booking.metadata as BookingMetadata | null) ?? {};
 
-  return prisma.booking.update({
-    where: { id: bookingId },
-    data: {
+  return writeBookingSnapshot(prisma, booking, {
       status: "NO_SHOW",
       metadata: { ...existingMetadata, ...noShowData } as import("@prisma/client").Prisma.InputJsonValue,
-    },
   });
 }
 
@@ -1299,6 +1434,9 @@ export async function addItemsToBooking(
   });
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
+  if (booking.status === "PENDING" && isPSParkReservation(booking)) {
+    throw new PSBookingError("PAYMENT_PENDING", "Дождитесь оплаты: состав онлайн-брони до подтверждения не изменяется");
+  }
 
   if (
     booking.status !== "PENDING" &&
@@ -1341,10 +1479,7 @@ export async function addItemsToBooking(
   if (booking.status === "CONFIRMED" || booking.status === "CHECKED_IN") {
     // Already confirmed/in-progress — deduct stock immediately
     return prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({
-        where: { id: bookingId },
-        data: { metadata: newMetadata },
-      });
+      const b = await writeBookingSnapshot(tx, booking, { metadata: newMetadata });
       await saleBookingItems(tx, bookingId, MODULE_SLUG, snapshots, managerId);
       return b;
     });
@@ -1370,10 +1505,7 @@ export async function addItemsToBooking(
       : null;
 
     return prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({
-        where: { id: bookingId },
-        data: { metadata: newMetadata },
-      });
+      const b = await writeBookingSnapshot(tx, booking, { metadata: newMetadata });
       await saleBookingItems(tx, bookingId, MODULE_SLUG, snapshots, managerId);
       await tx.financialTransaction.create({
         data: {
@@ -1560,7 +1692,7 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
   return bookings.map((b) => {
     const resource = resourceMap.get(b.resourceId);
     const metadata = b.metadata as Record<string, unknown> | null;
-    const pricePerHour = Number(resource?.pricePerHour ?? 0);
+    const pricePerHour = Number(isPSParkReservation(b) ? metadata?.pricePerHour ?? 0 : resource?.pricePerHour ?? 0);
     const liveEnd = effectiveBillingEnd(b.startTime, b.endTime, now);
     const billed = billedHours(b.startTime, liveEnd, roundingMinutes);
     const durationMin = Math.round((liveEnd.getTime() - b.startTime.getTime()) / (1000 * 60));
@@ -1706,10 +1838,7 @@ export async function extendBooking(bookingId: string, managerId: string) {
       throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
     }
 
-    return tx.booking.update({
-      where: { id: bookingId },
-      data: { endTime: newEndTime, managerId },
-    });
+    return writeBookingSnapshot(tx, booking, { endTime: newEndTime, managerId });
   }).catch(async (err) => {
     if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
       throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
@@ -1729,7 +1858,7 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
   const resource = await prisma.resource.findUnique({ where: { id: booking.resourceId } });
   const metadata = booking.metadata as Record<string, unknown> | null;
   const rawItems = (metadata?.items ?? []) as BookingItemSnapshot[];
-  const pricePerHour = Number(resource?.pricePerHour ?? 0);
+  const pricePerHour = Number(isPSParkReservation(booking) ? metadata?.pricePerHour ?? 0 : resource?.pricePerHour ?? 0);
   // For active bookings, preview the bill based on elapsed time (capped at now)
   // so the session-bill modal reflects what will actually be charged on early completion.
   const liveEnd =
@@ -1764,6 +1893,7 @@ export async function getBookingBill(bookingId: string): Promise<BookingBill> {
     itemsTotal,
     totalBill: hoursCost + itemsTotal,
     onlinePaidAmount: Number((metadata?.onlinePaidAmount as string | undefined) ?? 0),
+    prepaidAmount: getPrepaidAmount(metadata),
   };
 }
 

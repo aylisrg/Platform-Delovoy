@@ -1,50 +1,32 @@
 import { test, expect } from "@playwright/test";
-import { loginAs } from "./helpers/auth";
 import { prisma } from "./helpers/db";
 
-const TABLE_NAME = "Стол PlayStation 1";
-
-test.describe("Плей Парк — выбор слота и бронирование", () => {
-  test("выбор слота и отправка создают запись Booking в БД", async ({ page }) => {
-    await loginAs(page, "user@local", "user");
-    const me = await page.request.get("/api/auth/session").then((r) => r.json());
-    const userId: string = me.user.id;
-
-    await page.goto("/ps-park");
-
-    // "Стол PlayStation 1" also appears as an <h3> in a separate marketing
-    // showcase section — scope to #booking (DarkAvailabilityGrid) only.
-    const heading = page
-      .locator("#booking")
-      .getByRole("heading", { level: 3, name: TABLE_NAME, exact: true });
-    await expect(heading).toBeVisible();
-    const card = heading.locator("xpath=ancestor::div[2]");
-
-    // Слоты — просто время начала ("11:00"), минимум бронирования — 1 час.
-    // Не берём .first() слепо — на CI-ретрае (retries: 1) или повторном
-    // локальном прогоне первый слот дня может быть уже занят прошлой
-    // попыткой; берём первый ДОСТУПНЫЙ.
-    const slotButtons = card.getByRole("button", { name: /^\d{2}:\d{2}$/ });
-    await expect(slotButtons.first()).toBeVisible();
-    const enabledSlot = card.getByRole("button", { name: /^\d{2}:\d{2}$/, disabled: false }).first();
-    await enabledSlot.click();
-
-    await page.getByRole("button", { name: "Забронировать", exact: true }).click();
-    await expect(
-      page.getByText("Заявка отправлена! Ожидайте подтверждения от менеджера.")
-    ).toBeVisible({ timeout: 15_000 });
-
-    const resource = await prisma.resource.findFirst({
-      where: { moduleSlug: "ps-park", name: TABLE_NAME },
-    });
-    expect(resource).not.toBeNull();
-
-    const booking = await prisma.booking.findFirst({
-      where: { moduleSlug: "ps-park", resourceId: resource!.id, userId },
-      orderBy: { createdAt: "desc" },
-    });
-    expect(booking).not.toBeNull();
-    expect(booking!.status).toBe("PENDING");
-    expect(booking!.userId).toBe(userId);
-  });
+// The repository seed intentionally has no approved Play Park offer or enabled
+// checkout. This full Next.js/DB E2E checks that default stays fail-closed.
+// Paid browser paths with API fixtures: node e2e/ps-park-checkout-browser.mjs.
+test("Плей Парк: без активации гостю не создаётся неоплаченная заявка", async ({ page }) => {
+  const parkModule = await prisma.module.findUnique({ where: { slug: "ps-park" } });
+  expect((parkModule?.config as Record<string, unknown> | null)?.onlineBookingEnabled).not.toBe(true);
+  const before = await prisma.booking.count({ where: { moduleSlug: "ps-park" } });
+  await page.goto("/ps-park");
+  const booking = page.locator("#booking");
+  const bookingDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes(`/api/ps-park/availability?date=${bookingDate}`)),
+    booking.locator('input[type="date"]').fill(bookingDate),
+  ]);
+  await booking.getByRole("button", { name: /^\d{2}:\d{2}$/, disabled: false }).first().click();
+  await expect(booking.getByText("Онлайн-бронирование временно недоступно.")).toBeVisible();
+  await expect(booking.getByRole("button", { name: "Оплатить", exact: true })).toBeDisabled();
+  await expect(page.getByText("Заявка отправлена! Ожидайте подтверждения от менеджера.")).toHaveCount(0);
+  const resource = await prisma.resource.findFirst({ where: { moduleSlug: "ps-park", isActive: true } });
+  expect(resource).not.toBeNull();
+  const response = await page.request.post("/api/ps-park/book", { data: {
+    resourceId: resource!.id, requestId: crypto.randomUUID(), date: bookingDate,
+    startTime: "10:00", endTime: "11:00", guestName: "QA гость", guestPhone: "+79991234567",
+    email: "qa@example.test", acceptOffer: true, offerVersionSlug: "qa-not-published",
+  } });
+  expect(response.status()).toBe(400);
+  expect(["ONLINE_BOOKING_UNAVAILABLE", "PAYMENTS_NOT_CONFIGURED"]).toContain((await response.json()).error.code);
+  expect(await prisma.booking.count({ where: { moduleSlug: "ps-park" } })).toBe(before);
 });

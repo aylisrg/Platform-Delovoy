@@ -16,6 +16,7 @@ type PublicStatus = {
     | "PARTIALLY_REFUNDED";
   confirmationUrl: string | null;
   moduleSlug: string;
+  reservationStatus?: string;
   order: {
     orderNumber: string;
     deliveryTo: string | null;
@@ -118,7 +119,12 @@ export default function PaymentWaitPage() {
           )}
         </>
       ) : state.status === "SUCCEEDED" ? (
-        isCafe ? (
+        state.reservationStatus && !["CONFIRMED", "CHECKED_IN", "COMPLETED"].includes(state.reservationStatus) ? (
+          <>
+            <h1 className="mt-4 text-xl font-semibold">Оплата получена, бронь отменена</h1>
+            <p className="mt-2 text-sm text-gray-500">Первоначальное время не забронировано. Обратитесь в парк для сверки оплаты и переноса.</p>
+          </>
+        ) : isCafe ? (
           <>
             <div className="text-5xl">✅</div>
             <h1 className="mt-4 text-xl font-semibold">Оплачено!</h1>
@@ -165,11 +171,12 @@ export default function PaymentWaitPage() {
               Бронирование подтверждено. Чек придёт на указанный контакт, подробности — в
               уведомлении.
             </p>
+            {state.reservationStatus && <p className="mt-3 text-sm text-gray-500">Для переноса обратитесь к администратору: <a href="tel:+74996774888" className="underline">+7 (499) 677-48-88</a> или <a href="mailto:info@delovoy-park.ru" className="underline">info@delovoy-park.ru</a>. Сохраните эту страницу оплаты.</p>}
             <Link
-              href="/dashboard"
+              href={state.reservationStatus ? "/ps-park" : "/dashboard"}
               className="mt-6 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700"
             >
-              Мои бронирования
+              {state.reservationStatus ? "Вернуться в Плей Парк" : "Мои бронирования"}
             </Link>
           </>
         )
@@ -196,7 +203,7 @@ export default function PaymentWaitPage() {
               Бронирование не подтверждено — слот освобождён. Попробуйте забронировать ещё раз.
             </p>
             <Link
-              href="/gazebos"
+              href={state.reservationStatus ? "/ps-park" : "/gazebos"}
               className="mt-6 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700"
             >
               К бронированию

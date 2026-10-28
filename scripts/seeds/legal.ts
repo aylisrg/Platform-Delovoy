@@ -42,6 +42,16 @@ type DocumentRevision = {
  */
 const REVISIONS: DocumentRevision[] = [
   {
+    documentKey: "ps-park-offer",
+    number: 1,
+    slug: "v1",
+    title: "Публичная оферта — Плей Парк",
+    file: "content/legal/ps-park-offer/v1.md",
+    publishedAt: "2026-10-28T00:00:00.000Z",
+    effectiveAt: "2026-10-28T00:00:00.000Z",
+    isCurrent: true,
+  },
+  {
     documentKey: "gazebos-offer",
     number: 1,
     slug: "v1",

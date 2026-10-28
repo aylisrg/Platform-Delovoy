@@ -9,9 +9,10 @@ import { prisma } from "@/lib/db";
  * на бронирование, а не самостоятельная бизнес-область (Scope guard #1).
  */
 
-/** Ключи документов. Оферта Плей Парка добавится сюда, когда появится текст. */
+/** Тексты оферт публикуются отдельно; отсутствие редакции блокирует акцепт. */
 export const DOCUMENT_KEYS = {
   gazebosOffer: "gazebos-offer",
+  psParkOffer: "ps-park-offer",
   privacyPolicy: "privacy-policy",
 } as const;
 
