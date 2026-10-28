@@ -9,6 +9,7 @@ import { ContactsSection } from "@landing/components/contacts-section";
 import { Footer } from "@landing/components/footer";
 import { FadeInSection } from "@/components/ui/fade-in-section";
 import { PARK_LOCATION } from "@/lib/park-location";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 export const metadata: Metadata = {
   title: "Деловой Парк — Бизнес-парк в Селятино",
@@ -35,7 +36,13 @@ const jsonLd = {
   description:
     "Бизнес-парк в Селятино, Московская область. Аренда офисов, Барбекю Парк с мангалом, Плей Парк, кафе.",
   url: "https://delovoy-park.ru",
-  telephone: process.env.DELOVOY_PHONE || "+7-000-000-00-00",
+  telephone: PUBLIC_CONTACTS.rental.phone,
+  contactPoint: Object.values(PUBLIC_CONTACTS).map((contact) => ({
+    "@type": "ContactPoint",
+    contactType: contact.label,
+    telephone: contact.phone,
+    availableLanguage: "Russian",
+  })),
   address: {
     "@type": "PostalAddress",
     streetAddress: "Промышленная ул., 1",

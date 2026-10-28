@@ -1,13 +1,10 @@
 import { PrismaClient } from "@prisma/client";
+import { PUBLIC_CONTACTS } from "../src/lib/public-contacts";
 
 const prisma = new PrismaClient();
 
-const PHONE = "+74996774888";
-const DISPLAY_PHONE = "+7 499 677-48-88";
-const MODULES = ["gazebos", "ps-park"];
-
 async function main() {
-  for (const slug of MODULES) {
+  for (const [slug, contact] of Object.entries(PUBLIC_CONTACTS)) {
     const mod = await prisma.module.findUnique({ where: { slug } });
     if (!mod) {
       console.log(`  ✗ Module "${slug}" not found`);
@@ -19,9 +16,8 @@ async function main() {
       ...existing,
       telephony: {
         ...((existing.telephony as Record<string, unknown>) ?? {}),
-        enabled: true,
-        publicPhone: PHONE,
-        displayPhone: DISPLAY_PHONE,
+        publicPhone: contact.phone,
+        displayPhone: contact.displayPhone,
       },
     };
 

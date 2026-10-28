@@ -14,6 +14,7 @@ import { Navbar } from "@landing/components/navbar";
 import { Footer } from "@landing/components/footer";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 import { PARK_LOCATION } from "@/lib/park-location";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ const jsonLd = {
       name: "Барбекю Парк — Деловой Парк",
       description: "Комфортные беседки с мангальной зоной до 20 человек. Онлайн-бронирование. Дрова, уголь, зона отдыха.",
       url: `${APP_URL}/gazebos`,
+      telephone: PUBLIC_CONTACTS.gazebos.phone,
       address: {
         "@type": "PostalAddress",
         addressLocality: "Селятино",

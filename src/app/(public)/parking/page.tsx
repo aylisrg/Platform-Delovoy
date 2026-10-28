@@ -184,7 +184,7 @@ export default function ParkingPage() {
                   <h2 className="text-lg font-semibold text-zinc-900 mb-2">Контакты</h2>
                   <p className="text-sm text-zinc-600">
                     По вопросам парковки:{" "}
-                    <a href={`tel:${info.contacts.phone}`} className="text-blue-600 hover:underline">
+                    <a href={`tel:${info.contacts.phone.replace(/[^\d+]/g, "")}`} className="text-blue-600 hover:underline">
                       {info.contacts.phone}
                     </a>
                   </p>
