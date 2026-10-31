@@ -131,7 +131,7 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
   }
 
   return <div className={`business-analytics mx-auto w-full min-w-0 max-w-[1480px] space-y-6 text-zinc-900 ${miniApp ? "bg-zinc-50 px-4 py-5 pb-24" : "p-4 sm:p-7 lg:p-9"}`}>
-    <style>{`@media print { body { background: white !important; } aside, nav, header, .business-no-print { display: none !important; } main:has(.business-analytics) { overflow: visible !important; height: auto !important; } .business-analytics { max-width: none !important; padding: 0 !important; color: #18181b !important; } .business-analytics section, .business-analytics article { break-inside: avoid; } .business-analytics details > * { display: block !important; } .business-analytics svg { max-height: 240px; } * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
+    <style>{`@media print { body { background: white !important; } aside, nav, header, .business-no-print { display: none !important; } body:has(.business-analytics) div:has(.business-analytics), main:has(.business-analytics) { display: block !important; overflow: visible !important; height: auto !important; max-height: none !important; } .business-analytics { max-width: none !important; padding: 0 !important; color: #18181b !important; } .business-analytics section, .business-analytics article { break-inside: avoid; } .business-analytics details::details-content { content-visibility: visible !important; display: block !important; } .business-analytics details > * { display: block !important; } .business-analytics svg { max-height: 240px; } * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="min-w-0">
         <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Деловой · Управление бизнесом</p>
@@ -214,7 +214,22 @@ function LineCard({ line, index }: { line: BusinessLine; index: number }) {
 
 function DailyChart({ rows }: { rows: BusinessReport["daily"] }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const width = 900, height = 240, left = 65, right = 15, top = 15, bottom = 30;
+  const [chartWidth, setChartWidth] = useState(900);
+  const chartContainer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = chartContainer.current;
+    if (!element) return;
+    const measure = () => {
+      const measured = element.getBoundingClientRect().width;
+      if (measured > 0) setChartWidth(Math.max(280, Math.round(measured)));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const width = chartWidth, height = 240, left = 60, right = 15, top = 15, bottom = 30;
   const min = Math.min(0, ...rows.map(row => row.net));
   const max = Math.max(1, ...rows.map(row => Math.max(row.receipts + row.adjustments, row.net, row.refunds)));
   const span = max - min;
@@ -223,10 +238,10 @@ function DailyChart({ rows }: { rows: BusinessReport["daily"] }) {
   const x = (index: number) => left + step * (index + 0.5);
   const active = selected !== null ? rows[selected] : null;
   return <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-daily-title"><div className="flex flex-wrap items-start justify-between gap-4"><SectionTitle id="business-daily-title" eyebrow="Динамика" title="Движение денег по дням" /><div className="flex flex-wrap gap-3 text-[10px] text-zinc-500"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-emerald-400" />Поступления + корректировки</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-3 bg-zinc-700" />Нетто</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-rose-300" />Возвраты</span></div></div>
-    <div className="mt-5 min-w-0"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full overflow-visible" role="img" aria-label="Поступления, возвраты и нетто по дням. Точные значения доступны в таблице ниже.">
-      {[0, 1, 2, 3].map(i => { const value = max - span * i / 3; return <g key={i}><line x1={left} x2={width - right} y1={y(value)} y2={y(value)} stroke="#f0f0f2" /><text x={left - 10} y={y(value) + 4} textAnchor="end" fontSize="10" fill="#a1a1aa">{new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value)} ₽</text></g>; })}
+    <div ref={chartContainer} className="mt-5 min-w-0"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full overflow-visible" role="img" aria-label="Поступления, возвраты и нетто по дням. Точные значения доступны в таблице ниже.">
+      {[0, 1, 2, 3].map(i => { const value = max - span * i / 3; return <g key={i}><line x1={left} x2={width - right} y1={y(value)} y2={y(value)} stroke="#f0f0f2" /><text x={left - 10} y={y(value) + 4} textAnchor="end" fontSize="11" fill="#71717a">{new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value)} ₽</text></g>; })}
       <line x1={left} x2={width - right} y1={y(0)} y2={y(0)} stroke="#d4d4d8" />
-      {rows.map((row, index) => <g key={row.date}><rect x={x(index) - step * 0.25} y={y(row.receipts + row.adjustments)} width={Math.max(step * 0.45, 1)} height={Math.max(y(0) - y(row.receipts + row.adjustments), 0)} rx="2" fill={selected === index ? "#059669" : "#6ee7b7"} />{row.refunds > 0 && <rect x={x(index) + step * 0.23} y={y(Math.min(row.refunds, max))} width={Math.max(step * 0.14, 1)} height={y(0) - y(Math.min(row.refunds, max))} rx="1" fill="#fda4af" />}{(index === 0 || index === rows.length - 1 || index % Math.max(1, Math.ceil(rows.length / 6)) === 0) && <text x={x(index)} y={height - 6} textAnchor="middle" fontSize="10" fill="#a1a1aa">{day(row.date)}</text>}</g>)}
+      {rows.map((row, index) => <g key={row.date}><rect x={x(index) - step * 0.25} y={y(row.receipts + row.adjustments)} width={Math.max(step * 0.45, 1)} height={Math.max(y(0) - y(row.receipts + row.adjustments), 0)} rx="2" fill={selected === index ? "#059669" : "#6ee7b7"} />{row.refunds > 0 && <rect x={x(index) + step * 0.23} y={y(Math.min(row.refunds, max))} width={Math.max(step * 0.14, 1)} height={y(0) - y(Math.min(row.refunds, max))} rx="1" fill="#fda4af" />}{(index === 0 || index === rows.length - 1 || index % Math.max(1, Math.ceil(rows.length / 6)) === 0) && <text x={x(index)} y={height - 6} textAnchor="middle" fontSize="11" fill="#71717a">{day(row.date)}</text>}</g>)}
       <polyline points={rows.map((row, index) => `${x(index)},${y(row.net)}`).join(" ")} fill="none" stroke="#3f3f46" strokeWidth="2" strokeLinejoin="round" />
       {rows.map((row, index) => <rect key={`hit-${row.date}`} x={left + step * index} y={top} width={step} height={height - bottom - top} fill="transparent" tabIndex={0} role="button" aria-label={`${day(row.date)}: поступления ${money(row.receipts)}, корректировки ${money(row.adjustments)}, возвраты ${money(row.refunds)}, нетто ${money(row.net)}`} onMouseEnter={() => setSelected(index)} onFocus={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onBlur={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(index); } }} className="focus:outline-emerald-600" />)}
     </svg></div>
