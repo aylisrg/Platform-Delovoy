@@ -83,6 +83,11 @@ test.describe("Business analytics populated visual QA", () => {
       await page.setViewportSize({ width: 794, height: 1123 });
       await page.emulateMedia({ media: "print" });
       await expect(page.getByRole("button", { name: "Отправить мне тест" })).toBeHidden();
+      const printBounds = await page.locator(".business-analytics").evaluate(element => ({
+        reportBottom: element.getBoundingClientRect().bottom + window.scrollY,
+        documentHeight: document.documentElement.scrollHeight,
+      }));
+      expect(printBounds.documentHeight + 1).toBeGreaterThanOrEqual(printBounds.reportBottom);
       await capture(page, testInfo, `${advertising}-print-full`);
       const pdfPath = `${artifactDirectory}/${advertising}-print-a4.pdf`;
       const pdf = await page.pdf({ path: pdfPath, format: "A4", printBackground: true, margin: { top: "12mm", right: "12mm", bottom: "12mm", left: "12mm" } });
