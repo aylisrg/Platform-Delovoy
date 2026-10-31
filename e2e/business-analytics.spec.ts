@@ -34,8 +34,15 @@ test.describe("Business analytics access", () => {
     expect(body.data.period.timezone).toBe("Europe/Moscow");
     const csv = await page.request.get("/api/analytics/business/export?period=7d");
     expect(csv.status()).toBe(200); expect(await csv.text()).toContain("офисы исключены");
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/admin/analytics/business");
     await expect(page.getByRole("heading", { name: "Бизнес-аналитика", exact: true })).toBeVisible();
     await expect(page.getByText("Учтённые поступления", { exact: true }).first()).toBeVisible();
+    // Existing CI artifact upload includes playwright-report/. Only the seeded
+    // test database is used here; these are not production financial records.
+    if (process.env.CI) await page.screenshot({ path: "playwright-report/business-desktop.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    if (process.env.CI) await page.screenshot({ path: "playwright-report/business-mobile.png", fullPage: true });
   });
 });
