@@ -12,7 +12,7 @@ async function main() {
     return;
   }
   if (!actorId) throw new Error("Existing SUPERADMIN id is required for audit");
-  const offerHash = action === "enable" ? hashDocumentBody(readFileSync("content/legal/ps-park-offer/v1.md", "utf8")) : undefined;
+  const offerHash = action === "enable" ? hashDocumentBody(readFileSync("content/legal/ps-park-offer/v2.md", "utf8")) : undefined;
   console.log(JSON.stringify(await setOnlineBookingEnabled(actorId, action === "enable", offerHash)));
 }
 main().catch((error) => {

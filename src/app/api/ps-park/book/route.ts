@@ -10,7 +10,8 @@ import { PaymentError } from "@/modules/payments/types";
 import { getClientIp } from "@/lib/client-ip";
 import { InventoryError } from "@/modules/inventory/service";
 import { trackServerGoal } from "@/lib/metrika-server";
-import { deriveSessionKeyFromHeaders, recordFunnelStep } from "@/modules/analytics/product-events";
+import { deriveSessionKeyFromHeaders } from "@/modules/analytics/product-events";
+import { recordPSParkCheckoutAnalytics } from "@/modules/ps-park/checkout-analytics";
 
 /**
  * POST /api/ps-park/book — create a new booking
@@ -45,11 +46,10 @@ export async function POST(request: NextRequest) {
     });
 
     // First-party воронка (US-1 эпика #583, ADR 2026-09-16).
-    recordFunnelStep({
-      funnel: "ps-park",
-      step: "submitted",
+    recordPSParkCheckoutAnalytics({
       sessionKey: deriveSessionKeyFromHeaders(request.headers),
-      entityId: booking.id,
+      bookingId: booking.id,
+      paymentId: booking.payment.id,
     });
 
     return apiResponse(booking, undefined, 201);

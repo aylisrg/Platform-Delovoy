@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockCreate = vi.fn();
+const mockUpsert = vi.fn();
 const mockFindFirst = vi.fn();
 const mockQueryRaw = vi.fn();
 
@@ -8,6 +9,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     productEvent: {
       create: (...args: unknown[]) => mockCreate(...args),
+      upsert: (...args: unknown[]) => mockUpsert(...args),
       findFirst: (...args: unknown[]) => mockFindFirst(...args),
     },
     $queryRaw: (...args: unknown[]) => mockQueryRaw(...args),
@@ -212,6 +214,25 @@ describe("recordFunnelStepAsync — никогда не бросает (AC-1.6)"
 });
 
 describe("recordPaidStep", () => {
+  it("Play Park paid uses a stable entity key; retries never update the first event", async () => {
+    mockFindFirst.mockResolvedValue({ sessionKey: "inherited-key" });
+    await Promise.all([recordPaidStep("ps-park", "booking-1"), recordPaidStep("ps-park", "booking-1")]);
+    await recordPaidStep("ps-park", "booking-2");
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpsert).toHaveBeenCalledTimes(3);
+    const calls = mockUpsert.mock.calls.map(([arg]) => arg as { where: { id: string }; create: { entityId: string; step: string }; update: object });
+    expect(calls[0].where).toEqual(calls[1].where);
+    expect(calls[0].where).not.toEqual(calls[2].where);
+    expect(calls[0]).toMatchObject({ create: { entityId: "booking-1", step: "paid" }, update: {} });
+  });
+
+  it("gazebo and cafe paid keep their existing create behavior", async () => {
+    mockFindFirst.mockResolvedValue({ sessionKey: "inherited-key" });
+    await recordPaidStep("gazebos", "gazebo-1");
+    await recordPaidStep("cafe", "order-1");
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
   it("нет предшествующего submitted — paid не пишется", async () => {
     mockFindFirst.mockResolvedValue(null);
     await recordPaidStep("cafe", "order-1");

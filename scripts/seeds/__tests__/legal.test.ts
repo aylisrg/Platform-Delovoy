@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { seedLegalDocuments } from "../legal";
 import { hashDocumentBody } from "../../../src/modules/booking/offer";
+import { PUBLIC_CONTACTS } from "../../../src/lib/public-contacts";
 import { createFakePrisma, asPrisma, type FakePrisma } from "./fake-prisma";
 
 describe("seedLegalDocuments", () => {
@@ -16,14 +17,15 @@ describe("seedLegalDocuments", () => {
     await seedLegalDocuments(asPrisma(fake));
 
     const rows = fake.offerVersion.__store.rows;
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(6);
     expect([...new Set(rows.map((r) => r.documentKey))].sort()).toEqual(["gazebos-offer", "privacy-policy", "ps-park-offer"]);
     for (const row of rows) {
       expect(row.slug).toBe(`v${row.number}`);
-      expect(row.isCurrent).toBe(row.documentKey === "ps-park-offer" || row.number === 2);
+      expect(row.isCurrent).toBe(row.number === 2);
       expect(String(row.body).length).toBeGreaterThan(1000);
-      if (row.isCurrent && row.documentKey !== "ps-park-offer") {
-        const phone = row.documentKey === "gazebos-offer" ? "+7 (926) 900-81-20" : "+7 (499) 647-71-42";
+      if (row.isCurrent) {
+        const contact = row.documentKey === "gazebos-offer" ? "gazebos" : row.documentKey === "ps-park-offer" ? "ps-park" : "rental";
+        const phone = PUBLIC_CONTACTS[contact].displayPhone;
         expect(row.body).toContain(phone);
         expect(row.body).not.toContain("+7 (499) 677-48-88");
       }
@@ -39,6 +41,23 @@ describe("seedLegalDocuments", () => {
     expect(offer.contentHash).toBe(hashDocumentBody(file));
   });
 
+  it("при обновлении не переписывает принятые v1 и сохраняет действующие v2 других документов", async () => {
+    await seedLegalDocuments(asPrisma(fake));
+    const rows = fake.offerVersion.__store.rows;
+    const previousPlayPark = rows.find((row) => row.documentKey === "ps-park-offer" && row.slug === "v1")!;
+    const original = { body: previousPlayPark.body, contentHash: previousPlayPark.contentHash, id: previousPlayPark.id };
+    // Состояние до выпуска контактной редакции Play Park: беседки/ПД уже v2.
+    rows.splice(rows.findIndex((row) => row.documentKey === "ps-park-offer" && row.slug === "v2"), 1);
+    previousPlayPark.isCurrent = true;
+
+    await seedLegalDocuments(asPrisma(fake));
+
+    expect(fake.offerVersion.__store.rows.find((row) => row.id === original.id)).toMatchObject({ ...original, isCurrent: false });
+    for (const documentKey of ["gazebos-offer", "privacy-policy", "ps-park-offer"]) {
+      expect(fake.offerVersion.__store.rows.filter((row) => row.documentKey === documentKey && row.isCurrent).map((row) => row.slug)).toEqual(["v2"]);
+    }
+  });
+
   it("идемпотентен: повторный прогон не плодит редакции и не меняет текст", async () => {
     await seedLegalDocuments(asPrisma(fake));
     const before = fake.offerVersion.__store.rows.map((r) => ({ ...r }));
@@ -46,7 +65,7 @@ describe("seedLegalDocuments", () => {
     await seedLegalDocuments(asPrisma(fake));
 
     const after = fake.offerVersion.__store.rows;
-    expect(after).toHaveLength(5);
+    expect(after).toHaveLength(6);
     expect(after.map((r) => r.body)).toEqual(before.map((r) => r.body));
     expect(after.map((r) => r.contentHash)).toEqual(before.map((r) => r.contentHash));
   });

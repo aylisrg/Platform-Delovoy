@@ -49,6 +49,16 @@ const REVISIONS: DocumentRevision[] = [
     file: "content/legal/ps-park-offer/v1.md",
     publishedAt: "2026-10-28T00:00:00.000Z",
     effectiveAt: "2026-10-28T00:00:00.000Z",
+    isCurrent: false,
+  },
+  {
+    documentKey: "ps-park-offer",
+    number: 2,
+    slug: "v2",
+    title: "Публичная оферта — Плей Парк",
+    file: "content/legal/ps-park-offer/v2.md",
+    publishedAt: "2026-10-31T00:00:00.000Z",
+    effectiveAt: "2026-10-31T00:00:00.000Z",
     isCurrent: true,
   },
   {

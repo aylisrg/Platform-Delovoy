@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 type PublicStatus = {
   id: string;
@@ -171,7 +172,7 @@ export default function PaymentWaitPage() {
               Бронирование подтверждено. Чек придёт на указанный контакт, подробности — в
               уведомлении.
             </p>
-            {state.reservationStatus && <p className="mt-3 text-sm text-gray-500">Для переноса обратитесь к администратору: <a href="tel:+74996774888" className="underline">+7 (499) 677-48-88</a> или <a href="mailto:info@delovoy-park.ru" className="underline">info@delovoy-park.ru</a>. Сохраните эту страницу оплаты.</p>}
+            {state.reservationStatus && <p className="mt-3 text-sm text-gray-500">Для переноса обратитесь к администратору: <a href={`tel:${PUBLIC_CONTACTS["ps-park"].phone}`} className="underline">{PUBLIC_CONTACTS["ps-park"].displayPhone}</a> или <a href="mailto:info@delovoy-park.ru" className="underline">info@delovoy-park.ru</a>. Сохраните эту страницу оплаты.</p>}
             <Link
               href={state.reservationStatus ? "/ps-park" : "/dashboard"}
               className="mt-6 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-700"

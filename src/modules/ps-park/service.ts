@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 import { createHash } from "node:crypto";
 import type { Booking, BookingStatus, Prisma } from "@prisma/client";
 import { enqueueNotification } from "@/modules/notifications/queue";
@@ -1021,7 +1022,7 @@ export async function cancelBooking(
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
   if (booking.userId !== userId) throw new PSBookingError("FORBIDDEN", "Нельзя отменить чужое бронирование");
   if (isPSParkReservation(booking)) {
-    throw new PSBookingError("RESCHEDULE_REQUIRED", "Для переноса оплаченного времени или обращения по оплате свяжитесь с администратором: +7 (499) 677-48-88");
+    throw new PSBookingError("RESCHEDULE_REQUIRED", `Для переноса оплаченного времени или обращения по оплате свяжитесь с администратором: ${PUBLIC_CONTACTS["ps-park"].displayPhone}`);
   }
   if (booking.status === "CANCELLED" || booking.status === "COMPLETED") {
     throw new PSBookingError("INVALID_STATUS_TRANSITION", "Бронирование уже завершено или отменено");

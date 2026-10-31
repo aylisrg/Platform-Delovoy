@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { prisma } from "./helpers/db";
 
-// The repository seed intentionally has no approved Play Park offer or enabled
-// checkout. This full Next.js/DB E2E checks that default stays fail-closed.
+// The legal seed includes the Play Park offer, but never enables checkout.
+// This full Next.js/DB E2E checks that the default stays fail-closed.
 // Paid browser paths with API fixtures: node e2e/ps-park-checkout-browser.mjs.
 test("Плей Парк: без активации гостю не создаётся неоплаченная заявка", async ({ page }) => {
   const parkModule = await prisma.module.findUnique({ where: { slug: "ps-park" } });

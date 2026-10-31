@@ -14,7 +14,10 @@ vi.mock("@/lib/logger", () => ({
 
 const mockProductEventCreate = vi.fn();
 vi.mock("@/lib/db", () => ({
-  prisma: { productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) } },
+  prisma: {
+    productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) },
+    payment: { findFirst: vi.fn().mockResolvedValue(null) },
+  },
 }));
 vi.mock("@/lib/redis", () => ({ redis: { set: vi.fn() }, redisAvailable: false }));
 

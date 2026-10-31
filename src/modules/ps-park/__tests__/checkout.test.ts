@@ -14,6 +14,7 @@ vi.mock("@/modules/inventory/service", () => ({
   InventoryError: class InventoryError extends Error {},
 }));
 vi.mock("@/lib/metrika-server", () => ({ trackServerGoal: vi.fn() }));
+vi.mock("@/modules/ps-park/checkout-analytics", () => ({ recordPSParkCheckoutAnalytics: vi.fn() }));
 vi.mock("@/modules/analytics/product-events", () => ({
   recordPaidStep: vi.fn(), recordFunnelStep: vi.fn(), deriveSessionKeyFromHeaders: vi.fn(),
 }));
@@ -416,7 +417,10 @@ describe("Play Park: HTTP checkout → общий payments → webhook (БД и 
     await post(); await notify();
     const b = booking();
     bookings.set(b.id, { ...b, userId: "guest-user" });
-    await expect(cancelBooking(b.id, "guest-user", "изменились планы", true)).rejects.toMatchObject({ code: "RESCHEDULE_REQUIRED" });
+    await expect(cancelBooking(b.id, "guest-user", "изменились планы", true)).rejects.toMatchObject({
+      code: "RESCHEDULE_REQUIRED",
+      message: expect.stringContaining("+7 (985) 244-46-24"),
+    });
     expect(booking().status).toBe("CONFIRMED");
     expect(booking().metadata).not.toHaveProperty("cancelPenalty");
   });

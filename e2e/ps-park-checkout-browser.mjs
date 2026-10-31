@@ -104,6 +104,8 @@ try {
     state.status = "SUCCEEDED"; state.reservationStatus = "CONFIRMED";
     await page.getByRole("link", { name: "Вернуться на сайт" }).click();
     await expect(page.getByRole("heading", { name: "Оплата прошла успешно!" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "+7 (985) 244-46-24", exact: true })).toHaveAttribute("href", "tel:+79852444624");
+    await expect(page.locator('a[href="tel:+74996774888"]')).toHaveCount(0);
     await page.getByRole("link", { name: "Вернуться в Плей Парк" }).click();
     await expect(page).toHaveURL(/\/ps-park$/);
     assert.equal(state.requests.length, 1);
