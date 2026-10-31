@@ -36,16 +36,12 @@ const BASE_TABS: WebAppTab[] = [
   { href: "/webapp/profile", label: "Профиль", icon: "user" },
 ];
 
-export function buildNavigation(caps: WebAppCapabilities): WebAppNavigation {
-  const profileEntries: WebAppProfileEntry[] = [];
-
-  if (caps.canNotificationCenter) {
-    profileEntries.push({
+export function buildNavigation(_caps: WebAppCapabilities): WebAppNavigation {
+  const profileEntries: WebAppProfileEntry[] = [{
       href: "/webapp/notifications",
       label: "Центр уведомлений",
       icon: "bell",
-    });
-  }
+    }];
 
   profileEntries.push({
     href: "/webapp/settings",
