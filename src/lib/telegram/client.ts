@@ -42,6 +42,8 @@ export type TelegramApiOptions = {
   botToken?: string;
   /** Hard cap for the whole HTTP call. Defaults to 15 000 ms. */
   timeoutMs?: number;
+  /** Disable fallback for sends whose ambiguous outcome must not be retried. */
+  allowFallback?: boolean;
 };
 
 export type TelegramApiSuccess<T> = {
@@ -149,7 +151,7 @@ export async function telegramApi<T = unknown>(
     res = await transportFetch(`${root}/bot${token}/${method}`, buildInit(primaryTimeout), proxyUrl);
   } catch (primaryErr) {
     const primaryDesc = describeTransportError(primaryErr, primaryTimeout, root);
-    if (!hasCustomTransport) {
+    if (!hasCustomTransport || options.allowFallback === false) {
       return { ok: false, description: primaryDesc, retryable: true, transportError: true };
     }
     warnFallback(primaryDesc);
