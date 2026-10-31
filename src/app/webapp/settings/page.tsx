@@ -34,7 +34,7 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { ready, apiFetch, showBackButton, onBackButtonClick, haptic } =
+  const { ready, user, capabilities, apiFetch, showBackButton, onBackButtonClick, haptic } =
     useTelegram();
 
   const [prefs, setPrefs] = useState<Preferences | null>(null);
@@ -132,6 +132,12 @@ export default function SettingsPage() {
           Управляйте тем, что вам приходит и куда
         </p>
       </div>
+
+      {(user?.role === "SUPERADMIN" || (user?.role === "ADMIN" && capabilities.staffSections.includes("analytics"))) && (
+        <a href="/webapp/business-analytics" className="mx-4 mt-5 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 focus-visible:outline-2 focus-visible:outline-emerald-600">
+          <span><strong className="text-sm font-semibold">Бизнес-аналитика</strong><span className="mt-1 block text-xs text-emerald-800">Графики и недельные отчёты в Telegram</span></span><span aria-hidden="true">→</span>
+        </a>
+      )}
 
       {/* Category toggles */}
       <div className="px-4 mt-5">

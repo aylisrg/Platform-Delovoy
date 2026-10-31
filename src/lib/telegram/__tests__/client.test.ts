@@ -208,6 +208,14 @@ describe("telegramApi", () => {
 });
 
 describe("telegramApi — transport failover", () => {
+  it("does not retry an ambiguous financial send when fallback is disabled", async () => {
+    process.env.TELEGRAM_API_ROOT = "https://relay.example.com";
+    mockFetch.mockRejectedValue(new DOMException("timeout", "TimeoutError"));
+    const result = await telegramApi("sendMessage", { chat_id: "1", text: "report" }, { allowFallback: false });
+    expect(result.ok).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   const transportErr = () => {
     const err = new TypeError("fetch failed");
     (err as Error & { cause?: object }).cause = { code: "ETIMEDOUT" };

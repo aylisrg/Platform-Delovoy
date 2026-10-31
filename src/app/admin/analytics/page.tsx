@@ -171,6 +171,9 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      <a href="/admin/analytics/business" className="flex items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-emerald-600">
+        <span><strong className="font-semibold">Бизнес-аналитика</strong><span className="mt-1 block text-xs text-emerald-800">Деньги, направления, путь гостя и личный недельный отчёт</span></span><span aria-hidden="true">→</span>
+      </a>
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
