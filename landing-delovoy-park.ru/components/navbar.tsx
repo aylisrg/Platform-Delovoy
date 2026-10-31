@@ -18,7 +18,11 @@ const navLinks = [
 // callbackUrl, поэтому ссылка одна и та же для гостя и для залогиненного.
 const TEAM_LINK = { label: "FOR TEAM", href: "/for-team" };
 
-export function Navbar({ dark = false }: { dark?: boolean }) {
+export function Navbar({ dark = false, action = { href: "#offices", label: "Оставить заявку" }, collapseAt = "md" }: {
+  dark?: boolean;
+  action?: { href: string; label: string };
+  collapseAt?: "md" | "xl";
+}) {
   const [open, setOpen] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const { data: session, status } = useSession();
@@ -26,6 +30,8 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
   const isLoggedIn = status === "authenticated" && !!session?.user;
   const isAdmin =
     session?.user?.role === "SUPERADMIN" || session?.user?.role === "MANAGER";
+  const mobileVisibility = collapseAt === "xl" ? "xl:hidden" : "md:hidden";
+  const desktopVisibility = collapseAt === "xl" ? "hidden xl:flex" : "hidden md:flex";
 
   const headerCls = dark
     ? "fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-zinc-950/50 border-b border-violet-500/[0.18]"
@@ -64,12 +70,12 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
     ? "text-white/50 hover:text-white text-[13px] px-4 py-2 transition-colors font-[family-name:var(--font-inter)]"
     : "text-[#1d1d1f]/50 hover:text-[#1d1d1f] text-[13px] px-4 py-2 transition-colors font-[family-name:var(--font-inter)]";
   const burgerCls = dark
-    ? "md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 text-white"
-    : "md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 text-[#1d1d1f]";
+    ? `${mobileVisibility} min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 text-white`
+    : `${mobileVisibility} min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 text-[#1d1d1f]`;
   const barCls = dark ? "w-[18px] h-px bg-white" : "w-[18px] h-px bg-[#1d1d1f]";
   const mobileBgCls = dark
-    ? "md:hidden backdrop-blur-xl px-6 py-5 space-y-4 bg-zinc-950/95 border-t border-white/[0.06]"
-    : "md:hidden backdrop-blur-xl px-6 py-5 space-y-4 bg-white/95 border-t border-black/[0.04]";
+    ? `${mobileVisibility} backdrop-blur-xl px-6 py-5 space-y-4 bg-zinc-950/95 border-t border-white/[0.06]`
+    : `${mobileVisibility} backdrop-blur-xl px-6 py-5 space-y-4 bg-white/95 border-t border-black/[0.04]`;
   const mobileLinkCls = dark
     ? "block transition-colors text-[15px] font-[family-name:var(--font-inter)] text-white/70 hover:text-white"
     : "block transition-colors text-[15px] font-[family-name:var(--font-inter)] text-[#1d1d1f]/70 hover:text-[#1d1d1f]";
@@ -93,7 +99,7 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
           Деловой Парк
         </Link>
 
-        <nav className="hidden md:flex items-center gap-7">
+        <nav className={`${desktopVisibility} items-center gap-7`}>
           {navLinks.map((link) =>
             !link.href.startsWith("/") || link.href.startsWith("/#") ? (
               <a key={link.href} href={link.href} className={linkCls}>
@@ -110,10 +116,10 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
           </Link>
         </nav>
 
-        <div className="hidden md:flex items-center gap-3">
+        <div className={`${desktopVisibility} items-center gap-3`}>
           {!isLoggedIn && (
-            <a href="#offices" className={ctaBtnCls}>
-              Оставить заявку
+            <a href={action.href} className={ctaBtnCls}>
+              {action.label}
             </a>
           )}
 
@@ -173,6 +179,8 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
           className={burgerCls}
           onClick={() => setOpen(!open)}
           aria-label="Меню"
+          aria-expanded={open}
+          aria-controls="public-mobile-navigation"
         >
           <div className="flex flex-col gap-[5px]">
             <div className={barCls} />
@@ -183,7 +191,7 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
       </div>
 
       {open && (
-        <div className={mobileBgCls}>
+        <div id="public-mobile-navigation" className={mobileBgCls}>
           {navLinks.map((link) =>
             !link.href.startsWith("/") || link.href.startsWith("/#") ? (
               <a
@@ -214,11 +222,11 @@ export function Navbar({ dark = false }: { dark?: boolean }) {
           </Link>
           {!isLoggedIn && (
             <a
-              href="#offices"
+              href={action.href}
               onClick={() => setOpen(false)}
               className={mobileCtaCls}
             >
-              Оставить заявку
+              {action.label}
             </a>
           )}
 

@@ -26,7 +26,7 @@ export function LegalFooterLinks({ variant = "light" }: { variant?: "light" | "d
         Политика обработки персональных данных
       </Link>
       <span className="mx-2">·</span>
-      <span className="whitespace-nowrap">ИП Павленко Л. П., ОГРНИП 305770002665641</span>
+      <span className="whitespace-normal sm:whitespace-nowrap">ИП Павленко Л. П., ОГРНИП 305770002665641</span>
     </p>
   );
 }
