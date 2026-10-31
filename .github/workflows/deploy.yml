@@ -470,7 +470,7 @@ jobs:
           command_timeout: 30m
           envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY,SKIP_SMOKE_TESTS
           script: |
-            set -euo pipefail
+            set -eo pipefail
             test "$(hostname)" = "7548623-jm024579.twc1.net"
             cd /opt/delovoy-park
 
