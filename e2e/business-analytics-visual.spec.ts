@@ -20,7 +20,7 @@ async function capture(page: Page, testInfo: TestInfo, name: string) {
   const expanded = print ? null : await page.addStyleTag({ content: "[data-qa-capture-shell] { height: auto !important; max-height: none !important; overflow: visible !important; }" });
   try { await page.screenshot({ path, fullPage: true, animations: "disabled" }); }
   finally {
-    await expanded?.evaluate(element => element.remove());
+    await expanded?.evaluate(element => element.parentNode?.removeChild(element));
     await page.locator("[data-qa-capture-shell]").evaluateAll(elements => elements.forEach(element => element.removeAttribute("data-qa-capture-shell")));
   }
   await testInfo.attach(name, { path, contentType: "image/png" });
