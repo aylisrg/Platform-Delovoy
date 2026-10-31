@@ -87,6 +87,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
       - run: npm test
+      - name: Deployment backup failure gates
+        run: bash scripts/__tests__/deploy-backup.test.sh
       - name: Cron upsert test (#1074)
         run: bash scripts/__tests__/cron-upsert.test.sh
 
