@@ -9,11 +9,11 @@ import {
   Card,
   EmptyState,
   Icon,
-  ListItem,
   SectionHeader,
   Skeleton,
 } from "@/components/webapp/ui";
 import { buildNavigation } from "@/lib/webapp/navigation";
+import { canViewBusinessAnalytics } from "@/lib/webapp/types";
 import type { WebAppIconName } from "@/lib/webapp/icon-names";
 import { TelephonyDailySummaryCard } from "@/components/webapp/telephony-daily-summary-card";
 import {
@@ -409,6 +409,18 @@ export default function WebAppHome() {
         </p>
       </header>
 
+      <section className="px-4 mt-4" aria-label="Уведомления">
+        <Card className="overflow-hidden" style={{ border: "1px solid var(--tg-accent)" }}>
+          <Link href="/webapp/notifications" onClick={() => haptic.impact("light")} className="flex min-h-24 items-center gap-3 p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ color: "var(--tg-accent)", background: "var(--tg-secondary-bg)" }}><Icon name="bell" size={26} /></span>
+            <span className="min-w-0 flex-1"><span className="block text-[18px] font-bold">Центр уведомлений</span><span className="mt-1 block text-[13px] leading-snug" style={{ color: "var(--tg-subtitle)" }}>Сообщения, подписки и каналы связи</span></span>
+            {unreadCount > 0 && <Badge tone="accent">{unreadCount}</Badge>}
+            <span style={{ color: "var(--tg-hint)" }}><Icon name="chevron-right" size={18} /></span>
+          </Link>
+          {canViewBusinessAnalytics(user, capabilities) && <Link href="/webapp/notifications#business-reports" className="flex min-h-11 items-center justify-between gap-2 border-t px-4 py-3 text-[13px] font-medium" style={{ color: "var(--tg-link)", borderColor: "var(--tg-separator)" }}>Бизнес-отчёты · настроить<Icon name="chevron-right" size={16} /></Link>}
+        </Card>
+      </section>
+
       {/* Быстрые ссылки на разделы — видное место, до ленты (AC-2.5) */}
       <nav className="px-4 mt-4" aria-label="Разделы">
         <div className="grid grid-cols-3 gap-2">
@@ -432,28 +444,7 @@ export default function WebAppHome() {
         </div>
       </nav>
 
-      {/* Для сотрудника уведомления — главный инструмент: вход в Центр
-          прямо на главной, а не только из Профиля. Гостю раздел не рендерится
-          (AC-2.6); права всё равно перепроверяет сервер (loadWebAppStaff). */}
-      {capabilities.canNotificationCenter && (
-        <section className="mt-5" aria-label="Сотруднику">
-          <SectionHeader>Сотруднику</SectionHeader>
-          <div className="px-4">
-            <Card className="p-0 overflow-hidden">
-              <ListItem
-                icon="bell"
-                title="Центр уведомлений"
-                subtitle="Какие события парка приходят лично вам"
-                href="/webapp/notifications"
-                chevron
-                onClick={() => haptic.impact("light")}
-              />
-            </Card>
-          </div>
-        </section>
-      )}
-
-      <section className="mt-5">
+      <section id="notification-feed" className="mt-5 scroll-mt-4">
         <div className="flex items-center justify-between">
           <SectionHeader>
             Лента{" "}

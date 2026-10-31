@@ -7,6 +7,7 @@ import {
   useState,
   useCallback,
   useSyncExternalStore,
+  useRef,
   type ReactNode,
 } from "react";
 import { waitForWebApp } from "./telegram-bootstrap";
@@ -148,6 +149,7 @@ async function requestWebAppSession(initData: string): Promise<WebAppSessionPayl
 }
 
 export function TelegramProvider({ children }: { children: ReactNode }) {
+  const backHandler = useRef<(() => void) | null>(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<WebAppUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -288,11 +290,19 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     const webapp = getWebApp();
     if (!webapp?.BackButton) return;
     if (visible) webapp.BackButton.show();
-    else webapp.BackButton.hide();
+    else {
+      webapp.BackButton.hide();
+      if (backHandler.current) webapp.BackButton.offClick(backHandler.current);
+      backHandler.current = null;
+    }
   }, []);
 
   const onBackButtonClick = useCallback((cb: () => void) => {
-    getWebApp()?.BackButton?.onClick(cb);
+    const button = getWebApp()?.BackButton;
+    if (!button) return;
+    if (backHandler.current) button.offClick(backHandler.current);
+    backHandler.current = cb;
+    button.onClick(cb);
   }, []);
 
   const close = useCallback(() => {

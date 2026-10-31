@@ -23,7 +23,7 @@ describe("buildNavigation", () => {
     expect(nav.tabs.find((t) => t.href.includes("messenger"))).toBeUndefined();
     expect(
       nav.profileEntries.find((e) => e.href === "/webapp/notifications")
-    ).toBeUndefined();
+    ).toBeDefined();
   });
 
   it("сотрудник: те же табы + вход в Центр уведомлений в профиле (AC-1.3)", () => {
@@ -34,7 +34,7 @@ describe("buildNavigation", () => {
     ).toBeDefined();
   });
 
-  it("сотрудник без категорий (canNotificationCenter=false) — входа в Центр нет", () => {
+  it("сотрудник без категорий видит общий центр с личными настройками", () => {
     const nav = buildNavigation({
       ...STAFF_CAPS,
       notificationCategories: [],
@@ -42,6 +42,6 @@ describe("buildNavigation", () => {
     });
     expect(
       nav.profileEntries.find((e) => e.href === "/webapp/notifications")
-    ).toBeUndefined();
+    ).toBeDefined();
   });
 });

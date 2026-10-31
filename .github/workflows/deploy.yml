@@ -850,11 +850,10 @@ jobs:
             echo "=== Container status ==="
             docker ps --filter name=delovoy --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-      # Персональный анонс релиза идёт ПЕРЕД групповым «Deploy OK»: групповое
-      # сообщение — это fallback, оно уходит только если персонального анонса
-      # не было (см. следующий шаг и ADR §6.5). Идемпотентность «версия уже
-      # анонсирована» — серверная (таблица ReleaseAnnouncement), локальных
-      # guard'ов по файлам в репозитории здесь больше нет.
+      # Queue the personal announcement before the existing group fallback.
+      # Auto notes keep the once-per-version policy. Nonempty curated notes
+      # opt into a separate content identity, stable across technical deploys.
+      # Queue acceptance and duplicate claims are never delivery receipts.
       - name: Generate release notes & notify subscribers
         id: release
         if: success()
@@ -875,11 +874,20 @@ jobs:
 
           # --- Step 1: Check for manual release notes in docs/releases/current.md ---
           NOTES=""
+          UPDATE_ID=""
           if [ -f "docs/releases/current.md" ]; then
-            MANUAL=$(sed '/^>/d;/^#/d;/^[[:space:]]*$/d;/^-$/d;/^- *$/d' docs/releases/current.md | head -60)
+            MANUAL=$(node <<'JS'
+          const fs = require("node:fs");
+          const raw = fs.readFileSync("docs/releases/current.md", "utf8");
+          const lines = raw.normalize("NFC").replace(/\r\n?/g, "\n").split("\n").map(line => line.trim());
+          process.stdout.write(lines.filter(line => line && line !== "-" && !line.startsWith("#") && !line.startsWith(">")).join("\n"));
+          JS
+          )
             if [ -n "$MANUAL" ]; then
               NOTES="$MANUAL"
+              UPDATE_ID=$(printf '%s' "$NOTES" | node -e 'const fs=require("node:fs"),crypto=require("node:crypto"); process.stdout.write("manual:"+crypto.createHash("sha256").update(fs.readFileSync(0)).digest("hex"))')
               echo "Using manually written release notes"
+              echo "Curated update identity: $UPDATE_ID"
             fi
           fi
 
@@ -974,10 +982,15 @@ jobs:
 
           # --- Step 3: Send to subscribers ---
           NOTES_JSON=$(printf '%s' "$NOTES" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+          UPDATE_FIELD=""
+          if [ -n "$UPDATE_ID" ]; then
+            UPDATE_FIELD="\"updateId\": \"${UPDATE_ID}\","
+          fi
 
           PAYLOAD=$(cat <<EOFPAYLOAD
           {
             "secret": "${RELEASE_NOTIFY_SECRET}",
+            ${UPDATE_FIELD}
             "version": "${VERSION}",
             "releaseNotes": ${NOTES_JSON},
             "commitSha": "${COMMIT_SHA}",
@@ -986,37 +999,29 @@ jobs:
           EOFPAYLOAD
           )
 
-          # || echo '{}' обязателен: под set -e сбой соединения (DNS/timeout)
-          # без guard'а валит весь шаг ДО записи notified=false — пропадает и
-          # анонс, и групповой fallback, а деплой ложно помечается FAILED.
+          # Keep a transport failure visible without misreporting app deployment.
           RESPONSE=$(curl -s --max-time 15 -X POST \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
             "${APP_URL}/api/admin/release-notify" || echo '{}')
           echo "Release notify response: $RESPONSE"
 
-          # notified=true — подписчики точно не останутся без личного анонса
-          # этой версии: либо он ушёл прямо сейчас (announced:true), либо уже
-          # ушёл раньше в более раннем ране для того же SHA
-          # (announced:false, skippedReason:"already-announced" — дубль-триггер
-          # #525, guard выше его не всегда ловит первым; идемпотентность
-          # серверная). В обоих случаях fallback в группу не нужен. Настоящий
-          # fallback — только когда персонального анонса не было и не могло
-          # быть: нет секрета, сеть/сервер не ответили (ответа нет вовсе, либо
-          # announced:false по другой причине).
-          if echo "$RESPONSE" | jq -e '.success == true and (.data.announced == true or .data.skippedReason == "already-announced")' >/dev/null 2>&1; then
-            echo "notified=true" >> "$GITHUB_OUTPUT"
+          # Do not turn explicit opt-outs/no audience, duplicates or uncertain
+          # outcomes into group broadcasts. A known queue row belongs to the
+          # existing dispatcher (including its retry/fallback chain).
+          # Legacy responses remain understood for deliberate rollback deploys.
+          if echo "$RESPONSE" | jq -e '.success == true and (.data.status == "queued" or .data.status == "skipped" or (.data.queued // 0) > 0 or (.data.previouslyQueued // 0) > 0 or .data.reason == "outcome-uncertain" or .data.reason == "enqueue-failed" or .data.reason == "recording-failed" or (.data.status == null and (.data.announced == true or .data.skippedReason == "already-announced")))' >/dev/null 2>&1; then
+            echo "suppress_fallback=true" >> "$GITHUB_OUTPUT"
           else
-            echo "notified=false" >> "$GITHUB_OUTPUT"
+            echo "suppress_fallback=false" >> "$GITHUB_OUTPUT"
+          fi
+          if ! echo "$RESPONSE" | jq -e '.success == true and .data.status != "error"' >/dev/null 2>&1; then
+            echo "::warning::Release announcement was not fully accepted; inspect the queue result above. Deployment health is checked separately."
           fi
 
-      # Fallback-канал: групповое подтверждение уходит, только если персонального
-      # анонса не было и не могло быть (нет секрета, сеть/сервер не ответили).
-      # already-announced (версия уже анонсирована более ранним раном — #525)
-      # считается персональным анонсом доставленным, fallback не шлём. Иначе
-      # владелец получал два сообщения об одном деплое — US-6.
+      # Existing infrastructure fallback; not proof of a personal announcement.
       - name: Notify on success
-        if: success() && steps.release.outputs.notified != 'true'
+        if: success() && steps.release.outputs.suppress_fallback != 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}

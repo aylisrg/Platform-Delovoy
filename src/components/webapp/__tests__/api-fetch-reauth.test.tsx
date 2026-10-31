@@ -78,3 +78,20 @@ describe("apiFetch — revoked token (ADR 2026-10-25 §Q1)", () => {
     await expect(ctx!.apiFetch("/api/webapp/feed")).rejects.toMatchObject({ status: 401 });
   });
 });
+
+describe("Telegram back navigation", () => {
+  it("replaces the old screen handler and removes it on screen exit", async () => {
+    const handlers = new Set<() => void>();
+    const button = { show: vi.fn(), hide: vi.fn(), onClick: (cb: () => void) => handlers.add(cb), offClick: (cb: () => void) => handlers.delete(cb) };
+    Object.assign(window.Telegram.WebApp, { BackButton: button });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(json(200, session("fixture")));
+    render(<TelegramProvider><Probe onCtx={capture} /></TelegramProvider>);
+    await waitFor(() => expect(ctx?.ready).toBe(true));
+    const oldScreen = vi.fn(); const center = vi.fn();
+    ctx!.onBackButtonClick(oldScreen); ctx!.onBackButtonClick(center);
+    handlers.forEach(cb => cb());
+    expect(oldScreen).not.toHaveBeenCalled(); expect(center).toHaveBeenCalledTimes(1);
+    ctx!.showBackButton(false);
+    expect(handlers.size).toBe(0);
+  });
+});
