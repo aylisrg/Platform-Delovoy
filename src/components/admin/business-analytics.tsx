@@ -131,7 +131,23 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
   }
 
   return <div className={`business-analytics mx-auto w-full min-w-0 max-w-[1480px] space-y-6 text-zinc-900 ${miniApp ? "bg-zinc-50 px-4 py-5 pb-24" : "p-4 sm:p-7 lg:p-9"}`}>
-    <style>{`@media print { body { background: white !important; } aside, nav, header, .business-no-print { display: none !important; } body:has(.business-analytics) div:has(.business-analytics), main:has(.business-analytics) { display: block !important; overflow: visible !important; height: auto !important; max-height: none !important; } .business-analytics { max-width: none !important; padding: 0 !important; color: #18181b !important; } .business-analytics section, .business-analytics article { break-inside: avoid; } .business-analytics details::details-content { content-visibility: visible !important; display: block !important; } .business-analytics details > * { display: block !important; } .business-analytics svg { max-height: 240px; } * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
+    <style>{`@media print {
+      body { background: white !important; }
+      aside, nav, header, .business-no-print,
+      body:has(.business-analytics) [data-admin-print-chrome] { display: none !important; }
+      body:has(.business-analytics) div:has(.business-analytics), main:has(.business-analytics) {
+        display: block !important; overflow: visible !important; height: auto !important; max-height: none !important;
+      }
+      .business-analytics { max-width: none !important; padding: 0 !important; color: #18181b !important; }
+      .business-analytics section, .business-analytics article { break-inside: avoid; }
+      .business-analytics p { orphans: 3; widows: 3; }
+      .business-funnel-steps { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 16px !important; }
+      .business-funnel-note { break-inside: avoid; }
+      .business-analytics details::details-content { content-visibility: visible !important; display: block !important; }
+      .business-analytics details > * { display: block !important; }
+      .business-analytics svg { max-height: 240px; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }`}</style>
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="min-w-0">
         <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Деловой · Управление бизнесом</p>
@@ -165,7 +181,7 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
       {preferenceError && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-5 py-3 text-sm text-rose-800">{preferenceError}</p>}
     </section>}
     {actionMessage && <p role="status" className="business-no-print rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">{actionMessage}</p>}
-    <p className="flex items-center gap-2 text-xs text-zinc-400"><Icon name="shield" className="h-3.5 w-3.5" />Внутренний отчёт · доступ по роли и разрешению</p>
+    <p className="business-no-print flex items-center gap-2 text-xs text-zinc-400"><Icon name="shield" className="h-3.5 w-3.5" />Внутренний отчёт · доступ по роли и разрешению</p>
   </div>;
 }
 
@@ -191,11 +207,11 @@ export function BusinessReportView({ report }: { report: BusinessReport }) {
 
     <section aria-labelledby="business-lines-title"><SectionTitle id="business-lines-title" eyebrow="03 направления" title="Что происходит в бизнесе" description="Деньги считаются один раз. Счёт сессии и связанный заказ кафе не складываются повторно." /><div className="mt-4 grid gap-4 xl:grid-cols-3">{report.lines.map((line, index) => <LineCard key={line.slug} line={line} index={index} />)}</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><Unavailable label="Офисы" description="Демонстрационные данные — исключены из всех бизнес-итогов и отчётов." /><Unavailable label="Парковка и сауна" description="Денежные источники пока не подключены. Показатели недоступны." /></div></section>
 
-    <section className="rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-funnel-title"><SectionTitle id="business-funnel-title" eyebrow="Путь гостя" title="От интереса к оплате" description="Независимые шаги за выбранный период. Это не конверсия одной когорты." /><div className="mt-6 grid gap-6 lg:grid-cols-3">{report.funnel.map(funnel => {
+    <section className="rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-funnel-title"><SectionTitle id="business-funnel-title" eyebrow="Путь гостя" title="От интереса к оплате" description="Независимые шаги за выбранный период. Это не конверсия одной когорты." /><div className="business-funnel-steps mt-6 grid gap-6 lg:grid-cols-3">{report.funnel.map(funnel => {
       const steps = [{ label: "Просмотр", value: funnel.views, unit: "посетитель-день" }, { label: "Начало выбора", value: funnel.started, unit: "посетитель-день" }, { label: "Отправлено", value: funnel.submitted, unit: "брони / заказы" }, { label: "Событие онлайн-оплаты", value: funnel.paid, unit: "брони / заказы" }];
       const max = Math.max(...steps.map(step => step.value), 1);
       return <div key={funnel.slug}><h3 className="mb-4 text-sm font-semibold">{report.lines.find(line => line.slug === funnel.slug)?.label}</h3><ol className="space-y-3">{steps.map((step, index) => <li key={step.label}><div className="mb-1.5 flex items-center justify-between gap-2 text-xs"><span className="text-zinc-500">{String(index + 1).padStart(2, "0")} <span className="ml-1 text-zinc-700">{step.label}</span></span><span className="font-semibold tabular-nums">{number(step.value)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-zinc-100" aria-hidden="true"><div className={`h-full rounded-full ${index === 3 ? "bg-emerald-600" : "bg-zinc-300"}`} style={{ width: `${step.value / max * 100}%` }} /></div><p className="mt-1 text-[10px] text-zinc-400">{step.unit}</p></li>)}</ol></div>;
-    })}</div><p className="mt-5 border-t border-zinc-100 pt-4 text-xs leading-relaxed text-zinc-500">Источник: ProductEvent. Посетитель-день не равен уникальному человеку. События онлайн-оплаты покрывают только часть платежных сценариев; это не количество всех оплат. Сравнивайте шаги в пределах одного направления.</p></section>
+    })}</div><p className="business-funnel-note mt-5 border-t border-zinc-100 pt-4 text-xs leading-relaxed text-zinc-500">Источник: ProductEvent. Посетитель-день не равен уникальному человеку. События онлайн-оплаты покрывают только часть платежных сценариев; это не количество всех оплат. Сравнивайте шаги в пределах одного направления.</p></section>
 
     <section className="rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-marketing-title"><div className="flex flex-wrap items-start justify-between gap-3"><SectionTitle id="business-marketing-title" eyebrow="Контекст привлечения" title="Сайт и реклама" /><a href="/admin/analytics" className={`business-no-print rounded text-xs font-medium text-emerald-700 ${focus}`}>Подробный отчёт →</a></div><p className="mt-3 text-xs leading-relaxed text-zinc-500">{report.marketing.scope}</p><div className="mt-5 grid gap-4 sm:grid-cols-3">{[{ label: "Визиты сайта", value: number(report.marketing.visits), source: "Яндекс.Метрика" }, { label: "Расход на рекламу", value: report.marketing.adSpend === null ? "Нет данных" : money(report.marketing.adSpend), source: "Яндекс.Директ" }, { label: "Клики по рекламе", value: number(report.marketing.clicks), source: "Яндекс.Директ" }].map(metric => <div key={metric.label} className="rounded-xl bg-zinc-50 p-4"><p className="text-xs text-zinc-500">{metric.label}</p><p className={`mt-2 break-words text-xl font-semibold tabular-nums ${metric.value === "Нет данных" ? "text-zinc-400" : "text-zinc-900"}`}>{metric.value}</p><p className="mt-2 text-[11px] text-zinc-400">{metric.source}</p></div>)}</div><p className="mt-4 text-xs leading-relaxed text-zinc-500">Проверка источников: {timestamp(report.marketing.fetchedAt)} МСК. «Нет данных» означает, что источник не подключён или не ответил. ROAS и стоимость покупателя недоступны без связи кампаний с платежами.</p></section>
 

@@ -50,6 +50,7 @@ test.describe("Business analytics populated visual QA", () => {
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto("/admin/analytics/business?period=7d&weekEnding=2026-10-25");
       await expect(page.getByText("Учтённые поступления", { exact: true }).first()).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
       await expect(page.getByText(report.quality.warnings[0], { exact: true })).toBeVisible();
       // Explicit synthetic label in every capture; no production UI modification.
       await page.locator(".business-analytics").evaluate(element => {
@@ -60,6 +61,7 @@ test.describe("Business analytics populated visual QA", () => {
       });
       await expect(page.getByRole("switch", { name: "Недельный бизнес-отчёт" })).toHaveAttribute("aria-checked", "false");
       await expect(page.getByRole("button", { name: "Отправить мне тест" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Обратная связь", exact: true })).toBeVisible();
       const marketing = page.getByRole("region", { name: "Сайт и реклама" });
       await expect(marketing.getByText("Нет данных", { exact: true })).toHaveCount(advertising === "unavailable" ? 2 : 0);
       await expect(marketing).toContainText(/12\s?840/);
@@ -86,6 +88,20 @@ test.describe("Business analytics populated visual QA", () => {
       await page.setViewportSize({ width: 794, height: 1123 });
       await page.emulateMedia({ media: "print" });
       await expect(page.getByRole("button", { name: "Отправить мне тест" })).toBeHidden();
+      await expect(page.getByRole("button", { name: "Обратная связь", exact: true })).toBeHidden();
+      await expect(page.locator("[data-admin-print-chrome]")).toHaveCount(2);
+      for (const chrome of await page.locator("[data-admin-print-chrome]").all()) await expect(chrome).toBeHidden();
+      await expect(page.getByText("Внутренний отчёт · доступ по роли и разрешению", { exact: true })).toBeHidden();
+      // The whole funnel, including its explanation, must fit on one A4 page.
+      // Otherwise break-inside: avoid cannot prevent orphaned explanation lines.
+      const funnel = page.getByRole("region", { name: "От интереса к оплате" });
+      const funnelHeight = (await funnel.boundingBox())?.height ?? 0;
+      expect(funnelHeight).toBeGreaterThan(200);
+      expect(funnelHeight).toBeLessThan(800);
+      expect(await funnel.locator(".business-funnel-steps").evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+      await expect(funnel.locator(".business-funnel-note")).toBeVisible();
+      await expect(page.getByRole("region", { name: "Источники и качество данных" })).toContainText("Расчёты в рублях, часовой пояс Europe/Moscow.");
+      await expect(page.getByRole("region", { name: "Источники и качество данных" }).locator("p").filter({ hasText: "Расчёты в рублях, часовой пояс Europe/Moscow." })).toBeVisible();
       const printBounds = await page.locator(".business-analytics").evaluate(element => ({
         reportBottom: element.getBoundingClientRect().bottom + window.scrollY,
         documentHeight: document.documentElement.scrollHeight,
@@ -95,10 +111,17 @@ test.describe("Business analytics populated visual QA", () => {
       const pdfPath = `${artifactDirectory}/${advertising}-print-a4.pdf`;
       const pdf = await page.pdf({ path: pdfPath, format: "A4", printBackground: true, margin: { top: "12mm", right: "12mm", bottom: "12mm", left: "12mm" } });
       await testInfo.attach(`${advertising}-print-a4`, { path: pdfPath, contentType: "application/pdf" });
+      const pdfPages = (pdf.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length;
+      const printEvidence = { scenario: advertising, synthetic: true, pdfPages, funnelHeight, ...printBounds, chromeHidden: true };
+      await writeFile(`${artifactDirectory}/${advertising}-print-layout.json`, JSON.stringify(printEvidence, null, 2));
+      console.log(`BUSINESS_PDF_QA ${JSON.stringify(printEvidence)}`);
       await writeFile(`${artifactDirectory}/${advertising}-fixture.json`, JSON.stringify(report, null, 2));
-      await writeFile(`${artifactDirectory}/README.txt`, "SYNTHETIC UI QA ONLY — no production business data.\nAuthenticated seeded CI account; report/preferences responses replaced in the browser. Mutations blocked.\nIncludes positive receipts, refunds, adjustments, a negative-net day, a zero day, nonzero funnel, quality warnings, available and unavailable advertising.\nDesktop 1440px; mobile 390px. Viewport captures preserve the normal scroll shell; full screen-media captures temporarily expand only ancestor heights/overflow to expose the full report.\nPrint media 794px plus paginated A4 PDF uses unmodified production styles. Disclosures expanded on screen; closed before print to verify print CSS.\nThese artifacts do not prove production accounting, role enforcement or Telegram delivery.\n");
+      await writeFile(`${artifactDirectory}/README.txt`, "SYNTHETIC UI QA ONLY — no production business data.\nAuthenticated seeded CI account; report/preferences responses replaced in the browser. Mutations blocked.\nIncludes positive receipts, refunds, adjustments, a negative-net day, a zero day, nonzero funnel, quality warnings, available and unavailable advertising.\nDesktop 1440px; mobile 390px. Viewport captures preserve the normal scroll shell; full screen-media captures temporarily expand only ancestor heights/overflow to expose the full report.\nPrint media 794px plus paginated A4 PDF uses unmodified production styles and loaded application fonts. Disclosures expanded on screen; closed before print to verify print CSS.\nPrint-layout JSON records the page count from the generated PDF and DOM layout checks. It is not a substitute for inspecting every PDF page, especially the funnel explanation and final quality/methodology section.\nThese artifacts do not prove production accounting, role enforcement or Telegram delivery.\n");
       await expect(page.getByRole("table", { name: "Движение денег по дням, рубли" })).toBeVisible();
-      expect((pdf.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
+      expect(pdfPages).toBeGreaterThan(1);
+      // This fixed seven-day fixture previously produced an eighth footer page.
+      // This is not a limit on real reports or longer periods.
+      expect(pdfPages).toBeLessThanOrEqual(7);
     });
   }
 });
