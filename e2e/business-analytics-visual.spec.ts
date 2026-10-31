@@ -74,6 +74,9 @@ test.describe("Business analytics populated visual QA", () => {
 
       await page.setViewportSize({ width: 390, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      const chart = page.getByRole("region", { name: "Движение денег по дням" }).locator("svg");
+      await expect.poll(async () => (await chart.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(220);
+      expect((await chart.locator("text").first().boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(10);
       await capture(page, testInfo, `${advertising}-mobile-full`);
       await page.getByRole("region", { name: "Источники и качество данных" }).screenshot({ path: `${artifactDirectory}/${advertising}-mobile-quality.png`, animations: "disabled" });
 
