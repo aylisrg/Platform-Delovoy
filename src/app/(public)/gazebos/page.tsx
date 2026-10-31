@@ -5,7 +5,9 @@ import { headers } from "next/headers";
 import { listResources, isPublicBookingEnabled, getMinBookingHours } from "@/modules/gazebos/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { BookOnlineButton, StickyBookingCta } from "@/components/public/gazebos/booking-cta";
-import { GazeboList } from "@/components/public/gazebos/gazebo-list";
+import { GazeboList, GazeboNumberLinks } from "@/components/public/gazebos/gazebo-list";
+import styles from "@/components/public/gazebos/gazebos.module.css";
+import { getGazeboWorkingHours } from "@/components/public/gazebos/gazebo-presentation";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { PricingSection } from "@/components/public/gazebos/pricing-section";
 import { ParkingSection } from "@/components/public/gazebos/parking-section";
@@ -113,93 +115,61 @@ export default async function GazebosPage() {
     getMinBookingHours(),
   ]);
 
+  const workingHours = getGazeboWorkingHours(resources);
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <div className="bg-white min-h-screen">
-        <Navbar />
+      <div className={styles.page}>
+        <Navbar collapseAt="xl" action={bookingEnabled
+          ? { href: "#booking", label: "Забронировать" }
+          : { href: "#gazebo-help", label: "Помочь с выбором" }} />
 
-        {/* Hero with video background */}
-        <section className="relative h-[70vh] min-h-[500px] flex items-end overflow-hidden">
-          {/* Video background */}
-          {/* Desktop: autoplay video */}
-          <video
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="none"
-            poster="/media/IMG_3724_Custom.JPG.webp"
-            className="absolute inset-0 w-full h-full object-cover hidden md:block"
-          >
-            <source src="/media/gazebo.mp4" type="video/mp4" />
-          </video>
-          {/* Mobile: static poster fallback */}
-          <div
-            className="absolute inset-0 md:hidden bg-zinc-800"
-            style={{ backgroundImage: "url('/media/IMG_3724_Custom.JPG.webp')", backgroundSize: "cover", backgroundPosition: "center" }}
-          />
-          {/* Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />
-
-          {/* Content */}
-          <div className="relative z-10 max-w-[1200px] mx-auto w-full px-6 pb-16">
-            <Link
-              href="/"
-              className="text-white/70 hover:text-white text-sm font-[family-name:var(--font-inter)] transition-colors"
-            >
-              ← Главная
-            </Link>
-            <h1
-              className="font-[family-name:var(--font-manrope)] font-[500] text-white mt-6"
-              style={{
-                fontSize: "clamp(36px, 5vw, 56px)",
-                letterSpacing: "clamp(-1px, -0.03em, -2px)",
-                lineHeight: 0.95,
-              }}
-            >
-              Барбекю Парк
-            </h1>
-            <p className="text-white/70 font-[family-name:var(--font-inter)] text-base mt-5 max-w-lg leading-relaxed">
-              Беседки с мангалом. Запах шашлыка, друзья рядом — это и есть план.
-              Забронируйте онлайн в пару кликов.
-            </p>
-            <div className="flex flex-wrap items-center gap-3 mt-6">
-              {bookingEnabled && (
-                <BookOnlineButton
-                  source="hero"
-                  className="inline-flex items-center bg-[#16A34A] hover:bg-[#15803d] text-white font-[family-name:var(--font-manrope)] font-semibold text-base px-7 py-3.5 rounded-full shadow-lg shadow-black/20 transition-colors"
-                >
-                  Забронировать онлайн
-                </BookOnlineButton>
-              )}
-              {phoneInfo && (
-                <a
-                  href={`tel:${phoneInfo.phone}`}
-                  data-testid="hero-phone"
-                  className="inline-flex items-center gap-2 border border-white/40 text-white/90 hover:text-white hover:border-white/70 font-[family-name:var(--font-manrope)] font-medium text-sm px-4 py-2.5 rounded-full transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                  </svg>
-                  {phoneInfo.displayPhone}
-                </a>
-              )}
+        <main>
+          <div className={styles.introSurface}>
+          <section className={`${styles.container} ${styles.intro}`} aria-labelledby="gazebos-heading">
+            <nav className={styles.breadcrumbs} aria-label="Хлебные крошки">
+              <Link href="/">Главная</Link><span aria-hidden="true">/</span>
+              <span aria-current="page">Барбекю Парк</span>
+            </nav>
+            <h1 id="gazebos-heading" className={styles.title}>Барбекю Парк</h1>
+            <p className={styles.tagline}>Своя беседка. Своя компания.</p>
+            <p className={styles.introText}>Выберите номер, посмотрите фотографии и забронируйте время.</p>
+            <div className={styles.introActions}>
+              {bookingEnabled && <BookOnlineButton source="hero" className={styles.textLink}>Забронировать онлайн →</BookOnlineButton>}
+              {phoneInfo && <a href={`tel:${phoneInfo.phone}`} data-testid="hero-phone" className={styles.textLink}>{phoneInfo.displayPhone}</a>}
             </div>
-            {bookingEnabled && (
-              <p className="text-white/70 font-[family-name:var(--font-inter)] text-sm mt-3">
-                Мин. {minBookingHours} ч, подтверждение сразу
-              </p>
-            )}
-          </div>
-        </section>
+          </section>
 
-        {/* Booking flow: сразу после hero (#1085) */}
-        <section id="booking" className="px-6 pb-20 pt-16 scroll-mt-20">
-          <div className="max-w-[800px] mx-auto">
+            <div className={`${styles.container} ${styles.selectionBar}`}>
+              <GazeboNumberLinks resources={resources} />
+              <p className={styles.hours}>{workingHours && <>{workingHours} · </>}Минимум {minBookingHours} ч</p>
+            </div>
+          </div>
+          <section className={`${styles.container} ${styles.selection}`} aria-label="Беседки и фотографии">
+            <GazeboList resources={resources} bookingEnabled={bookingEnabled} minBookingHours={minBookingHours}>
+              <aside id="gazebo-help" className={styles.help} aria-labelledby="gazebo-help-title">
+                <h2 id="gazebo-help-title">Нужна помощь с выбором?</h2>
+                <p>Подскажем, какая беседка подойдёт вашей компании, и поможем с бронью.</p>
+                <h3>Как забронировать</h3>
+                <ol className={styles.steps}>
+                  <li><span aria-hidden="true">1</span>Выберите беседку по фото</li>
+                  <li><span aria-hidden="true">2</span>Укажите дату и время</li>
+                  <li><span aria-hidden="true">3</span>Проверьте детали и подтвердите бронь</li>
+                </ol>
+                {phoneInfo
+                  ? <a href={`tel:${phoneInfo.phone}`} className={styles.primaryButton}>{phoneInfo.displayPhone}</a>
+                  : <Link href="/#contacts" className={styles.primaryButton}>Связаться с нами</Link>}
+              </aside>
+            </GazeboList>
+          </section>
+
+        <section id="booking" className={styles.bookingSection} aria-label="Бронирование беседки">
+          <div className={styles.container}>
+          <div className={styles.bookingInner}>
             {bookingEnabled ? (
               <BookingFlow />
             ) : (
@@ -214,7 +184,7 @@ export default async function GazebosPage() {
                 {phoneInfo && (
                   <a
                     href={`tel:${phoneInfo.phone}`}
-                    className="inline-flex items-center gap-2 bg-black text-white font-[family-name:var(--font-manrope)] font-medium text-sm px-5 py-3 rounded-full hover:bg-black/90 transition-colors mt-6"
+                    className={`${styles.primaryButton} mt-6`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.4a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
@@ -224,6 +194,7 @@ export default async function GazebosPage() {
                 )}
               </div>
             )}
+          </div>
           </div>
         </section>
 
@@ -236,18 +207,12 @@ export default async function GazebosPage() {
           />
         )}
 
-        {/* Gazebo cards */}
-        <section className="px-6 pb-20">
-          <div className="max-w-[1200px] mx-auto">
-            <GazeboList resources={resources} bookingEnabled={bookingEnabled} />
-          </div>
-        </section>
-
         {/* Pricing & extras */}
         <PricingSection resources={resources} />
 
         {/* Автостоянка */}
         <ParkingSection />
+        </main>
 
         {/* Sticky CTA на мобиле (~70px) не должен перекрывать низ футера (#1085). */}
         <div data-testid="footer-wrap" className={bookingEnabled ? "pb-24 md:pb-0" : undefined}>

@@ -34,9 +34,9 @@ export function ParkingSection() {
           </p>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-2 items-start">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 items-start">
           {/* Left: features + price */}
-          <div className="font-[family-name:var(--font-inter)]">
+          <div className="min-w-0 font-[family-name:var(--font-inter)]">
             <ul className="space-y-3 mb-8">
               {FEATURES.map((f) => (
                 <li key={f} className="flex items-start gap-3 text-sm text-[#1d1d1f]">
@@ -53,7 +53,7 @@ export function ParkingSection() {
               ))}
             </ul>
 
-            <div className="overflow-hidden rounded-2xl border border-black/[0.06]">
+            <div className="overflow-x-auto rounded-2xl border border-black/[0.06]">
               <table className="w-full text-sm">
                 <thead className="bg-[#f5f5f7] text-[#86868b]">
                   <tr>

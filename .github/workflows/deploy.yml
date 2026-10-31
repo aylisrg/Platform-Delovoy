@@ -33,7 +33,7 @@ on:
         required: false
         default: ""
       skip_snapshot:
-        description: "Skip Timeweb VPS snapshot (~30s)"
+        description: "Compatibility input; automatic paid snapshots are no longer requested"
         type: boolean
         default: false
       skip_db_backup:
@@ -243,48 +243,27 @@ jobs:
         with:
           ref: ${{ needs.build-and-push.outputs.resolved_sha }}
 
-      - name: Create Timeweb snapshot before deploy
-        if: ${{ !inputs.skip_snapshot }}
-        continue-on-error: true
+      # Production is the explicitly verified Delovoy VPS. Never pick the
+      # first server in a provider account or order an automatic paid snapshot.
+      - name: Verify approved deployment target
         env:
-          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          if [ -z "$TIMEWEB_TOKEN" ]; then
-            echo "No TIMEWEB_API_TOKEN — skipping snapshot"
-            exit 0
-          fi
+          test "$VPS_HOST" = "91.222.236.239" || {
+            echo "::error::VPS_HOST does not match the approved production target"
+            exit 1
+          }
 
-          # Get server ID
-          SERVER_ID=$(curl -s -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/servers" | jq '.servers[0].id // empty')
-
-          if [ -n "$SERVER_ID" ]; then
-            echo "Creating snapshot for server $SERVER_ID before deploy..."
-            curl -s -X POST \
-              -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"comment\": \"Pre-deploy snapshot — ${{ needs.build-and-push.outputs.resolved_sha }}\"}" \
-              "https://api.timeweb.cloud/api/v1/servers/$SERVER_ID/disks/backups" | jq '.'
-            echo "Snapshot requested"
-          else
-            echo "No server found — skipping snapshot"
-          fi
-
-      - name: Setup media directory and register upload key
+      - name: Setup media directory
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -eu
+            test "$(hostname)" = "7548623-jm024579.twc1.net"
             mkdir -p /var/www/delovoy/media/{gazebos,park,spaces,ps-park}
-            MEDIA_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8/5QxKlQERUNuYOBiGdtI8AkzBVJCDaTTR9WSPLU+a media-upload"
-            if ! grep -qF "media-upload" ~/.ssh/authorized_keys 2>/dev/null; then
-              echo "$MEDIA_KEY" >> ~/.ssh/authorized_keys
-              echo "Media upload key added"
-            else
-              echo "Media upload key already present"
-            fi
 
       - name: Check Telegram secrets
         env:
@@ -491,17 +470,53 @@ jobs:
           command_timeout: 30m
           envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY,SKIP_SMOKE_TESTS
           script: |
-            set -e
+            set -eo pipefail
+            test "$(hostname)" = "7548623-jm024579.twc1.net"
             cd /opt/delovoy-park
 
             echo "=== Pull new image ==="
             docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest
 
             if [ "$SKIP_DB_BACKUP" = "true" ]; then
-              echo "=== Backup skipped (skip_db_backup=true) ==="
+              echo "=== Backup skipped (explicit skip_db_backup=true) ==="
             else
-              echo "=== Backup current state ==="
-              docker compose exec -T postgres pg_dump -U delovoy delovoy_park | gzip > /opt/backups/db-$(date +%Y%m%d-%H%M%S).sql.gz
+              # deploy-backup-begin
+              # Fail before migrations/switching on any dump or restore error.
+              umask 077
+              BACKUP_DIR="${DEPLOY_BACKUP_DIR:-/opt/backups/deploy}"
+              mkdir -p "$BACKUP_DIR"
+              BACKUP_FILE="$BACKUP_DIR/db-$(date -u +%Y%m%dT%H%M%SZ)-$$.dump"
+              docker exec delovoy-postgres pg_dump -U delovoy -d delovoy_park \
+                --format=custom --no-owner --no-privileges > "$BACKUP_FILE"
+              test -s "$BACKUP_FILE"
+              docker exec -i delovoy-postgres pg_restore --list < "$BACKUP_FILE" >/dev/null
+              # Reuse the already-running PostgreSQL image; no new image or network.
+              PG_IMAGE=$(docker inspect --format='{{.Image}}' delovoy-postgres)
+              RESTORE_CONTAINER="delovoy-deploy-restore-$$"
+              trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
+              docker run -d --name "$RESTORE_CONTAINER" --network none --memory 256m \
+                --tmpfs /var/lib/postgresql/data:rw,size=256m \
+                -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=verify \
+                -e POSTGRES_USER=restore "$PG_IMAGE" >/dev/null
+              RESTORE_READY=false
+              for attempt in $(seq 1 30); do
+                if docker exec "$RESTORE_CONTAINER" pg_isready -U restore -d verify >/dev/null 2>&1; then
+                  RESTORE_READY=true
+                  break
+                fi
+                sleep 1
+              done
+              test "$RESTORE_READY" = true
+              docker exec -i "$RESTORE_CONTAINER" pg_restore --exit-on-error \
+                --no-owner --no-privileges -U restore -d verify < "$BACKUP_FILE"
+              RESTORED_TABLES=$(docker exec "$RESTORE_CONTAINER" psql -U restore -d verify -Atc \
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+              test "$RESTORED_TABLES" -gt 0
+              docker rm -f "$RESTORE_CONTAINER" >/dev/null
+              trap - EXIT
+              echo "Backup restore verified: $RESTORED_TABLES tables"
+              sha256sum "$BACKUP_FILE"
+              # deploy-backup-end
             fi
 
             echo "=== Save current image for rollback ==="

@@ -1,0 +1,4 @@
+@font-face { font-family: FixtureManrope; font-style: normal; font-weight: 600; src: url('../../../src/app/fonts/manrope-600.woff2'); }
+@font-face { font-family: FixtureInter; font-style: normal; font-weight: 400; src: url('../../../src/app/fonts/inter-400.woff2'); }
+@font-face { font-family: FixtureInter; font-style: normal; font-weight: 500; src: url('../../../src/app/fonts/inter-500.woff2'); }
+:root { --font-manrope: FixtureManrope, sans-serif; --font-inter: FixtureInter, sans-serif; }
