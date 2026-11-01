@@ -86,9 +86,12 @@ export async function requireAdminSection(
   // from the DB: session.adminSections (and session.role) may predate revocation.
   // ADMIN keeps role-owned sections; SUPERADMIN keeps every non-strict section.
   // Dynamic import avoids circular deps.
-  const { getUserAdminSections } = await import("./permissions");
-  const sections = await getUserAdminSections(session.user.id);
-  if (!sections.includes(section)) {
+  const { getUserAdminAccess, STRICT_ACCESS_MODULES } = await import("./permissions");
+  const access = await getUserAdminAccess(session.user.id);
+  // Legacy API-only names (e.g. "telegram") are not in ADMIN_SECTION_SLUGS.
+  // Preserve SUPERADMIN's non-strict access using the freshly read role.
+  if (access.role === "SUPERADMIN" && !STRICT_ACCESS_MODULES.has(section)) return null;
+  if (!access.sections.includes(section)) {
     return apiForbidden("Нет доступа к этому разделу");
   }
 
