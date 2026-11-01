@@ -82,17 +82,13 @@ export async function requireAdminSection(
   const { role } = session.user;
   if (role === "USER") return apiForbidden();
 
-  // Dynamic import to avoid circular deps
-  const { hasAdminSectionAccess, STRICT_ACCESS_MODULES } = await import("./permissions");
-
-  // SUPERADMIN/ADMIN get full access — EXCEPT strict-access sections (e.g. "nedelovoy")
-  // which require explicit AdminPermission regardless of role.
-  if ((role === "SUPERADMIN" || role === "ADMIN") && !STRICT_ACCESS_MODULES.has(section)) {
-    return null;
-  }
-
-  const hasAccess = await hasAdminSectionAccess(session.user.id, section);
-  if (!hasAccess) {
+  // Use the same section policy as pages/JWT, but read current role and grants
+  // from the DB: session.adminSections (and session.role) may predate revocation.
+  // ADMIN keeps role-owned sections; SUPERADMIN keeps every non-strict section.
+  // Dynamic import avoids circular deps.
+  const { getUserAdminSections } = await import("./permissions");
+  const sections = await getUserAdminSections(session.user.id);
+  if (!sections.includes(section)) {
     return apiForbidden("Нет доступа к этому разделу");
   }
 
