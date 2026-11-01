@@ -11,7 +11,7 @@ vi.mock("@/components/webapp/TelegramProvider", () => ({
   ApiFetchError: class extends Error {},
 }));
 
-import NotificationCenterPage from "../page";
+import { StaffNotificationPreferences as NotificationCenterPage } from "@/components/webapp/staff-notification-preferences";
 
 const data = {
   role: "SUPERADMIN",

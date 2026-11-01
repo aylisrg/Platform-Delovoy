@@ -1,26 +1,29 @@
 import { z } from "zod";
 import { apiResponse, apiError } from "@/lib/api-response";
-import { announceRelease } from "@/modules/notifications/release-notify";
+import { announceRelease, manualReleaseId, normalizeManualReleaseNotes } from "@/modules/notifications/release-notify";
 
 /**
  * POST /api/admin/release-notify
  *
  * Called by GitHub Actions after a successful production deploy.
- * Анонсирует релиз подписчикам через dispatch() ровно один раз на версию
- * (серверная идемпотентность — таблица ReleaseAnnouncement, ADR §6).
- *
- * Ответ: { announced, queued, skippedReason? } — по `announced` пайплайн
- * решает, слать ли групповое fallback-сообщение «Deploy OK».
+ * Default identity: package version. Explicit curated updates: normalized
+ * manual-note hash, unchanged across technical redeploys and version bumps.
+ * The result describes queue acceptance/skips/errors, never Telegram delivery.
  *
  * Authentication: RELEASE_NOTIFY_SECRET env var (bearer token in body).
  */
 
 const schema = z.object({
   secret: z.string().min(1),
-  version: z.string().min(1),
-  releaseNotes: z.string().default(""),
-  commitSha: z.string().min(1),
-  deployedAt: z.string().default(() => new Date().toISOString()),
+  version: z.string().max(80).regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/),
+  releaseNotes: z.string().max(12000).default(""),
+  commitSha: z.string().regex(/^[a-fA-F0-9]{7,64}$/),
+  deployedAt: z.string().datetime().default(() => new Date().toISOString()),
+  updateId: z.string().regex(/^manual:[a-f0-9]{64}$/).optional(),
+}).superRefine((value, ctx) => {
+  if (value.updateId && (!normalizeManualReleaseNotes(value.releaseNotes) || value.updateId !== manualReleaseId(value.releaseNotes))) {
+    ctx.addIssue({ code: "custom", path: ["updateId"], message: "Curated update identity must match nonempty manual notes" });
+  }
 });
 
 export async function POST(request: Request) {
@@ -46,23 +49,21 @@ export async function POST(request: Request) {
       return apiError("UNAUTHORIZED", "Invalid release notify secret", 401);
     }
 
-    const { version, releaseNotes, commitSha, deployedAt } = parsed.data;
+    const { version, releaseNotes, commitSha, deployedAt, updateId } = parsed.data;
     const result = await announceRelease({
       version,
       releaseNotes,
       commitSha,
       deployedAt,
+      ...(updateId ? { updateId } : {}),
     });
 
-    if (result.status === "skipped") {
-      return apiResponse({
-        announced: false,
-        queued: 0,
-        skippedReason: result.reason,
-      });
-    }
-
-    return apiResponse({ announced: true, queued: result.queued });
+    return apiResponse({
+      ...result,
+      // Compatibility field: means newly queued, not personally delivered.
+      announced: result.queued > 0,
+      ...(result.status === "skipped" ? { skippedReason: result.reason } : {}),
+    });
   } catch {
     return apiError("INTERNAL_ERROR", "Failed to send release notification", 500);
   }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/logger";
 import { dispatch } from "./dispatch/dispatcher";
@@ -11,11 +12,36 @@ export interface ReleaseInfo {
   releaseNotes: string;
   commitSha: string;
   deployedAt: string;
+  /** Explicit curated announcement; absent means the legacy once-per-version policy. */
+  updateId?: string;
 }
 
-export type AnnounceReleaseResult =
-  | { status: "announced"; queued: number }
-  | { status: "skipped"; reason: "already-announced" };
+export type AnnounceReleaseResult = {
+  status: "queued" | "skipped" | "error";
+  reason: "queued" | "already-announced" | "in-progress" | "no-recipients" | "suppressed"
+    | "claim-failed" | "preflight-failed" | "enqueue-failed" | "outcome-uncertain" | "recording-failed";
+  /** New outgoing rows, including deferred rows. This is not a delivery receipt. */
+  queued: number;
+  deferred: number;
+  skipped: number;
+  failed: number;
+  previouslyQueued: number;
+  retryable: boolean;
+};
+
+export function normalizeManualReleaseNotes(notes: string): string {
+  return notes.normalize("NFC").replace(/\r\n?/g, "\n")
+    .split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
+}
+
+export function manualReleaseId(notes: string): string {
+  return `manual:${createHash("sha256").update(normalizeManualReleaseNotes(notes)).digest("hex")}`;
+}
+
+function outcome(status: AnnounceReleaseResult["status"], reason: AnnounceReleaseResult["reason"],
+  counts: Partial<Omit<AnnounceReleaseResult, "status" | "reason">> = {}): AnnounceReleaseResult {
+  return { status, reason, queued: 0, deferred: 0, skipped: 0, failed: 0, previouslyQueued: 0, retryable: false, ...counts };
+}
 
 /** Prisma P2002 — нарушение уникальности (здесь: версия уже анонсирована). */
 function isUniqueViolation(err: unknown): boolean {
@@ -28,97 +54,138 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Анонс релиза подписчикам — ровно один раз на версию.
- *
- * Идемпотентность серверная: claim строки `ReleaseAnnouncement` (PK = version)
- * через `create`. Выиграл INSERT — отправляем; получили P2002 — версия уже
- * анонсирована, молча выходим (второй параллельный прогон деплоя, повторный
- * запуск workflow, ре-деплой того же тега). Любая другая ошибка — fail-open:
- * молчание о реальном релизе хуже редкого дубля, второй эшелон защиты —
- * 5-минутный dedupKey внутри dispatch().
- *
- * ADR docs/architecture/2026-08-13-miniapp-role-rebuild-adr.md §6.
+ * Legacy announcements remain once per version. Explicit manual notes have a
+ * separate content-addressed namespace, independent of SHA/version changes.
+ * New claims use source as a durable state; historical rows are never reset.
+ * Only known nonqueued outcomes may be retried. Existing outgoing rows prevent
+ * replay per recipient beyond the dispatcher's five-minute dedup window.
+ * An interrupted/uncertain claim stays blocked for operator diagnosis.
+ * See docs/architecture/2026-10-31-curated-release-notifications.md.
  */
 export async function announceRelease(
   info: ReleaseInfo
 ): Promise<AnnounceReleaseResult> {
-  let claimed = false;
+  if (info.updateId && (!normalizeManualReleaseNotes(info.releaseNotes) || info.updateId !== manualReleaseId(info.releaseNotes))) {
+    throw new Error("Invalid curated release identity");
+  }
+  const key = info.updateId ?? info.version;
+  const origin = info.updateId ? "manual" : "deploy";
+  const processing = `${origin}:processing`;
+  const retryable = `${origin}:retryable`;
+  const claimTime = new Date();
+  let knownQueued = 0;
 
   try {
     await prisma.releaseAnnouncement.create({
       data: {
-        version: info.version,
+        version: key,
         commitSha: info.commitSha,
         releaseNotes: info.releaseNotes,
-        announcedAt: new Date(),
-        source: "deploy",
+        announcedAt: claimTime,
+        source: processing,
       },
     });
-    claimed = true;
   } catch (err) {
-    if (isUniqueViolation(err)) {
-      await log.info(
-        "release-notify",
-        `Релиз v${info.version} уже анонсирован — повторная отправка заблокирована`,
-        { version: info.version, commitSha: info.commitSha }
-      );
-      return { status: "skipped", reason: "already-announced" };
+    if (!isUniqueViolation(err)) {
+      await log.warn("release-notify", "Claim релиза не подтверждён — постановка в очередь заблокирована", { key });
+      return outcome("error", "claim-failed", { failed: 1 });
     }
-
-    await log.warn(
-      "release-notify",
-      `Проверка идемпотентности релиза v${info.version} не выполнена — отправляем (fail-open)`,
-      { version: info.version, error: String(err) }
-    );
-    // fail-open: проваливаемся дальше и всё равно отправляем
+    try {
+      const existing = await prisma.releaseAnnouncement.findUnique({ where: { version: key } });
+      if (!existing) return outcome("error", "claim-failed", { failed: 1 });
+      knownQueued = existing.recipientCount;
+      if (existing.source === `${origin}:uncertain`) return outcome("error", "outcome-uncertain", { failed: 1, previouslyQueued: existing.recipientCount });
+      if (existing.source === processing) {
+        // Observability timeout only: it never grants permission to take over.
+        const interrupted = Date.now() - existing.announcedAt.getTime() > 15 * 60_000;
+        return outcome(interrupted ? "error" : "skipped", interrupted ? "outcome-uncertain" : "in-progress", {
+          failed: interrupted ? 1 : 0, previouslyQueued: existing.recipientCount,
+        });
+      }
+      if (existing.source !== retryable) {
+        await log.info("release-notify", "Повторный анонс заблокирован; это не подтверждение доставки", { key });
+        return outcome("skipped", "already-announced", { previouslyQueued: existing.recipientCount });
+      }
+      const acquired = await prisma.releaseAnnouncement.updateMany({
+        where: { version: key, source: retryable, announcedAt: existing.announcedAt },
+        data: { source: processing, announcedAt: claimTime },
+      });
+      if (acquired.count !== 1) return outcome("skipped", "in-progress");
+    } catch {
+      return outcome("error", "claim-failed", { failed: 1 });
+    }
   }
 
-  const userIds = await resolveReleaseAudience();
-  const payload = buildReleasePayload(info);
+  const finish = async (state: string, recipientCount: number): Promise<boolean> => {
+    try {
+      const updated = await prisma.releaseAnnouncement.updateMany({
+        where: { version: key, source: processing, announcedAt: claimTime },
+        data: { source: `${origin}:${state}`, recipientCount },
+      });
+      return updated.count === 1;
+    } catch { return false; }
+  };
 
+  let userIds: string[];
+  let previous: Set<string>;
+  try {
+    // All statuses count: FAILED/SKIPPED rows may have an uncertain external
+    // outcome, or belong to a fallback chain owned by the existing dispatcher.
+    const rows = await prisma.outgoingNotification.findMany({
+      where: { eventType: RELEASE_EVENT_TYPE, entityType: "Release", entityId: key },
+      select: { userId: true },
+    });
+    previous = new Set(rows.map((row) => row.userId));
+    if (previous.size < knownQueued) {
+      // Deleted/unavailable evidence is not proof that an earlier queue write
+      // never happened. Keep that history blocked rather than replay anyone.
+      await finish("uncertain", knownQueued);
+      return outcome("error", "outcome-uncertain", { failed: 1, previouslyQueued: knownQueued });
+    }
+    knownQueued = previous.size;
+    userIds = [...new Set(await resolveReleaseAudience())].filter((id) => !previous.has(id));
+  } catch {
+    const recorded = await finish("retryable", knownQueued);
+    return outcome("error", recorded ? "preflight-failed" : "recording-failed", { failed: 1, retryable: recorded, previouslyQueued: knownQueued });
+  }
+
+  const payload = buildReleasePayload(info);
   const outcomes = await Promise.allSettled(
     userIds.map((userId) =>
       dispatch({
         userId,
         eventType: RELEASE_EVENT_TYPE,
         entityType: "Release",
-        entityId: info.version,
+        entityId: key,
         payload,
       })
     )
   );
 
-  let queued = 0;
+  let queued = 0, deferred = 0, skipped = 0, failed = 0;
   for (const outcome of outcomes) {
     if (outcome.status === "rejected") {
-      console.error("[ReleaseNotify] dispatch failed:", outcome.reason);
+      failed++;
       continue;
     }
-    if (outcome.value.status !== "skipped") queued++;
-  }
-
-  if (claimed) {
-    try {
-      await prisma.releaseAnnouncement.update({
-        where: { version: info.version },
-        data: { recipientCount: queued },
-      });
-    } catch (err) {
-      // Учёт получателей — справочная величина: анонс уже разослан,
-      // ронять релиз из-за неё нельзя.
-      console.error("[ReleaseNotify] failed to store recipientCount:", err);
+    if (outcome.value.status === "skipped") skipped++;
+    else {
+      queued++;
+      if (outcome.value.status === "deferred") deferred++;
     }
   }
 
-  // Аудит мутации: сам факт анонса + сколько уведомлений встало в очередь.
-  // Долговечный след содержания релиза — строка ReleaseAnnouncement.
-  await log.info(
-    "release-notify",
-    `Релиз v${info.version} анонсирован подписчикам: ${queued} из ${userIds.length}`,
-    { version: info.version, commitSha: info.commitSha, queued, audience: userIds.length }
-  );
-
-  return { status: "announced", queued };
+  const canRetry = failed === 0 && (skipped > 0 || (userIds.length === 0 && previous.size === 0));
+  const state = failed ? "uncertain" : canRetry ? "retryable" : "complete";
+  const counts = { queued, deferred, skipped, failed, previouslyQueued: previous.size, retryable: canRetry };
+  if (!await finish(state, previous.size + queued)) {
+    return outcome("error", "recording-failed", { ...counts, failed: failed + 1, retryable: false });
+  }
+  const result = failed ? outcome("error", "enqueue-failed", counts)
+    : queued ? outcome("queued", "queued", counts)
+      : outcome("skipped", skipped ? "suppressed" : previous.size ? "already-announced" : "no-recipients", counts);
+  await log.info("release-notify", "Результат постановки анонса в очередь (не подтверждение доставки)", { key, ...result });
+  return result;
 }
 
 /**
