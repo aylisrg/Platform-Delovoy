@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { GazeboList, GazeboNumberLinks } from "@/components/public/gazebos/gazebo-list";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { StickyBookingCta } from "@/components/public/gazebos/booking-cta";
+import { PricingSection } from "@/components/public/gazebos/pricing-section";
 import { Navbar } from "@landing/components/navbar";
 import type { GazeboResource } from "@/modules/gazebos/types";
 import { resources } from "./data";
@@ -36,6 +37,7 @@ createRoot(document.getElementById("root")!).render(
             {bookingEnabled ? <BookingFlow /> : <p>Онлайн-бронирование временно недоступно</p>}
           </div></div>
         </section>
+        <PricingSection resources={resources as unknown as GazeboResource[]} />
       </main>
       <footer style={{ padding: "80px 24px 120px" }}>Тестовый стенд — не для публикации</footer>
       {bookingEnabled && <StickyBookingCta />}
