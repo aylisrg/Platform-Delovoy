@@ -157,12 +157,18 @@ export const authConfig: NextAuthConfig = {
         // Reconciliation-cron ходит из crontab без сессии; роут сам проверяет
         // CRON_SECRET (timingSafeEqual) и отвечает 401 без него.
         pathname === "/api/cron/payments-reconcile" ||
-        // #917: crontab VPS (deploy.yml) дёргает эти два роута без сессии.
+        // Crontab VPS (deploy.yml) calls these exact routes without a session.
         // Без них в allowlist middleware отвечал 401 до хендлера, очередь
         // OutgoingNotification не разбиралась, а health видел lastRunAt=null.
-        // Оба роута fail-secure: 503 без CRON_SECRET, 401 при неверном токене.
+        // Each handler requires a secret Bearer token (401 if absent/wrong,
+        // 503 if unconfigured). Keep disabled/unknown cron routes protected.
         pathname === "/api/cron/process-outgoing" ||
         pathname === "/api/cron/notifications" ||
+        pathname === "/api/cron/inventory" ||
+        pathname === "/api/cron/novofon-calls-sync" ||
+        pathname === "/api/cron/rental-payment-reminders" ||
+        pathname === "/api/cron/overdue-session-reminders" ||
+        pathname === "/api/cron/process-recurring" ||
         // Действующая редакция оферты — метаданные (номер, slug, дата) для
         // формы бронирования. Публично по определению: сам текст лежит на
         // /oferta и открыт всем.
