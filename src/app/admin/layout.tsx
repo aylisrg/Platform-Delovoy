@@ -5,6 +5,7 @@ import { VersionFooter } from "@/components/admin/version-footer";
 import { FeedbackButton } from "@/components/public/feedback-button";
 import { AdminHelperWrapper } from "@/components/admin/admin-helper-wrapper";
 import { AdminThemeProvider } from "@/components/admin/theme-provider";
+import { SessionWatcher } from "@/components/admin/session-watcher";
 
 // PWA: manifest подключается ТОЛЬКО для /admin/* — публичный сайт остаётся
 // классическим веб-сайтом, не PWA. См. ADR §Service Worker и PWA, §scope.
@@ -35,8 +36,11 @@ export default function AdminLayout({
           <VersionFooter />
         </main>
       </div>
-      <FeedbackButton />
-      <AdminHelperWrapper />
+      <div data-admin-print-chrome>
+        <FeedbackButton />
+        <AdminHelperWrapper />
+      </div>
+      <SessionWatcher />
     </AdminThemeProvider>
   );
 }

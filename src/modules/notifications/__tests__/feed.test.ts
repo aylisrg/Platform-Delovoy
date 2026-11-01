@@ -7,6 +7,7 @@ vi.mock("@/lib/db", () => ({
       count: vi.fn(),
       updateMany: vi.fn(),
     },
+    inAppNotification: { findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
     broadcastCampaign: { findMany: vi.fn() },
     notificationGlobalPreference: { findUnique: vi.fn(), upsert: vi.fn() },
   },
@@ -23,11 +24,15 @@ type MockFn = ReturnType<typeof vi.fn>;
 
 const db = prisma as unknown as {
   outgoingNotification: { findMany: MockFn; count: MockFn; updateMany: MockFn };
+  inAppNotification: { findMany: MockFn; count: MockFn; updateMany: MockFn };
   broadcastCampaign: { findMany: MockFn };
   notificationGlobalPreference: { findUnique: MockFn; upsert: MockFn };
 };
 
 interface WhereClause {
+  eventType?: string;
+  user?: { role?: string; mergedIntoUserId?: null };
+  OR?: WhereClause[];
   userId?: string;
   entityType?: string;
   entityId?: { in: string[] };
@@ -73,7 +78,10 @@ const state: {
   outgoing: OutgoingFixture[];
   campaigns: CampaignFixture[];
   feedSeenAt: Date | null;
-} = { outgoing: [], campaigns: [], feedSeenAt: null };
+  inApp: OutgoingFixture[];
+  role: string;
+  mergedIntoUserId: string | null;
+} = { outgoing: [], campaigns: [], feedSeenAt: null, inApp: [], role: "SUPERADMIN", mergedIntoUserId: null };
 
 function D(iso: string): Date {
   return new Date(iso);
@@ -103,6 +111,10 @@ function campaign(row: Partial<CampaignFixture> & { id: string; createdAt: Date 
 }
 
 function matchesOutgoing(row: OutgoingFixture, where: WhereClause = {}): boolean {
+  if (where.eventType && row.eventType !== where.eventType) return false;
+  if (where.user?.role && state.role !== where.user.role) return false;
+  if (where.user?.mergedIntoUserId === null && state.mergedIntoUserId !== null) return false;
+  if (where.OR && !where.OR.some((part) => matchesOutgoing(row, part))) return false;
   if (where.userId && row.userId !== where.userId) return false;
   if (where.entityType && row.entityType !== where.entityType) return false;
   if (where.entityId?.in && !(row.entityId && where.entityId.in.includes(row.entityId))) return false;
@@ -131,6 +143,22 @@ beforeEach(() => {
   state.outgoing = [];
   state.campaigns = [];
   state.feedSeenAt = null;
+  state.inApp = [];
+  state.role = "SUPERADMIN";
+  state.mergedIntoUserId = null;
+
+  db.inAppNotification.findMany.mockImplementation((args: QueryArgs = {}) => {
+    const rows = byCreatedAtDesc(state.inApp.filter((row) => matchesOutgoing(row, args.where)));
+    return Promise.resolve(args.take ? rows.slice(0, args.take) : rows);
+  });
+  db.inAppNotification.count.mockImplementation((args: QueryArgs = {}) =>
+    Promise.resolve(state.inApp.filter((row) => matchesOutgoing(row, args.where)).length)
+  );
+  db.inAppNotification.updateMany.mockImplementation((args: QueryArgs = {}) => {
+    const rows = state.inApp.filter((row) => matchesOutgoing(row, args.where));
+    for (const row of rows) if (args.data?.readAt) row.readAt = args.data.readAt;
+    return Promise.resolve({ count: rows.length });
+  });
 
   db.outgoingNotification.findMany.mockImplementation((args: QueryArgs = {}) => {
     const rows = byCreatedAtDesc(state.outgoing.filter((r) => matchesOutgoing(r, args.where)));
@@ -510,5 +538,76 @@ describe("markFeedRead", () => {
     expect(db.outgoingNotification.updateMany).not.toHaveBeenCalled();
     expect(db.notificationGlobalPreference.upsert).not.toHaveBeenCalled();
     expect(result.updated).toBe(0);
+  });
+});
+
+describe("Mini App daily call summaries", () => {
+  const report = {
+    reportDate: "2026-10-23", timeZone: "Europe/Moscow", generatedAt: "2026-10-24T06:00:00.000Z",
+    total: 8, inbound: 6, answered: 3, missed: 2, pending: 1, outbound: 2, answerRate: 60,
+  };
+
+  function summaryRow(id = "daily-1", userId = USER, at = "2026-10-24T06:00:00.000Z") {
+    return outgoing({ id, userId, eventType: "telephony.daily_summary", createdAt: D(at),
+      payload: { title: "Звонки за день", body: "Всего 8", telephonySummary: report,
+        actions: [{ label: "Старый переход", url: "/admin/telephony" }] },
+    });
+  }
+
+  it("shows a typed summary in the existing feed without an outgoing channel", async () => {
+    state.inApp = [summaryRow(), summaryRow("foreign", OTHER_USER)];
+    const feed = await getWebappFeed(USER);
+    expect(feed.items).toHaveLength(1);
+    expect(feed.items[0]).toMatchObject({ id: "ia:daily-1", moduleSlug: "telephony", kind: "personal", actions: [], telephonySummary: report });
+    expect(feed.unreadCount).toBe(1);
+    expect(state.outgoing).toEqual([]);
+  });
+
+  it.each(["USER", "MANAGER", "ADMIN"])("hides historical summaries, unread and read mutations after downgrade to %s", async (role) => {
+    state.inApp = [summaryRow()];
+    state.role = role;
+    expect(await getWebappFeed(USER)).toMatchObject({ items: [], unreadCount: 0 });
+    expect(await markFeedRead(USER, { ids: ["ia:daily-1"] })).toMatchObject({ updated: 0, unreadCount: 0 });
+    expect(state.inApp[0].readAt).toBeNull();
+  });
+
+  it("hides the inbox of a merged owner account", async () => {
+    state.inApp = [summaryRow()];
+    state.mergedIntoUserId = OTHER_USER;
+    expect(await getWebappFeed(USER)).toMatchObject({ items: [], unreadCount: 0 });
+  });
+
+  it("marks only the requested owner's item, independently of news watermark", async () => {
+    state.inApp = [summaryRow(), summaryRow("daily-2"), summaryRow("foreign", OTHER_USER)];
+    const result = await markFeedRead(USER, { ids: ["ia:daily-1", "ia:foreign"] });
+    expect(result).toMatchObject({ updated: 1, unreadCount: 1, feedSeenAt: null });
+    expect(state.inApp[0].readAt).toBeInstanceOf(Date);
+    expect(state.inApp[1].readAt).toBeNull();
+    expect(state.inApp[2].readAt).toBeNull();
+  });
+
+  it("read all respects the time boundary and leaves newer reports unread", async () => {
+    state.inApp = [summaryRow(), summaryRow("tomorrow", USER, "2026-10-25T06:00:00.000Z")];
+    const result = await markFeedRead(USER, { upTo: "2026-10-24T12:00:00.000Z" });
+    expect(result).toMatchObject({ updated: 1, unreadCount: 1 });
+  });
+
+  it("paginates summaries alongside personal events and public news", async () => {
+    state.inApp = [summaryRow("first", USER, "2026-10-24T10:00:00.000Z"), summaryRow("last", USER, "2026-10-24T08:00:00.000Z")];
+    state.outgoing = [outgoing({ id: "middle", createdAt: D("2026-10-24T09:00:00.000Z") })];
+    const first = await getWebappFeed(USER, { limit: 2 });
+    expect(first.items.map((item) => item.id)).toEqual(["ia:first", "on:middle"]);
+    const second = await getWebappFeed(USER, { limit: 2, cursor: first.nextCursor! });
+    expect(second.items.map((item) => item.id)).toEqual(["ia:last"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("does not turn an invalid snapshot into zero counts", async () => {
+    const row = summaryRow();
+    row.payload = { title: "Сводка", body: "Сохранённый текст", telephonySummary: { total: -1 } };
+    state.inApp = [row];
+    const feed = await getWebappFeed(USER);
+    expect(feed.items[0]).not.toHaveProperty("telephonySummary");
+    expect(feed.items[0].body).toBe("Сохранённый текст");
   });
 });

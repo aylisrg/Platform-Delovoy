@@ -18,9 +18,7 @@ export function NotificationRecipientsForm({
 }) {
   const [selected, setSelected] = useState<Set<string>>(
     new Set(
-      recipients
-        .filter((r) => r.isSelected && r.role !== "SUPERADMIN")
-        .map((r) => r.userId)
+      recipients.filter((r) => r.isSelected).map((r) => r.userId)
     )
   );
   const [saved, setSaved] = useState(false);
@@ -53,45 +51,22 @@ export function NotificationRecipientsForm({
     });
   }
 
-  const superadmins = recipients.filter((r) => r.role === "SUPERADMIN");
-  const others = recipients.filter((r) => r.role !== "SUPERADMIN");
+  // SUPERADMINs are ordinary list members now — nobody «always receives»
+  // (ADR 2026-10-25-team-access-notifications §Q7, AC-C3.3).
+  const groups = [
+    { title: "Суперадмины", items: recipients.filter((r) => r.role === "SUPERADMIN") },
+    { title: "Администраторы и менеджеры", items: recipients.filter((r) => r.role !== "SUPERADMIN") },
+  ].filter((group) => group.items.length > 0);
 
   return (
     <div className="space-y-6">
-      {superadmins.length > 0 && (
-        <section>
+      {groups.map((group) => (
+        <section key={group.title}>
           <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
-            Суперадмины (всегда получают)
+            {group.title}
           </h3>
           <ul className="space-y-2">
-            {superadmins.map((r) => (
-              <li
-                key={r.userId}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg bg-zinc-50 border border-zinc-200"
-              >
-                <input type="checkbox" checked readOnly disabled className="rounded" />
-                <span className="flex-1 text-sm text-zinc-700">
-                  {r.name ?? r.email ?? r.userId}
-                </span>
-                <span className="text-xs text-zinc-400">{ROLE_LABEL[r.role] ?? r.role}</span>
-                {!r.hasTelegramChannel && (
-                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                    нет TG-канала
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {others.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
-            Администраторы и менеджеры
-          </h3>
-          <ul className="space-y-2">
-            {others.map((r) => (
+            {group.items.map((r) => (
               <li
                 key={r.userId}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg border border-zinc-200 hover:bg-zinc-50 cursor-pointer"
@@ -101,6 +76,7 @@ export function NotificationRecipientsForm({
                   type="checkbox"
                   checked={selected.has(r.userId)}
                   onChange={() => toggle(r.userId)}
+                  onClick={(e) => e.stopPropagation()}
                   className="rounded"
                 />
                 <span className="flex-1 text-sm text-zinc-700">
@@ -116,7 +92,7 @@ export function NotificationRecipientsForm({
             ))}
           </ul>
         </section>
-      )}
+      ))}
 
       <div className="flex items-center gap-4 pt-2">
         <button

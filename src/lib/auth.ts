@@ -5,7 +5,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "./db";
 import { authConfig } from "./auth.config";
-import { ADMIN_SECTION_SLUGS } from "./permissions";
+import { getUserAdminSections } from "./permissions";
+import { getAuthState } from "./session-revocation";
 import { authorizeMagicLinkNonce } from "@/modules/auth/magic-link-authorize";
 import { verifyTelegramTokenJwt } from "@/modules/auth/telegram-token-jwt";
 import { reserveJti } from "@/modules/auth/telegram-deep-link";
@@ -83,31 +84,45 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         : token;
 
       if (!result) return token;
+      const userId = result.id as string | undefined;
+      if (!userId) return result;
 
-      // On login or session update, fetch admin sections from DB
-      if ((user || trigger === "update") && result.id) {
+      // On login or session update: role, sections and session version from DB.
+      if (user || trigger === "update") {
         try {
           const dbUser = await prisma.user.findUnique({
-            where: { id: result.id as string },
-            select: { role: true },
+            where: { id: userId },
+            select: { role: true, sessionVersion: true },
           });
-
-          if (dbUser && dbUser.role === "SUPERADMIN") {
-            result.adminSections = [...ADMIN_SECTION_SLUGS];
-          } else if (dbUser && (dbUser.role === "ADMIN" || dbUser.role === "MANAGER")) {
-            const permissions = await prisma.adminPermission.findMany({
-              where: { userId: result.id as string },
-              select: { section: true },
-            });
-            result.adminSections = permissions.map((p) => p.section);
-          } else {
-            result.adminSections = [];
+          if (dbUser) {
+            result.role = dbUser.role;
+            result.sv = dbUser.sessionVersion;
           }
+          result.adminSections = await getUserAdminSections(userId);
         } catch (err) {
           // DB error must not block login — return token with empty sections,
           // user will be redirected to /admin/forbidden and can retry
           console.error("[Auth] JWT callback DB error:", err);
           result.adminSections = result.adminSections ?? [];
+        }
+        return result;
+      }
+
+      // Every other call: session revocation (ADR 2026-10-25 §Q1). Tokens issued
+      // before the column existed have no `sv` → 0 = column default, no mass logout.
+      const state = await getAuthState(userId);
+      if (state === "unavailable") return result; // fail open: no Redis and no DB
+      if (state === null || state.merged) return null; // Auth.js clears the cookie
+      if ((result.sv ?? 0) !== state.sessionVersion) {
+        try {
+          result.adminSections = await getUserAdminSections(userId);
+          result.role = state.role;
+          result.sv = state.sessionVersion;
+        } catch (err) {
+          // Can't load fresh sections: drop staff access rather than keep stale claims.
+          console.error("[Auth] JWT revocation refresh error:", err);
+          result.role = "USER";
+          result.adminSections = [];
         }
       }
 
@@ -120,6 +135,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const provider = message.account?.provider;
       const isNewUser = message.isNewUser;
       if (!userId) return;
+      // «Последний вход» for every provider, incl. telegram-token (AC-B1.2).
+      try {
+        await prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
+      } catch (err) {
+        console.error("[Auth] lastLoginAt update failed:", err);
+      }
       // telegram-token already logs auth.signin.success in the bot handler
       // with richer metadata (chatIdMasked, isNewUser). Skip here to avoid
       // duplicate AuditLog rows for the same login event.

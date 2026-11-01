@@ -67,11 +67,11 @@ export function StickyBookingCta() {
   return (
     <div
       data-testid="booking-cta-sticky-bar"
-      className="md:hidden fixed inset-x-0 bottom-0 z-40 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] bg-white/90 backdrop-blur border-t border-black/[0.06]"
+      className="md:hidden fixed inset-x-0 bottom-0 z-40 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] bg-white border-t border-black/[0.06]"
     >
       <BookOnlineButton
         source="sticky"
-        className="block w-full text-center bg-[#16A34A] hover:bg-[#15803d] text-white font-[family-name:var(--font-manrope)] font-semibold text-base py-3.5 rounded-full transition-colors"
+        className="block w-full text-center bg-[#0071e3] hover:bg-[#0066cc] text-white font-[family-name:var(--font-inter)] font-medium text-base py-3.5 rounded-full transition-colors"
       >
         Забронировать онлайн
       </BookOnlineButton>

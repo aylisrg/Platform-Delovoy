@@ -16,6 +16,7 @@ import type { DayAvailability } from "@/modules/ps-park/types";
 import { toISODate } from "@/lib/format";
 import { deriveSessionKeyFromHeaders, isPrefetchOrBot, recordFunnelStep } from "@/modules/analytics/product-events";
 import { PARK_LOCATION } from "@/lib/park-location";
+import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ const jsonLd = {
       name: "Плей Парк — аренда PlayStation 5",
       description: "Аренда столов с PlayStation 5 по часам. PS5, FIFA, гоночные симуляторы, большие экраны. Онлайн-бронирование.",
       url: `${APP_URL}/ps-park`,
+      telephone: PUBLIC_CONTACTS["ps-park"].phone,
       address: {
         "@type": "PostalAddress",
         addressLocality: "Селятино",

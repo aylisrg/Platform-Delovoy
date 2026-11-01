@@ -86,6 +86,7 @@ describe("GET /api/webapp/notification-center", () => {
 
     expect(res.status).toBe(403);
     expect(json.error.code).toBe("FORBIDDEN");
+    expect(json.error.message).toBe("Доступ отозван");
     expect(mockGetCenter).not.toHaveBeenCalled();
   });
 
@@ -194,7 +195,7 @@ describe("PUT /api/webapp/notification-center", () => {
     expect(mockSetPreference).not.toHaveBeenCalled();
   });
 
-  it("200: пишет предпочтение и аудит мутации", async () => {
+  it("200: пишет предпочтение; аудит пишет сервис в той же транзакции, роут — нет", async () => {
     const res = await PUT(
       makeRequest({ eventType: "booking.created", enabled: false })
     );
@@ -203,12 +204,7 @@ describe("PUT /api/webapp/notification-center", () => {
     expect(res.status).toBe(200);
     expect(json.data).toEqual({ eventType: "booking.created", enabled: false });
     expect(mockSetPreference).toHaveBeenCalledWith(staff, "booking.created", false);
-    expect(mockLogAudit).toHaveBeenCalledWith(
-      "u1",
-      "notification.preference.update",
-      "NotificationEventPreference",
-      "booking.created",
-      { enabled: false, source: "webapp" }
-    );
+    // ADR 2026-10-25 §5.2: setStaffEventSubscription audits (via miniapp) — no double row.
+    expect(mockLogAudit).not.toHaveBeenCalled();
   });
 });

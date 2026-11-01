@@ -866,6 +866,23 @@ export function graceElapsed(decidedAtIso: string, now: Date, graceMinutes: numb
   return now.getTime() - new Date(decidedAtIso).getTime() >= graceMinutes * 60_000;
 }
 
+export type DecisionsSyncMode = 'no-secret' | 'heartbeat-only' | 'full';
+
+/**
+ * Что делает проход decisions-sync. Пауза очереди (`enabled=false`) глушит
+ * запросы и исполнение решений, но НЕ heartbeat: `GET ?status=decided` —
+ * единственный сигнал живости контура для `notificationsHealth()`, и без него
+ * каждая пауза превращалась в CRITICAL «контур молчит» раз в 6 часов
+ * (issue #1141: пауза #1138 → 3,5 суток ложных алертов). Heartbeat во время
+ * паузы по-прежнему проверяет то, ради чего алерт заведён, — секрет и
+ * достижимость сайта из Actions. Без секрета heartbeat невозможен, поэтому
+ * секрет проверяется первым.
+ */
+export function decisionsSyncMode(config: Pick<QueueConfig, 'enabled'>, hasSecret: boolean): DecisionsSyncMode {
+  if (!hasSecret) return 'no-secret';
+  return config.enabled ? 'full' : 'heartbeat-only';
+}
+
 // ── Состояние CI ────────────────────────────────────────────────────────────
 
 export interface CheckRun {

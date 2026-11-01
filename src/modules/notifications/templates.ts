@@ -1,6 +1,6 @@
+import { getPublicContact, PUBLIC_CONTACTS } from "@/lib/public-contacts";
 import { escapeHtml as e } from "@/lib/telegram/escape";
 import {
-  PARK_PHONE,
   adminBookingLink,
   formatClient,
   formatEventDate,
@@ -51,29 +51,29 @@ function clientBookingCreated(d: TemplateData): string {
     return `Бронь создана — осталось оплатить\n\n${slotLines(d)}\n\nОплатите бронь в течение часа: после оплаты она подтвердится автоматически. Если не оплатить, бронь отменится и время освободится.`;
   }
   if (d.paymentFlow === "link") {
-    return `Бронь создана, но ещё не оплачена\n\n${slotLines(d)}\n\nОплатить можно по ссылке, которую вы получили при бронировании, — после оплаты бронь подтвердится автоматически. Вопросы: ${PARK_PHONE}.`;
+    return `Бронь создана, но ещё не оплачена\n\n${slotLines(d)}\n\nОплатить можно по ссылке, которую вы получили при бронировании, — после оплаты бронь подтвердится автоматически. Вопросы: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone}.`;
   }
-  return `Заявка на бронь принята\n\n${slotLines(d)}\n\nАдминистратор проверит время и подтвердит бронь — мы пришлём сообщение. Вопросы: ${PARK_PHONE}.`;
+  return `Заявка на бронь принята\n\n${slotLines(d)}\n\nАдминистратор проверит время и подтвердит бронь — мы пришлём сообщение. Вопросы: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone}.`;
 }
 
 const clientBookingConfirmed: TemplateFn = (d) =>
-  `Бронь подтверждена ✅\n\n${slotLines(d)}\n\nЖдём вас! Если планы изменятся, позвоните: ${PARK_PHONE}.`;
+  `Бронь подтверждена ✅\n\n${slotLines(d)}\n\nЖдём вас! Если планы изменятся, позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone}.`;
 
 const clientBookingCancelled: TemplateFn = (d) =>
   d.cancelledBecause === "unpaid"
     ? `Бронь отменена: оплата не поступила\n\n${slotLines(d)}\n\nВремя снова свободно — забронировать заново можно на сайте.`
-    : `Бронь отменена\n\n${slotLines(d)}\n\nЕсли вы её не отменяли или есть вопросы, позвоните: ${PARK_PHONE}.`;
+    : `Бронь отменена\n\n${slotLines(d)}\n\nЕсли вы её не отменяли или есть вопросы, позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone}.`;
 
 const clientBookingRescheduled: TemplateFn = (d) => {
   const was = formatSlot({ date: d.oldDate, startTime: d.oldStartTime, endTime: d.oldEndTime });
-  return `Бронь перенесена\n\n${e(d.resourceName)}\nБыло: ${e(was)}\nСтало: ${e(formatSlot(d))}\n\nЕсли время не подходит, позвоните: ${PARK_PHONE}.`;
+  return `Бронь перенесена\n\n${e(d.resourceName)}\nБыло: ${e(was)}\nСтало: ${e(formatSlot(d))}\n\nЕсли время не подходит, позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone}.`;
 };
 
 const clientBookingReminder: TemplateFn = (d) =>
   `Через час начинается ваша бронь\n\n${slotLines(d)}\n\nЖдём вас!`;
 
 const clientBookingEndingSoon: TemplateFn = (d) =>
-  `Ваша бронь закончится через час, в ${e(d.endTime)}\n\n${e(d.resourceName)} · ${e(formatEventDate(d.date))}\n\nХотите остаться подольше? Позвоните: ${PARK_PHONE} — продлим, если время свободно.`;
+  `Ваша бронь закончится через час, в ${e(d.endTime)}\n\n${e(d.resourceName)} · ${e(formatEventDate(d.date))}\n\nХотите остаться подольше? Позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone} — продлим, если время свободно.`;
 
 // Единые шаблоны онлайн-оплат (ЮKassa) — одинаковы для всех модулей,
 // подмешиваются в каждый модульный блок ниже. Описание платежа — это же
@@ -85,10 +85,10 @@ function paymentClientTemplates(moduleSlug: string): Record<string, TemplateFn> 
   // по брони PS Park при этом остаётся, его можно оплатить ещё раз.
   const afterCancel = (d: TemplateData) => {
     if (moduleSlug === "ps-park" && d.subjectType === "BOOKING") {
-      return `Счёт можно оплатить ещё раз или на месте. Вопросы: ${PARK_PHONE}.`;
+      return `Счёт можно оплатить ещё раз или на месте. Вопросы: ${getPublicContact(moduleSlug).displayPhone}.`;
     }
     const what = moduleSlug === "gazebos" ? "бронь " : moduleSlug === "cafe" ? "заказ " : "";
-    return `Чтобы попробовать снова, оформите ${what}заново. Вопросы: ${PARK_PHONE}.`;
+    return `Чтобы попробовать снова, оформите ${what}заново. Вопросы: ${getPublicContact(moduleSlug).displayPhone}.`;
   };
   return {
     "payment.succeeded": (d) =>
@@ -133,7 +133,7 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
     "order.delivered": (d) =>
       `Заказ ${orderNo(d)} доставлен. Приятного аппетита!`,
     "order.cancelled": (d) =>
-      `Заказ ${orderNo(d)} отменён.\n\nЕсли вы его не отменяли или есть вопросы, позвоните: ${PARK_PHONE}.`,
+      `Заказ ${orderNo(d)} отменён.\n\nЕсли вы его не отменяли или есть вопросы, позвоните: ${PUBLIC_CONTACTS.cafe.displayPhone}.`,
     ...paymentClientTemplates("cafe"),
   },
 };
@@ -266,7 +266,7 @@ export function renderClientMessage(
 ): string | null {
   const template = clientTemplates[moduleSlug]?.[eventType];
   if (!template) return null;
-  return template(data);
+  return template({ ...data, moduleSlug });
 }
 
 /**

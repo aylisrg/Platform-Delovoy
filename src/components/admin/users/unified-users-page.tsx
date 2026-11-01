@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { UsersList } from "./users-list";
+import { TeamReviewTable } from "./team-review-table";
+import { CreateUserForm } from "./create-user-form";
 import { ClientsPageContent } from "@/components/admin/clients/clients-page-content";
 
 type Tab = "all" | "team" | "clients";
@@ -18,6 +20,7 @@ export function UnifiedUsersPage() {
   const router = useRouter();
   const initialTab = (searchParams.get("tab") as Tab) || "all";
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [teamReloadKey, setTeamReloadKey] = useState(0);
 
   function handleTabChange(tab: Tab) {
     setActiveTab(tab);
@@ -56,7 +59,12 @@ export function UnifiedUsersPage() {
 
       {/* Tab content */}
       {activeTab === "all" && <UsersList filterRole={undefined} />}
-      {activeTab === "team" && <UsersList filterRole="team" />}
+      {activeTab === "team" && (
+        <div className="space-y-4">
+          <CreateUserForm onUserCreated={() => setTeamReloadKey((k) => k + 1)} />
+          <TeamReviewTable reloadKey={teamReloadKey} />
+        </div>
+      )}
       {activeTab === "clients" && <ClientsPageContent />}
     </div>
   );

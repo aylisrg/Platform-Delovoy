@@ -11,6 +11,8 @@ type EventRoute = {
 };
 
 export const EVENT_ROUTING: Record<string, EventRoute> = {
+  // In-app inbox only: the daily scheduler never calls external dispatch.
+  "telephony.daily_summary": { client: false, admin: false },
   // Bookings (gazebos, ps-park)
   "booking.created": { client: true, admin: true, category: "booking" },
   "booking.confirmed": { client: true, admin: false, category: "booking" },

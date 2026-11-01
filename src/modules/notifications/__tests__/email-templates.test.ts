@@ -49,7 +49,19 @@ describe("email-templates", () => {
 
     it("all templates include footer with phone number", () => {
       const html = bookingCreatedHtml(BOOKING_DATA);
-      expect(html).toContain("+7 (499) 677-48-88");
+      expect(html).toContain("+7 (926) 900-81-20");
+    });
+
+    it.each([
+      ["gazebos", "booking.created", "+79269008120", "+7 (926) 900-81-20"],
+      ["ps-park", "booking.confirmed", "+79852444624", "+7 (985) 244-46-24"],
+      ["cafe", "order.placed", "+79152698507", "+7 (915) 269-85-07"],
+    ])("uses the %s contact for every call link", (slug, event, phone, displayPhone) => {
+      const email = renderEmailTemplate(slug, event, { ...BOOKING_DATA, ...ORDER_DATA });
+      expect(email?.html).toContain(displayPhone);
+      const links = [...email!.html.matchAll(/href="tel:([^"]+)"/g)].map((match) => match[1]);
+      expect(links.length).toBeGreaterThan(0);
+      expect(links.every((link) => link === phone)).toBe(true);
     });
   });
 

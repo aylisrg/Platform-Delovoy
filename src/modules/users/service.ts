@@ -1,7 +1,13 @@
 import bcrypt from "bcryptjs";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { setUserAdminSections } from "@/lib/permissions";
+import { publishAuthState } from "@/lib/session-revocation";
 import { ensureManagerNotifyDefaults } from "@/modules/notifications/release-notify";
+import { getDeletionBlockers, UNKNOWN_BLOCKER } from "./deletion-blockers";
+import { DomainError, USER_ERROR_MESSAGES, userNotFound } from "./errors";
+import { changeUserRole } from "./exclusion";
+import { TEAM_ROLES, type DeletionBlocker, type ExclusionResult } from "./types";
 import type { CreateUserInput, UpdateUserInput } from "./validation";
 
 const SALT_ROUNDS = 10;
@@ -19,6 +25,11 @@ const USER_SELECT = {
     select: { notifyReleases: true },
   },
 } as const;
+
+type SelectedUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
+
+/** PATCH response: the user + what was removed when the change excluded them. */
+export type UpdatedUser = SelectedUser & { exclusion?: ExclusionResult };
 
 export async function createUser(input: CreateUserInput) {
   const normalizedEmail = input.email.toLowerCase().trim();
@@ -65,7 +76,12 @@ export async function listUsers(options?: {
 }) {
   const { search, role, limit = 50, offset = 0 } = options ?? {};
 
-  const conditions: Record<string, unknown>[] = [];
+  // Merged tombstones and the technical `system` user are not people
+  // (ADR 2026-10-25-team-access-notifications §5.1).
+  const conditions: Record<string, unknown>[] = [
+    { mergedIntoUserId: null },
+    { id: { not: "system" } },
+  ];
 
   if (search) {
     conditions.push({
@@ -82,7 +98,7 @@ export async function listUsers(options?: {
     conditions.push({ role: { in: ["SUPERADMIN", "ADMIN", "MANAGER"] } });
   }
 
-  const where = conditions.length > 0 ? { AND: conditions } : undefined;
+  const where = { AND: conditions };
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
@@ -125,61 +141,40 @@ export async function getUser(id: string) {
   return user;
 }
 
-export async function updateUser(id: string, input: UpdateUserInput, currentUserId: string) {
-  // Prevent demoting yourself
-  if (id === currentUserId && input.role && input.role !== "SUPERADMIN") {
-    throw new Error("CANNOT_DEMOTE_SELF");
+/**
+ * Update a user. Role changes are delegated to `changeUserRole` (exclusion on
+ * → USER, session revocation on demotion, defaults on promotion — US-A2);
+ * name / phone / telegramId are plain field updates.
+ */
+export async function updateUser(
+  id: string,
+  input: UpdateUserInput,
+  currentUserId: string,
+): Promise<UpdatedUser> {
+  const { role, confirmSeeded, ...fields } = input;
+
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
+  if (!user) throw userNotFound();
+
+  let exclusion: ExclusionResult | undefined;
+  if (role !== undefined && role !== user.role) {
+    const change = await changeUserRole(id, role, currentUserId, { confirmSeeded });
+    if (change.kind === "excluded") exclusion = change.exclusion;
   }
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) {
-    throw new Error("USER_NOT_FOUND");
-  }
+  const data = {
+    ...(fields.name !== undefined ? { name: fields.name } : {}),
+    ...(fields.phone !== undefined ? { phone: fields.phone || null } : {}),
+    ...(fields.telegramId !== undefined ? { telegramId: fields.telegramId || null } : {}),
+  };
 
-  const updated = await prisma.user.update({
-    where: { id },
-    data: {
-      ...(input.role !== undefined ? { role: input.role } : {}),
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.phone !== undefined ? { phone: input.phone || null } : {}),
-      ...(input.telegramId !== undefined ? { telegramId: input.telegramId || null } : {}),
-    },
-    select: USER_SELECT,
-  });
+  const updated =
+    Object.keys(data).length > 0
+      ? await prisma.user.update({ where: { id }, data, select: USER_SELECT })
+      : await prisma.user.findUnique({ where: { id }, select: USER_SELECT });
+  if (!updated) throw userNotFound();
 
-  // When role changes to MANAGER, ensure "dashboard" permission always exists
-  if (input.role === "MANAGER" && user.role !== "MANAGER") {
-    await prisma.adminPermission.upsert({
-      where: { userId_section: { userId: id, section: "dashboard" } },
-      create: { userId: id, section: "dashboard" },
-      update: {},
-    });
-  }
-
-  // When promoting a non-admin to MANAGER/SUPERADMIN, subscribe them to release
-  // notifications by default (idempotent — never clobbers an existing opt-out).
-  if (
-    (input.role === "MANAGER" || input.role === "SUPERADMIN") &&
-    user.role !== "MANAGER" &&
-    user.role !== "SUPERADMIN"
-  ) {
-    await ensureManagerNotifyDefaults(id);
-  }
-
-  // Audit log for role changes
-  if (input.role && input.role !== user.role) {
-    await prisma.auditLog.create({
-      data: {
-        userId: currentUserId,
-        action: "user.role.change",
-        entity: "User",
-        entityId: id,
-        metadata: { oldRole: user.role, newRole: input.role },
-      },
-    });
-  }
-
-  return updated;
+  return exclusion ? { ...updated, exclusion } : updated;
 }
 
 export async function resetUserPassword(id: string, newPassword: string) {
@@ -196,37 +191,65 @@ export async function resetUserPassword(id: string, newPassword: string) {
   });
 }
 
-export async function deleteUser(id: string, currentUserId: string) {
+/**
+ * Hard-delete an account without history (AC-A3.5). Anything that references
+ * the user through a RESTRICT relation is reported as `USER_HAS_HISTORY` with
+ * the per-type counts (AC-A3.1) instead of a database error.
+ */
+export async function deleteUser(id: string, currentUserId: string): Promise<void> {
   if (id === currentUserId) {
-    throw new Error("CANNOT_DELETE_SELF");
+    throw new DomainError("CANNOT_DELETE_SELF", USER_ERROR_MESSAGES.CANNOT_DELETE_SELF, 400);
   }
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) {
-    throw new Error("USER_NOT_FOUND");
-  }
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, role: true, mergedIntoUserId: true },
+  });
+  if (!user) throw userNotFound();
 
-  // Subscription.userId — обязательная FK без каскада (RESTRICT): удаление
-  // упало бы с P2003 и отдало 500. Проверяем заранее и даём понятную ошибку.
-  // Брони (Booking.userId, ON DELETE SET NULL) удалению не мешают: они
-  // остаются в истории без владельца.
-  const subscriptions = await prisma.subscription.count({ where: { userId: id } });
-  if (subscriptions > 0) {
-    throw new Error("USER_HAS_SUBSCRIPTIONS");
-  }
+  const isTeamMember = TEAM_ROLES.has(user.role) && user.mergedIntoUserId === null;
+
+  const blockers = await getDeletionBlockers(id);
+  if (blockers.length > 0) throw userHasHistory(blockers, isTeamMember);
 
   try {
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.user.delete({ where: { id } }),
+      prisma.auditLog.create({
+        data: {
+          userId: currentUserId,
+          action: "user.delete",
+          entity: "User",
+          entityId: id,
+          metadata: { role: user.role },
+        },
+      }),
+    ]);
   } catch (error) {
-    // Гонка: подписка появилась между проверкой и удалением, или новая
-    // RESTRICT-связь. Не отдаём 500 на нарушение FK.
+    // Race: a RESTRICT row appeared between the check and the delete, or a
+    // relation the registry does not know yet. Never a 500 on an FK violation.
     if (
       typeof error === "object" &&
       error !== null &&
       (error as { code?: string }).code === "P2003"
     ) {
-      throw new Error("USER_HAS_DEPENDENCIES");
+      const recomputed = await getDeletionBlockers(id);
+      throw userHasHistory(recomputed.length > 0 ? recomputed : [UNKNOWN_BLOCKER], isTeamMember);
     }
     throw error;
   }
+
+  // The account is gone: drop the cached auth state so its sessions end now.
+  await publishAuthState(id);
+}
+
+function userHasHistory(blockers: DeletionBlocker[], isTeamMember: boolean): DomainError {
+  return new DomainError(
+    "USER_HAS_HISTORY",
+    isTeamMember
+      ? USER_ERROR_MESSAGES.USER_HAS_HISTORY_TEAM
+      : USER_ERROR_MESSAGES.USER_HAS_HISTORY_CLIENT,
+    409,
+    { blockers, isTeamMember },
+  );
 }

@@ -28,6 +28,8 @@ import {
   getUserModules,
   hasAdminSectionAccess,
   getUserAdminSections,
+  computeAdminSections,
+  getGrantableSections,
   setUserAdminSections,
   extractAdminSection,
   ADMIN_SECTIONS,
@@ -200,6 +202,18 @@ describe("getUserModules", () => {
 // hasAdminSectionAccess
 // ============================================================
 describe("hasAdminSectionAccess", () => {
+  it.each(["USER", "MANAGER", "ADMIN"])("keeps global telephony private from %s even with a stale grant", async (role) => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role } as never);
+    vi.mocked(prisma.adminPermission.findUnique).mockResolvedValue({ id: "grant" } as never);
+    expect(await hasAdminSectionAccess("user", "telephony")).toBe(false);
+    expect(prisma.adminPermission.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows SUPERADMIN to read global telephony", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "SUPERADMIN" } as never);
+    expect(await hasAdminSectionAccess("owner", "telephony")).toBe(true);
+  });
+
   it("returns false when user not found", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     const result = await hasAdminSectionAccess("unknown-user", "dashboard");
@@ -261,6 +275,22 @@ describe("hasAdminSectionAccess", () => {
 // getUserAdminSections
 // ============================================================
 describe("getUserAdminSections", () => {
+  it("hides telephony from MANAGER despite a stale grant", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "MANAGER" } as never);
+    vi.mocked(prisma.adminPermission.findMany).mockResolvedValue([
+      { section: "telephony" }, { section: "cafe" },
+    ] as never);
+    expect(await getUserAdminSections("staff")).toEqual(["cafe"]);
+  });
+
+  it("ADMIN gets grants plus role-owned sections, never telephony (ADR 2026-10-25 §Q10)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ role: "ADMIN" } as never);
+    vi.mocked(prisma.adminPermission.findMany).mockResolvedValue([
+      { section: "telephony" }, { section: "cafe" },
+    ] as never);
+    expect(await getUserAdminSections("staff")).toEqual(["cafe", "gazebos", "ps-park", "inventory"]);
+  });
+
   it("returns empty array when user not found", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
     const result = await getUserAdminSections("unknown");
@@ -316,6 +346,14 @@ describe("getUserAdminSections", () => {
 // setUserAdminSections
 // ============================================================
 describe("setUserAdminSections", () => {
+  it("does not create a misleading grant for global telephony", async () => {
+    vi.mocked(prisma.$transaction).mockResolvedValue([]);
+    await setUserAdminSections("staff", ["telephony", "cafe"]);
+    expect(prisma.adminPermission.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "staff", section: "cafe" }],
+    });
+  });
+
   it("calls transaction with deleteMany and createMany", async () => {
     vi.mocked(prisma.$transaction).mockResolvedValue(undefined as never);
 
@@ -656,5 +694,63 @@ describe("canFlagProblem", () => {
   it("USER cannot flag any receipt", async () => {
     const result = await canFlagProblem({ id: "u1", role: "USER" }, "cafe", "u1");
     expect(result).toBe(false);
+  });
+});
+
+// ============================================================
+// computeAdminSections / getGrantableSections (ADR 2026-10-25 §Q10)
+// ============================================================
+describe("computeAdminSections", () => {
+  it("USER has no sections even with stale grants", () => {
+    expect(computeAdminSections("USER", ["cafe"])).toEqual([]);
+  });
+
+  it("SUPERADMIN gets every non-strict section and strict ones only by grant", () => {
+    const plain = computeAdminSections("SUPERADMIN", ["cafe"]);
+    expect(plain).not.toContain("nedelovoy");
+    expect(plain).toContain("telephony");
+    expect(plain).toHaveLength(ADMIN_SECTION_SLUGS.length - 1);
+    expect(computeAdminSections("SUPERADMIN", ["nedelovoy", "nedelovoy"])).toContain("nedelovoy");
+  });
+
+  it("ADMIN = grants ∪ ADMIN_EDITABLE_MODULES without duplicates", () => {
+    expect(computeAdminSections("ADMIN", ["gazebos", "rental"])).toEqual([
+      "gazebos", "rental", "ps-park", "inventory",
+    ]);
+  });
+
+  it("MANAGER = explicit grants minus SUPERADMIN-only sections", () => {
+    expect(computeAdminSections("MANAGER", ["dashboard", "telephony", "nedelovoy"])).toEqual([
+      "dashboard", "nedelovoy",
+    ]);
+  });
+});
+
+describe("getGrantableSections", () => {
+  it("SUPERADMIN: role sections are read-only, only strict ones are grantable", () => {
+    const g = getGrantableSections("SUPERADMIN");
+    expect(g.grantableSections).toEqual([]);
+    expect(g.strictSections).toEqual(["nedelovoy"]);
+    expect(g.roleSections).not.toContain("nedelovoy");
+  });
+
+  it("ADMIN: owned modules by role, the rest grantable except telephony", () => {
+    const g = getGrantableSections("ADMIN");
+    expect(g.roleSections).toEqual(["gazebos", "ps-park", "inventory"]);
+    expect(g.grantableSections).toContain("cafe");
+    expect(g.grantableSections).not.toContain("telephony");
+    expect(g.grantableSections).not.toContain("gazebos");
+    expect(g.grantableSections).not.toContain("nedelovoy");
+  });
+
+  it("MANAGER: everything non-strict except telephony is grantable", () => {
+    const g = getGrantableSections("MANAGER");
+    expect(g.roleSections).toEqual([]);
+    expect(g.grantableSections).toContain("gazebos");
+    expect(g.grantableSections).not.toContain("telephony");
+  });
+
+  it("USER: nothing", () => {
+    expect(getGrantableSections("USER")).toEqual({ roleSections: [], grantableSections: [], strictSections: [] });
   });
 });

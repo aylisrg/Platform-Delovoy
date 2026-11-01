@@ -1,0 +1,92 @@
+[
+  {
+    "path": "public/media/gazebos/gazebo-1/photo-01.webp",
+    "source_sha256": "8aa39f14dd42fcafe09ea43c2ed2894572792d1da32502792fcc687b77e54da4",
+    "sha256": "0f3e3e1c8ba12e4dba5bdc9a4922c9631d2c82f878068b216855dde6e9dcd741",
+    "bytes": 428714
+  },
+  {
+    "path": "public/media/gazebos/gazebo-1/photo-02.webp",
+    "source_sha256": "3ce93615bdcaeaa3c636f8f01bf5cc94ad4101231d4aa7d873babd52ef23c5ae",
+    "sha256": "cd19939cde34ed46bbc74a826c7de70c08dcd559a2cdef619a222ad5f797ac66",
+    "bytes": 387088
+  },
+  {
+    "path": "public/media/gazebos/gazebo-1/photo-03.webp",
+    "source_sha256": "b52f6cece5caba5ed489b7db0eb9ad9da20ea42f104b71fd859ae93a779cf514",
+    "sha256": "5b3e26c631bbc5fe496bb54d2a4c204410af427e47f1354af288188fe5953b6d",
+    "bytes": 355562
+  },
+  {
+    "path": "public/media/gazebos/gazebo-2/photo-01.webp",
+    "source_sha256": "9380937d05fd8e43daff9ffb8c7020cf7e6a15fa8fe1c041d3e055f95edac36e",
+    "sha256": "abb36de1bb9299d5bf3c5421029660ad24ad7d2d758aad2a38c0c52e7588b668",
+    "bytes": 388872
+  },
+  {
+    "path": "public/media/gazebos/gazebo-2/photo-02.webp",
+    "source_sha256": "28983109f9b8fc0df600135f721b94bd05584f63da5104a1a0ccaae114dfcf30",
+    "sha256": "d5d564e59644ab917cac0d2aa6a3306d29774b6e6f4ec8dc32bef76d2e73a2fc",
+    "bytes": 392420
+  },
+  {
+    "path": "public/media/gazebos/gazebo-2/photo-03.webp",
+    "source_sha256": "943f01f95309c0cacc8c2a46dc74bcb4cc3a28928d0e322e5a671b7099cdd5d8",
+    "sha256": "1075b1fefc6f7ede45657adfc3a71fbf25bd2daaa0561cf55ed0f66628ff14c8",
+    "bytes": 445788
+  },
+  {
+    "path": "public/media/gazebos/gazebo-3/photo-01.webp",
+    "source_sha256": "9ea9bd21f2ac707744ba8ea7438dd89e465054fc89a36d08ff095f716590b663",
+    "sha256": "aff47712143f1b0393d9bae0c8e3efb3d6213b9fc0a0c1b9e737d3545fcaeba4",
+    "bytes": 389800
+  },
+  {
+    "path": "public/media/gazebos/gazebo-3/photo-02.webp",
+    "source_sha256": "ff233fc394845b0e56809ecf414aef31cbedd6b840a3c3dbc7d078f316051f75",
+    "sha256": "2ac6b17f17c233f08b1f0124f74212d508464fddbdd189e6500967c6977e3dfd",
+    "bytes": 392112
+  },
+  {
+    "path": "public/media/gazebos/gazebo-3/photo-03.webp",
+    "source_sha256": "69a5c911da9f8e26c1e3452b0d7aa77913f96242257f517e55db2ee75faac5db",
+    "sha256": "cd7b2f5a8ad1b29e62bb02ef2708eae072c199beb68f1cb6294e83913bd58668",
+    "bytes": 398722
+  },
+  {
+    "path": "public/media/gazebos/gazebo-4/photo-01.webp",
+    "source_sha256": "31db47ac12f01a624a2f3751e7a5fba6cc86fe709e251f3f0e72eda020082d99",
+    "sha256": "47623698165ba215c17647aae5f4fc62b444299dfe35d4c235c227d901fc4c4d",
+    "bytes": 396636
+  },
+  {
+    "path": "public/media/gazebos/gazebo-4/photo-02.webp",
+    "source_sha256": "bc54e0b6aebca5ba2652684ca46ba24cd2aadfb9644eb1548a80fd0e0dc56b51",
+    "sha256": "9a11f663fc0fe8e76f6cd9935ff38f9cc51bc6a0227b609e82839e6077dd7ead",
+    "bytes": 296650
+  },
+  {
+    "path": "public/media/gazebos/gazebo-4/photo-03.webp",
+    "source_sha256": "567b602ee25862d954ee0bf1a9edfc2c09ae02668463e06a563f8f93378dfa84",
+    "sha256": "9db22a73a272554ab8f65b40fb0e2a70545454aa43dccbc160bdac6ea1f7a2dd",
+    "bytes": 420020
+  },
+  {
+    "path": "public/media/gazebos/gazebo-5/photo-01.webp",
+    "source_sha256": "ffdfcbf61d094327431671795336439beec6e8e87d288d336dbb2ae948a62781",
+    "sha256": "a06a662592639dcb2a409cbbe228e6a5c03429d28141460ed10d127018547035",
+    "bytes": 357070
+  },
+  {
+    "path": "public/media/gazebos/gazebo-5/photo-02.webp",
+    "source_sha256": "95f69f092b43616f1fc5f1cee59c53d2b1163205a25b983d8a4dcfb1136d6997",
+    "sha256": "35a604f187a04dabf0931532db45c1d42b314cb0be6a839d86c823b9cf120ae0",
+    "bytes": 370918
+  },
+  {
+    "path": "public/media/gazebos/gazebo-5/photo-03.webp",
+    "source_sha256": "f4dda0d2eaf8fcd2035778a60bc1707463a79e49c6543455f29e703d5bc2c4af",
+    "sha256": "11b8328707ceeda19dfa60a3f50e7d576063c0e70bed716b5f704df2ec10f540",
+    "bytes": 270558
+  }
+]

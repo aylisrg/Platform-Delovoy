@@ -1,77 +1,85 @@
+import type { ReactNode } from "react";
+import Link from "next/link";
 import type { GazeboResource } from "@/modules/gazebos/types";
+import { extractPriceList } from "@/modules/gazebos/pricing";
 import { BookOnlineButton } from "./booking-cta";
-
-const ACCENT = "#16A34A";
+import { GazeboGallery } from "./gazebo-gallery";
+import { getGazeboAnchor, getGazeboGallery } from "./gazebo-photos";
+import styles from "./gazebos.module.css";
 
 type Props = {
   resources: GazeboResource[];
-  /** Онлайн-бронь включена: на карточке кнопка «Забронировать» (#1085). */
   bookingEnabled?: boolean;
+  minBookingHours?: number;
+  children?: ReactNode;
 };
 
-export function GazeboList({ resources, bookingEnabled = false }: Props) {
+export function GazeboNumberLinks({ resources }: { resources: GazeboResource[] }) {
+  return (
+    <nav className={styles.numberLinks} aria-label="Выбрать беседку по номеру">
+      <span className={styles.numberLabel}>Беседки</span>
+      {resources.map((resource) => {
+        const gallery = getGazeboGallery(resource.name);
+        return (
+          <Link key={resource.id} href={`#${getGazeboAnchor(resource)}`} className={styles.numberLink}
+            aria-label={`Перейти к ${resource.name}`}>
+            {gallery ? `№${gallery.number}` : resource.name}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function GazeboList({ resources, bookingEnabled = false, minBookingHours = 4, children }: Props) {
   if (resources.length === 0) {
-    return (
-      <p className="text-[#86868b]/50 font-[family-name:var(--font-inter)] text-sm">
-        Барбекю Парк временно в отпуске. Вернёмся раньше, чем вы успеете раздуть угли.
-      </p>
-    );
+    return <><p className={styles.empty}>Барбекю Парк временно в отпуске. Вернёмся раньше, чем вы успеете раздуть угли.</p>{children}</>;
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {resources.map((resource) => (
-        <div
-          key={resource.id}
-          className="bg-[#f5f5f7] rounded-2xl p-7 flex flex-col gap-4 group hover:bg-[#ebebed] transition-colors"
-        >
-          {/* Icon */}
-          <div
-            className="w-3 h-3 rounded-full"
-            style={{ backgroundColor: ACCENT }}
-          />
+    <div className={styles.grid}>
+      {resources.map((resource, index) => {
+        const gallery = getGazeboGallery(resource.name);
+        const priceList = extractPriceList(resource.metadata, resource.pricePerHour === null ? null : Number(resource.pricePerHour));
+        const rates = priceList ? [priceList.weekdayHour, priceList.weekendHour].filter((rate) => Number.isFinite(rate) && rate > 0) : [];
+        const fromRate = rates.length ? Math.min(...rates) : null;
+        const metadata = resource.metadata;
+        const features = metadata && typeof metadata === "object" && "features" in metadata && Array.isArray(metadata.features)
+          ? metadata.features.filter((feature: unknown): feature is string => typeof feature === "string") : [];
+        const hasHeating = /с отоплением/iu.test(resource.description ?? "");
+        // The standard description repeats the capacity/heating row. Keep any
+        // custom description instead of silently dropping admin-written details.
+        const standardDescription = resource.capacity != null && /^(?:Большая )?Беседка с отоплением, до \d+ человек[.]?$/iu.test(resource.description ?? "");
 
-          <div className="flex-1">
-            <h3
-              className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] text-xl mb-1"
-              style={{ letterSpacing: "-0.4px" }}
-            >
-              {resource.name}
-            </h3>
-            {resource.description && (
-              <p className="text-[#86868b] text-sm font-[family-name:var(--font-inter)] leading-relaxed">
-                {resource.description}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-3 text-sm font-[family-name:var(--font-inter)]">
-            {resource.capacity && (
-              <span className="text-[#86868b]">
-                до {resource.capacity} чел.
-              </span>
-            )}
-            {resource.pricePerHour && (
-              <span
-                className="font-medium px-2.5 py-0.5 rounded-full text-xs"
-                style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
-              >
-                от {Number(resource.pricePerHour)} ₽/час
-              </span>
-            )}
-          </div>
-
-          {bookingEnabled && (
-            <BookOnlineButton
-              source="card"
-              resourceId={resource.id}
-              className="self-start inline-flex items-center bg-[#16A34A] hover:bg-[#15803d] text-white font-[family-name:var(--font-manrope)] font-semibold text-sm px-5 py-2.5 rounded-full transition-colors"
-            >
-              Забронировать
-            </BookOnlineButton>
-          )}
-        </div>
-      ))}
+        return (
+          <article key={resource.id} id={getGazeboAnchor(resource)} className={styles.card} aria-labelledby={`title-${resource.id}`}>
+            {gallery && <GazeboGallery name={resource.name} gallery={gallery} priority={index === 0} />}
+            <div className={styles.cardBody}>
+              <h2 id={`title-${resource.id}`} className={styles.cardTitle}>{resource.name}</h2>
+              <div className={styles.details}>
+                {resource.capacity != null && <span>До {resource.capacity} человек</span>}
+                {hasHeating && <span>С отоплением</span>}
+              </div>
+              {resource.description && !standardDescription && <p className={styles.description}>{resource.description}</p>}
+              {features.length > 0 && <p className={styles.features}>{features.join(" · ")}</p>}
+              <div className={styles.cardBottom}>
+                <div>
+                  {fromRate !== null ? (
+                    <p className={styles.rate}>от {fromRate.toLocaleString("ru-RU")} ₽ <small>/ час</small></p>
+                  ) : <p className={styles.minimum}>Стоимость уточняйте при бронировании</p>}
+                  <p className={styles.minimum}>Минимум {minBookingHours} ч</p>
+                </div>
+                {bookingEnabled && (
+                  <BookOnlineButton source="card" resourceId={resource.id} className={styles.cardButton}>
+                    {gallery ? `Выбрать №${gallery.number}` : "Выбрать беседку"}
+                  </BookOnlineButton>
+                )}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+      {children}
     </div>
   );
 }

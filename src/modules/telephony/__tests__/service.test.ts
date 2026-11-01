@@ -126,6 +126,20 @@ describe("getTelephonyConfig", () => {
 });
 
 describe("getPublicPhone", () => {
+  it.each([
+    ["rental", "+74996477142", "+7 (499) 647-71-42"],
+    ["gazebos", "+79269008120", "+7 (926) 900-81-20"],
+    ["ps-park", "+79852444624", "+7 (985) 244-46-24"],
+    ["cafe", "+79152698507", "+7 (915) 269-85-07"],
+  ])("returns the published %s contact independently of SIP configuration", async (slug, phone, displayPhone) => {
+    mockPrisma.module.findUnique.mockResolvedValue({
+      isActive: true,
+      config: { telephony: { enabled: false, publicPhone: "+74996774888" } },
+    });
+    expect(await getPublicPhone(slug)).toEqual({ phone, displayPhone });
+    expect(mockPrisma.module.findUnique).not.toHaveBeenCalled();
+  });
+
   it("returns phone when config has publicPhone", async () => {
     mockPrisma.module.findUnique.mockResolvedValue({
       isActive: true,
@@ -138,7 +152,7 @@ describe("getPublicPhone", () => {
         },
       },
     });
-    const result = await getPublicPhone("gazebos");
+    const result = await getPublicPhone("parking");
     expect(result).not.toBeNull();
     expect(result?.phone).toBe("+74951234567");
     expect(result?.displayPhone).toBe("+7 (495) 123-45-67");
@@ -149,7 +163,7 @@ describe("getPublicPhone", () => {
       isActive: true,
       config: { telephony: { enabled: false } },
     });
-    const result = await getPublicPhone("gazebos");
+    const result = await getPublicPhone("parking");
     expect(result).toBeNull();
   });
 });

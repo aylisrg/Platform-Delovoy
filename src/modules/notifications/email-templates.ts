@@ -4,7 +4,8 @@
  * Uses emailLayout() wrapper for consistent header/footer.
  */
 
-import { PARK_PHONE, PARK_PHONE_TEL, formatEventDate } from "./text-format";
+import { formatEventDate } from "./text-format";
+import { getPublicContact, PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
 type TemplateData = Record<string, unknown>;
 
@@ -12,8 +13,9 @@ type TemplateData = Record<string, unknown>;
 
 function emailLayout(
   content: string,
-  options?: { accentColor?: string; title?: string }
+  options?: { accentColor?: string; title?: string; moduleSlug?: string }
 ): string {
+  const phone = getPublicContact(options?.moduleSlug ?? "rental");
   const accent = options?.accentColor || "#0071e3";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
 
@@ -59,7 +61,7 @@ function emailLayout(
               Бизнес-парк «Деловой», Селятино, Московская область<br>
               <a href="${appUrl}" style="color:${accent};text-decoration:none;">${appUrl.replace("https://", "")}</a>
               &nbsp;·&nbsp;
-              <a href="tel:+74996774888" style="color:${accent};text-decoration:none;">+7 (499) 677-48-88</a>
+              <a href="tel:${phone.phone}" style="color:${accent};text-decoration:none;">${phone.displayPhone}</a>
             </p>
             <p style="margin:8px 0 0;font-size:11px;color:#c7c7cc;">
               Вы получили это письмо, так как совершили действие на платформе Деловой Парк.
@@ -119,6 +121,7 @@ function bookingCreatedCopy(data: TemplateData): { heading: string; lead: string
 }
 
 export function bookingCreatedHtml(data: TemplateData): string {
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
   const accent = moduleAccent(String(data.moduleSlug || ""));
   const copy = bookingCreatedCopy(data);
   const content = `
@@ -136,20 +139,22 @@ export function bookingCreatedHtml(data: TemplateData): string {
       </tbody>
     </table>
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      ${copy.next} Вопросы — по телефону <a href="tel:${PARK_PHONE_TEL}" style="color:${accent};">${PARK_PHONE}</a>.
+      ${copy.next} Вопросы — по телефону <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>.
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: copy.heading });
+  return emailLayout(content, { moduleSlug: String(data.moduleSlug ?? "rental"), accentColor: accent, title: copy.heading });
 }
 
 export function bookingCreatedText(data: TemplateData): string {
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
   const copy = bookingCreatedCopy(data);
-  return `${copy.heading}\n\n${data.resourceName}\nДата: ${data.date}\nВремя: ${data.startTime} — ${data.endTime}\n\n${copy.next}\nВопросы: ${PARK_PHONE}.`;
+  return `${copy.heading}\n\n${data.resourceName}\nДата: ${data.date}\nВремя: ${data.startTime} — ${data.endTime}\n\n${copy.next}\nВопросы: ${phone.displayPhone}.`;
 }
 
 // ─── Booking: Confirmed ───────────────────────────────────────────────────────
 
 export function bookingConfirmationHtml(data: TemplateData): string {
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
   const accent = moduleAccent(String(data.moduleSlug || ""));
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
   const content = `
@@ -168,10 +173,10 @@ export function bookingConfirmationHtml(data: TemplateData): string {
     </table>
     ${primaryButton("Посмотреть бронирование", `${appUrl}/dashboard`, accent)}
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Если у вас возникнут вопросы, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+      Если у вас возникнут вопросы, позвоните нам: <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: "Бронирование подтверждено" });
+  return emailLayout(content, { moduleSlug: String(data.moduleSlug ?? "rental"), accentColor: accent, title: "Бронирование подтверждено" });
 }
 
 export function bookingConfirmationText(data: TemplateData): string {
@@ -221,6 +226,7 @@ function money(amount: number): string {
  * на условиях этой (п. 13.3 оферты, ТЗ §7).
  */
 export function bookingReceiptHtml(data: BookingReceiptData): string {
+  const phone = PUBLIC_CONTACTS.gazebos;
   const accent = moduleAccent("gazebos");
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
 
@@ -274,7 +280,7 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
       По этой ссылке можно перенести или отменить бронь без звонка оператору.
     </p>`
         : `<p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Отменить или перенести бронь можно по телефону <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>.
+      Отменить или перенести бронь можно по телефону <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>.
     </p>`
     }
 
@@ -296,17 +302,19 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
       ${escapeEmailHtml(PARK_ADDRESS)}<br>
       <a href="${PARK_MAP_URL}" style="color:${accent};">Посмотреть на карте</a>
       &nbsp;·&nbsp;
-      <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+      <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>
     </p>
   `;
 
   return emailLayout(content, {
+    moduleSlug: "gazebos",
     accentColor: accent,
     title: `Бронирование ${data.bookingNumber} оплачено`,
   });
 }
 
 export function bookingReceiptText(data: BookingReceiptData): string {
+  const phone = PUBLIC_CONTACTS.gazebos;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
   const lines = data.lines.map((l) => `  ${l.label} — ${money(l.amount)}`).join("\n");
 
@@ -326,17 +334,18 @@ export function bookingReceiptText(data: BookingReceiptData): string {
     "",
     data.manageUrl
       ? `Управление бронированием: ${data.manageUrl}`
-      : "Отменить или перенести бронь можно по телефону +7 (499) 677-48-88",
+      : `Отменить или перенести бронь можно по телефону ${phone.displayPhone}`,
     `Договор заключён на условиях редакции № ${data.offerNumber} публичной оферты: ${appUrl}/oferta/v/${data.offerSlug}`,
     "",
     PARK_ADDRESS,
-    "Телефон: +7 (499) 677-48-88",
+    `Телефон: ${phone.displayPhone}`,
   ].join("\n");
 }
 
 // ─── Booking: Cancelled ───────────────────────────────────────────────────────
 
 export function bookingCancellationHtml(data: TemplateData): string {
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
   const accent = moduleAccent(String(data.moduleSlug || ""));
   const content = `
     <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
@@ -354,10 +363,10 @@ export function bookingCancellationHtml(data: TemplateData): string {
       </tbody>
     </table>
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Хотите забронировать другое время? Позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+      Хотите забронировать другое время? Позвоните нам: <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: "Бронирование отменено" });
+  return emailLayout(content, { moduleSlug: String(data.moduleSlug ?? "rental"), accentColor: accent, title: "Бронирование отменено" });
 }
 
 export function bookingCancellationText(data: TemplateData): string {
@@ -385,7 +394,7 @@ export function bookingReminderHtml(data: TemplateData): string {
       Адрес: Московская область, Наро-Фоминский район, п. Селятино, ул. Центральная, д. 4
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: "Напоминание о бронировании" });
+  return emailLayout(content, { moduleSlug: String(data.moduleSlug ?? "rental"), accentColor: accent, title: "Напоминание о бронировании" });
 }
 
 export function bookingReminderText(data: TemplateData): string {
@@ -395,6 +404,7 @@ export function bookingReminderText(data: TemplateData): string {
 // ─── Booking: Ending soon (предложение продлить) ───────────────────────────────
 
 export function bookingEndingSoonHtml(data: TemplateData): string {
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
   const accent = moduleAccent(String(data.moduleSlug || ""));
   const content = `
     <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1d1d1f;letter-spacing:-0.4px;">
@@ -411,14 +421,15 @@ export function bookingEndingSoonHtml(data: TemplateData): string {
       </tbody>
     </table>
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Чтобы продлить, позвоните нам: <a href="tel:+74996774888" style="color:${accent};">+7 (499) 677-48-88</a>
+      Чтобы продлить, позвоните нам: <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: "Продлить бронирование?" });
+  return emailLayout(content, { moduleSlug: String(data.moduleSlug ?? "rental"), accentColor: accent, title: "Продлить бронирование?" });
 }
 
 export function bookingEndingSoonText(data: TemplateData): string {
-  return `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: +7 (499) 677-48-88.`;
+  const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
+  return `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: ${phone.displayPhone}.`;
 }
 
 // ─── Order: Placed ────────────────────────────────────────────────────────────
@@ -472,7 +483,7 @@ export function orderConfirmationHtml(data: TemplateData): string {
       Следите за статусом заказа — мы пришлём уведомление, когда он будет готов.
     </p>
   `;
-  return emailLayout(content, { accentColor: accent, title: `Заказ #${data.orderNumber}` });
+  return emailLayout(content, { moduleSlug: "cafe", accentColor: accent, title: `Заказ #${data.orderNumber}` });
 }
 
 export function orderConfirmationText(data: TemplateData): string {
@@ -508,7 +519,7 @@ export function orderStatusHtml(data: TemplateData): string {
         : ""
     }
   `;
-  return emailLayout(content, { accentColor: accent, title: `Заказ #${data.orderNumber}` });
+  return emailLayout(content, { moduleSlug: "cafe", accentColor: accent, title: `Заказ #${data.orderNumber}` });
 }
 
 export function orderStatusText(data: TemplateData): string {

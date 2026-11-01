@@ -77,6 +77,7 @@ import {
   claimedByQueue,
   countAttempts,
   countBackpressurePrs,
+  decisionsSyncMode,
   dependabotHealAction,
   dependabotRecreateMarker,
   isDependabotAutoMergeBranch,
@@ -1679,14 +1680,23 @@ function decisionIo(config: QueueConfig): DecisionIo {
  */
 function cmdDecisionsSync(dryRun: boolean): void {
   const config = loadConfig();
-  if (!config.enabled) {
-    console.log(JSON.stringify({ off: 'enabled=false в .github/issue-queue.json' }, null, 2));
-    return;
-  }
-  if (!process.env.OWNER_DECISIONS_SECRET) {
+  const mode = decisionsSyncMode(config, Boolean(process.env.OWNER_DECISIONS_SECRET));
+  if (mode === 'no-secret') {
     // Секрет ещё не заведён — деградация мягкая: needs-owner остаётся как есть,
     // запросы доотправятся первым же проходом после появления секрета.
     console.log(JSON.stringify({ skipped: 'OWNER_DECISIONS_SECRET не задан — контур решений выключен' }, null, 2));
+    return;
+  }
+  if (mode === 'heartbeat-only') {
+    // Пауза: ни запросов, ни исполнения — принятые решения остаются decided и
+    // исполнятся после снятия паузы. Но heartbeat шлём (issue #1141).
+    let heartbeat = 'ok';
+    try {
+      siteApi(`${DECISIONS_API}?status=decided`);
+    } catch (err) {
+      heartbeat = String(err).slice(0, 200);
+    }
+    console.log(JSON.stringify({ off: 'enabled=false в .github/issue-queue.json', heartbeat }, null, 2));
     return;
   }
 

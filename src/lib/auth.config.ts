@@ -23,6 +23,8 @@ declare module "@auth/core/jwt" {
     id: string;
     role: Role;
     adminSections: string[];
+    /** User.sessionVersion at issue time (ADR 2026-10-25 §Q1); absent on old tokens = 0. */
+    sv?: number;
   }
 }
 

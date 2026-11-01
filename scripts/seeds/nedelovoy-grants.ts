@@ -12,7 +12,8 @@ import type { PrismaClient } from "@prisma/client";
 
 export async function seedNedelovoyGrants(prisma: PrismaClient): Promise<void> {
   const superadmins = await prisma.user.findMany({
-    where: { role: "SUPERADMIN" },
+    // Влитые бывшие суперадмины грант обратно не получают (ADR 2026-10-25 §8).
+    where: { role: "SUPERADMIN", mergedIntoUserId: null },
     select: { id: true },
   });
 

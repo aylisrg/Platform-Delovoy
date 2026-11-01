@@ -15,6 +15,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import { CAFE_MENU } from "../lib/cafe-menu";
+import { getSeededSuperadminTelegramId } from "../../src/lib/seeded-superadmin";
 
 export async function seedCore(prisma: PrismaClient): Promise<void> {
   const startedAt = new Date().toISOString();
@@ -36,8 +37,9 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   });
 
   // === SUPERADMIN (Telegram login) ===
-  const superadminTelegramId =
-    process.env.SUPERADMIN_TELEGRAM_ID ?? "694696";
+  // Same lookup the app uses to warn about excluding / block merging this
+  // account (src/lib/seeded-superadmin.ts).
+  const superadminTelegramId = getSeededSuperadminTelegramId();
   const superadminName = process.env.SUPERADMIN_NAME ?? "Elliott";
 
   // Migrate legacy email admin → Telegram-based admin (one-time migration safe to re-run).

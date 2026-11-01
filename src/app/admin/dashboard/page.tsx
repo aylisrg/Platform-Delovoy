@@ -2,6 +2,8 @@ import { AdminHeader } from "@/components/admin/header";
 import { ServerStatusCard } from "@/components/admin/server-status-card";
 import { StatusWidget } from "@/components/admin/status-widget";
 import { DashboardGrid } from "@/components/admin/dashboard-grid";
+import { TelephonySummaryCard } from "@/components/admin/telephony/summary-card";
+import { Suspense } from "react";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -108,6 +110,10 @@ export default async function DashboardPage() {
           ]}
         />
         </div>
+
+        <Suspense fallback={<div className="mt-6 h-40 animate-pulse rounded-xl bg-zinc-100" aria-label="Загружаем статистику звонков" />}>
+          <TelephonySummaryCard />
+        </Suspense>
 
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-zinc-900">Быстрый доступ</h2>

@@ -59,6 +59,7 @@ import { prisma } from "@/lib/db";
 import { getUserAdminSections } from "@/lib/permissions";
 import { redis } from "@/lib/redis";
 import type { ClientStats } from "@/modules/clients/types";
+import { createMemoryDb, makeUser } from "./helpers/memory-db";
 
 const mockDate = (str: string) => new Date(str);
 
@@ -554,133 +555,12 @@ describe("getClientStats", () => {
 type Row = Record<string, unknown>;
 type TxTables = Record<string, Row[]>;
 
-function makeUser(overrides: Partial<Row> = {}): Row {
-  return {
-    id: "u-x",
-    role: "USER",
-    name: null,
-    email: null,
-    phone: null,
-    image: null,
-    telegramId: null,
-    vkId: null,
-    phoneNormalized: null,
-    emailNormalized: null,
-    mergedIntoUserId: null,
-    mergedAt: null,
-    ...overrides,
-  };
-}
-
-function buildTx(tables: TxTables) {
-  const t = (name: string): Row[] => {
-    if (!tables[name]) tables[name] = [];
-    return tables[name];
-  };
-
-  const matches = (row: Row, where: Row): boolean => {
-    for (const [k, v] of Object.entries(where)) {
-      if (row[k] !== v) return false;
-    }
-    return true;
-  };
-
-  const updateMany = (table: string) => async ({ where, data }: { where: Row; data: Row }) => {
-    let count = 0;
-    for (const row of t(table)) {
-      if (matches(row, where)) {
-        Object.assign(row, data);
-        count++;
-      }
-    }
-    return { count };
-  };
-
-  const findMany = (table: string) => async ({ where = {} }: { where?: Row; select?: Row } = {}) => {
-    return t(table).filter((r) => matches(r, where));
-  };
-
-  const findUnique = (table: string) => async ({ where }: { where: Row }) => {
-    return t(table).find((r) => matches(r, where)) ?? null;
-  };
-
-  const deleteOne = (table: string) => async ({ where }: { where: Row }) => {
-    const arr = t(table);
-    const idx = arr.findIndex((r) => matches(r, where));
-    if (idx === -1) throw new Error(`No ${table} row matches delete()`);
-    return arr.splice(idx, 1)[0];
-  };
-
-  const deleteMany = (table: string) => async ({ where }: { where: Row }) => {
-    const arr = t(table);
-    let count = 0;
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (matches(arr[i], where)) {
-        arr.splice(i, 1);
-        count++;
-      }
-    }
-    return { count };
-  };
-
-  const update = (table: string) => async ({ where, data }: { where: Row; data: Row }) => {
-    const row = t(table).find((r) => matches(r, where));
-    if (!row) throw new Error(`No ${table} row matches update()`);
-    Object.assign(row, data);
-    return row;
-  };
-
-  const create = (table: string) => async ({ data }: { data: Row }) => {
-    const row = { id: `${table}-${t(table).length + 1}`, ...data };
-    t(table).push(row);
-    return row;
-  };
-
-  const tableApi = (name: string) => ({
-    findMany: findMany(name),
-    findUnique: findUnique(name),
-    update: update(name),
-    updateMany: updateMany(name),
-    delete: deleteOne(name),
-    deleteMany: deleteMany(name),
-    create: create(name),
-  });
-
-  return {
-    user: tableApi("user"),
-    booking: tableApi("booking"),
-    order: tableApi("order"),
-    account: tableApi("account"),
-    session: tableApi("session"),
-    auditLog: tableApi("auditLog"),
-    feedbackItem: tableApi("feedbackItem"),
-    notificationLog: tableApi("notificationLog"),
-    notificationPreference: tableApi("notificationPreference"),
-    moduleAssignment: tableApi("moduleAssignment"),
-    adminPermission: tableApi("adminPermission"),
-    rentalChangeLog: tableApi("rentalChangeLog"),
-    telegramLinkToken: tableApi("telegramLinkToken"),
-    backupLog: {
-      ...tableApi("backupLog"),
-      // backupLog uses performedById, not userId — re-bind updateMany to that key.
-      // (our generic matches() already handles arbitrary where keys.)
-    },
-    task: tableApi("task"),
-    taskAssignee: tableApi("taskAssignee"),
-    taskComment: tableApi("taskComment"),
-    taskEvent: tableApi("taskEvent"),
-    taskSubscription: tableApi("taskSubscription"),
-    savedTaskView: tableApi("savedTaskView"),
-    userNotificationChannel: tableApi("userNotificationChannel"),
-    notificationEventPreference: tableApi("notificationEventPreference"),
-    notificationGlobalPreference: tableApi("notificationGlobalPreference"),
-    outgoingNotification: tableApi("outgoingNotification"),
-  };
-}
-
+// The merge engine moved to `merge.ts` (ADR 2026-10-25 §5.4) and touches more
+// relations; the shared in-memory DB also enforces the schema's unique
+// constraints and rolls back on errors, like the real transaction.
 function installTx(tables: TxTables) {
   vi.mocked(prisma.$transaction as unknown as (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>)
-    .mockImplementation(async (cb) => cb(buildTx(tables)));
+    .mockImplementation(async (cb) => createMemoryDb(tables).transaction(cb));
 }
 
 describe("mergeClients", () => {
@@ -814,8 +694,10 @@ describe("mergeClients", () => {
     const sEmail = tables.userNotificationChannel.find((c) => c.id === "s-email");
     expect(sEmail).toBeDefined();
     expect(sEmail!.userId).toBe("primary");
-    // OutgoingNotification tied to dropped channel was cleaned.
-    expect(tables.outgoingNotification.find((o) => o.id === "on1")).toBeUndefined();
+    // ADR 2026-10-25 §Q6 (intentional change): delivery history of the dropped
+    // duplicate channel is re-pointed to the primary's channel, not deleted.
+    const on1 = tables.outgoingNotification.find((o) => o.id === "on1");
+    expect(on1).toMatchObject({ channelId: "p-tg", userId: "primary" });
   });
 
   it("edge: Account unique conflict on (provider, providerAccountId) — same provider/id is dropped, others move", async () => {

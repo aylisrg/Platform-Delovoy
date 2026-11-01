@@ -9,12 +9,18 @@ import {
   Card,
   EmptyState,
   Icon,
-  ListItem,
   SectionHeader,
   Skeleton,
 } from "@/components/webapp/ui";
 import { buildNavigation } from "@/lib/webapp/navigation";
+import { canViewBusinessAnalytics } from "@/lib/webapp/types";
 import type { WebAppIconName } from "@/lib/webapp/icon-names";
+import { TelephonyDailySummaryCard } from "@/components/webapp/telephony-daily-summary-card";
+import {
+  TELEPHONY_DAILY_EVENT,
+  telephonyDailySummarySchema,
+  type TelephonyDailySummary,
+} from "@/modules/telephony/daily-summary-types";
 
 /**
  * Главный экран Mini App (US-2, ADR §3.1).
@@ -40,6 +46,7 @@ interface FeedItem {
   createdAt: string;
   readAt: string | null;
   moduleSlug: string | null;
+  telephonySummary?: TelephonyDailySummary;
 }
 
 interface FeedPage {
@@ -189,6 +196,20 @@ function FeedCard({
 }) {
   const unread = item.readAt === null;
   const action = item.actions[0];
+
+  if (item.eventType === TELEPHONY_DAILY_EVENT) {
+    const summary = telephonyDailySummarySchema.safeParse(item.telephonySummary);
+    if (summary.success) {
+      return (
+        <TelephonyDailySummaryCard
+          summary={summary.data}
+          unread={unread}
+          onRead={() => onOpen({ ...item, actions: [] })}
+        />
+      );
+    }
+    // Older or malformed payloads retain the regular text notification.
+  }
 
   return (
     <Card>
@@ -350,17 +371,22 @@ export default function WebAppHome() {
         )
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
-      apiFetch<FeedReadResult>("/api/webapp/feed/read", {
-        method: "POST",
-        body: JSON.stringify({ ids: [item.id] }),
-      })
-        .then((result) => setUnreadCount(result.unreadCount))
-        .catch(() => {
-          /* отметка о прочтении не критична — не мешаем переходу */
-        });
     }
 
+    // Прочтение + переход — одна реакция для статистики (ADR 2026-10-25 §Q4):
+    // actionIndex только когда реально уходим по действию. Fire-and-forget —
+    // отметка не критична и не должна мешать переходу.
     const url = item.actions[0]?.url;
+    if (item.readAt === null || url) {
+      apiFetch<{ unreadCount: number }>("/api/webapp/feed/open", {
+        method: "POST",
+        body: JSON.stringify(url ? { id: item.id, actionIndex: 0 } : { id: item.id }),
+      })
+        // Server truth for the badge — the optimistic decrement can drift.
+        .then((result) => setUnreadCount(result.unreadCount))
+        .catch(() => {});
+    }
+
     if (!url) return;
     if (url.startsWith("/")) router.push(url);
     else openExternal(url);
@@ -382,6 +408,18 @@ export default function WebAppHome() {
           Бизнес-парк «Деловой» — Селятино
         </p>
       </header>
+
+      <section className="px-4 mt-4" aria-label="Уведомления">
+        <Card className="overflow-hidden" style={{ border: "1px solid var(--tg-accent)" }}>
+          <Link href="/webapp/notifications" onClick={() => haptic.impact("light")} className="flex min-h-24 items-center gap-3 p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ color: "var(--tg-accent)", background: "var(--tg-secondary-bg)" }}><Icon name="bell" size={26} /></span>
+            <span className="min-w-0 flex-1"><span className="block text-[18px] font-bold">Центр уведомлений</span><span className="mt-1 block text-[13px] leading-snug" style={{ color: "var(--tg-subtitle)" }}>Сообщения, подписки и каналы связи</span></span>
+            {unreadCount > 0 && <Badge tone="accent">{unreadCount}</Badge>}
+            <span style={{ color: "var(--tg-hint)" }}><Icon name="chevron-right" size={18} /></span>
+          </Link>
+          {canViewBusinessAnalytics(user, capabilities) && <Link href="/webapp/notifications#business-reports" className="flex min-h-11 items-center justify-between gap-2 border-t px-4 py-3 text-[13px] font-medium" style={{ color: "var(--tg-link)", borderColor: "var(--tg-separator)" }}>Бизнес-отчёты · настроить<Icon name="chevron-right" size={16} /></Link>}
+        </Card>
+      </section>
 
       {/* Быстрые ссылки на разделы — видное место, до ленты (AC-2.5) */}
       <nav className="px-4 mt-4" aria-label="Разделы">
@@ -406,28 +444,7 @@ export default function WebAppHome() {
         </div>
       </nav>
 
-      {/* Для сотрудника уведомления — главный инструмент: вход в Центр
-          прямо на главной, а не только из Профиля. Гостю раздел не рендерится
-          (AC-2.6); права всё равно перепроверяет сервер (loadWebAppStaff). */}
-      {capabilities.canNotificationCenter && (
-        <section className="mt-5" aria-label="Сотруднику">
-          <SectionHeader>Сотруднику</SectionHeader>
-          <div className="px-4">
-            <Card className="p-0 overflow-hidden">
-              <ListItem
-                icon="bell"
-                title="Центр уведомлений"
-                subtitle="Какие события парка приходят лично вам"
-                href="/webapp/notifications"
-                chevron
-                onClick={() => haptic.impact("light")}
-              />
-            </Card>
-          </div>
-        </section>
-      )}
-
-      <section className="mt-5">
+      <section id="notification-feed" className="mt-5 scroll-mt-4">
         <div className="flex items-center justify-between">
           <SectionHeader>
             Лента{" "}

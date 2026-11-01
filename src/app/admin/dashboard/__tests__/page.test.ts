@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/components/admin/telephony/summary-card", () => ({ TelephonySummaryCard: () => null }));
+
 const mockModuleCount = vi.fn();
 const mockBookingCount = vi.fn();
 const mockOrderCount = vi.fn();

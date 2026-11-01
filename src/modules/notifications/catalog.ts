@@ -21,6 +21,8 @@ export type ManagedEvent = {
   eventType: string;
   label: string;
   description: string;
+  /** In-app summaries requested by the owner are on until explicitly disabled. */
+  defaultEnabled?: boolean;
 };
 
 export type ManagedCategory = {
@@ -33,10 +35,31 @@ export type ManagedCategory = {
   sections: AdminSection[];
   /** true → категория дополнительно доступна роли SUPERADMIN без секций */
   superadminAlways?: boolean;
+  /** Unlike grandfathered external subscriptions, this requires the current role. */
+  superadminOnly?: boolean;
+  /** Any current staff member has access (releases are not tied to a section). */
+  staffAlways?: boolean;
+  delivery?: "in-app";
   events: ManagedEvent[];
 };
 
 export const NOTIFICATION_CATALOG: ManagedCategory[] = [
+  {
+    key: "telephony",
+    label: "Звонки",
+    description: "Итоги дня в ленте Mini App",
+    icon: "bell",
+    sections: ["telephony"],
+    superadminAlways: true,
+    superadminOnly: true,
+    delivery: "in-app",
+    events: [{
+      eventType: "telephony.daily_summary",
+      label: "Ежедневная сводка звонков",
+      description: "После 09:00 МСК за предыдущий день: всего, принято и пропущено. Только в ленте Mini App.",
+      defaultEnabled: true,
+    }],
+  },
   {
     key: "bookings",
     label: "Бронирования",
@@ -146,6 +169,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
     icon: "shield",
     sections: ["monitoring"],
     superadminAlways: true,
+    staffAlways: true,
     events: [
       {
         eventType: "system.release",
@@ -159,6 +183,38 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
 export const MANAGED_EVENT_TYPES = NOTIFICATION_CATALOG.flatMap((category) =>
   category.events.map((event) => event.eventType)
 ) as [string, ...string[]];
+
+/**
+ * Real `moduleSlug`s each catalog event is emitted with (the context the
+ * recipient resolver evaluates; ADR 2026-10-25-team-access-notifications §Q7).
+ * `null` = no module (role-based / system events). A test keeps every catalog
+ * type covered.
+ *
+ * Invariant (§Q8): catalog types are staff-only — client notifications go
+ * through the legacy `notifyClient` path and never read
+ * NotificationEventPreference, so a staff preference row can't mute a
+ * person's own booking/order messages. If a client path ever moves to
+ * `dispatch()`, it must use its own namespace (e.g. `client.booking.created`).
+ */
+export const EVENT_MODULE_CONTEXTS: Record<string, Array<string | null>> = {
+  "telephony.daily_summary": [null],
+  "booking.created": ["gazebos", "ps-park"],
+  "booking.cancelled": ["gazebos", "ps-park"],
+  "order.placed": ["cafe"],
+  "order.cancelled": ["cafe"],
+  "contract.created": ["rental"],
+  "contract.expiring": ["rental"],
+  "inquiry.created": ["rental-inquiry"],
+  "payment.succeeded": ["gazebos", "ps-park", "cafe"],
+  "payment.refund.succeeded": ["gazebos", "ps-park", "cafe"],
+  "avito.lead.new": ["gazebos", "ps-park", null],
+  "system.release": [null],
+};
+
+/** Event moduleSlug → module whose assignment grants access (no Module row for aliases). */
+export const MODULE_ACCESS_ALIAS: Record<string, string> = {
+  "rental-inquiry": "rental",
+};
 
 export function categoryForEvent(
   eventType: string

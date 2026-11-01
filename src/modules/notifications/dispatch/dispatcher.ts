@@ -5,9 +5,17 @@ import { bootstrapChannels } from "./channels";
 import { computeDedupKey, isDuplicate } from "./dedup";
 import { isInQuietHours, nextQuietHoursEnd } from "./quiet-hours";
 import { loadEffectivePreference, pickChannel } from "./preferences";
-import type { DispatchEvent, DispatchOutcome } from "./types";
+import type { DeliveryFailureCode, DispatchEvent, DispatchOutcome } from "./types";
 import { log } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
+import { MANAGED_EVENT_TYPES } from "../catalog";
+import { recordSkip, type SkipReason } from "../skips";
+import { ensureLinksForDelivery } from "../tracking/link-service";
+import { recordBotBlocked, recordDeliveryProof } from "@/modules/telegram-link/bot-contact";
+
+const MANAGED = new Set<string>(MANAGED_EVENT_TYPES);
+/** External channels whose buttons go through `/r/{code}` (ADR 2026-10-25 §Q4). */
+const TRACKED_KINDS = new Set(["TELEGRAM", "PUSH", "EMAIL"]);
 
 bootstrapChannels();
 
@@ -19,14 +27,27 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
     payload: event.payload,
   });
 
+  // Skips of staff (catalog) events are recorded so «почему не пришло» has
+  // an answer (AC-D4.3); recordSkip ignores other event types.
+  const skip = async (reason: SkipReason, message: string): Promise<DispatchOutcome> => {
+    await recordSkip({
+      userId: event.userId,
+      eventType: event.eventType,
+      entityType: event.entityType,
+      entityId: event.entityId,
+      reason,
+    });
+    return { status: "skipped", reason: message };
+  };
+
   if (!event.forceFresh && (await isDuplicate(dedupKey))) {
-    return { status: "skipped", reason: "duplicate" };
+    return skip("DUPLICATE", "duplicate");
   }
 
   const pref = await loadEffectivePreference(event.userId, event.eventType);
-  if (!pref.enabled) return { status: "skipped", reason: "preference disabled" };
+  if (!pref.enabled) return skip("PREFERENCE_DISABLED", "preference disabled");
   if (pref.dndUntil && pref.dndUntil > new Date()) {
-    return { status: "skipped", reason: "DND active" };
+    return skip("DND", "DND active");
   }
 
   const userChannels = await prisma.userNotificationChannel.findMany({
@@ -36,7 +57,7 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
   const channel = pickChannel(userChannels, pref, (k) =>
     Boolean(ChannelRegistry.get(k)?.isAvailable())
   );
-  if (!channel) return { status: "skipped", reason: "no available channel" };
+  if (!channel) return skip("NO_CHANNEL", "no available channel");
 
   const now = new Date();
   const inQuiet = isInQuietHours(now, {
@@ -134,7 +155,7 @@ export async function processOutgoing(
     if (item.scheduledFor.getTime() < cutoff.getTime()) {
       await prisma.outgoingNotification.update({
         where: { id: item.id },
-        data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON },
+        data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON, failureCode: "STALE" },
       });
       skipped++;
       continue;
@@ -179,7 +200,7 @@ async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "r
   const unavailable = !channel || !channel.isAvailable();
 
   if (unavailable) {
-    return attemptFallback(item, unavailable ? `channel ${item.channel.kind} unavailable` : "");
+    return attemptFallback(item, `channel ${item.channel.kind} unavailable`, undefined, "CHANNEL_UNAVAILABLE");
   }
 
   const payload = item.payload as {
@@ -187,19 +208,45 @@ async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "r
     body: string;
     actions?: Array<{ label: string; url?: string }>;
   };
+
+  // Staff events on external channels: buttons → tracking links (the payload
+  // keeps the original URLs for the Mini App feed). If links can't be created
+  // the message still goes out with the original buttons.
+  let actions = payload.actions;
+  if (TRACKED_KINDS.has(item.channel.kind) && MANAGED.has(item.eventType)) {
+    try {
+      actions = await ensureLinksForDelivery(item, payload.actions);
+    } catch (err) {
+      await log.warn(
+        EVENT_SOURCES.NOTIFICATIONS,
+        `deliverOne: tracking links failed for outgoingId=${item.id}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
   const result = await channel.send(item.channel.address, {
     title: payload.title,
     body: payload.body,
-    actions: payload.actions,
+    actions,
   });
 
+  const isTelegram = item.channel.kind === "TELEGRAM";
   if (result.ok) {
     await prisma.outgoingNotification.update({
       where: { id: item.id },
-      data: { status: "SENT", sentAt: new Date(), attempts: { increment: 1 } },
+      data: {
+        status: "SENT",
+        sentAt: new Date(),
+        attempts: { increment: 1 },
+        externalId: result.externalId ?? null,
+      },
     });
+    if (isTelegram) await recordDeliveryProof(item.channel.address);
     return "sent";
   }
+
+  const failureCode: DeliveryFailureCode = result.code ?? "OTHER";
+  if (isTelegram && failureCode === "BOT_BLOCKED") await recordBotBlocked(item.channel.address);
 
   const nextAttempts = item.attempts + 1;
   const exhausted = nextAttempts >= item.maxAttempts || !result.retryable;
@@ -210,6 +257,7 @@ async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "r
       data: {
         status: "PENDING",
         failureReason: result.reason,
+        failureCode,
         attempts: nextAttempts,
         scheduledFor: new Date(Date.now() + retryDelayMs(nextAttempts)),
       },
@@ -217,13 +265,14 @@ async function deliverOne(item: ItemWithChannel): Promise<"sent" | "failed" | "r
     return "retry";
   }
 
-  return attemptFallback(item, result.reason ?? "exhausted", nextAttempts);
+  return attemptFallback(item, result.reason ?? "exhausted", nextAttempts, failureCode);
 }
 
 async function attemptFallback(
   item: ItemWithChannel,
   reason: string,
-  attempts?: number
+  attempts?: number,
+  failureCode: DeliveryFailureCode = "OTHER"
 ): Promise<"sent" | "failed"> {
   // Mark current record as failed
   await prisma.outgoingNotification.update({
@@ -231,6 +280,7 @@ async function attemptFallback(
     data: {
       status: "FAILED",
       failureReason: reason,
+      failureCode,
       attempts: attempts !== undefined ? attempts : { increment: 1 },
     },
   });
