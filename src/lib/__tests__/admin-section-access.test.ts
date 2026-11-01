@@ -19,8 +19,8 @@ const userId = "test-staff";
 function storedAccess(role: Role | null, sections: string[]) {
   vi.mocked(prisma.user.findUnique).mockResolvedValue(role ? { role } as never : null);
   vi.mocked(prisma.adminPermission.findMany).mockResolvedValue(sections.map((section) => ({ section })) as never);
-  vi.mocked(prisma.adminPermission.findUnique).mockImplementation(async (args) =>
-    sections.includes(args.where.userId_section?.section ?? "") ? { id: "test-grant" } as never : null,
+  vi.mocked(prisma.adminPermission.findUnique).mockImplementation((args) =>
+    Promise.resolve(sections.includes(args.where.userId_section?.section ?? "") ? { id: "test-grant" } : null) as never,
   );
 }
 
