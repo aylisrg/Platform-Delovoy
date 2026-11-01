@@ -36,8 +36,10 @@ export default function AdminLayout({
           <VersionFooter />
         </main>
       </div>
-      <FeedbackButton />
-      <AdminHelperWrapper />
+      <div data-admin-print-chrome>
+        <FeedbackButton />
+        <AdminHelperWrapper />
+      </div>
       <SessionWatcher />
     </AdminThemeProvider>
   );
