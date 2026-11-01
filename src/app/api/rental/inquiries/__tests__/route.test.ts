@@ -11,7 +11,11 @@ vi.mock("@/lib/metrika-server", () => ({ trackServerGoal: vi.fn() }));
 
 const mockProductEventCreate = vi.fn();
 vi.mock("@/lib/db", () => ({
-  prisma: { productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) } },
+  prisma: {
+    user: { findUnique: vi.fn().mockResolvedValue({ role: "SUPERADMIN" }) },
+    adminPermission: { findMany: vi.fn().mockResolvedValue([]) },
+    productEvent: { create: (...args: unknown[]) => mockProductEventCreate(...args) },
+  },
 }));
 vi.mock("@/lib/redis", () => ({ redis: { set: vi.fn() }, redisAvailable: false }));
 
