@@ -140,41 +140,6 @@ export function PricingSection({ resources }: { resources: GazeboResource[] }) {
           </div>
         </div>
 
-        {/* Pizza promo */}
-        <div
-          className="mt-12 rounded-2xl p-6 sm:p-8 font-[family-name:var(--font-inter)]"
-          style={{ backgroundColor: `${ACCENT}12` }}
-        >
-          <h3
-            className="font-[family-name:var(--font-manrope)] font-semibold text-[#1d1d1f] mb-2 flex items-center gap-2"
-            style={{ fontSize: "clamp(20px, 2.2vw, 26px)", letterSpacing: "-0.5px" }}
-          >
-            🍕 Пицца в подарок к аренде беседки
-          </h3>
-          <p className="text-[#1d1d1f] text-sm sm:text-base leading-relaxed max-w-2xl">
-            Забронируйте беседку и получите пиццу в подарок:
-          </p>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 max-w-2xl">
-            <li className="flex items-start gap-3 bg-white/60 rounded-xl px-4 py-3">
-              <span
-                className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
-                style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
-              >
-                Пн–Чт
-              </span>
-              <span className="text-sm text-[#1d1d1f]">Аренда от 4 часов</span>
-            </li>
-            <li className="flex items-start gap-3 bg-white/60 rounded-xl px-4 py-3">
-              <span
-                className="mt-0.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
-                style={{ backgroundColor: `${ACCENT}20`, color: ACCENT }}
-              >
-                Пт–Вс
-              </span>
-              <span className="text-sm text-[#1d1d1f]">Аренда от 6 часов</span>
-            </li>
-          </ul>
-        </div>
       </div>
     </section>
   );
