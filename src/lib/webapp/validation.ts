@@ -24,6 +24,14 @@ export const feedReadSchema = z
     message: "Нужно передать ids или upTo",
   });
 
+/** POST /api/webapp/feed/open — тап по карточке/кнопке ленты (ADR 2026-10-25 §Q4). */
+export const feedOpenSchema = z
+  .object({
+    id: z.string().regex(/^(on|ia|bc):[A-Za-z0-9:_-]{1,120}$/, "Некорректный id карточки"),
+    actionIndex: z.number().int().min(0).max(2).optional(),
+  })
+  .strict();
+
 export const webappOrdersQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });

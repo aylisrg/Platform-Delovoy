@@ -144,6 +144,7 @@ describe("processOutgoing queue (#708/#917)", () => {
       data: {
         status: "PENDING",
         failureReason: "UND_ERR_CONNECT_TIMEOUT",
+        failureCode: "OTHER",
         attempts: 2,
         scheduledFor: new Date(NOW.getTime() + 10 * 60_000),
       },

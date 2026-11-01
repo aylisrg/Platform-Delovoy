@@ -13,10 +13,14 @@ vi.mock("@/lib/db", () => ({
 vi.mock("../queue", () => ({
   enqueueNotification: vi.fn(),
 }));
+vi.mock("@/modules/telephony/daily-summary-service", () => ({
+  processTelephonyDailySummaries: vi.fn().mockResolvedValue({ created: 0, skipped: 0 }),
+}));
 
 import { prisma } from "@/lib/db";
 import { enqueueNotification } from "../queue";
 import { processScheduledNotifications } from "../scheduler";
+import { processTelephonyDailySummaries } from "@/modules/telephony/daily-summary-service";
 
 function makeBooking(overrides: Record<string, unknown> = {}) {
   return {
@@ -45,6 +49,12 @@ beforeEach(() => {
 });
 
 describe("processBookingReminders", () => {
+  it("runs the daily in-app summary in the existing scheduler", async () => {
+    vi.mocked(prisma.booking.findMany).mockResolvedValue([]);
+    await processScheduledNotifications();
+    expect(processTelephonyDailySummaries).toHaveBeenCalledTimes(1);
+  });
+
   it("enqueues a reminder for a registered-user booking", async () => {
     vi.mocked(prisma.booking.findMany).mockResolvedValue([
       makeBooking(),

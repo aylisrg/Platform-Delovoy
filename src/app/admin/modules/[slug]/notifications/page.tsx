@@ -22,8 +22,9 @@ export default async function ModuleNotificationsPage({
       <AdminHeader title={`Получатели уведомлений — ${slug}`} />
       <div className="p-8 max-w-2xl">
         <p className="text-sm text-zinc-500 mb-6">
-          Выберите пользователей, которые будут получать Telegram-уведомления при
-          входящих событиях этого модуля. Суперадмины получают уведомления всегда.
+          Выберите сотрудников, которые будут лично получать уведомления о событиях
+          этого модуля. Пока список пуст, события уходят в общий чат раздела. Каждый
+          сотрудник может отключить уведомление у себя в Mini App.
         </p>
         <NotificationRecipientsForm slug={slug} recipients={recipients} />
       </div>

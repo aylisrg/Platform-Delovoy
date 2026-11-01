@@ -1,0 +1,214 @@
+{
+  "approvedReferences": [
+    {
+      "file_name": "gazebos-desktop.png",
+      "version": 0,
+      "size_bytes": 4102036,
+      "role": "approved_reference",
+      "width": 1440,
+      "height": 2880
+    },
+    {
+      "file_name": "gazebos-mobile.png",
+      "version": 0,
+      "size_bytes": 360992,
+      "role": "approved_reference",
+      "width": 390,
+      "height": 1350
+    }
+  ],
+  "photos": [
+    {
+      "file_name": "gazebo-1-photo-01.webp",
+      "version": 0,
+      "size_bytes": 860964,
+      "role": "gazebo_photo",
+      "gazebo": 1,
+      "photo": 1,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-1/photo-01.webp",
+      "source_sha256": "8aa39f14dd42fcafe09ea43c2ed2894572792d1da32502792fcc687b77e54da4"
+    },
+    {
+      "file_name": "gazebo-1-photo-02.webp",
+      "version": 0,
+      "size_bytes": 792590,
+      "role": "gazebo_photo",
+      "gazebo": 1,
+      "photo": 2,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-1/photo-02.webp",
+      "source_sha256": "3ce93615bdcaeaa3c636f8f01bf5cc94ad4101231d4aa7d873babd52ef23c5ae"
+    },
+    {
+      "file_name": "gazebo-1-photo-03.webp",
+      "version": 0,
+      "size_bytes": 740236,
+      "role": "gazebo_photo",
+      "gazebo": 1,
+      "photo": 3,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-1/photo-03.webp",
+      "source_sha256": "b52f6cece5caba5ed489b7db0eb9ad9da20ea42f104b71fd859ae93a779cf514"
+    },
+    {
+      "file_name": "gazebo-2-photo-01.webp",
+      "version": 0,
+      "size_bytes": 816764,
+      "role": "gazebo_photo",
+      "gazebo": 2,
+      "photo": 1,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-2/photo-01.webp",
+      "source_sha256": "9380937d05fd8e43daff9ffb8c7020cf7e6a15fa8fe1c041d3e055f95edac36e"
+    },
+    {
+      "file_name": "gazebo-2-photo-02.webp",
+      "version": 0,
+      "size_bytes": 772284,
+      "role": "gazebo_photo",
+      "gazebo": 2,
+      "photo": 2,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-2/photo-02.webp",
+      "source_sha256": "28983109f9b8fc0df600135f721b94bd05584f63da5104a1a0ccaae114dfcf30"
+    },
+    {
+      "file_name": "gazebo-2-photo-03.webp",
+      "version": 0,
+      "size_bytes": 894036,
+      "role": "gazebo_photo",
+      "gazebo": 2,
+      "photo": 3,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-2/photo-03.webp",
+      "source_sha256": "943f01f95309c0cacc8c2a46dc74bcb4cc3a28928d0e322e5a671b7099cdd5d8"
+    },
+    {
+      "file_name": "gazebo-3-photo-01.webp",
+      "version": 0,
+      "size_bytes": 808740,
+      "role": "gazebo_photo",
+      "gazebo": 3,
+      "photo": 1,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-3/photo-01.webp",
+      "source_sha256": "9ea9bd21f2ac707744ba8ea7438dd89e465054fc89a36d08ff095f716590b663"
+    },
+    {
+      "file_name": "gazebo-3-photo-02.webp",
+      "version": 0,
+      "size_bytes": 798342,
+      "role": "gazebo_photo",
+      "gazebo": 3,
+      "photo": 2,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-3/photo-02.webp",
+      "source_sha256": "ff233fc394845b0e56809ecf414aef31cbedd6b840a3c3dbc7d078f316051f75"
+    },
+    {
+      "file_name": "gazebo-3-photo-03.webp",
+      "version": 0,
+      "size_bytes": 760574,
+      "role": "gazebo_photo",
+      "gazebo": 3,
+      "photo": 3,
+      "width": 1440,
+      "height": 1920,
+      "target": "public/media/gazebos/gazebo-3/photo-03.webp",
+      "source_sha256": "69a5c911da9f8e26c1e3452b0d7aa77913f96242257f517e55db2ee75faac5db"
+    },
+    {
+      "file_name": "gazebo-4-photo-01.webp",
+      "version": 0,
+      "size_bytes": 796988,
+      "role": "gazebo_photo",
+      "gazebo": 4,
+      "photo": 1,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-4/photo-01.webp",
+      "source_sha256": "31db47ac12f01a624a2f3751e7a5fba6cc86fe709e251f3f0e72eda020082d99"
+    },
+    {
+      "file_name": "gazebo-4-photo-02.webp",
+      "version": 0,
+      "size_bytes": 584230,
+      "role": "gazebo_photo",
+      "gazebo": 4,
+      "photo": 2,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-4/photo-02.webp",
+      "source_sha256": "bc54e0b6aebca5ba2652684ca46ba24cd2aadfb9644eb1548a80fd0e0dc56b51"
+    },
+    {
+      "file_name": "gazebo-4-photo-03.webp",
+      "version": 0,
+      "size_bytes": 839446,
+      "role": "gazebo_photo",
+      "gazebo": 4,
+      "photo": 3,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-4/photo-03.webp",
+      "source_sha256": "567b602ee25862d954ee0bf1a9edfc2c09ae02668463e06a563f8f93378dfa84"
+    },
+    {
+      "file_name": "gazebo-5-photo-01.webp",
+      "version": 0,
+      "size_bytes": 702710,
+      "role": "gazebo_photo",
+      "gazebo": 5,
+      "photo": 1,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-5/photo-01.webp",
+      "source_sha256": "ffdfcbf61d094327431671795336439beec6e8e87d288d336dbb2ae948a62781"
+    },
+    {
+      "file_name": "gazebo-5-photo-02.webp",
+      "version": 0,
+      "size_bytes": 754550,
+      "role": "gazebo_photo",
+      "gazebo": 5,
+      "photo": 2,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-5/photo-02.webp",
+      "source_sha256": "95f69f092b43616f1fc5f1cee59c53d2b1163205a25b983d8a4dcfb1136d6997"
+    },
+    {
+      "file_name": "gazebo-5-photo-03.webp",
+      "version": 0,
+      "size_bytes": 561066,
+      "role": "gazebo_photo",
+      "gazebo": 5,
+      "photo": 3,
+      "width": 1920,
+      "height": 1440,
+      "target": "public/media/gazebos/gazebo-5/photo-03.webp",
+      "source_sha256": "f4dda0d2eaf8fcd2035778a60bc1707463a79e49c6543455f29e703d5bc2c4af"
+    }
+  ],
+  "covers": {
+    "1": 2,
+    "2": 3,
+    "3": 2,
+    "4": 2,
+    "5": 3
+  },
+  "source": "Approved original photographs of the five numbered gazebos.",
+  "notes": [
+    "Only these 15 source images are approved for this release.",
+    "Original and optimized checksums preserve the numbered photograph mapping."
+  ]
+}

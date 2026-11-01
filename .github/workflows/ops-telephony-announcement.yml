@@ -1,0 +1,66 @@
+name: Ops — Telephony announcement to admins
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preview recipients or send the fixed telephony news once"
+        type: choice
+        options: [preview, send]
+        default: preview
+      expected_count:
+        description: "Pending count from the preview (required for send)"
+        required: false
+      expected_digest:
+        description: "Audience digest from the preview (required for send)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Main only
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Copy fixed announcement script
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: scripts/ops-telephony-announcement.ts
+          target: /tmp/delovoy-announcement-${{ github.run_id }}
+      - name: Preview or send using the active app runtime
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          ANNOUNCEMENT_MODE: ${{ inputs.mode }}
+          ANNOUNCEMENT_COUNT: ${{ inputs.expected_count }}
+          ANNOUNCEMENT_DIGEST: ${{ inputs.expected_digest }}
+          ANNOUNCEMENT_RUN_ID: ${{ github.run_id }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: ANNOUNCEMENT_MODE,ANNOUNCEMENT_COUNT,ANNOUNCEMENT_DIGEST,ANNOUNCEMENT_RUN_ID
+          command_timeout: 5m
+          script: |
+            set -eu
+            CANDIDATES=$(docker ps --format '{{.Names}}' | grep -E '^delovoy-app(-b)?$')
+            [ "$(printf '%s\n' "$CANDIDATES" | wc -l)" -eq 1 ] || { echo 'Expected one active app'; exit 1; }
+            APP_CONTAINER=$CANDIDATES
+            SOURCE=/tmp/delovoy-announcement-${ANNOUNCEMENT_RUN_ID}/scripts/ops-telephony-announcement.ts
+            TARGET=/app/scripts/ops-telephony-announcement-${ANNOUNCEMENT_RUN_ID}.ts
+            trap 'docker exec "$APP_CONTAINER" rm -f "$TARGET"; rm -f "$SOURCE"' EXIT
+            docker cp "$SOURCE" "$APP_CONTAINER:$TARGET"
+            docker exec -w /app \
+              -e ANNOUNCEMENT_MODE -e ANNOUNCEMENT_COUNT -e ANNOUNCEMENT_DIGEST -e ANNOUNCEMENT_RUN_ID \
+              "$APP_CONTAINER" npx tsx "$TARGET"

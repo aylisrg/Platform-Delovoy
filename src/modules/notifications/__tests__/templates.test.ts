@@ -14,6 +14,19 @@ describe("renderClientMessage", () => {
     endTime: "22:00",
   };
 
+  it.each([
+    ["gazebos", "booking.confirmed", "+7 (926) 900-81-20"],
+    ["ps-park", "booking.confirmed", "+7 (985) 244-46-24"],
+    ["cafe", "order.cancelled", "+7 (915) 269-85-07"],
+    ["gazebos", "payment.canceled", "+7 (926) 900-81-20"],
+    ["ps-park", "payment.canceled", "+7 (985) 244-46-24"],
+    ["cafe", "payment.canceled", "+7 (915) 269-85-07"],
+  ])("uses the %s contact for %s even with a conflicting payload module", (slug, event, phone) => {
+    const message = renderClientMessage(slug, event, { ...slot, moduleSlug: "rental" });
+    expect(message).toContain(phone);
+    expect(message).not.toContain("+7 (499) 647-71-42");
+  });
+
   it("renders gazebos booking.confirmed с человеческой датой", () => {
     const msg = renderClientMessage("gazebos", "booking.confirmed", slot);
     expect(msg).toContain("Бронь подтверждена");

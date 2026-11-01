@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { enqueueNotification } from "./queue";
+import { processTelephonyDailySummaries } from "@/modules/telephony/daily-summary-service";
+import { runNotificationHousekeeping } from "./housekeeping";
+import { processWeeklyBusinessReports } from "@/modules/analytics/business-reports";
 
 /**
  * Process all scheduled notifications.
@@ -8,9 +11,19 @@ import { enqueueNotification } from "./queue";
  */
 export async function processScheduledNotifications(): Promise<void> {
   await Promise.allSettled([
+    processWeeklyBusinessReports().catch(() => {
+      console.error("[Scheduler] Business weekly report processing failed");
+    }),
     processBookingReminders(),
     processEndingSoonReminders(),
     processContractExpiryAlerts(),
+    processTelephonyDailySummaries().catch(() => {
+      // No provider payload/PII in logs; the next five-minute run retries.
+      console.error("[Scheduler] Telephony daily summary failed; retry on next run");
+    }),
+    runNotificationHousekeeping().catch((err) => {
+      console.error("[Scheduler] Notification housekeeping failed:", err instanceof Error ? err.message : err);
+    }),
   ]);
 }
 

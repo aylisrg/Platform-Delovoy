@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.28.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.2...v2.28.0) (2026-10-31)
+
+
+### Features
+
+* **analytics:** protected business dashboard and weekly Telegram reports ([#1163](https://github.com/aylisrg/Platform-Delovoy/issues/1163)) ([bca8290](https://github.com/aylisrg/Platform-Delovoy/commit/bca82907785e70d877c66ca169c6cf7f3402c195))
+* **gazebos:** approved catalog with numbered photo galleries ([#1161](https://github.com/aylisrg/Platform-Delovoy/issues/1161)) ([3ab30cd](https://github.com/aylisrg/Platform-Delovoy/commit/3ab30cdb283e3e56c4a909da5ba1a26ce80259ac))
+* **notifications:** prominent Mini App center and reliable release announcements ([#1166](https://github.com/aylisrg/Platform-Delovoy/issues/1166)) ([6872ba2](https://github.com/aylisrg/Platform-Delovoy/commit/6872ba2df26e98c7104b288c1a62a0c7ca7ead86))
+* **telephony:** статистика Novofon и ежедневная сводка в Mini App ([#1151](https://github.com/aylisrg/Platform-Delovoy/issues/1151)) ([969510a](https://github.com/aylisrg/Platform-Delovoy/commit/969510aeecef39c35dd1d8483a570e5df00ad279))
+* **users,notifications:** ревью прав команды, исключение из команды, уведомления сотрудника и статистика реакций ([#1155](https://github.com/aylisrg/Platform-Delovoy/issues/1155)) ([c92baa7](https://github.com/aylisrg/Platform-Delovoy/commit/c92baa7c70ddbbe1a8200a5fa2d9652e055638c0))
+
+
+### Bug Fixes
+
+* **analytics:** complete printed reports and readable mobile charts ([#1164](https://github.com/aylisrg/Platform-Delovoy/issues/1164)) ([9bb6eb1](https://github.com/aylisrg/Platform-Delovoy/commit/9bb6eb1191611174831e3ead5717562290457d1c))
+* **analytics:** polish report pagination and hide print chrome ([#1165](https://github.com/aylisrg/Platform-Delovoy/issues/1165)) ([0a416dc](https://github.com/aylisrg/Platform-Delovoy/commit/0a416dc3778af356003ec986128b2969b3d3d143))
+* **ops:** проверять маршрут Telegram до личного анонса ([#1154](https://github.com/aylisrg/Platform-Delovoy/issues/1154)) ([7939918](https://github.com/aylisrg/Platform-Delovoy/commit/79399183f50c4e77da156903961607d6483c8395))
+* **public:** актуальные телефоны офисов, беседок, Плей Парка и кафе ([#1159](https://github.com/aylisrg/Platform-Delovoy/issues/1159)) ([e638c1c](https://github.com/aylisrg/Platform-Delovoy/commit/e638c1c718af91c93eb428d039f2816e55c82f23))
+* **public:** убрать неподдерживаемый WhatsApp из контактов ([#1160](https://github.com/aylisrg/Platform-Delovoy/issues/1160)) ([addb6d4](https://github.com/aylisrg/Platform-Delovoy/commit/addb6d47ec02566335806dde7b0251361eecffb1))
+* **queue:** heartbeat контура решений во время паузы очереди ([#1148](https://github.com/aylisrg/Platform-Delovoy/issues/1148)) ([eb580d4](https://github.com/aylisrg/Platform-Delovoy/commit/eb580d4c7932b1c5a5f889a0f0cc31017472ebf0)), closes [#1141](https://github.com/aylisrg/Platform-Delovoy/issues/1141)
+* **users:** мастер объединения — причина недоступности, вход обоими способами, Telegram-канал ([#1157](https://github.com/aylisrg/Platform-Delovoy/issues/1157)) ([cd35f20](https://github.com/aylisrg/Platform-Delovoy/commit/cd35f20097f13939016861401c71a720dbb75c0c))
+
 ## [2.27.2](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.1...v2.27.2) (2026-10-15)
 
 

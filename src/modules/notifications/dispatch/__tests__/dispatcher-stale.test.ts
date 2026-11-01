@@ -80,7 +80,7 @@ describe("processOutgoing stale cutoff (#917)", () => {
     expect(send).not.toHaveBeenCalled();
     expect(prisma.outgoingNotification.update).toHaveBeenCalledWith({
       where: { id: "old" },
-      data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON },
+      data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON, failureCode: "STALE" },
     });
     expect(res).toMatchObject({ sent: 0, failed: 0, skipped: 1, processed: 1 });
   });
@@ -107,7 +107,7 @@ describe("processOutgoing stale cutoff (#917)", () => {
     expect(res).toMatchObject({ sent: 1, skipped: 1, processed: 2 });
     expect(prisma.outgoingNotification.update).toHaveBeenCalledWith({
       where: { id: "past" },
-      data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON },
+      data: { status: "SKIPPED", failureReason: STALE_SKIP_REASON, failureCode: "STALE" },
     });
   });
 });

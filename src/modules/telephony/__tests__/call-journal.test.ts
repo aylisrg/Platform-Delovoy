@@ -91,6 +91,29 @@ describe("recordNovofonNotification", () => {
     expect(store.get("555")).toMatchObject({ employeeName: "Сотрудник", contactPhone: "70000000077" });
   });
 
+  it("повтор завершения без длительности не стирает подтверждённый пропуск", async () => {
+    const { db, store, upsert } = makeDb();
+    await recordNovofonNotification({ ...FINISHED, direction: "in", talk_time_duration: 0 }, db, () => NOW);
+    await recordNovofonNotification(
+      { notification_name: "finished_call", call_session_id: 555, total_time_duration: 40 },
+      db,
+      () => NOW,
+    );
+    expect(store.size).toBe(1);
+    expect(store.get("555")).toMatchObject({ direction: "INBOUND", isLost: true, talkDuration: 0 });
+    expect(upsert.mock.calls[1][0].update).not.toHaveProperty("isLost");
+  });
+
+  it("явный lost_call подтверждает пропуск даже без длительности разговора", async () => {
+    const { db, store } = makeDb();
+    await recordNovofonNotification(
+      { notification_name: "lost_call", call_session_id: 555, direction: "in" },
+      db,
+      () => NOW,
+    );
+    expect(store.get("555")).toMatchObject({ direction: "INBOUND", isLost: true });
+  });
+
   it("ссылка не http(s) игнорируется", async () => {
     const { db, upsert } = makeDb();
     expect(

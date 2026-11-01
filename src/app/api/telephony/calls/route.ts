@@ -4,6 +4,7 @@ import {
   apiUnauthorized,
   apiForbidden,
   apiServerError,
+  apiValidationError,
   requireAdminSection,
 } from "@/lib/api-response";
 import { auth } from "@/lib/auth";
@@ -20,19 +21,14 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return apiUnauthorized();
+    if (!hasRole(session.user, "MANAGER")) return apiForbidden();
 
     const { searchParams } = request.nextUrl;
     const rawFilter = Object.fromEntries(searchParams.entries());
 
     const parsed = callFilterSchema.safeParse(rawFilter);
     if (!parsed.success) {
-      const filter = callFilterSchema.parse({});
-      const result = await listCalls(filter);
-      return apiResponse(result.calls, {
-        page: result.page,
-        perPage: result.perPage,
-        total: result.total,
-      });
+      return apiValidationError("Проверьте фильтры журнала звонков");
     }
 
     const filter = parsed.data;

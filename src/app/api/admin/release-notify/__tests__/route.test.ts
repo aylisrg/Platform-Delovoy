@@ -1,165 +1,87 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { AnnounceReleaseResult } from "@/modules/notifications/release-notify";
 
-vi.mock("@/modules/notifications/release-notify", () => ({
-  announceRelease: vi.fn(),
-}));
+vi.mock("@/modules/notifications/release-notify", async () => {
+  const { createHash } = await import("node:crypto");
+  const normalizeManualReleaseNotes = (notes: string) => notes.normalize("NFC").replace(/\r\n?/g, "\n")
+    .split("\n").map(line => line.trim()).filter(Boolean).join("\n");
+  return {
+    announceRelease: vi.fn(), normalizeManualReleaseNotes,
+    manualReleaseId: (notes: string) => `manual:${createHash("sha256").update(normalizeManualReleaseNotes(notes)).digest("hex")}`,
+  };
+});
 
 vi.mock("@/lib/api-response", () => ({
-  apiResponse: vi.fn((data) => ({
-    status: 200,
-    async json() {
-      return { success: true, data };
-    },
-  })),
-  apiError: vi.fn((code, message, status = 400) => ({
-    status,
-    async json() {
-      return { success: false, error: { code, message } };
-    },
-  })),
+  apiResponse: vi.fn((data) => ({ status: 200, async json() { return { success: true, data }; } })),
+  apiError: vi.fn((code, message, status = 400) => ({ status, async json() { return { success: false, error: { code, message } }; } })),
 }));
 
 import { POST } from "../route";
-import { announceRelease } from "@/modules/notifications/release-notify";
-
+import { announceRelease, manualReleaseId } from "@/modules/notifications/release-notify";
 const mockAnnounce = vi.mocked(announceRelease);
-
 const VALID_SECRET = "test-secret-abc";
-
-function makeRequest(body: unknown) {
-  return new Request("http://localhost/api/admin/release-notify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const body = { secret: VALID_SECRET, version: "1.2.0", commitSha: "deadbeef", releaseNotes: "- New feature", deployedAt: "2026-10-31T10:00:00.000Z" };
+const queueResult: AnnounceReleaseResult = { status: "queued", reason: "queued", queued: 3, deferred: 1, skipped: 0, failed: 0, previouslyQueued: 0, retryable: false };
+function request(value: unknown) { return new Request("http://localhost/api/admin/release-notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) }); }
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("RELEASE_NOTIFY_SECRET", VALID_SECRET);
+  mockAnnounce.mockResolvedValue(queueResult);
 });
 
-describe("POST /api/admin/release-notify", () => {
-  it("returns 401 when secret is wrong", async () => {
-    const req = makeRequest({
-      secret: "wrong-secret",
-      version: "1.0.0",
-      commitSha: "abc1234",
-    });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body.success).toBe(false);
+describe("release announcement endpoint (AC-RELEASE-4)", () => {
+  it("rejects wrong secrets without invoking the service", async () => {
+    expect((await POST(request({ ...body, secret: "wrong" }))).status).toBe(401);
     expect(mockAnnounce).not.toHaveBeenCalled();
   });
-
-  it("returns 503 when RELEASE_NOTIFY_SECRET is not configured", async () => {
+  it("fails closed when the server secret is absent", async () => {
     vi.stubEnv("RELEASE_NOTIFY_SECRET", "");
-
-    const req = makeRequest({
-      secret: VALID_SECRET,
-      version: "1.0.0",
-      commitSha: "abc1234",
-    });
-
-    const res = await POST(req);
-    expect(res.status).toBe(503);
+    expect((await POST(request(body))).status).toBe(503);
     expect(mockAnnounce).not.toHaveBeenCalled();
   });
-
-  it("returns 400 when required fields are missing", async () => {
-    const req = makeRequest({ secret: VALID_SECRET });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.success).toBe(false);
+  it("returns queue acceptance and deferred counts, never a delivered flag", async () => {
+    const response = await POST(request(body));
+    expect(await response.json()).toEqual({ success: true, data: { ...queueResult, announced: true } });
+    expect(mockAnnounce).toHaveBeenCalledWith({ version: "1.2.0", commitSha: "deadbeef", releaseNotes: "- New feature", deployedAt: body.deployedAt });
+  });
+  it("accepts a bounded content-matched curated identity", async () => {
+    const updateId = manualReleaseId(body.releaseNotes);
+    expect((await POST(request({ ...body, updateId }))).status).toBe(200);
+    expect(mockAnnounce).toHaveBeenCalledWith(expect.objectContaining({ updateId }));
+  });
+  it.each([
+    { version: "manual:collision" }, { version: "v".repeat(81) }, { commitSha: "invalid!" },
+    { updateId: "manual:short" }, { updateId: "manual:" + "a".repeat(65) },
+    { updateId: "manual:" + "a".repeat(64) }, { releaseNotes: "x".repeat(12001) }, { deployedAt: "not-a-date" },
+    { releaseNotes: " \n ", updateId: manualReleaseId(" \n ") },
+  ])("rejects invalid input before service call: %j", async (override) => {
+    expect((await POST(request({ ...body, ...override }))).status).toBe(400);
     expect(mockAnnounce).not.toHaveBeenCalled();
   });
-
-  it("announces the release and reports announced:true", async () => {
-    mockAnnounce.mockResolvedValue({ status: "announced", queued: 3 });
-
-    const req = makeRequest({
-      secret: VALID_SECRET,
-      version: "1.2.0",
-      releaseNotes: "- New feature",
-      commitSha: "deadbeef",
-      deployedAt: "2026-08-13T10:00:00.000Z",
-    });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual({ announced: true, queued: 3 });
-    expect(mockAnnounce).toHaveBeenCalledWith({
-      version: "1.2.0",
-      releaseNotes: "- New feature",
-      commitSha: "deadbeef",
-      deployedAt: "2026-08-13T10:00:00.000Z",
-    });
+  it("rejects missing required fields", async () => {
+    expect((await POST(request({ secret: VALID_SECRET }))).status).toBe(400);
   });
-
-  // Пайплайн отличает дубль от реальной отправки по `announced`, чтобы решить,
-  // слать ли групповое fallback-сообщение «Deploy OK» (ADR §6.5).
-  it("returns 200 with announced:false and a reason on a repeated version", async () => {
-    mockAnnounce.mockResolvedValue({
-      status: "skipped",
-      reason: "already-announced",
-    });
-
-    const req = makeRequest({
-      secret: VALID_SECRET,
-      version: "1.2.0",
-      commitSha: "deadbeef",
-    });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual({
-      announced: false,
-      queued: 0,
-      skippedReason: "already-announced",
-    });
+  it("uses legacy defaults when curated identity and notes are omitted", async () => {
+    const { releaseNotes: _notes, deployedAt: _date, ...withoutNotes } = body;
+    await POST(request(withoutNotes));
+    expect(mockAnnounce).toHaveBeenCalledWith(expect.objectContaining({ releaseNotes: "" }));
+    expect(mockAnnounce.mock.calls[0][0]).not.toHaveProperty("updateId");
   });
-
-  it("uses empty string for releaseNotes when omitted", async () => {
-    mockAnnounce.mockResolvedValue({ status: "announced", queued: 1 });
-
-    const req = makeRequest({
-      secret: VALID_SECRET,
-      version: "1.0.0",
-      commitSha: "abc1234",
-    });
-
-    await POST(req);
-
-    expect(mockAnnounce).toHaveBeenCalledWith(
-      expect.objectContaining({ releaseNotes: "" })
-    );
+  it.each(["already-announced", "no-recipients", "suppressed", "in-progress"] as const)("reports %s as a skip, not a new announcement", async reason => {
+    const result: AnnounceReleaseResult = { ...queueResult, status: "skipped", reason, queued: 0, deferred: 0 };
+    mockAnnounce.mockResolvedValue(result);
+    expect(await (await POST(request(body))).json()).toEqual({ success: true, data: { ...result, announced: false, skippedReason: reason } });
   });
-
-  it("returns 500 without leaking internals when the service throws", async () => {
-    mockAnnounce.mockRejectedValue(new Error("db down"));
-
-    const req = makeRequest({
-      secret: VALID_SECRET,
-      version: "1.0.0",
-      commitSha: "abc1234",
-    });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(body.error.message).not.toContain("db down");
+  it("preserves partial queue evidence on an uncertain failure", async () => {
+    const result: AnnounceReleaseResult = { ...queueResult, status: "error", reason: "enqueue-failed", queued: 1, deferred: 0, failed: 1 };
+    mockAnnounce.mockResolvedValue(result);
+    expect(await (await POST(request(body))).json()).toEqual({ success: true, data: { ...result, announced: true } });
+  });
+  it("does not expose internal exceptions", async () => {
+    mockAnnounce.mockRejectedValue(new Error("sensitive internal connection detail"));
+    const response = await POST(request(body));
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("sensitive");
   });
 });

@@ -157,7 +157,10 @@ export async function fetchCallsReportPage(
       // message от Novofon не пробрасываем: в нём может оказаться ввод запроса.
       throw new NovofonApiError(code, `Novofon Data API error ${code}`);
     }
-    return body.result?.data ?? [];
+    if (!Array.isArray(body.result?.data)) {
+      throw new NovofonApiError("invalid_response", "Invalid Novofon report response");
+    }
+    return body.result.data;
   }
 }
 

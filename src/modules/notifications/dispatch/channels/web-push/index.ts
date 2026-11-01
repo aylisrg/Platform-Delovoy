@@ -60,6 +60,7 @@ export class WebPushChannel implements INotificationChannel {
         ok: false,
         reason: "web push not enabled",
         retryable: false,
+        code: "CHANNEL_UNAVAILABLE",
       };
     }
     this.configureVapidLazy();
@@ -79,13 +80,21 @@ export class WebPushChannel implements INotificationChannel {
         ok: false,
         reason: "subscription not found or inactive",
         retryable: false,
+        code: "CHANNEL_UNAVAILABLE",
       };
     }
 
     try {
+      // sw.js opens `data.url` on click; without it every push led to the
+      // dashboard. The dispatcher has already swapped action URLs for tracking
+      // links (ADR 2026-10-25 §Q4), so this click is measured too.
+      const primary = payload.actions?.find((a) => a.url);
       const body = JSON.stringify({
         title: payload.title,
         body: payload.body,
+        url: primary?.url ?? "/admin/dashboard",
+        // Where the tracking link lands — sw.js picks the window by it.
+        ...(primary?.target ? { target: primary.target } : {}),
         actions: payload.actions ?? [],
         metadata: payload.metadata ?? {},
       });
@@ -122,6 +131,7 @@ export class WebPushChannel implements INotificationChannel {
         ok: false,
         reason: `expired (HTTP ${status})`,
         retryable: false,
+        code: "CHANNEL_EXPIRED",
       };
     }
 
@@ -132,6 +142,7 @@ export class WebPushChannel implements INotificationChannel {
         ok: false,
         reason: `auth ${status}`,
         retryable: false,
+        code: "CHANNEL_AUTH",
       };
     }
 
@@ -140,6 +151,7 @@ export class WebPushChannel implements INotificationChannel {
         ok: false,
         reason: `HTTP ${status}`,
         retryable: true,
+        code: "NETWORK",
       };
     }
 
@@ -147,6 +159,7 @@ export class WebPushChannel implements INotificationChannel {
       ok: false,
       reason: e.message ?? "unknown",
       retryable: false,
+      code: "OTHER",
     };
   }
 }

@@ -7,7 +7,7 @@ import {
   routeInboundMessage,
   type RouteInboundResult,
 } from "@/lib/avito/lead-routing";
-import { dispatch } from "@/modules/notifications/dispatch/dispatcher";
+import { dispatchLeadNotification } from "@/lib/avito/lead-notify";
 import { Prisma } from "@prisma/client";
 import { logEvent } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
@@ -286,62 +286,4 @@ function bookingUrlForModule(moduleSlug: string): string {
     default:
       return base;
   }
-}
-
-type LeadNotifyInput = {
-  taskId: string;
-  publicId: string;
-  moduleSlug: string | null;
-  title: string;
-  body: string;
-  reopened: boolean;
-  created: boolean;
-};
-
-async function dispatchLeadNotification(input: LeadNotifyInput): Promise<void> {
-  if (!input.created && !input.reopened) return; // existing chat — no extra noise
-
-  // Resolve recipients: SUPERADMINs + MANAGERs assigned to the moduleSlug.
-  const recipients = await resolveLeadRecipients(input.moduleSlug);
-  if (recipients.length === 0) return;
-
-  const eventType = "avito.lead.new";
-  const url = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/admin/tasks/${input.publicId}`;
-  await Promise.all(
-    recipients.map((userId) =>
-      dispatch({
-        userId,
-        eventType,
-        entityType: "Task",
-        entityId: input.taskId,
-        payload: {
-          title: `Новый лид с Авито (${input.publicId})`,
-          body: `${input.title}\n\n${input.body.slice(0, 240)}`,
-          actions: [{ label: "Открыть задачу", url }],
-        },
-      }).catch(() => undefined)
-    )
-  );
-}
-
-async function resolveLeadRecipients(
-  moduleSlug: string | null
-): Promise<string[]> {
-  const supers = await prisma.user.findMany({
-    where: { role: "SUPERADMIN" },
-    select: { id: true },
-  });
-  const out = new Set<string>(supers.map((u) => u.id));
-
-  if (moduleSlug) {
-    const managers = await prisma.moduleAssignment.findMany({
-      where: {
-        module: { slug: moduleSlug, isActive: true },
-        user: { role: { in: ["MANAGER", "ADMIN"] } },
-      },
-      select: { userId: true },
-    });
-    for (const m of managers) out.add(m.userId);
-  }
-  return Array.from(out);
 }

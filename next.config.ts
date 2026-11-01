@@ -64,6 +64,14 @@ const nextConfig: NextConfig = {
         headers: securityHeaders,
       },
       {
+        // Tracking redirect (ADR 2026-10-25 §Q4): the landing page must not
+        // see /r/<code> in document.referrer — on-page analytics would collect
+        // it. For the same key the later rule wins, so this overrides the
+        // global policy above (nginx mirrors it via $delovoy_referrer_policy).
+        source: "/r/:code*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+      {
         // Private / always-fresh routes: never cache (auth state, personal
         // data, live booking availability). Public marketing pages are NOT
         // matched here so their ISR cache headers (s-maxage / SWR) survive —

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { apiResponse, apiForbidden, apiValidationError, apiServerError } from "@/lib/api-response";
+import { apiResponse, apiError, apiForbidden, apiValidationError, apiServerError } from "@/lib/api-response";
 import {
   listEligibleRecipients,
   setRecipientUserIds,
@@ -48,9 +48,12 @@ export async function PUT(
 
   try {
     const { slug } = await params;
-    await setRecipientUserIds(slug, parsed.data.userIds);
-    return apiResponse({ saved: true });
-  } catch {
+    const saved = await setRecipientUserIds(slug, parsed.data.userIds, session.user.id);
+    return apiResponse({ saved: true, userIds: saved });
+  } catch (error) {
+    if (error instanceof Error && error.message === "MODULE_NOT_FOUND") {
+      return apiError("NOT_FOUND", "Модуль не найден", 404);
+    }
     return apiServerError();
   }
 }

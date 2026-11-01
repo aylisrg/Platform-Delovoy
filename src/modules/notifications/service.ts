@@ -1,16 +1,18 @@
 import { prisma } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import type { NotificationChannel } from "@prisma/client";
-import type { NotificationEvent, ModuleBotConfig, UserWithContacts } from "./types";
+import type { NotificationEvent, UserWithContacts } from "./types";
 import { EVENT_ROUTING } from "./events";
 import { renderClientMessage, renderAdminMessage } from "./templates";
 import { renderEmailTemplate } from "./email-templates";
 import { resolveChannelForUser, getAdapter } from "./channels/index";
 import { telegramAdapter } from "./channels/telegram";
-import { getRecipientUserIds, getExplicitRecipientUserIds } from "./recipients";
+import { getModuleBotConfig } from "./module-chat-config";
 import { dispatch } from "./dispatch/dispatcher";
-import { categoryForEvent } from "./catalog";
-import { getSelfSubscribedUserIds } from "./subscribers";
+import { resolveStaffRouting } from "./audience";
+import { recordSkips } from "./skips";
+
+export { getModuleBotConfig };
 
 const USER_SELECT = {
   id: true,
@@ -271,34 +273,22 @@ async function withAdminContext(event: NotificationEvent): Promise<Record<string
 }
 
 /**
- * Send notification to module admins.
+ * Send notification to module staff.
  *
- * Three paths (checked in order):
- * 1. Group-only mode — no explicit per-user recipients + module has its own
- *    chat configured → send directly to that chat, skip SUPERADMIN DM fanout.
- * 2. Explicit per-user recipients — dispatch to each via the dispatch layer
- *    (queued, async delivery through UserNotificationChannel).
- * 2b. Self-subscribed staff — users who turned this event type on themselves in
- *    the Mini App notification center and have access to the event category's
- *    admin section. Purely additive: paths 1/3 keep their original conditions
- *    (computed from explicit recipients only), so one person's toggle never
- *    silences the group chat for everyone (ADR 2026-08-13 §3.3).
- * 3. Legacy direct send — no explicit recipients configured → send directly
- *    to module chatId or global TELEGRAM_ADMIN_CHAT_ID env fallback.
+ * Recipients come from the single resolver (`resolveStaffRouting`,
+ * ADR 2026-10-25-team-access-notifications §Q7) — the same function the
+ * screens use, so «what the screen says» = «who gets it»:
+ * - personal subscription (Mini App Center / staff page toggle),
+ * - the module recipient list (ModuleNotificationRecipient),
+ * each gated by current access; an explicit opt-out beats every path and is
+ * recorded as a delivery skip. One message per person.
  *
- * The dispatch layer (path 2) is ONLY used for explicitly configured recipients
- * because it requires UserNotificationChannel entries to exist. Falling through
- * to path 3 ensures SUPERADMIN always gets notifications via the legacy chatId
- * even when no channels are configured in the DB.
+ * Group chat — unchanged legacy behaviour: sent when the module recipient list
+ * is empty (module chat, else the global admin chat), never when
+ * `Module.config.telegramAdminChatEnabled === false`.
  *
- * `event.staffAudience === "personal"` stops after path 2b: only self-subscribed
- * staff get the event, the group chat and explicit recipients don't
- * (`"none"` never reaches notifyAdmin at all).
- *
- * `Module.config.telegramAdminChatEnabled === false` is a hard kill switch:
- * paths 1 and 3 are skipped entirely (no chatId fallback either). Path 2
- * (explicit per-user recipients) is unaffected — it's an opt-in mechanism
- * the admin configured on purpose, separate from the group chat.
+ * `event.staffAudience === "personal"` → only explicit personal subscribers,
+ * no list, no group chat (`"none"` never reaches notifyAdmin at all).
  */
 async function notifyAdmin(event: NotificationEvent): Promise<void> {
   try {
@@ -306,20 +296,28 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     const message = renderAdminMessage(event.moduleSlug, event.type, data);
     if (!message) return;
 
-    const [explicitIds, moduleConfig, selfSubscribedIds] = await Promise.all([
-      getExplicitRecipientUserIds(event.moduleSlug),
-      getModuleBotConfig(event.moduleSlug),
-      getSelfSubscribedUserIds(
-        event.type,
-        categoryForEvent(event.type)?.sections ?? []
-      ),
-    ]);
+    const routing = await resolveStaffRouting({
+      eventType: event.type,
+      moduleSlug: event.moduleSlug,
+      staffAudience: event.staffAudience === "personal" ? "personal" : undefined,
+      withGroupChat: true,
+    });
 
-    const dispatchPersonal = (userIds: string[]) => {
+    await recordSkips(
+      routing.suppressed.map(({ userId }) => ({
+        userId,
+        eventType: event.type,
+        entityType: event.moduleSlug,
+        entityId: event.entityId,
+        reason: "OPTED_OUT" as const,
+      }))
+    );
+
+    if (routing.recipients.length > 0) {
       const eventLabel = event.type.replace(".", " ");
       const payload = { title: `[${event.moduleSlug}] ${eventLabel}`, body: message };
-      return Promise.allSettled(
-        userIds.map((userId) =>
+      await Promise.allSettled(
+        routing.recipients.map(({ userId }) =>
           dispatch({
             userId,
             eventType: event.type,
@@ -329,124 +327,30 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
           })
         )
       );
-    };
-
-    // Path 2b — self-subscribed staff (ADR §3.3). Runs before the path
-    // conditions below and never changes them: the group chat keeps behaving
-    // exactly as before. Users already listed as explicit recipients are
-    // filtered out here so we don't rely on the 5-minute dispatch dedup window.
-    // `staffAudience: "personal"` — событие только для лично подписавшихся.
-    // Общий чат, заменяющие его явные получатели и legacy-фолбэк его не
-    // получают, поэтому и фильтр «уже получил как явный» здесь не нужен.
-    const personalOnly = event.staffAudience === "personal";
-    const selfOnlyIds = personalOnly
-      ? selfSubscribedIds
-      : selfSubscribedIds.filter((id) => !explicitIds.includes(id));
-    if (selfOnlyIds.length > 0) {
-      await dispatchPersonal(selfOnlyIds);
     }
-    if (personalOnly) return;
 
-    // Admin group chat explicitly disabled for this category — never send to
-    // it and never fall back to the global chat. Explicit per-user recipients
-    // (Path 2) are a separate opt-in mechanism and keep working regardless.
-    const channelDisabled = moduleConfig.telegramAdminChatEnabled === false;
-
-    // Path 1 — group-only mode
-    if (!channelDisabled && explicitIds.length === 0 && moduleConfig.telegramAdminChatId) {
-      const result = await telegramAdapter.send(moduleConfig.telegramAdminChatId, message, {
-        botToken: moduleConfig.telegramBotToken,
-      });
-      await logNotification({
-        userId: null,
-        channel: "TELEGRAM",
-        eventType: event.type,
-        moduleSlug: event.moduleSlug,
-        entityId: event.entityId,
-        recipient: moduleConfig.telegramAdminChatId,
-        message,
-        status: result.success ? "SENT" : "FAILED",
-        error: result.error,
-      });
+    const chat = routing.groupChat;
+    if (!chat.send || !chat.chatId) {
+      if (chat.reason === "no_chat_configured" && routing.recipients.length === 0) {
+        console.warn(`[Notifications] No admin chat configured for module: ${event.moduleSlug}`);
+      }
       return;
     }
 
-    // Path 2 — explicit per-user recipients via dispatch layer
-    if (explicitIds.length > 0) {
-      await dispatchPersonal(explicitIds);
-      return;
-    }
-
-    if (channelDisabled) {
-      return;
-    }
-
-    // Path 3 — legacy direct send to chat ID
-    const chatId = moduleConfig.telegramAdminChatId || (await getGlobalAdminChatId());
-    if (!chatId) {
-      console.warn(`[Notifications] No admin chat configured for module: ${event.moduleSlug}`);
-      return;
-    }
-
-    const result = await telegramAdapter.send(chatId, message, {
-      botToken: moduleConfig.telegramBotToken,
-    });
-
+    const result = await telegramAdapter.send(chat.chatId, message, { botToken: chat.botToken });
     await logNotification({
       userId: null,
       channel: "TELEGRAM",
       eventType: event.type,
       moduleSlug: event.moduleSlug,
       entityId: event.entityId,
-      recipient: chatId,
+      recipient: chat.chatId,
       message,
       status: result.success ? "SENT" : "FAILED",
       error: result.error,
     });
   } catch (err) {
     console.error("[Notifications] Admin notification failed:", err);
-  }
-}
-
-/**
- * Get Telegram bot config for a module from Module.config JSON.
- * Falls back to global env vars.
- */
-export async function getModuleBotConfig(
-  moduleSlug: string
-): Promise<ModuleBotConfig> {
-  try {
-    const mod = await prisma.module.findUnique({
-      where: { slug: moduleSlug },
-      select: { config: true },
-    });
-
-    const config = mod?.config as Record<string, unknown> | null;
-    return {
-      telegramBotToken:
-        (config?.telegramBotToken as string) || undefined,
-      telegramAdminChatId:
-        (config?.telegramAdminChatId as string) || undefined,
-      telegramAdminChatEnabled: config?.telegramAdminChatEnabled === false ? false : true,
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Get the global admin chat ID from DB (system module config), fallback to env.
- */
-async function getGlobalAdminChatId(): Promise<string | undefined> {
-  try {
-    const systemModule = await prisma.module.findUnique({
-      where: { slug: "system" },
-      select: { config: true },
-    });
-    const config = (systemModule?.config as Record<string, unknown>) || {};
-    return (config.telegramAdminChatId as string) || process.env.TELEGRAM_ADMIN_CHAT_ID || undefined;
-  } catch {
-    return process.env.TELEGRAM_ADMIN_CHAT_ID || undefined;
   }
 }
 

@@ -6,7 +6,6 @@ import {
   type WebAppStaffContext,
 } from "@/lib/webapp-auth";
 import { rateLimit } from "@/lib/rate-limit";
-import { logAudit } from "@/lib/logger";
 import {
   CenterError,
   getNotificationCenter,
@@ -54,7 +53,7 @@ async function requireStaff(request: NextRequest): Promise<StaffGuard> {
       response:
         auth.status === 401
           ? apiError("UNAUTHORIZED", "Invalid or expired token", 401)
-          : apiError("FORBIDDEN", "Раздел доступен только сотрудникам", 403),
+          : apiError("FORBIDDEN", "Доступ отозван", 403),
     };
   }
   // Адрес канала берётся из подписанного нами токена (туда он попал из
@@ -87,18 +86,12 @@ export async function PUT(request: NextRequest) {
       return apiError("VALIDATION_ERROR", "Некорректные данные", 422);
     }
 
+    // The service writes the AuditLog row (via: "miniapp") in the same
+    // transaction as the preference — no second write here.
     const result = await setEventPreference(
       guard.staff,
       parsed.data.eventType,
       parsed.data.enabled
-    );
-
-    await logAudit(
-      guard.staff.id,
-      "notification.preference.update",
-      "NotificationEventPreference",
-      result.eventType,
-      { enabled: result.enabled, source: "webapp" }
     );
 
     return apiResponse(result);
