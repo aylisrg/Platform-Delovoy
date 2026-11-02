@@ -25,7 +25,7 @@ async function main() {
     verify: async (enabled, requireOffer) => {
       for (let attempt = 0; ; attempt++) {
         try {
-          await verifyPSParkReleaseLive(context.expectedSha, enabled, requireOffer);
+          await verifyPSParkReleaseLive(enabled, requireOffer);
           return;
         } catch (error) {
           if (attempt === 2) throw error;
@@ -42,6 +42,7 @@ async function main() {
   console.log("PS_PARK_RELEASE_VERIFIED " + JSON.stringify({
     releaseId: PS_PARK_ACTIVATION_RELEASE_ID,
     gitSha: context.expectedSha,
+    provenance: "active-container-and-upstream",
     ...result,
     liveCheckout: result.onlineBookingEnabled ? "enabled" : "disabled",
   }));
