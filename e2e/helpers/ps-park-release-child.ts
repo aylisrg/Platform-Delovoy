@@ -16,7 +16,8 @@ async function main() {
     throw new Error("SYNTHETIC_RELEASE_ENV_REQUIRED");
   }
   // Prisma must not discover ambient .env credentials in a developer checkout.
-  if (readdirSync(process.cwd()).some(name => name.startsWith(".env") && name !== ".env.example")) {
+  const allowedEnvExamples = new Set([".env.example", ".env.staging.example"]);
+  if (readdirSync(process.cwd()).some(name => name.startsWith(".env") && !allowedEnvExamples.has(name))) {
     throw new Error("AMBIENT_ENV_FILES_FORBIDDEN");
   }
   let fetchCalls = 0;
