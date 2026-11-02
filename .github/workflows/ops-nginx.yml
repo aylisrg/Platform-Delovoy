@@ -51,52 +51,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Забрать живые конфиги и сравнить
-        run: |
-          set -u
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/ops_key
-          chmod 600 ~/.ssh/ops_key
-          vps() {
-            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i ~/.ssh/ops_key \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "$1" 2>/dev/null || true
-          }
-          vps "sudo cat /etc/nginx/sites-available/delovoy-park" > /tmp/live-vhost.conf
-          vps "sudo cat /etc/nginx/conf.d/delovoy-upstream.conf" > /tmp/live-upstream.conf
-          vps "cat /opt/delovoy-park/infra/nginx/edge/delovoy-edge.conf" > /tmp/live-edge.conf
-          vps "docker inspect -f '{{.State.Status}}' delovoy-edge" > /tmp/live-edge-state.txt
-          rm -f ~/.ssh/ops_key
-
-          {
-            echo "## nginx diff (live → repo)"
-            echo ""
-            echo "### vhost: /etc/nginx/sites-available/delovoy-park"
-            echo '```diff'
-            if [ -s /tmp/live-vhost.conf ]; then
-              diff -u /tmp/live-vhost.conf infra/nginx/delovoy-park.conf || true
-            else
-              echo "(живой vhost пуст/не прочитан — apply установит репо-версию с нуля)"
-            fi
-            echo '```'
-            echo "### upstream: /etc/nginx/conf.d/delovoy-upstream.conf"
-            echo '```diff'
-            if [ -s /tmp/live-upstream.conf ]; then
-              diff -u /tmp/live-upstream.conf infra/nginx/delovoy-upstream.conf || true
-              echo "(существующий upstream apply НЕ перезапишет — там может жить активный blue-green слот)"
-            else
-              echo "(на сервере нет — apply установит образец с портом 3000)"
-            fi
-            echo '```'
-            echo "### edge (issue #453, ML-KEM): infra/nginx/edge/delovoy-edge.conf"
-            echo '```diff'
-            if [ -s /tmp/live-edge.conf ]; then
-              diff -u /tmp/live-edge.conf infra/nginx/edge/delovoy-edge.conf || true
-            else
-              echo "(на сервере нет — первый apply создаст контейнер edge на публичном :443)"
-            fi
-            echo '```'
-            echo "Текущее состояние контейнера delovoy-edge: \`$(cat /tmp/live-edge-state.txt 2>/dev/null || echo 'нет данных')\`"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # Temporary read-only release diagnosis. Push events select action=diff;
+      # apply and rollback remain ineligible. No configuration contents in logs.
+      - name: Read routing fingerprints on the confirmed deployment target
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 1m
+          script: |
+            set -eu
+            test "$(hostname)" = "7548623-jm024579.twc1.net"
+            sha256sum /etc/nginx/sites-available/delovoy-park
+            sha256sum /etc/nginx/sites-enabled/delovoy-park
+            sha256sum /opt/delovoy-park/infra/nginx/delovoy-park.conf
+            docker exec delovoy-edge sha256sum /etc/nginx/conf.d/delovoy-edge.conf
 
   apply:
     name: "Apply (бэкап → nginx -t → reload → внешняя проверка)"
