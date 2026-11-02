@@ -60,6 +60,7 @@ COPY --from=builder /app/node_modules ./node_modules
 
 # Copy seed script
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/content/legal ./content/legal
 
 # Copy bot sources + shared TS so the same image can run the Telegram bot
 # via `npx tsx bot/index.ts` (see docker-compose `bot` service). bot/* imports
