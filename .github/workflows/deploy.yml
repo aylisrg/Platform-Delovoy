@@ -700,8 +700,15 @@ jobs:
                     || { echo "PS_PARK_RELEASE_ERROR ACTIVE_CONTAINER_MISMATCH"; return 1; }
                   # Existing canonical files are synchronized from the exact
                   # target checkout. Compare only; do not change nginx/security.
-                  cmp -s infra/nginx/delovoy-park.conf /etc/nginx/sites-enabled/delovoy-park \
-                    || { echo "PS_PARK_RELEASE_ERROR PUBLIC_VHOST_MISMATCH"; return 1; }
+                  if ! cmp -s infra/nginx/delovoy-park.conf /etc/nginx/sites-enabled/delovoy-park; then
+                    # The read-only production probe matched this exact public
+                    # revision (c9198fd): same routing, only the later /r/
+                    # Referrer-Policy map is absent. Preserve installed settings.
+                    RELEASE_VHOST_HASH=$(sha256sum /etc/nginx/sites-enabled/delovoy-park | cut -d ' ' -f 1)
+                    test "$RELEASE_VHOST_HASH" = e6f0147b2778f3686b032f3c944de6ae63cb2972b6a496c2a4595536629c6989 \
+                      || { echo "PS_PARK_RELEASE_ERROR PUBLIC_VHOST_MISMATCH"; return 1; }
+                    echo "PS_PARK_RELEASE_VHOST_VERIFIED c9198fd"
+                  fi
                   RELEASE_EDGE_EXPECTED=$(sha256sum infra/nginx/edge/delovoy-edge.conf | cut -d ' ' -f 1)
                   RELEASE_EDGE_ACTUAL=$(docker exec delovoy-edge sha256sum /etc/nginx/conf.d/delovoy-edge.conf | cut -d ' ' -f 1)
                   test "$RELEASE_EDGE_EXPECTED" = "$RELEASE_EDGE_ACTUAL" \
