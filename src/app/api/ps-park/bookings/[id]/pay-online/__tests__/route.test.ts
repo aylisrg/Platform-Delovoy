@@ -67,7 +67,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "mgr-1", role: "MANAGER" } });
   mockRequireAdminSection.mockResolvedValue(null);
   mockGetBooking.mockResolvedValue(booking);
-  mockGetBookingBill.mockResolvedValue({ totalBill: 1000 });
+  mockGetBookingBill.mockResolvedValue({ totalBill: 1000, onlinePaidAmount: 0, prepaidAmount: 0 });
   mockFindUniqueResource.mockResolvedValue({ name: "Стол 1" });
   mockFindUniqueUser.mockResolvedValue({ email: "user@example.com", phone: "+79001234567" });
   mockCreateOnlinePayment.mockResolvedValue({
@@ -165,7 +165,7 @@ describe("POST /api/ps-park/bookings/:id/pay-online", () => {
   });
 
   it("счёт уже оплачен онлайн — 409 NOTHING_TO_PAY", async () => {
-    mockGetBookingBill.mockResolvedValue({ totalBill: 1000 });
+    mockGetBookingBill.mockResolvedValue({ totalBill: 1000, onlinePaidAmount: 1000 });
     mockGetBooking.mockResolvedValue({
       ...booking,
       metadata: { onlinePaidAmount: "1000" },
@@ -178,6 +178,43 @@ describe("POST /api/ps-park/bookings/:id/pay-online", () => {
     expect(body.error.code).toBe("NOTHING_TO_PAY");
     expect(mockCreateOnlinePayment).not.toHaveBeenCalled();
   });
+
+  it("вычитает онлайн-оплату и предоплату на месте из одного снимка счёта", async () => {
+    // Первый getBooking уже устарел: оплату получили перед чтением счёта.
+    mockGetBookingBill.mockResolvedValue({
+      totalBill: 1000.55, onlinePaidAmount: 200.10, prepaidAmount: 350.20,
+    });
+    const res = await POST(new NextRequest(
+      "http://localhost/api/ps-park/bookings/bk-1/pay-online",
+      { method: "POST", body: JSON.stringify({ amount: 1, prepaidAmount: 99999 }) }
+    ), { params });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.amount).toBe(450.25);
+    expect(mockCreateOnlinePayment).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 450.25,
+      receiptItems: [expect.objectContaining({ amount: 450.25 })],
+    }));
+  });
+
+  it.each([1000, 1200])("не создаёт платёж при предоплате на месте %s ₽", async (prepaidAmount) => {
+    mockGetBookingBill.mockResolvedValue({ totalBill: 1000, onlinePaidAmount: 0, prepaidAmount });
+    const res = await POST(makeRequest(), { params });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("NOTHING_TO_PAY");
+    expect(mockCreateOnlinePayment).not.toHaveBeenCalled();
+  });
+
+  it.each(["PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"])(
+    "не выдаёт ссылку для статуса %s", async (status) => {
+      mockGetBooking.mockResolvedValue({ ...booking, status });
+      const res = await POST(makeRequest(), { params });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe("INVALID_STATUS");
+      expect(mockGetBookingBill).not.toHaveBeenCalled();
+      expect(mockCreateOnlinePayment).not.toHaveBeenCalled();
+    }
+  );
 
   it("ошибка платёжного провайдера — код прокидывается как есть", async () => {
     mockCreateOnlinePayment.mockRejectedValue(new PaymentError("PROVIDER_ERROR", "ЮKassa недоступна"));

@@ -58,6 +58,7 @@ export type RecentBooking = {
   resourceId: string;
   hasBill: boolean;
   paymentStatus?: BookingPaymentStatus;
+  canReschedule?: boolean;
 };
 
 type Props = {
@@ -164,7 +165,7 @@ export function RecentBookingsTable({ bookings, resourceMap }: Props) {
                         Подробнее
                       </a>
                     )}
-                    <BookingActions bookingId={b.id} currentStatus={b.status as "COMPLETED" | "CANCELLED"} />
+                    <BookingActions bookingId={b.id} currentStatus={b.status as "COMPLETED" | "CANCELLED"} canReschedule={b.canReschedule} />
                   </div>
                 </td>
               </tr>

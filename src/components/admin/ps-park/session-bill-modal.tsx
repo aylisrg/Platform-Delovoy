@@ -58,10 +58,11 @@ export function SessionBillModal({
   const discountAmount = discountPercent > 0 ? Math.round(originalTotal * discountPercent / 100) : 0;
   const effectiveTotal = originalTotal - discountAmount;
 
-  // Онлайн-оплата (ЮKassa): уже оплаченная гостем часть вычитается из суммы
-  // к приёму на месте. Server-side гейт считает так же (cash+card+online).
+  // Уже принятые деньги вычитаются так же, как в серверном гейте завершения.
   const onlinePaid = bill.onlinePaidAmount ?? 0;
-  const toCollect = Math.max(0, Math.round((effectiveTotal - onlinePaid) * 100) / 100);
+  const prepaid = bill.prepaidAmount ?? 0;
+  const alreadyPaid = onlinePaid + prepaid;
+  const toCollect = Math.max(0, Math.round((effectiveTotal - alreadyPaid) * 100) / 100);
 
   // Split payment state
   const [cashRaw, setCashRaw] = useState(String(toCollect));
@@ -259,13 +260,22 @@ export function SessionBillModal({
             )}
 
             {/* Grand total */}
+            {prepaid > 0 && (
+              <div className="border-t border-emerald-200 px-4 py-2.5 bg-emerald-50/50">
+                <div className="flex justify-between text-sm text-emerald-800">
+                  <span>Предоплата на месте</span>
+                  <span className="tabular-nums font-medium">−{formatMoney(prepaid)}</span>
+                </div>
+              </div>
+            )}
+
             <div className="border-t-2 border-zinc-300 px-4 py-3 bg-white">
               <div className="flex justify-between items-center">
                 <span className="text-base font-bold text-zinc-900">
-                  {onlinePaid > 0 ? "К ОПЛАТЕ" : "ИТОГО"}
+                  {alreadyPaid > 0 ? "К ОПЛАТЕ" : "ИТОГО"}
                 </span>
                 <div className="text-right">
-                  {(showDiscount && discountPercent > 0) || onlinePaid > 0 ? (
+                  {(showDiscount && discountPercent > 0) || alreadyPaid > 0 ? (
                     <span className="text-sm text-zinc-400 line-through mr-2 tabular-nums">
                       {formatMoney(originalTotal)}
                     </span>

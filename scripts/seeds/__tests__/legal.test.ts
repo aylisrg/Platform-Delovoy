@@ -39,6 +39,20 @@ describe("seedLegalDocuments", () => {
     expect(offer.contentHash).toBe(hashDocumentBody(file));
   });
 
+  it("не публикует и не активирует отдельный проект оферты Плей Парка", async () => {
+    const draft = await fake.offerVersion.create({ data: {
+      documentKey: "ps-park-offer", number: 1, slug: "held-test-draft",
+      title: "Test fixture only", body: "Synthetic unpublished document",
+      contentHash: hashDocumentBody("Synthetic unpublished document"), isCurrent: false,
+    } });
+    const before = { ...draft };
+
+    await seedLegalDocuments(asPrisma(fake));
+
+    expect(fake.offerVersion.__store.rows.filter((row) => row.documentKey === "ps-park-offer"))
+      .toEqual([before]);
+  });
+
   it("идемпотентен: повторный прогон не плодит редакции и не меняет текст", async () => {
     await seedLegalDocuments(asPrisma(fake));
     const before = fake.offerVersion.__store.rows.map((r) => ({ ...r }));

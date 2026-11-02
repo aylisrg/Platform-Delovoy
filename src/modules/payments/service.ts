@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { randomUUID } from "node:crypto";
 import type { Payment, Prisma } from "@prisma/client";
 import { log, logAudit } from "@/lib/logger";
 import { EVENT_SOURCES } from "@/lib/event-sources";
@@ -20,7 +21,8 @@ import {
   LEGACY_VAT_CODE,
   type ReceiptItemInput,
 } from "@/lib/yookassa/receipts";
-import type { YooPayment } from "@/lib/yookassa/types";
+import type { CreatePaymentRequest, YooPayment } from "@/lib/yookassa/types";
+import { isPSParkReservation } from "@/modules/booking/payment-flow";
 import { enqueueNotification } from "@/modules/notifications/queue";
 import { recordPaidStep } from "@/modules/analytics/product-events";
 import {
@@ -85,6 +87,14 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
     throw new PaymentError("INVALID_AMOUNT", "Сумма платежа должна быть больше нуля");
   }
 
+  if (input.idempotenceKey) {
+    const existing = await prisma.payment.findUnique({ where: { idempotenceKey: input.idempotenceKey } });
+    if (existing) {
+      assertSameOperation(existing, input);
+      return resumePaymentCreation(existing);
+    }
+  }
+
   let receipt;
   // Ставку фиксируем на момент продажи: чек возврата обязан её повторить,
   // а YOOKASSA_VAT_CODE к тому времени может уже смениться.
@@ -110,9 +120,22 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
 
   // Idempotence-Key сохраняется ДО запроса: ретрай после 5xx/сети пойдёт
   // с тем же ключом и не создаст второй платёж у провайдера.
-  const idempotenceKey = newIdempotenceKey();
-  const payment = await prisma.payment.create({
+  const idempotenceKey = input.idempotenceKey ?? newIdempotenceKey();
+  const reservedId = input.idempotenceKey ? randomUUID() : undefined;
+  const creationRequest: CreatePaymentRequest | undefined = reservedId ? {
+    amount: { value: toAmountValue(input.amount), currency: "RUB" },
+    capture: true,
+    confirmation: { type: "redirect", return_url: input.returnUrl.replace("{paymentId}", reservedId) },
+    description: input.description.slice(0, 128),
+    metadata: { paymentId: reservedId, subjectType: input.subjectType, subjectId: input.subjectId },
+    ...(receipt && { receipt }),
+    ...(input.userId && { merchant_customer_id: input.userId }),
+  } : undefined;
+  let payment: Payment;
+  try {
+    payment = await prisma.payment.create({
     data: {
+      ...(reservedId && { id: reservedId }),
       subjectType: input.subjectType,
       subjectId: input.subjectId,
       moduleSlug: input.moduleSlug,
@@ -126,6 +149,7 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
       expiresAt: new Date(Date.now() + PENDING_TTL_MINUTES * 60_000),
       metadata: {
         ...(input.metadata ?? {}),
+        ...(creationRequest && { creationRequest }),
         ...(saleVatCode !== null && { vatCode: saleVatCode }),
         receiptItems: input.receiptItems.map((item) => ({
           description: item.description,
@@ -136,7 +160,26 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
         })),
       } as Prisma.InputJsonValue,
     },
-  });
+    });
+  } catch (error) {
+    // Конкурентный повтор запроса: уникальный ключ в БД выбирает один Payment.
+    if (input.idempotenceKey && (error as { code?: string }).code === "P2002") {
+      const existing = await prisma.payment.findUnique({ where: { idempotenceKey } });
+      if (existing) {
+        assertSameOperation(existing, input);
+        return resumePaymentCreation(existing);
+      }
+    }
+    throw error;
+  }
+
+  if (creationRequest) {
+    await logAudit(input.userId ?? "system", "payment.create", "Payment", payment.id, {
+      subjectType: input.subjectType, subjectId: input.subjectId, moduleSlug: input.moduleSlug,
+      amount: toAmountValue(input.amount),
+    });
+    return resumePaymentCreation(payment);
+  }
 
   // Плейсхолдер {paymentId} в returnUrl подставляется после создания строки —
   // страница ожидания оплаты адресуется нашим id платежа.
@@ -202,23 +245,112 @@ export async function createOnlinePayment(input: CreateOnlinePaymentInput): Prom
   return updated;
 }
 
+function assertSameOperation(payment: Payment, input: CreateOnlinePaymentInput): void {
+  if (payment.subjectType !== input.subjectType || payment.subjectId !== input.subjectId ||
+      payment.moduleSlug !== input.moduleSlug || Number(payment.amount) !== input.amount) {
+    throw new PaymentError("PAYMENT_OPERATION_CONFLICT", "Параметры оплаты изменились");
+  }
+}
+
+/** Повторяется сохранённый запрос, а не вновь рассчитанный чек/тариф. */
+async function resumePaymentCreation(payment: Payment): Promise<Payment> {
+  if (payment.status === "CANCELED") {
+    throw new PaymentError("PAYMENT_CANCELED", "Оплата отменена. Выберите время заново.");
+  }
+  if (!NON_FINAL_STATUSES.includes(payment.status as typeof NON_FINAL_STATUSES[number])) {
+    return payment;
+  }
+  let remote: YooPayment;
+  if (payment.providerPaymentId) {
+    if (payment.confirmationUrl) return payment;
+    // Ранний webhook мог сохранить provider id до обрыва ответа create.
+    // Ссылку восстанавливаем чтением существующего платежа, без нового POST.
+    try {
+      remote = await yooGetPayment(payment.providerPaymentId);
+    } catch {
+      throw new PaymentError("PAYMENT_CREATE_PENDING", "Не удалось получить ссылку. Повторите оплату — повторного списания не будет.");
+    }
+  } else {
+    const metadata = payment.metadata as Record<string, unknown> | null;
+    const request = metadata?.creationRequest as CreatePaymentRequest | undefined;
+    // ЮKassa гарантирует идемпотентность 24 часа. После окна нельзя отправлять
+    // POST повторно: неизвестный исход требует сверки, а не второго списания.
+    if (!request || Date.now() - payment.createdAt.getTime() >= 24 * 3_600_000) {
+      throw new PaymentError("PAYMENT_REVIEW_REQUIRED", "Статус оплаты уточняется. Обратитесь в парк.");
+    }
+    try {
+      remote = await yooCreatePayment(request, payment.idempotenceKey);
+    } catch (error) {
+      const definiteFailure = error instanceof YooKassaError && error.httpStatus >= 400 &&
+        error.httpStatus < 500 && error.httpStatus !== 429;
+      if (definiteFailure) {
+        await markCanceled(payment.id, `create_failed: ${error.code}`);
+        throw new PaymentError("PAYMENT_CANCELED", "Не удалось оформить оплату. Выберите время заново.");
+      }
+      // Таймаут/5xx не доказывает отказ: сохраняем PENDING и тот же ключ.
+      await log.warn(MODULE_SLUG, "Исход создания платежа неизвестен; будет повторён тот же запрос", { paymentId: payment.id });
+      throw new PaymentError("PAYMENT_CREATE_PENDING", "Не удалось получить ссылку. Повторите оплату — повторного списания не будет.");
+    }
+  }
+  assertReservationProviderState(payment, remote);
+  const updated = await prisma.payment.update({
+    where: { id: payment.id },
+    data: { providerPaymentId: remote.id, confirmationUrl: remote.confirmation?.confirmation_url ?? null, isTest: remote.test ?? false },
+  });
+  await applyProviderState(payment.id, remote, payment);
+  const current = await prisma.payment.findUniqueOrThrow({ where: { id: updated.id } });
+  if (current.status === "CANCELED") throw new PaymentError("PAYMENT_CANCELED", "Оплата отменена. Выберите время заново.");
+  return current;
+}
+
+function assertReservationProviderState(payment: Payment, remote: YooPayment): void {
+  if (!isPSParkReservation(payment)) return;
+  if (remote.amount.currency !== payment.currency || Number(remote.amount.value) !== Number(payment.amount) ||
+      remote.metadata?.paymentId !== payment.id || remote.metadata?.subjectId !== payment.subjectId ||
+      remote.metadata?.subjectType !== payment.subjectType ||
+      (payment.providerPaymentId && remote.id !== payment.providerPaymentId) ||
+      (remote.status === "succeeded" && remote.paid !== true)) {
+    throw new PaymentError("PAYMENT_VERIFICATION_FAILED", "Платёж требует проверки");
+  }
+}
+
 // === Синхронизация состояния с провайдером ===
 
 /** Вебхук: по providerPaymentId делаем re-fetch и применяем актуальный статус. */
-export async function syncPaymentByProviderId(providerPaymentId: string): Promise<void> {
-  const payment = await prisma.payment.findUnique({ where: { providerPaymentId } });
+export async function syncPaymentByProviderId(providerPaymentId: string, paymentIdHint?: string): Promise<void> {
+  let payment = await prisma.payment.findUnique({ where: { providerPaymentId } });
+  let remote: YooPayment | undefined;
+  if (!payment && paymentIdHint) {
+    const candidate = await prisma.payment.findUnique({ where: { id: paymentIdHint } });
+    if (candidate && isPSParkReservation(candidate)) {
+      remote = await yooGetPayment(providerPaymentId);
+      assertReservationProviderState(candidate, remote);
+      if (remote.id !== providerPaymentId) throw new PaymentError("PAYMENT_VERIFICATION_FAILED", "Платёж требует проверки");
+      // ID из тела — лишь подсказка. Привязываем только после re-fetch и
+      // проверки metadata/суммы/валюты, не меняя уже установленную связь.
+      await prisma.payment.updateMany({
+        where: { id: candidate.id, providerPaymentId: null },
+        data: { providerPaymentId },
+      });
+      payment = await prisma.payment.findUnique({ where: { id: candidate.id } });
+      if (!payment || payment.providerPaymentId !== providerPaymentId) {
+        throw new PaymentError("PAYMENT_VERIFICATION_FAILED", "Платёж требует проверки");
+      }
+    }
+  }
   if (!payment) {
     await log.warn(MODULE_SLUG, "Вебхук по неизвестному платежу", { providerPaymentId });
     return;
   }
-  const remote = await yooGetPayment(providerPaymentId);
-  await applyProviderState(payment.id, remote);
+  remote ??= await yooGetPayment(providerPaymentId);
+  assertReservationProviderState(payment, remote);
+  await applyProviderState(payment.id, remote, payment);
 }
 
-async function applyProviderState(paymentId: string, remote: YooPayment): Promise<void> {
+async function applyProviderState(paymentId: string, remote: YooPayment, payment?: Payment): Promise<void> {
   switch (remote.status) {
     case "succeeded":
-      await markSucceeded(paymentId, remote);
+      await markSucceeded(paymentId, remote, payment ? isPSParkReservation(payment) : false);
       return;
     case "canceled":
       await markCanceled(paymentId, remote.cancellation_details?.reason ?? "canceled");
@@ -292,11 +424,11 @@ async function applySubjectEffectsOnCancel(
   }
 }
 
-async function markSucceeded(paymentId: string, remote: YooPayment): Promise<void> {
+async function markSucceeded(paymentId: string, remote: YooPayment, reservation = false): Promise<void> {
   const applied = await prisma.$transaction(async (tx) => {
     // CAS: только из нефинального статуса. Повторный вебхук = count 0 = no-op.
     const res = await tx.payment.updateMany({
-      where: { id: paymentId, status: { in: [...NON_FINAL_STATUSES] } },
+      where: { id: paymentId, status: { in: [...NON_FINAL_STATUSES, ...(reservation ? ["CANCELED" as const] : [])] } },
       data: {
         status: "SUCCEEDED",
         paidAt: remote.captured_at ? new Date(remote.captured_at) : new Date(),
@@ -663,6 +795,14 @@ export async function reconcilePayments(): Promise<ReconcileReport> {
 
     // Платёж без providerPaymentId — создание оборвалось между insert и API.
     if (!payment.providerPaymentId) {
+      if ((payment.metadata as Record<string, unknown> | null)?.creationRequest) {
+        try {
+          await resumePaymentCreation(payment);
+        } catch {
+          report.errors += 1;
+        }
+        continue;
+      }
       if (payment.createdAt < new Date(Date.now() - PENDING_TTL_MINUTES * 60_000)) {
         await markCanceled(payment.id, "create_incomplete");
         report.expired += 1;
@@ -672,8 +812,9 @@ export async function reconcilePayments(): Promise<ReconcileReport> {
 
     try {
       const remote = await yooGetPayment(payment.providerPaymentId);
+      assertReservationProviderState(payment, remote);
       const before = payment.status;
-      await applyProviderState(payment.id, remote);
+      await applyProviderState(payment.id, remote, payment);
       const after = await prisma.payment.findUnique({
         where: { id: payment.id },
         select: { status: true },
@@ -845,6 +986,7 @@ export async function getPublicPaymentStatus(id: string): Promise<PublicPaymentS
       moduleSlug: true,
       subjectType: true,
       subjectId: true,
+      metadata: true,
     },
   });
   if (!payment) return null;
@@ -866,12 +1008,18 @@ export async function getPublicPaymentStatus(id: string): Promise<PublicPaymentS
     }
   }
 
+  const reservation = isPSParkReservation(payment);
+  const booking = reservation ? await prisma.booking.findUnique({
+    where: { id: payment.subjectId }, select: { status: true },
+  }) : null;
+
   return {
     id: payment.id,
     status: payment.status,
     confirmationUrl: payment.status === "PENDING" ? payment.confirmationUrl : null,
     moduleSlug: payment.moduleSlug,
     order,
+    ...(reservation && { reservationStatus: booking?.status ?? "CANCELLED" }),
   };
 }
 
@@ -886,7 +1034,8 @@ export async function pollPayment(id: string): Promise<PublicPaymentStatus | nul
   ) {
     try {
       const remote = await yooGetPayment(payment.providerPaymentId);
-      await applyProviderState(payment.id, remote);
+      assertReservationProviderState(payment, remote);
+      await applyProviderState(payment.id, remote, payment);
     } catch {
       // провайдер недоступен — отдаём текущее локальное состояние
     }

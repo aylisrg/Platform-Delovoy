@@ -154,16 +154,22 @@ export async function recordFunnelStepAsync(input: RecordFunnelStepInput): Promi
       return;
     }
 
-    await prisma.productEvent.create({
-      data: {
+    const data = {
         funnel: input.funnel,
         step: input.step,
         sessionKey: input.sessionKey,
         moduleSlug: def.moduleSlug,
         entityId: input.entityId ?? null,
         metadata: sanitizeMetadata(input.metadata),
-      },
-    });
+    };
+    if (input.funnel === "ps-park" && input.step === "paid" && input.entityId) {
+      // Webhook and checkout recovery may observe the same paid reservation.
+      // A deterministic primary key makes both paths one conversion in the DB.
+      const id = createHash("sha256").update(`product-event:ps-park:paid:${input.entityId}`).digest("hex");
+      await prisma.productEvent.upsert({ where: { id }, create: { id, ...data }, update: {} });
+    } else {
+      await prisma.productEvent.create({ data });
+    }
   } catch (error) {
     logRecordFailureSampled(`Не удалось записать событие воронки ${input.funnel}/${input.step}`, error);
   }

@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { after } from "next/server";
 import { headers } from "next/headers";
-import { listTables, getAvailability } from "@/modules/ps-park/service";
+import { listTables, getAvailability, getOnlineBookingOffer } from "@/modules/ps-park/service";
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
 import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
@@ -181,10 +181,11 @@ export default async function PSParkPage() {
   }
 
   const today = toISODate(new Date());
-  const [tables, rawAvailability, phoneInfo] = await Promise.all([
+  const [tables, rawAvailability, phoneInfo, offer] = await Promise.all([
     listTables(true),
     getAvailability(today),
     getPublicPhone("ps-park"),
+    getOnlineBookingOffer(),
   ]);
 
   // Serialize Decimal → number so the Client Component can receive plain objects
@@ -362,7 +363,7 @@ export default async function PSParkPage() {
                     </svg>
                   ),
                   title: "Аренда от 1 часа",
-                  desc: "Минимальная аренда — 60 минут. Оплата по факту.",
+                  desc: "Минимальная аренда — 60 минут. Оплата онлайн.",
                 },
                 {
                   icon: (
@@ -380,7 +381,7 @@ export default async function PSParkPage() {
                     </svg>
                   ),
                   title: "Онлайн-бронирование",
-                  desc: "Выберите время и стол — подтверждение придёт сразу.",
+                  desc: "Выберите время и стол, оплатите онлайн — бронь подтвердится автоматически.",
                 },
               ].map((f) => (
                 <div key={f.title} className="flex gap-4">
@@ -414,6 +415,7 @@ export default async function PSParkPage() {
           <DarkAvailabilityGrid
             initialAvailability={initialAvailability}
             initialDate={today}
+            offer={offer ? { slug: offer.slug } : null}
           />
         </section>
 

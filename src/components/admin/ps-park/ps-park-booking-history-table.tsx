@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
 import { PaymentBadge } from "@/components/admin/shared/payment-badge";
 import { BookingHistory } from "@/components/admin/shared/booking-history";
+import { RescheduleBookingButton } from "./reschedule-booking-button";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
 import {
   DeleteConfirmDialog,
@@ -212,6 +213,9 @@ export function PSParkBookingHistoryTable() {
                     </div>
                   </td>
                   <td className="py-3 text-right whitespace-nowrap">
+                    {b.metadata?.paymentPurpose === "reservation" && ["CONFIRMED", "CANCELLED", "NO_SHOW"].includes(b.status) && (
+                      <RescheduleBookingButton bookingId={b.id} onChanged={loadBookings} />
+                    )}
                     <button
                       onClick={() => setHistoryId(historyId === b.id ? null : b.id)}
                       className="mr-2 text-zinc-500 hover:text-zinc-800 transition-colors"
