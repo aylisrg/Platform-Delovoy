@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { verifyPSParkReleaseLive } from "../ps-park-release-http";
 
-const sha = "a".repeat(40);
 function responses(overrides: Record<string, Response> = {}) {
   return vi.fn<typeof fetch>().mockImplementation(async (input) => {
     const path = new URL(String(input)).pathname;
     if (overrides[path]) return overrides[path];
-    if (path === "/api/version") return Response.json({ gitSha: sha });
     if (path === "/api/health") return Response.json({ status: "healthy", checks: { database: { status: "healthy" }, redis: { status: "healthy" } } });
     if (path === "/ps-park") return new Response('<section data-online-booking="enabled" data-online-offer="v2"></section>');
     if (path === "/ps-park/oferta/v2") return new Response("Published approved offer");
@@ -15,11 +13,11 @@ function responses(overrides: Record<string, Response> = {}) {
 }
 
 describe("Play Park release live verification", () => {
-  it("checks actual build, health, rendered checkout and offer using GET only", async () => {
+  it("checks public health, rendered checkout and offer without authenticated API access", async () => {
     const fetcher = responses();
-    await verifyPSParkReleaseLive(sha, true, true, fetcher);
+    await verifyPSParkReleaseLive(true, true, fetcher);
     expect(fetcher.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
-      "/api/version", "/api/health", "/ps-park", "/ps-park/oferta/v2",
+      "/api/health", "/ps-park", "/ps-park/oferta/v2",
     ]);
     for (const [url, options] of fetcher.mock.calls) {
       expect(new URL(String(url)).origin).toBe("https://delovoy-park.ru");
@@ -27,34 +25,30 @@ describe("Play Park release live verification", () => {
       expect(options?.body).toBeUndefined();
     }
   });
-  it("rejects a different live build before examining checkout", async () => {
-    const fetcher = responses({ "/api/version": Response.json({ gitSha: "b".repeat(40) }) });
-    await expect(verifyPSParkReleaseLive(sha, true, true, fetcher)).rejects.toThrow("LIVE_RELEASE_SHA_MISMATCH");
-    expect(fetcher).toHaveBeenCalledTimes(1);
-  });
   it("rejects unhealthy status and unavailable legal page", async () => {
-    await expect(verifyPSParkReleaseLive(sha, true, true, responses({ "/api/health": new Response("", { status: 503 }) }))).rejects.toThrow("RELEASE_HTTP_CHECK_FAILED");
-    await expect(verifyPSParkReleaseLive(sha, true, true, responses({ "/ps-park/oferta/v2": new Response("", { status: 404 }) }))).rejects.toThrow("RELEASE_HTTP_CHECK_FAILED");
+    await expect(verifyPSParkReleaseLive(true, true, responses({ "/api/health": new Response("", { status: 503 }) }))).rejects.toThrow("RELEASE_HTTP_CHECK_FAILED");
+    await expect(verifyPSParkReleaseLive(true, true, responses({ "/ps-park/oferta/v2": new Response("", { status: 404 }) }))).rejects.toThrow("RELEASE_HTTP_CHECK_FAILED");
   });
   it("rejects a degraded database or Redis even if health returns HTTP 200", async () => {
     for (const component of ["database", "redis"] as const) {
       const checks = { database: { status: "healthy" }, redis: { status: "healthy" } };
       checks[component].status = "unhealthy";
-      await expect(verifyPSParkReleaseLive(sha, true, true, responses({ "/api/health": Response.json({ status: "degraded", checks }) }))).rejects.toThrow("LIVE_DEPENDENCIES_UNHEALTHY");
+      await expect(verifyPSParkReleaseLive(true, true, responses({ "/api/health": Response.json({ status: "degraded", checks }) }))).rejects.toThrow("LIVE_DEPENDENCIES_UNHEALTHY");
     }
   });
   it("rejects a disabled form or wrong offer on first activation", async () => {
-    await expect(verifyPSParkReleaseLive(sha, true, true, responses({ "/ps-park": new Response('data-online-booking="disabled"') }))).rejects.toThrow("LIVE_CHECKOUT_STATE_MISMATCH");
-    await expect(verifyPSParkReleaseLive(sha, true, true, responses({ "/ps-park": new Response('data-online-booking="enabled" data-online-offer="v1"') }))).rejects.toThrow("LIVE_OFFER_MISMATCH");
+    await expect(verifyPSParkReleaseLive(true, true, responses({ "/ps-park": new Response('data-online-booking="disabled"') }))).rejects.toThrow("LIVE_CHECKOUT_STATE_MISMATCH");
+    await expect(verifyPSParkReleaseLive(true, true, responses({ "/ps-park": new Response('data-online-booking="enabled" data-online-offer="v1"') }))).rejects.toThrow("LIVE_OFFER_MISMATCH");
   });
   it("accepts a later manual OFF without demanding the old offer", async () => {
     const fetcher = responses({ "/ps-park": new Response('data-online-booking="disabled"') });
-    await verifyPSParkReleaseLive(sha, false, false, fetcher);
-    expect(fetcher).toHaveBeenCalledTimes(3);
-  });
-  it("preflight only reads build and health before any mutation", async () => {
-    const fetcher = responses();
-    await verifyPSParkReleaseLive(sha, undefined, false, fetcher);
+    await verifyPSParkReleaseLive(false, false, fetcher);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("preflight only reads public health before any mutation", async () => {
+    const fetcher = responses();
+    await verifyPSParkReleaseLive(undefined, false, fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe("https://delovoy-park.ru/api/health");
   });
 });

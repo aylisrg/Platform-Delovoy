@@ -18,8 +18,8 @@ describe("Play Park release orchestration", () => {
   });
   it("never activates if preflight fails", async () => {
     const steps = actions();
-    steps.verify.mockRejectedValueOnce(new Error("LIVE_RELEASE_SHA_MISMATCH"));
-    await expect(runPSParkRelease(steps)).rejects.toThrow("LIVE_RELEASE_SHA_MISMATCH");
+    steps.verify.mockRejectedValueOnce(new Error("LIVE_DEPENDENCIES_UNHEALTHY"));
+    await expect(runPSParkRelease(steps)).rejects.toThrow("LIVE_DEPENDENCIES_UNHEALTHY");
     expect(steps.activate).not.toHaveBeenCalled();
     expect(steps.rollback).not.toHaveBeenCalled();
   });

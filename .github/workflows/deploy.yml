@@ -683,10 +683,58 @@ jobs:
               # audit actor. Future deploys preserve a manual checkout OFF.
               if [ "$PS_PARK_RELEASE_HOOK" = "true" ]; then
                 echo "=== Verify and apply Play Park release ==="
+                # ps-park-release-target-begin
+                # Bind the already verified deployment SHA to the container
+                # serving the public nginx upstream. No authenticated HTTP API.
+                RELEASE_CONTAINER_ID=""
+                verify_ps_park_release_target() {
+                  test "$DEPLOY_MODE" = bluegreen \
+                    || { echo "PS_PARK_RELEASE_ERROR VERIFIED_BLUEGREEN_REQUIRED"; return 1; }
+                  RELEASE_SLOT=$(cat /opt/delovoy-park/ACTIVE_SLOT)
+                  case "$RELEASE_SLOT" in
+                    a) RELEASE_CONTAINER=delovoy-app; RELEASE_PORT=3000 ;;
+                    b) RELEASE_CONTAINER=delovoy-app-b; RELEASE_PORT=3001 ;;
+                    *) echo "PS_PARK_RELEASE_ERROR ACTIVE_SLOT_INVALID"; return 1 ;;
+                  esac
+                  test "$APP_CONT" = "$RELEASE_CONTAINER" \
+                    || { echo "PS_PARK_RELEASE_ERROR ACTIVE_CONTAINER_MISMATCH"; return 1; }
+                  # Existing canonical files are synchronized from the exact
+                  # target checkout. Compare only; do not change nginx/security.
+                  cmp -s infra/nginx/delovoy-park.conf /etc/nginx/sites-enabled/delovoy-park \
+                    || { echo "PS_PARK_RELEASE_ERROR PUBLIC_VHOST_MISMATCH"; return 1; }
+                  RELEASE_EDGE_EXPECTED=$(sha256sum infra/nginx/edge/delovoy-edge.conf | cut -d ' ' -f 1)
+                  RELEASE_EDGE_ACTUAL=$(docker exec delovoy-edge sha256sum /etc/nginx/conf.d/delovoy-edge.conf | cut -d ' ' -f 1)
+                  test "$RELEASE_EDGE_EXPECTED" = "$RELEASE_EDGE_ACTUAL" \
+                    || { echo "PS_PARK_RELEASE_ERROR PUBLIC_EDGE_MISMATCH"; return 1; }
+                  RELEASE_UPSTREAM=$(cat /etc/nginx/conf.d/delovoy-upstream.conf | tr -d '[:space:]')
+                  # bluegreen writes/checks/reloads this single-server block
+                  # and completes public smoke tests before updating ACTIVE_SLOT.
+                  test "$RELEASE_UPSTREAM" = "upstreamdelovoy_app{server127.0.0.1:$RELEASE_PORT;keepalive32;}" \
+                    || { echo "PS_PARK_RELEASE_ERROR ACTIVE_UPSTREAM_MISMATCH"; return 1; }
+                  test "$(docker inspect --format '{{.State.Running}}' "$APP_CONT")" = true \
+                    || { echo "PS_PARK_RELEASE_ERROR ACTIVE_CONTAINER_STOPPED"; return 1; }
+                  RELEASE_BINDING=$(docker port "$APP_CONT" 3000/tcp)
+                  test "$RELEASE_BINDING" = "127.0.0.1:$RELEASE_PORT" \
+                    || { echo "PS_PARK_RELEASE_ERROR ACTIVE_BINDING_MISMATCH"; return 1; }
+                  RELEASE_CURRENT_ID=$(docker inspect --format '{{.Id}}' "$APP_CONT")
+                  test -n "$RELEASE_CURRENT_ID" \
+                    || { echo "PS_PARK_RELEASE_ERROR ACTIVE_CONTAINER_MISSING"; return 1; }
+                  if [ -n "$RELEASE_CONTAINER_ID" ]; then
+                    test "$RELEASE_CONTAINER_ID" = "$RELEASE_CURRENT_ID" \
+                      || { echo "PS_PARK_RELEASE_ERROR ACTIVE_CONTAINER_CHANGED"; return 1; }
+                  fi
+                  RELEASE_CONTAINER_ID="$RELEASE_CURRENT_ID"
+                  echo "PS_PARK_RELEASE_TARGET_VERIFIED"
+                }
+                verify_ps_park_release_target
+                # ps-park-release-target-end
+                # The CLI independently requires BUILD_GIT_SHA == expected SHA
+                # inside this exact active container before HTTP or DB access.
                 docker exec -w /app "$APP_CONT" ./node_modules/.bin/tsx \
                   scripts/activate-ps-park-release.ts "$DEPLOY_EXPECTED_SHA" 2>&1 \
                   | sed -n '/^PS_PARK_RELEASE_/p' \
                   || { echo "❌ Play Park release verification failed"; exit 1; }
+                verify_ps_park_release_target
               fi
 
               exit 0

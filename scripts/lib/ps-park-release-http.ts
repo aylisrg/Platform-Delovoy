@@ -12,15 +12,15 @@ async function get(path: string, fetcher: ReleaseFetch) {
   return response;
 }
 
-/** Read-only checks; no bookings, payment requests or customer notifications. */
+/** Public read-only checks after the deploy's active-container SHA verification.
+ * /api/version requires a session: do not access it or change its authorization.
+ * No bookings, payment requests or customer notifications.
+ */
 export async function verifyPSParkReleaseLive(
-  expectedSha: string,
   onlineBookingEnabled?: boolean,
   requireApprovedOffer = false,
   fetcher: ReleaseFetch = fetch,
 ) {
-  const version = await (await get("/api/version", fetcher)).json() as { gitSha?: unknown };
-  if (version.gitSha !== expectedSha) throw new Error("LIVE_RELEASE_SHA_MISMATCH");
   const health = await (await get("/api/health", fetcher)).json() as {
     checks?: { database?: { status?: string }; redis?: { status?: string } };
   };
