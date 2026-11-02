@@ -65,7 +65,7 @@ describe("seedLegalDocuments", () => {
     const offer = fake.offerVersion.__store.rows.find((row) => row.documentKey === "ps-park-offer")!;
     expect(offer.publishedAt).toEqual(publishedAt);
     expect(offer.effectiveAt).toEqual(publishedAt);
-    expect(offer.body).toContain("/gazebos/oferta/v2#p-14");
+    expect(offer.body).toContain("/oferta/v/v2#p-14");
     expect(offer.body).not.toMatch(/\b\d{12,15}\b|31 октября|ПРОЕКТ/);
     expect(offer.contentHash).toBe(hashDocumentBody(String(offer.body)));
   });
