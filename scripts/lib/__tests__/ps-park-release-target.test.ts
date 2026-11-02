@@ -3,6 +3,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+
+const installedVhostHash = "e6f0147b2778f3686b032f3c944de6ae63cb2972b6a496c2a4595536629c6989";
 
 const workflow = readFileSync(resolve(".github/workflows/deploy.yml"), "utf8");
 const block = workflow.match(/# ps-park-release-target-begin([\s\S]*?)# ps-park-release-target-end/)?.[1];
@@ -15,6 +18,7 @@ case "\${0##*/}:$*" in
   'cat:/etc/nginx/conf.d/delovoy-upstream.conf') printf '%s' "$UPSTREAM" ;;
   'cmp:-s infra/nginx/delovoy-park.conf /etc/nginx/sites-enabled/delovoy-park') [ "$VHOST" = match ] ;;
   'sha256sum:infra/nginx/edge/delovoy-edge.conf') echo 'canonical-edge  source' ;;
+  'sha256sum:/etc/nginx/sites-enabled/delovoy-park') printf '%s  installed\n' "$VHOST_HASH" ;;
   'docker:exec delovoy-edge sha256sum /etc/nginx/conf.d/delovoy-edge.conf') printf '%s  installed\n' "$EDGE" ;;
   'docker:inspect --format {{.State.Running}} delovoy-app'|'docker:inspect --format {{.State.Running}} delovoy-app-b') printf '%s' "$RUNNING" ;;
   'docker:inspect --format {{.Id}} delovoy-app'|'docker:inspect --format {{.Id}} delovoy-app-b') printf '%s' "$CONTAINER_ID" ;;
@@ -34,12 +38,24 @@ function run(overrides: Record<string, string> = {}, after = "") {
       PATH: `${directory}:${process.env.PATH}`, DEPLOY_MODE: "bluegreen", APP_CONT: "delovoy-app",
       SLOT: "a", UPSTREAM: "upstream delovoy_app {\n server 127.0.0.1:3000;\n keepalive 32;\n}",
       BINDING: "127.0.0.1:3000", RUNNING: "true", CONTAINER_ID: "active-container-id",
-      VHOST: "match", EDGE: "canonical-edge", ...overrides,
+      VHOST: "match", VHOST_HASH: "unknown", EDGE: "canonical-edge", ...overrides,
     },
   });
 }
 
 describe("production Play Park release target guard from actual workflow", () => {
+  it("pins the observed public revision with identical routing and only the older referrer header", () => {
+    const canonical = readFileSync(resolve("infra/nginx/delovoy-park.conf"), "utf8");
+    const withoutReferrerMap = canonical.replace(/# Трекинг-редирект[^]*?(?=log_format delovoy_perf)/, "")
+      .replace("Referrer-Policy $delovoy_referrer_policy always;", 'Referrer-Policy "strict-origin-when-cross-origin" always;');
+    expect(createHash("sha256").update(withoutReferrerMap).digest("hex")).toBe(installedVhostHash);
+    expect(block).toContain(installedVhostHash);
+  });
+  it("accepts only the fingerprinted deployed revision when canonical differs", () => {
+    const result = run({ VHOST: "different", VHOST_HASH: installedVhostHash }, "verify_ps_park_release_target");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("PS_PARK_RELEASE_VHOST_VERIFIED c9198fd");
+  });
   it("accepts the verified active slot a and stable repeat", () => {
     const result = run({}, "verify_ps_park_release_target");
     expect(result.status, result.stderr).toBe(0);
