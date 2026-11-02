@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.29.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.28.0...v2.29.0) (2026-11-02)
+
+
+### Features
+
+* **ps-park:** prepaid self-service booking and approved offer ([#1176](https://github.com/aylisrg/Platform-Delovoy/issues/1176)) ([f84e332](https://github.com/aylisrg/Platform-Delovoy/commit/f84e3328271d2b350882a2522fac801897e453a5))
+
+
+### Bug Fixes
+
+* **gazebos:** remove complimentary pizza promotion ([#1171](https://github.com/aylisrg/Platform-Delovoy/issues/1171)) ([d6865e0](https://github.com/aylisrg/Platform-Delovoy/commit/d6865e0f4b3c7fe625f47ceb7e558850ae4e2f4d))
+
 ## [2.28.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.2...v2.28.0) (2026-10-31)
 
 
