@@ -53,7 +53,7 @@ jobs:
 
       # Temporary read-only release diagnosis. Push events select action=diff;
       # apply and rollback remain ineligible. No configuration contents in logs.
-      - name: Read routing fingerprints on the confirmed deployment target
+      - name: Verify released checkout without creating bookings or payments
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -63,10 +63,20 @@ jobs:
           script: |
             set -eu
             test "$(hostname)" = "7548623-jm024579.twc1.net"
-            sha256sum /etc/nginx/sites-available/delovoy-park
-            sha256sum /etc/nginx/sites-enabled/delovoy-park
-            sha256sum /opt/delovoy-park/infra/nginx/delovoy-park.conf
-            docker exec delovoy-edge sha256sum /etc/nginx/conf.d/delovoy-edge.conf
+            case "$(cat /opt/delovoy-park/ACTIVE_SLOT)" in
+              a) APP_CONT=delovoy-app ;;
+              b) APP_CONT=delovoy-app-b ;;
+              *) echo "PS_PARK_FINAL_ERROR ACTIVE_SLOT_INVALID"; exit 1 ;;
+            esac
+            docker exec -w /app "$APP_CONT" ./node_modules/.bin/tsx -e '
+              import { verifyPSParkReleaseLive } from "./scripts/lib/ps-park-release-http.ts";
+              void (async () => {
+                const expectedSha = "10b199258c4b1e80e131ee2d31df767356225dfe";
+                if (process.env.BUILD_GIT_SHA !== expectedSha) throw new Error("FINAL_SHA_MISMATCH");
+                await verifyPSParkReleaseLive(true, true);
+                console.log("PS_PARK_FINAL_VERIFIED " + JSON.stringify({gitSha: expectedSha, checkout: "enabled", health: "healthy", offer: "v2"}));
+              })().catch(() => { console.error("PS_PARK_FINAL_ERROR CHECK_FAILED"); process.exitCode = 1; });
+            '
 
   apply:
     name: "Apply (бэкап → nginx -t → reload → внешняя проверка)"
