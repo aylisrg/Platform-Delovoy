@@ -118,6 +118,8 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     const data = await input();
     // No API interception: browser and server both execute production code.
     await page.goto(`${app.origin}/ps-park`);
+    await expect(page.locator("section#booking")).toHaveAttribute("data-online-booking", "enabled");
+    await expect(page.locator("section#booking")).toHaveAttribute("data-online-offer", "v2");
     await Promise.all([
       page.waitForResponse(response => response.url().includes(`/api/ps-park/availability?date=${future}`)),
       page.locator('#booking input[type="date"]').fill(future),

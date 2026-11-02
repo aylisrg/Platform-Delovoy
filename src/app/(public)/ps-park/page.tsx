@@ -399,7 +399,7 @@ export default async function PSParkPage() {
         </section>
 
         {/* ── BOOKING ── */}
-        <section id="booking" className="max-w-6xl mx-auto px-4 py-16">
+        <section id="booking" data-online-booking={offer ? "enabled" : "disabled"} data-online-offer={offer?.slug ?? ""} className="max-w-6xl mx-auto px-4 py-16">
           <div className="mb-8">
             <h2
               className="font-[family-name:var(--font-manrope)] font-bold text-white"
