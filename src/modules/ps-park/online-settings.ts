@@ -1,8 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { hashDocumentBody } from "@/modules/booking/offer";
-import { isYooKassaConfigured } from "@/lib/yookassa/client";
-import { receiptsEnabled, resolveVatCode } from "@/lib/yookassa/receipts";
+import { assertOnlineBookingReady } from "./online-readiness";
 
 /** Explicit release/rollback operation. Does not change credentials or other modules. */
 export async function setOnlineBookingEnabled(actorId: string, enabled: boolean, expectedOfferHash?: string) {
@@ -13,15 +11,7 @@ export async function setOnlineBookingEnabled(actorId: string, enabled: boolean,
     const park = await tx.module.findUnique({ where: { slug: "ps-park" } });
     if (!park) throw new Error("PS_PARK_NOT_FOUND");
     if (enabled) {
-      if (!park.isActive || !isYooKassaConfigured() || !process.env.YOOKASSA_WEBHOOK_SECRET) throw new Error("PAYMENTS_NOT_CONFIGURED");
-      if (receiptsEnabled()) resolveVatCode();
-      const now = new Date();
-      const offer = await tx.offerVersion.findFirst({ where: {
-        documentKey: "ps-park-offer", isCurrent: true, publishedAt: { lte: now }, effectiveAt: { lte: now },
-      } });
-      if (!expectedOfferHash || !offer || offer.contentHash !== expectedOfferHash || hashDocumentBody(offer.body) !== expectedOfferHash) {
-        throw new Error("PUBLISHED_OFFER_MISMATCH");
-      }
+      await assertOnlineBookingReady(tx, park, expectedOfferHash);
     }
     const config = (park.config as Record<string, Prisma.InputJsonValue> | null) ?? {};
     if (config.onlineBookingEnabled === enabled) return { onlineBookingEnabled: enabled, changed: false };

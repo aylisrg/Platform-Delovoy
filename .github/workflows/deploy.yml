@@ -243,6 +243,17 @@ jobs:
         with:
           ref: ${{ needs.build-and-push.outputs.resolved_sha }}
 
+      # Read capabilities from the exact target checkout. A rollback to an older
+      # image must not attempt to execute a release helper it does not contain.
+      - name: Detect target release hooks
+        id: release_hooks
+        run: |
+          if [ -f scripts/activate-ps-park-release.ts ]; then
+            echo "ps_park=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ps_park=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Production is the explicitly verified Delovoy VPS. Never pick the
       # first server in a provider account or order an automatic paid snapshot.
       - name: Verify approved deployment target
@@ -463,12 +474,14 @@ jobs:
           SKIP_DB_BACKUP: ${{ inputs.skip_db_backup }}
           FORCE_LEGACY_DEPLOY: ${{ inputs.force_legacy_deploy }}
           SKIP_SMOKE_TESTS: ${{ inputs.skip_smoke_tests }}
+          DEPLOY_EXPECTED_SHA: ${{ needs.build-and-push.outputs.resolved_sha }}
+          PS_PARK_RELEASE_HOOK: ${{ steps.release_hooks.outputs.ps_park }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 30m
-          envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY,SKIP_SMOKE_TESTS
+          envs: SKIP_DB_BACKUP,FORCE_LEGACY_DEPLOY,SKIP_SMOKE_TESTS,DEPLOY_EXPECTED_SHA,PS_PARK_RELEASE_HOOK
           script: |
             set -eo pipefail
             test "$(hostname)" = "7548623-jm024579.twc1.net"
@@ -665,6 +678,16 @@ jobs:
                 exit 1
               fi
               echo "✅ Bot is running"
+
+              # Narrow, once-only product release; uses the existing system
+              # audit actor. Future deploys preserve a manual checkout OFF.
+              if [ "$PS_PARK_RELEASE_HOOK" = "true" ]; then
+                echo "=== Verify and apply Play Park release ==="
+                docker exec -w /app "$APP_CONT" ./node_modules/.bin/tsx \
+                  scripts/activate-ps-park-release.ts "$DEPLOY_EXPECTED_SHA" 2>&1 \
+                  | sed -n '/^PS_PARK_RELEASE_/p' \
+                  || { echo "❌ Play Park release verification failed"; exit 1; }
+              fi
 
               exit 0
             fi
