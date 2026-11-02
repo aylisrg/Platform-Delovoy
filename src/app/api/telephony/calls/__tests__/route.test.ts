@@ -8,11 +8,11 @@ vi.mock("@/lib/permissions", () => ({
     const roles = ["USER", "MANAGER", "ADMIN", "SUPERADMIN"];
     return roles.indexOf(user.role) >= roles.indexOf(required);
   },
-  hasAdminSectionAccess: vi.fn(),
-  STRICT_ACCESS_MODULES: new Set<string>(),
+  getUserAdminAccess: vi.fn(),
+  STRICT_ACCESS_MODULES: new Set(["nedelovoy"]),
 }));
 import { auth } from "@/lib/auth";
-import { hasAdminSectionAccess } from "@/lib/permissions";
+import { getUserAdminAccess } from "@/lib/permissions";
 import { listCalls } from "@/modules/telephony/service";
 import { GET } from "../route";
 
@@ -33,10 +33,10 @@ describe("GET /api/telephony/calls access regression", () => {
 
   it("requires section access for a manager before reading their module", async () => {
     setRole("MANAGER");
-    vi.mocked(hasAdminSectionAccess).mockResolvedValue(false);
+    vi.mocked(getUserAdminAccess).mockResolvedValue({ role: "MANAGER", sections: [] });
     expect((await GET(request("?moduleSlug=gazebos"))).status).toBe(403);
     expect(listCalls).not.toHaveBeenCalled();
-    vi.mocked(hasAdminSectionAccess).mockResolvedValue(true);
+    vi.mocked(getUserAdminAccess).mockResolvedValue({ role: "MANAGER", sections: ["gazebos"] });
     vi.mocked(listCalls).mockResolvedValue({ calls: [], total: 0, page: 1, perPage: 20 });
     const response = await GET(request("?moduleSlug=gazebos"));
     expect(response.status).toBe(200);
