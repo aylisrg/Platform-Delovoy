@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { startPSParkProvider, type ProviderRecord } from "./helpers/ps-park-provider";
@@ -13,8 +14,8 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
   let app: Awaited<ReturnType<typeof startPSParkTestServer>>;
   let savedConfig: Prisma.JsonValue;
   let configChanged = false;
-  let offerId: string | undefined;
-  const offerSlug = `e2e-${randomUUID()}`;
+  let seededOffer: { id: string; contentHash: string };
+  const offerSlug = "v2";
   const resourceIds: string[] = [];
   const future = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
 
@@ -22,20 +23,21 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     test.setTimeout(90_000);
     const connection = paidE2EEnvironment(process.env);
     db = new PrismaClient({ datasourceUrl: connection.databaseURL });
-    // The ordinary legal seed must never publish an unapproved Play Park draft.
-    // Only this guarded synthetic database receives a disposable test document.
-    if (await db.offerVersion.count({ where: { documentKey: "ps-park-offer" } })) {
-      throw new Error("Paid E2E requires no pre-existing Play Park legal documents");
+    // Exercise the ordinary seed and approved document, without editing legal rows.
+    const offers = await db.offerVersion.findMany({ where: { documentKey: "ps-park-offer", isCurrent: true } });
+    expect(offers).toHaveLength(1);
+    const offer = offers[0];
+    const body = readFileSync("content/legal/ps-park-offer/v2.md", "utf8");
+    const contentHash = createHash("sha256").update(body.replace(/\r\n?/g, "\n"), "utf8").digest("hex");
+    expect(offer.slug).toBe(offerSlug);
+    expect(offer.number).toBe(2);
+    expect(offer.body).toBe(body);
+    expect(offer.contentHash).toBe(contentHash);
+    for (const date of [offer.publishedAt, offer.effectiveAt]) {
+      expect(date.getTime()).toBeGreaterThan(0);
+      expect(date.getTime()).toBeLessThanOrEqual(Date.now());
     }
-    const body = "TEST FIXTURE ONLY. This is not a legal offer and must never be published.";
-    const offer = await db.offerVersion.create({ data: {
-      documentKey: "ps-park-offer", number: 1, slug: offerSlug,
-      title: "Play Park test fixture — not legal terms", body,
-      contentHash: createHash("sha256").update(body).digest("hex"),
-      publishedAt: new Date("2000-01-01T00:00:00Z"),
-      effectiveAt: new Date("2000-01-01T00:00:00Z"), isCurrent: true,
-    } });
-    offerId = offer.id;
+    seededOffer = { id: offer.id, contentHash };
     const parkModule = await db.module.findUniqueOrThrow({ where: { slug: "ps-park" } });
     savedConfig = parkModule.config;
     const config = parkModule.config && typeof parkModule.config === "object" && !Array.isArray(parkModule.config) ? parkModule.config : {};
@@ -71,7 +73,6 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
       await db.payment.deleteMany({ where: { id: { in: paymentIds } } });
       await db.booking.deleteMany({ where: { id: { in: ids } } });
       await db.resource.deleteMany({ where: { id: { in: resourceIds } } });
-      if (offerId) await db.offerVersion.deleteMany({ where: { id: offerId } });
     } finally {
       try {
         if (configChanged) await db.module.update({ where: { slug: "ps-park" }, data: { config: savedConfig === null ? Prisma.DbNull : savedConfig } });
@@ -101,6 +102,9 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     const booking = await db.booking.findUniqueOrThrow({ where: { id: bookingId } });
     const payment = await db.payment.findUniqueOrThrow({ where: { id: paymentId } });
     expect(booking.status).toBe(bookingStatus);
+    expect(booking.offerVersionId).toBe(seededOffer.id);
+    expect(booking.offerContentHash).toBe(seededOffer.contentHash);
+    expect(booking.acceptedOfferAt).not.toBeNull();
     expect(payment.status).toBe("SUCCEEDED");
     expect(payment.isTest).toBe(true);
     expect(Number(payment.amount)).toBe(1000);
@@ -128,19 +132,26 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     const created = page.waitForResponse(response => response.url().endsWith("/api/ps-park/book") && response.request().method() === "POST");
     await page.getByRole("button", { name: "Оплатить", exact: true }).click();
     const response = await created;
-    expect(response.status(), await response.text()).toBe(201);
-    const booking = (await response.json()).data as { id: string; payment: { id: string } };
+    expect(response.status()).toBe(201);
+    // The production form redirects immediately. Chromium may evict the POST
+    // response body on navigation, so identify this isolated booking in the DB.
+    const bookings = await db.booking.findMany({ where: { resourceId: data.resourceId } });
+    expect(bookings).toHaveLength(1);
+    const booking = bookings[0];
+    const payments = await db.payment.findMany({ where: { moduleSlug: "ps-park", subjectType: "BOOKING", subjectId: booking.id } });
+    expect(payments).toHaveLength(1);
+    const paymentId = payments[0].id;
     await page.getByRole("button", { name: "Approve test payment" }).click();
     await expect(page.getByRole("heading", { name: "Оплата прошла успешно!" })).toBeVisible();
-    const payment = await record(booking.payment.id);
+    const payment = await record(paymentId);
     const replies = await Promise.all([provider.notify(payment), provider.notify(payment)]);
     expect(replies.map(reply => reply.status)).toEqual([200, 200]);
     // A delayed cancel notification cannot undo an authoritative provider success.
     expect((await provider.notify(payment, "payment.canceled")).status).toBe(200);
-    await assertPaid(booking.id, booking.payment.id);
+    await assertPaid(booking.id, paymentId);
     await page.reload();
     await expect(page.getByRole("heading", { name: "Оплата прошла успешно!" })).toBeVisible();
-    await assertPaid(booking.id, booking.payment.id);
+    await assertPaid(booking.id, paymentId);
   });
 
   test("AC-cancel: canceled payment releases slot; retry and parallel requests create one replacement payment", async ({ request, page }) => {

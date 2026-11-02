@@ -29,8 +29,8 @@ type DocumentRevision = {
   title: string;
   /** Путь относительно корня репозитория. */
   file: string;
-  publishedAt: string;
-  effectiveAt: string;
+  publishedAt: string | null;
+  effectiveAt: string | null;
   isCurrent: boolean;
 };
 
@@ -38,9 +38,20 @@ type DocumentRevision = {
  * Реестр опубликованных редакций.
  *
  * Даты — из шапки самих документов, а не из момента деплоя: оферта вступает в
- * силу с даты, которую видит клиент на странице.
+ * силу с даты, которую видит клиент на странице. null означает фактическое
+ * первое опубликование: эта дата сохраняется при последующих запусках.
  */
 const REVISIONS: DocumentRevision[] = [
+  {
+    documentKey: "ps-park-offer",
+    number: 2,
+    slug: "v2",
+    title: "Публичная оферта — Плей Парк",
+    file: "content/legal/ps-park-offer/v2.md",
+    publishedAt: null,
+    effectiveAt: null,
+    isCurrent: true,
+  },
   {
     documentKey: "gazebos-offer",
     number: 1,
@@ -100,6 +111,10 @@ export async function seedLegalDocuments(prisma: PrismaClient): Promise<void> {
       );
     }
 
+    const firstPublication = existing?.publishedAt ?? new Date();
+    const publishedAt = revision.publishedAt ? new Date(revision.publishedAt) : firstPublication;
+    const effectiveAt = revision.effectiveAt ? new Date(revision.effectiveAt) : (existing?.effectiveAt ?? firstPublication);
+
     if (!existing) {
       await prisma.offerVersion.create({
         data: {
@@ -109,8 +124,8 @@ export async function seedLegalDocuments(prisma: PrismaClient): Promise<void> {
           title: revision.title,
           body,
           contentHash,
-          publishedAt: new Date(revision.publishedAt),
-          effectiveAt: new Date(revision.effectiveAt),
+          publishedAt,
+          effectiveAt,
           isCurrent: false, // выставим ниже, одной операцией на документ
         },
       });
@@ -121,8 +136,8 @@ export async function seedLegalDocuments(prisma: PrismaClient): Promise<void> {
         where: { id: existing.id },
         data: {
           title: revision.title,
-          publishedAt: new Date(revision.publishedAt),
-          effectiveAt: new Date(revision.effectiveAt),
+          publishedAt,
+          effectiveAt,
         },
       });
     }
