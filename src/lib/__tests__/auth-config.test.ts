@@ -43,6 +43,12 @@ describe("authorized(): гостевой чекаут кафе", () => {
 });
 
 describe("authorized(): платёжный контур", () => {
+  it("только публичный POST Play Park открыт гостю; служебные платежи защищены", async () => {
+    expect(await authorize("POST", "/api/ps-park/book")).toBe(true);
+    await expectAnon401(await authorize("GET", "/api/ps-park/book"));
+    await expectAnon401(await authorize("POST", "/api/ps-park/bookings/b1/pay-online"));
+    await expectAnon401(await authorize("GET", "/api/ps-park/bookings"));
+  });
   it("анонимный GET /api/payments/{id} (поллинг страницы оплаты) проходит", async () => {
     expect(await authorize("GET", "/api/payments/clxyzabc123")).toBe(true);
   });

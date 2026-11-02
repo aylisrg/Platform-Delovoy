@@ -179,6 +179,7 @@ export const authConfig: NextAuthConfig = {
         // Guest checkout: booking endpoints accept unauthenticated POSTs when
         // the body carries guestName + guestPhone. The handler enforces the rule.
         pathname === "/api/gazebos/book" ||
+        pathname === "/api/ps-park/book" ||
         // QR-чекаут кафе: гостевой POST, IP rate-limit внутри роута.
         pathname === "/api/cafe/checkout" ||
         // Вебхук ЮKassa: шлётся серверами провайдера без сессии; роут

@@ -29,6 +29,27 @@ export const createPSBookingSchema = z.object({
   { message: "Время начала должно быть раньше времени окончания", path: ["endTime"] }
 );
 
+/** Публичная предоплата; цены и назначение платежа клиент не задаёт. */
+export const createPSCheckoutSchema = createPSBookingSchema.safeExtend({
+  date: z.iso.date(),
+  requestId: z.uuid(),
+  guestName: z.string().trim().min(1, "Укажите имя").max(200),
+  guestPhone: z.string().trim().regex(/^\+7\d{10}$/, "Телефон в формате +79991234567"),
+  email: z.email("Укажите email для чека").max(200),
+  acceptOffer: z.literal(true, { error: "Подтвердите согласие с условиями" }),
+  offerVersionSlug: z.string().min(1).max(100),
+});
+
+export type CreatePSCheckoutInput = z.infer<typeof createPSCheckoutSchema>;
+
+export const reschedulePSReservationSchema = z.object({
+  date: z.iso.date(),
+  startTime: z.string().regex(timeRegex, "Формат времени: HH:mm"),
+  expectedStartTime: z.iso.datetime({ offset: true }),
+});
+
+export type ReschedulePSReservationInput = z.infer<typeof reschedulePSReservationSchema>;
+
 export const adminCreatePSBookingSchema = z.object({
   resourceId: z.string().min(1, "ID стола обязателен"),
   date: z.string().regex(dateRegex, "Формат даты: YYYY-MM-DD"),

@@ -1,5 +1,11 @@
 import type { BookingMetadata } from "./types";
 
+/** Отдельное назначение внутри общего BOOKING-контура ЮKassa. */
+export function isPSParkReservation(value: { moduleSlug: string; metadata: unknown }): boolean {
+  const metadata = value.metadata as Record<string, unknown> | null;
+  return value.moduleSlug === "ps-park" && metadata?.paymentPurpose === "reservation";
+}
+
 /**
  * Знает ли персонал о брони.
  *

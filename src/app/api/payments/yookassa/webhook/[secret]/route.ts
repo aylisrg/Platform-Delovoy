@@ -74,7 +74,11 @@ export async function POST(
 
   try {
     if (event.startsWith("payment.")) {
-      await syncPaymentByProviderId(object.id);
+      if (object.metadata?.paymentId) {
+        await syncPaymentByProviderId(object.id, object.metadata.paymentId);
+      } else {
+        await syncPaymentByProviderId(object.id);
+      }
     } else if (event === "refund.succeeded") {
       await syncRefundByProviderId(object.id);
     }

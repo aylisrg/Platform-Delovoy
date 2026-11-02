@@ -6,7 +6,7 @@ import { enqueueNotification } from "@/modules/notifications/queue";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
 import type { BookingMetadata } from "@/modules/booking/types";
-import { isHiddenFromStaff } from "@/modules/booking/payment-flow";
+import { isHiddenFromStaff, isPSParkReservation } from "@/modules/booking/payment-flow";
 import { EVENT_SOURCES } from "@/lib/event-sources";
 import { log } from "@/lib/logger";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
@@ -21,11 +21,11 @@ import { buildCancellationSummary } from "@/modules/booking/cancellation-summary
 /**
  * Доменные эффекты платежей с subjectType=BOOKING.
  *
- * Два сценария:
- * - gazebos, бронь в PENDING → 100 % предоплата: подтверждаем бронь
+ * Сценарии разделены назначением платежа:
+ * - gazebos или ps-park reservation, бронь в PENDING → 100 % предоплата: подтверждаем бронь
  *   (CONFIRMED) и списываем инвентарь — как это делает менеджер при ручном
  *   подтверждении (см. gazebos/service.ts updateBookingStatus).
- * - ps-park (или уже подтверждённая бронь) → оплата счёта: только зачисляем
+ * - ps-park session bill (или уже подтверждённая бронь) → оплата счёта: только зачисляем
  *   сумму в metadata.onlinePaidAmount, статус не трогаем.
  *
  * Внешние вызовы (Google Calendar, уведомления) — строго ПОСЛЕ коммита
@@ -43,6 +43,13 @@ function bookingTimeStrings(booking: { date: Date; startTime: Date; endTime: Dat
 }
 
 export async function onBookingPaymentSucceeded(tx: Tx, payment: Payment): Promise<void> {
+  const psReservation = isPSParkReservation(payment);
+  if (psReservation) {
+    // Read the latest status/credit after any concurrent cancellation or move.
+    // Payment CAS already serializes repeated success; this lock also serializes
+    // booking writers so a lost status CAS cannot drop the accepted prepayment.
+    await tx.$executeRaw`SELECT 1 FROM "Booking" WHERE id = ${payment.subjectId} FOR UPDATE`;
+  }
   const booking = await tx.booking.findUnique({ where: { id: payment.subjectId } });
   if (!booking) {
     // eslint-disable-next-line no-restricted-syntax -- атомарная запись внутри $transaction, logger.ts вне её недопустим
@@ -58,6 +65,10 @@ export async function onBookingPaymentSucceeded(tx: Tx, payment: Payment): Promi
   }
 
   const metadata = (booking.metadata as Record<string, unknown> | null) ?? {};
+  if (psReservation && (!isPSParkReservation(booking) || !booking.acceptedOfferAt ||
+      Number(metadata.totalPrice) !== Number(payment.amount))) {
+    throw new Error("PS Park reservation payment does not match booking");
+  }
   const prevOnline = Number((metadata.onlinePaidAmount as string | undefined) ?? 0);
   const newMetadata = {
     ...metadata,
@@ -65,7 +76,7 @@ export async function onBookingPaymentSucceeded(tx: Tx, payment: Payment): Promi
     paymentId: payment.id,
   } as Prisma.InputJsonValue;
 
-  if (booking.moduleSlug === "gazebos" && booking.status === "PENDING") {
+  if ((booking.moduleSlug === "gazebos" || psReservation) && booking.status === "PENDING") {
     const res = await tx.booking.updateMany({
       where: { id: booking.id, status: "PENDING" },
       data: { status: "CONFIRMED", metadata: newMetadata },
@@ -108,15 +119,23 @@ export async function onBookingPaymentSucceeded(tx: Tx, payment: Payment): Promi
 export async function afterBookingPaymentSucceeded(payment: Payment): Promise<void> {
   const booking = await prisma.booking.findUnique({ where: { id: payment.subjectId } });
   if (!booking) return;
+  if (isPSParkReservation(payment) && ["CANCELLED", "NO_SHOW"].includes(booking.status)) {
+    // Слот уже освобождён. Оплата учтена; администратор согласует перенос
+    // на свободное время. Автоматический возврат для reservation не запускаем.
+    await log.error(EVENT_SOURCES.PAYMENTS, "Оплата Плей Парка поступила после отмены — требуется сверка и перенос", {
+      bookingId: booking.id, paymentId: payment.id,
+    });
+    return;
+  }
   const resource = await prisma.resource.findUnique({
     where: { id: booking.resourceId },
     select: { name: true, googleCalendarId: true },
   });
   const times = bookingTimeStrings(booking);
 
-  if (booking.moduleSlug === "gazebos" && booking.status === "CONFIRMED") {
+  if ((booking.moduleSlug === "gazebos" || isPSParkReservation(payment)) && booking.status === "CONFIRMED") {
     // Календарь — best-effort, как в ручном подтверждении.
-    if (resource?.googleCalendarId && !booking.googleEventId) {
+    if (booking.moduleSlug === "gazebos" && resource?.googleCalendarId && !booking.googleEventId) {
       const user = booking.userId
         ? await prisma.user.findUnique({
             where: { id: booking.userId },
@@ -137,8 +156,8 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
       }
     }
 
-    // Клиенту — «Бронирование подтверждено» (DM). Только gazebos: у ps-park
-    // статус брони при оплате счёта не меняется.
+    // Клиенту с учётной записью — «Бронирование подтверждено» (DM).
+    // Предоплата ps-park участвует; оплата менеджерского счёта сюда не попадает.
     enqueueNotification({
       type: "booking.confirmed",
       moduleSlug: booking.moduleSlug,
@@ -165,7 +184,7 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
   }
 
   // Письмо-подтверждение с номером редакции оферты и ссылкой на управление
-  // бронью (ТЗ §7). Только gazebos: у ps-park своя оферта и своё письмо.
+  // бронью (ТЗ §7). Этот шаблон и ссылка управления предназначены для gazebos.
   if (booking.moduleSlug === "gazebos") {
     try {
       await sendBookingReceipt(payment, booking, resource?.name ?? "Беседка", times);
@@ -294,9 +313,9 @@ export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promis
   const booking = await tx.booking.findUnique({ where: { id: payment.subjectId } });
   if (!booking) return;
 
-  // Отменяем только неоплаченную PENDING-бронь беседки (слот освобождается).
+  // Отменяем только неоплаченную PENDING-бронь (слот освобождается).
   // Подтверждённые брони и счета ps-park отмена платежа не трогает.
-  if (booking.moduleSlug === "gazebos" && booking.status === "PENDING") {
+  if ((booking.moduleSlug === "gazebos" || (isPSParkReservation(payment) && isPSParkReservation(booking))) && booking.status === "PENDING") {
     await tx.booking.updateMany({
       where: { id: booking.id, status: "PENDING" },
       data: { status: "CANCELLED", cancelReason: UNPAID_CANCEL_REASON },

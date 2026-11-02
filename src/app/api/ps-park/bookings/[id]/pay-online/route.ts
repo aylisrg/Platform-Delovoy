@@ -40,10 +40,13 @@ export async function POST(
 
     const bill = await getBookingBill(id);
     const metadata = (booking.metadata as Record<string, unknown> | null) ?? {};
-    const onlinePaid = Number((metadata.onlinePaidAmount as string | undefined) ?? 0);
-    const remaining = Math.round((bill.totalBill - onlinePaid) * 100) / 100;
+    // Все суммы — из одного серверного снимка счёта. Предоплата на месте
+    // уже учтена при завершении сессии; повторно выставлять её онлайн нельзя.
+    const remaining = Math.round(
+      (bill.totalBill - bill.onlinePaidAmount - (bill.prepaidAmount ?? 0)) * 100
+    ) / 100;
     if (remaining <= 0) {
-      return apiError("NOTHING_TO_PAY", "Счёт уже оплачен онлайн", 409);
+      return apiError("NOTHING_TO_PAY", "Счёт уже оплачен", 409);
     }
 
     const resource = await prisma.resource.findUnique({

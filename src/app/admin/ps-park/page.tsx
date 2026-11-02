@@ -244,6 +244,7 @@ export default async function PSParkManagerPage() {
               <RecentBookingsTable
                 bookings={recentCompleted.map((b): RecentBooking => ({
                   id: b.id,
+                  canReschedule: (b.metadata as Record<string, unknown> | null)?.paymentPurpose === "reservation",
                   date: b.date.toISOString(),
                   startTime: b.startTime.toISOString(),
                   endTime: b.endTime.toISOString(),
@@ -338,6 +339,7 @@ function BookingTable({
                 <div className="flex items-center gap-3">
                   <BookingActions
                     bookingId={b.id}
+                    canReschedule={(b.metadata as Record<string, unknown> | null)?.paymentPurpose === "reservation"}
                     currentStatus={b.status}
                     clientName={name}
                     resourceName={tableName}

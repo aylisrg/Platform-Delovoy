@@ -1,24 +1,24 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useSession } from "next-auth/react";
 import { reachGoal } from "@/lib/metrika";
 import { sendFunnelBeacon } from "@/lib/funnel-beacon";
-import { AuthModal } from "@/components/ui/auth-modal";
 import { DarkDateNavigator } from "@/components/public/ps-park/dark-date-navigator";
 import type { DayAvailability } from "@/modules/ps-park/types";
-import { pickRandom, TOAST_PS_BOOKING_SUCCESS } from "@/lib/easter-eggs";
 
 type Props = {
   initialAvailability: DayAvailability[];
   initialDate: string;
+  offer: { slug: string } | null;
 };
 
-export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props) {
-  const { data: session, status: sessionStatus } = useSession();
-  const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
-
-  const [showAuthModal, setShowAuthModal] = useState(false);
+export function DarkAvailabilityGrid({ initialAvailability, initialDate, offer }: Props) {
+  const [guestName, setGuestName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [acceptOffer, setAcceptOffer] = useState(false);
+  const checkoutRequest = useRef<{ fingerprint: string; requestId: string } | null>(null);
+  const submitting = useRef(false);
   const [date, setDate] = useState(initialDate);
   const [availability, setAvailability] = useState(initialAvailability);
   const [loading, setLoading] = useState(false);
@@ -26,8 +26,6 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookingSuccess, setBookingSuccess] = useState(false);
-  const [bookingSuccessMsg, setBookingSuccessMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const slotSelectedFired = useRef(false);
 
@@ -36,7 +34,6 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
     setLoading(true);
     setSelectedResourceId(null);
     setSelectedSlots([]);
-    setBookingSuccess(false);
     setError(null);
     try {
       const res = await fetch(`/api/ps-park/availability?date=${newDate}`);
@@ -83,51 +80,47 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
   }
 
   async function submitBooking() {
-    if (!isAuthenticated) {
-      setShowAuthModal(true);
-      return;
-    }
-    if (!selectedResourceId || selectedSlots.length === 0) return;
+    if (submitting.current || !offer || !acceptOffer || !selectedResourceId || selectedSlots.length === 0) return;
     const sorted = [...selectedSlots].sort();
     const resource = availability.find((a) => a.resource.id === selectedResourceId);
     const lastSlot = resource?.slots.find((s) => s.startTime === sorted[sorted.length - 1]);
     const endTime = lastSlot?.endTime ?? sorted[sorted.length - 1];
 
+    submitting.current = true;
     setBookingLoading(true);
     setError(null);
     reachGoal("pspark_booking_submit");
+    const payload = {
+      resourceId: selectedResourceId, date, startTime: sorted[0], endTime,
+      guestName, guestPhone, email, acceptOffer, offerVersionSlug: offer.slug,
+    };
+    const fingerprint = JSON.stringify(payload);
+    if (checkoutRequest.current?.fingerprint !== fingerprint) {
+      checkoutRequest.current = { fingerprint, requestId: crypto.randomUUID() };
+    }
     try {
       const res = await fetch("/api/ps-park/book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          resourceId: selectedResourceId,
-          date,
-          startTime: sorted[0],
-          endTime,
-        }),
+        body: JSON.stringify({ ...payload, requestId: checkoutRequest.current.requestId }),
       });
       const data = await res.json();
-      if (data.success) {
-        reachGoal("pspark_booking_success");
-        setBookingSuccess(true);
-        setBookingSuccessMsg(pickRandom(TOAST_PS_BOOKING_SUCCESS));
-        setSelectedResourceId(null);
-        setSelectedSlots([]);
+      if (data.success && data.data?.payment?.confirmationUrl) {
+        window.location.assign(data.data.payment.confirmationUrl);
       } else {
-        setError(data.error?.message ?? "Ошибка при бронировании");
+        if (["PAYMENT_CANCELED", "CHECKOUT_CHANGED"].includes(data.error?.code)) checkoutRequest.current = null;
+        setError(data.error?.message ?? "Не удалось перейти к оплате. Повторите попытку.");
       }
     } catch {
       setError("Не удалось отправить бронирование");
     } finally {
+      submitting.current = false;
       setBookingLoading(false);
     }
   }
 
   return (
     <>
-      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
-
       <div className="space-y-4" data-testid="availability-grid">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <DarkDateNavigator currentDate={date} onChange={loadAvailability} />
@@ -135,17 +128,6 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
             <span className="text-xs text-zinc-500 animate-pulse">Загрузка...</span>
           )}
         </div>
-
-        {bookingSuccess && (
-          <div className="rounded-xl bg-violet-500/10 border border-violet-500/30 p-4 text-center">
-            <p className="text-violet-300 font-medium text-sm">
-              Заявка отправлена! Ожидайте подтверждения от менеджера.
-            </p>
-            {bookingSuccessMsg && (
-              <p className="text-violet-400/70 text-xs mt-1">{bookingSuccessMsg}</p>
-            )}
-          </div>
-        )}
 
         {error && (
           <p className="text-sm text-red-400">{error}</p>
@@ -208,7 +190,7 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
         )}
 
         {selectedResourceId && selectedSlots.length > 0 && (
-          <div className="sticky bottom-4 flex items-center justify-between rounded-2xl bg-zinc-900 border border-violet-500/40 p-4 shadow-2xl shadow-violet-900/20">
+          <form onSubmit={(event) => { event.preventDefault(); void submitBooking(); }} className="space-y-4 rounded-2xl bg-zinc-900 border border-violet-500/40 p-4">
             <div className="text-sm text-zinc-300">
               <span className="font-semibold text-white">
                 {availability.find((a) => a.resource.id === selectedResourceId)?.resource.name}
@@ -230,14 +212,25 @@ export function DarkAvailabilityGrid({ initialAvailability, initialDate }: Props
                 );
               })()}
             </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="text-sm text-zinc-300">Имя<input required maxLength={200} autoComplete="name" value={guestName} onChange={(e) => setGuestName(e.target.value)} className="mt-1 block w-full rounded-lg bg-zinc-800 p-2" /></label>
+              <label className="text-sm text-zinc-300">Телефон<input required type="tel" pattern="\+7[0-9]{10}" placeholder="+79991234567" autoComplete="tel" value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} className="mt-1 block w-full rounded-lg bg-zinc-800 p-2" /></label>
+              <label className="text-sm text-zinc-300">Email для чека<input required type="email" maxLength={200} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full rounded-lg bg-zinc-800 p-2" /></label>
+            </div>
+            {offer ? <label className="flex gap-2 text-sm text-zinc-300">
+              <input type="checkbox" required checked={acceptOffer} onChange={(e) => setAcceptOffer(e.target.checked)} />
+              <span>Согласен с <a className="underline" href={`/ps-park/oferta/${offer.slug}`} target="_blank" rel="noreferrer">офертой Плей Парка</a> и <a className="underline" href="/privacy" target="_blank" rel="noreferrer">политикой обработки данных</a>.</span>
+            </label> : <p className="text-sm text-zinc-300">Онлайн-бронирование временно недоступно.</p>}
+            <p className="text-xs text-zinc-400">Предоплата 100%. Бронь подтвердится автоматически после успешной оплаты.</p>
+            <p className="text-xs text-zinc-400">Изменить планы можно переносом через администратора с сохранением оплаченного времени. Автоматический возврат на сайте не выполняется. Условия и порядок обращений — в оферте.</p>
             <button
-              onClick={submitBooking}
-              disabled={bookingLoading}
+              type="submit"
+              disabled={bookingLoading || !offer || !acceptOffer}
               className="bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors"
             >
-              {bookingLoading ? "Отправка..." : "Забронировать"}
+              {bookingLoading ? "Переходим к оплате…" : "Оплатить"}
             </button>
-          </div>
+          </form>
         )}
       </div>
     </>

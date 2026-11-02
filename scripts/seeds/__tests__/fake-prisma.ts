@@ -105,6 +105,12 @@ function makeDelegate(uniqueKeys: string[][]): ModelDelegate {
     const out: WhereCondition = {};
     for (const [k, v] of Object.entries(where)) {
       if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+        // Scalar filters must survive normalization; only composite unique
+        // selectors are flattened. The legal seed retires old slugs via not.
+        if ("not" in v || "in" in v) {
+          out[k] = v;
+          continue;
+        }
         for (const [ck, cv] of Object.entries(v as Record<string, unknown>)) {
           out[ck] = cv;
         }

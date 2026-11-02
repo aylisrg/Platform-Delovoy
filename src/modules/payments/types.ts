@@ -29,6 +29,8 @@ export type CreateOnlinePaymentInput = {
   /** URL возврата после оплаты; плейсхолдер {paymentId} заменяется на id платежа. */
   returnUrl: string;
   metadata?: Record<string, unknown>;
+  /** Опциональный стабильный ключ операции: только доверенный серверный код. */
+  idempotenceKey?: string;
 };
 
 export type RefundInput = {
@@ -59,6 +61,7 @@ export type PublicPaymentStatus = {
   confirmationUrl: string | null;
   moduleSlug: string;
   /** Для subjectType ORDER (кафе): номер и состав заказа на экран «Оплачено». */
+  reservationStatus?: string;
   order: {
     orderNumber: string;
     deliveryTo: string | null;

@@ -100,6 +100,9 @@ export const yooWebhookNotificationSchema = z.object({
   event: z.string(),
   object: z.object({
     id: z.string(),
+    // Только подсказка поиска для webhook, опередившего ответ create.
+    // Принадлежность и сумма всё равно сверяются с GET провайдера.
+    metadata: z.object({ paymentId: z.string().optional() }).nullish(),
     // refund.* события несут payment_id возврата
     payment_id: z.string().optional(),
   }),
