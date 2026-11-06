@@ -50,7 +50,11 @@ export const OWNER_DECISIONS_STALE_MINUTES = 6 * 60;
  * поломка (секрет, сайт из Actions, сам workflow).
  *
  * Подделка заголовка может только добавить тики, то есть сделать алерт
- * раньше, но не спрятать поломку. Тиков нет (Redis недоступен, список пуст) —
+ * раньше, но не спрятать поломку. Тикам верим, только если список живой и
+ * полный (`SCHEDULER_TICK_MAX_AGE_MS`; самый старый тик не новее heartbeat).
+ * Иначе молчание самого watchdog'а (workflow выключен, заголовок потерян,
+ * cron GitHub встал совсем) неделю прятало бы поломку за старым списком.
+ * Тикам не верим (Redis недоступен, список пуст, устарел или неполон) —
  * fail-open: судим только по часам, как до инцидента.
  */
 export const OWNER_DECISIONS_MIN_MISSED_TICKS = 2;
@@ -59,6 +63,7 @@ export const OWNER_DECISIONS_MIN_MISSED_TICKS = 2;
 export const SCHEDULER_PROBE_HEADER = "x-delovoy-probe";
 export const SCHEDULER_PROBE_VALUE = "site-watchdog";
 const SCHEDULER_TICKS_KEY = "notifications:health:scheduler-ticks";
+const SCHEDULER_TICK_GUARD_KEY = "notifications:health:scheduler-tick-guard";
 const SCHEDULER_TICKS_KEEP = 10;
 const SCHEDULER_TICKS_TTL_SECONDS = 7 * 24 * 60 * 60;
 /**
@@ -67,6 +72,12 @@ const SCHEDULER_TICKS_TTL_SECONDS = 7 * 24 * 60 * 60;
  * дважды и выпавшая пачка свипера сразу давала бы CRITICAL.
  */
 const SCHEDULER_TICK_MIN_SPACING_MS = 3 * 60_000;
+/**
+ * Самый свежий тик старше этого — список тиков мёртвый, им не верим. 12 ч —
+ * худшая дыра между пачками 2026-11 (495 мин) ×1.4, тот же запас, что у
+ * `OWNER_DECISIONS_STALE_MINUTES`.
+ */
+const SCHEDULER_TICK_MAX_AGE_MS = 12 * 60 * 60_000;
 
 /**
  * Как часто напоминать о продолжающемся молчании. Первый CRITICAL уходит
@@ -156,8 +167,9 @@ async function readSchedulerTicks(): Promise<number[] | null> {
 export async function recordSchedulerTick(now: number = Date.now()): Promise<void> {
   if (!redisAvailable) return;
   try {
-    const last = Number(await redis.lindex(SCHEDULER_TICKS_KEY, 0));
-    if (last > 0 && now - last < SCHEDULER_TICK_MIN_SPACING_MS) return;
+    // Атомарная дедупликация: из параллельных опросов одного прогона тик пишет один.
+    const fresh = await redis.set(SCHEDULER_TICK_GUARD_KEY, String(now), "PX", SCHEDULER_TICK_MIN_SPACING_MS, "NX");
+    if (fresh === null) return;
     await redis.lpush(SCHEDULER_TICKS_KEY, String(now));
     await redis.ltrim(SCHEDULER_TICKS_KEY, 0, SCHEDULER_TICKS_KEEP - 1);
     await redis.expire(SCHEDULER_TICKS_KEY, SCHEDULER_TICKS_TTL_SECONDS);
@@ -360,15 +372,22 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
         } else {
           // Протух по часам — сверяемся с тиками планировщика GitHub
           // (см. OWNER_DECISIONS_MIN_MISSED_TICKS).
-          const ticks = await readSchedulerTicks();
-          const ticksSince = ticks?.filter((t) => t > heartbeatAt).length;
-          if (ticks && ticksSince !== undefined && ticksSince < OWNER_DECISIONS_MIN_MISSED_TICKS) {
+          const ticks = (await readSchedulerTicks()) ?? [];
+          const ticksSince = ticks.filter((t) => t > heartbeatAt).length;
+          const lastTickAt = ticks.length > 0 ? Math.max(...ticks) : 0;
+          // Список живой (watchdog недавно опрашивал) и полный (видим тики и
+          // до heartbeat — иначе после сброса Redis не знаем, сколько их было).
+          const ticksTrusted =
+            ticks.length > 0 &&
+            Date.now() - lastTickAt <= SCHEDULER_TICK_MAX_AGE_MS &&
+            Math.min(...ticks) <= heartbeatAt;
+          if (ticksTrusted && ticksSince < OWNER_DECISIONS_MIN_MISSED_TICKS) {
             ownerDecisionsCheck = {
               ok: true,
               lastHeartbeatAt,
               staleMin,
               schedulerTicksSinceHeartbeat: ticksSince,
-              schedulerLag: { lastTickAt: new Date(Math.max(...ticks)).toISOString() },
+              schedulerLag: { lastTickAt: new Date(lastTickAt).toISOString() },
             };
           } else {
             ownerDecisionsCheck = {
@@ -376,7 +395,11 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
               lastHeartbeatAt,
               staleMin,
               reason: `heartbeat старше ${OWNER_DECISIONS_STALE_MINUTES} мин`,
-              ...(ticksSince !== undefined ? { schedulerTicksSinceHeartbeat: ticksSince } : {}),
+              // Число тиков — только когда их хватило для вердикта: «0 раз»
+              // от мёртвого списка вводило бы в заблуждение.
+              ...(ticksSince >= OWNER_DECISIONS_MIN_MISSED_TICKS
+                ? { schedulerTicksSinceHeartbeat: ticksSince }
+                : {}),
             };
           }
         }
