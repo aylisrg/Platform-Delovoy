@@ -14,7 +14,6 @@ const redisIncrMock = vi.fn();
 const redisExpireMock = vi.fn();
 const redisDelMock = vi.fn();
 const redisLrangeMock = vi.fn();
-const redisLindexMock = vi.fn();
 const redisLpushMock = vi.fn();
 const redisLtrimMock = vi.fn();
 vi.mock("@/lib/redis", () => ({
@@ -24,7 +23,6 @@ vi.mock("@/lib/redis", () => ({
     expire: (...args: unknown[]) => redisExpireMock(...args),
     del: (...args: unknown[]) => redisDelMock(...args),
     lrange: (...args: unknown[]) => redisLrangeMock(...args),
-    lindex: (...args: unknown[]) => redisLindexMock(...args),
     lpush: (...args: unknown[]) => redisLpushMock(...args),
     ltrim: (...args: unknown[]) => redisLtrimMock(...args),
   },
@@ -78,8 +76,6 @@ beforeEach(() => {
   // как до инцидента 2026-11-06; тесты тиков задают список сами.
   redisLrangeMock.mockReset();
   redisLrangeMock.mockResolvedValue([]);
-  redisLindexMock.mockReset();
-  redisLindexMock.mockResolvedValue(null);
   redisLpushMock.mockReset();
   redisLpushMock.mockResolvedValue(1);
   redisLtrimMock.mockReset();
@@ -446,7 +442,8 @@ describe("notificationsHealth", () => {
       setupFetch({ getMe: getMeMock, getChat: getChatMock });
       vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
       // Прошлая пачка: watchdog опросил health за секунды ДО свипера — тик старше heartbeat.
-      redisLrangeMock.mockResolvedValue(ticksAt(7 * HOUR, 14 * HOUR));
+      const ticks = ticksAt(7 * HOUR, 14 * HOUR);
+      redisLrangeMock.mockResolvedValue(ticks);
 
       const result = await notificationsHealth();
 
@@ -454,9 +451,7 @@ describe("notificationsHealth", () => {
       expect(result.checks.ownerDecisions.ok).toBe(true);
       expect(result.checks.ownerDecisions.reason).toBeUndefined();
       expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(0);
-      expect(result.checks.ownerDecisions.schedulerLag?.lastTickAt).toBe(
-        new Date(Number(ticksAt(7 * HOUR)[0])).toISOString()
-      );
+      expect(result.checks.ownerDecisions.schedulerLag?.lastTickAt).toBe(new Date(Number(ticks[0])).toISOString());
       expect(result.ok).toBe(true);
     });
 
@@ -484,6 +479,45 @@ describe("notificationsHealth", () => {
       expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
       expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat старше 360 мин/);
       expect(result.ok).toBe(false);
+    });
+
+    it("обычный каденс (тик раз в 5 мин) — поведение как до инцидента: 360 мин и CRITICAL", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
+      redisLrangeMock.mockResolvedValue(ticksAt(...Array.from({ length: 10 }, (_, i) => (i + 1) * 5 * 60_000)));
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(false);
+      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(10);
+      expect(result.ok).toBe(false);
+    });
+
+    it("watchdog сам перестал тикать (самый свежий тик старше 12 ч) — старому списку не верим: ok:false", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
+        id: "hb",
+        createdAt: new Date(Date.now() - 20 * HOUR),
+      } as never);
+      // Тик был до heartbeat, после — ни одного: по счёту «0 пропущено», но список мёртвый.
+      redisLrangeMock.mockResolvedValue(ticksAt(21 * HOUR, 28 * HOUR));
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(false);
+      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
+      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBeUndefined();
+    });
+
+    it("неполный список после сброса Redis (единственный тик — уже после heartbeat) → судим по часам: ok:false", async () => {
+      setupFetch({ getMe: getMeMock, getChat: getChatMock });
+      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
+      redisLrangeMock.mockResolvedValue(ticksAt(1 * HOUR));
+
+      const result = await notificationsHealth();
+
+      expect(result.checks.ownerDecisions.ok).toBe(false);
+      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
     });
 
     it("тиков ещё нет (заголовок не задеплоен / Redis очищен) → судим по часам: ok:false", async () => {
@@ -548,35 +582,35 @@ describe("notificationsHealth", () => {
   describe("recordSchedulerTick", () => {
     const NOW = Date.parse("2026-11-06T15:22:13.000Z");
 
-    it("пишет тик: LPUSH + LTRIM до 10 + TTL неделя", async () => {
+    it("пишет тик: атомарный guard SET NX PX 3 мин, потом LPUSH + LTRIM до 10 + TTL неделя", async () => {
       await recordSchedulerTick(NOW);
+
+      expect(redisSetMock).toHaveBeenCalledWith(
+        "notifications:health:scheduler-tick-guard",
+        String(NOW),
+        "PX",
+        3 * 60_000,
+        "NX"
+      );
 
       expect(redisLpushMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", String(NOW));
       expect(redisLtrimMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", 0, 9);
       expect(redisExpireMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", 7 * 24 * 60 * 60);
     });
 
-    it("повтор того же прогона watchdog'а (через 10 с) — тот же тик, не пишем", async () => {
-      redisLindexMock.mockResolvedValue(String(NOW - 10_000));
+    it("повтор того же прогона watchdog'а (guard ещё жив) — тот же тик, не пишем", async () => {
+      redisSetMock.mockResolvedValue(null);
 
       await recordSchedulerTick(NOW);
 
       expect(redisLpushMock).not.toHaveBeenCalled();
     });
 
-    it("следующий прогон (через 5 мин) — новый тик", async () => {
-      redisLindexMock.mockResolvedValue(String(NOW - 5 * 60_000));
-
-      await recordSchedulerTick(NOW);
-
-      expect(redisLpushMock).toHaveBeenCalledTimes(1);
-    });
-
     it("Redis недоступен — молча ничего", async () => {
       redisState.available = false;
 
       await expect(recordSchedulerTick(NOW)).resolves.toBeUndefined();
-      expect(redisLindexMock).not.toHaveBeenCalled();
+      expect(redisSetMock).not.toHaveBeenCalled();
       expect(redisLpushMock).not.toHaveBeenCalled();
     });
 
@@ -616,7 +650,6 @@ describe("notificationsHealth", () => {
       // run #9698). Холодный список = откат к порогу по часам — отдельный тест выше.
       const ticks: string[] = [String(Date.parse("2026-11-02T16:38:00Z") + 10_000)];
       redisLrangeMock.mockImplementation(async () => [...ticks]);
-      redisLindexMock.mockImplementation(async () => ticks[0] ?? null);
       redisLpushMock.mockImplementation(async (_key: string, value: string) => ticks.unshift(value));
       redisLtrimMock.mockImplementation(async () => {
         ticks.splice(10);
