@@ -119,12 +119,17 @@ jobs:
       # Пайплайн уведомлений — отдельная проба: сайт может быть жив, а
       # Telegram-транспорт мёртв (ровно так и было: v4-блок + контейнеры без
       # v6). 200 = ok, 503 = сломан (см. /api/notifications/health).
+      # Заголовок X-Delovoy-Probe помечает опрос как тик планировщика GitHub:
+      # по этим тикам сайт отличает задержку cron (2026-11: пачки раз в 4–8 ч)
+      # от молчащего свипера owner-decisions. Без заголовка ложный CRITICAL
+      # «контур молчит» на каждой длинной дыре, см.
+      # docs/incidents/2026-11-06-github-cron-degradation.md.
       - name: Probe notifications pipeline
         id: notif
         run: |
           NOTIF_CODE="000"
           for ATTEMPT in 1 2; do
-            NOTIF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "${SITE_URL}/api/notifications/health" 2>/dev/null || echo "000")
+            NOTIF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 -H "X-Delovoy-Probe: site-watchdog" "${SITE_URL}/api/notifications/health" 2>/dev/null || echo "000")
             [ "$NOTIF_CODE" = "200" ] && break
             sleep 10
           done
