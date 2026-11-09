@@ -7,8 +7,7 @@ name: Site Watchdog
 #   1. SSH на VPS → scripts/watchdog-remediate.sh (диагностика + ступенчатое
 #      восстановление: зомби-контейнеры → nginx → restart app → compose up)
 #   2. Telegram-алерт с диагностикой
-#   3. GitHub issue с label `site-down` (дедуп: повторные падения — комментарием)
-# При восстановлении: закрывает открытые site-down issues + ✅ в Telegram.
+# GitHub-issues watchdog не создаёт — все алерты только в Telegram.
 #
 # Ручной запуск (workflow_dispatch):
 #   mode=check-only       — только проверка, без вмешательства
@@ -36,7 +35,6 @@ concurrency:
 
 permissions:
   contents: read
-  issues: write
 
 env:
   SITE_URL: "https://delovoy-park.ru"
@@ -119,17 +117,12 @@ jobs:
       # Пайплайн уведомлений — отдельная проба: сайт может быть жив, а
       # Telegram-транспорт мёртв (ровно так и было: v4-блок + контейнеры без
       # v6). 200 = ok, 503 = сломан (см. /api/notifications/health).
-      # Заголовок X-Delovoy-Probe помечает опрос как тик планировщика GitHub:
-      # по этим тикам сайт отличает задержку cron (2026-11: пачки раз в 4–8 ч)
-      # от молчащего свипера owner-decisions. Без заголовка ложный CRITICAL
-      # «контур молчит» на каждой длинной дыре, см.
-      # docs/incidents/2026-11-06-github-cron-degradation.md.
       - name: Probe notifications pipeline
         id: notif
         run: |
           NOTIF_CODE="000"
           for ATTEMPT in 1 2; do
-            NOTIF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 -H "X-Delovoy-Probe: site-watchdog" "${SITE_URL}/api/notifications/health" 2>/dev/null || echo "000")
+            NOTIF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "${SITE_URL}/api/notifications/health" 2>/dev/null || echo "000")
             [ "$NOTIF_CODE" = "200" ] && break
             sleep 10
           done
@@ -179,14 +172,12 @@ jobs:
 
   # Сайт жив, но пайплайн уведомлений сломан (503 от notifications/health).
   # Ремедиация не нужна — нужен алерт (в канал, который ещё работает: раннер
-  # GitHub вне РФ шлёт в Telegram напрямую) + issue для дедупа.
+  # GitHub вне РФ шлёт в Telegram напрямую).
   notify-notifications-down:
     name: Notifications pipeline alert
     runs-on: ubuntu-latest
     timeout-minutes: 4
     needs: probe
-    permissions:
-      issues: write
     if: >
       needs.probe.outputs.healthy == 'true'
       && needs.probe.outputs.notif_ok == 'false'
@@ -206,7 +197,7 @@ jobs:
           TEXT="📵 <b>Site Watchdog: сайт жив, но пайплайн уведомлений СЛОМАН</b>"
           TEXT+=$'\n\n'
           TEXT+="/api/notifications/health → HTTP ${NOTIF_CODE} (ожидали 200)."$'\n'
-          TEXT+="Диагностика: Actions → Telegram Diagnose. Починка: ops-telegram-relay / ops-docker-ipv6."$'\n'
+          TEXT+="Диагностика: Actions → Telegram Diagnose. Прямой v6-путь: Ops — Docker IPv6."$'\n'
           TEXT+="<b>Run:</b> <a href='${RUN_URL}'>лог</a>"
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
@@ -214,43 +205,6 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
-
-      - name: Open or update notifications-down issue
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          NOTIF_CODE: ${{ needs.probe.outputs.notif_code }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh label create "notifications-down" \
-            --repo "$REPO" \
-            --color "d93f0b" \
-            --description "Автоматически создан Site Watchdog: пайплайн уведомлений нездоров" \
-            2>/dev/null || true
-
-          BODY="## Пайплайн уведомлений нездоров"$'\n\n'
-          BODY+="Сайт отвечает, но \`/api/notifications/health\` вернул HTTP ${NOTIF_CODE}."$'\n\n'
-          BODY+="Шаги: Actions → Telegram Diagnose (вердикт), затем ops-telegram-relay (релей) или ops-docker-ipv6 (прямой v6-путь). Runbook — DEPLOYMENT.md."$'\n\n'
-          BODY+="[Лог run]($RUN_URL)"$'\n\n'
-          BODY+="> Создан автоматически Site Watchdog."
-
-          # root-cause issue несёт тот же notifications-down лейбл для дедупа
-          # эскалации (scripts/escalate-incidents.ts), но не является живым
-          # инцидентом — без исключения реальный сбой уходил комментарием в
-          # root-cause issue вместо отдельной закрываемой инцидент-issue
-          # (issue #708: инциденты 2026-08-21/22 осели комментариями на самой
-          # root-cause issue вместо новых закрываемых issues).
-          EXISTING=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number,labels \
-            --jq '[.[] | select((.labels | map(.name) | index("root-cause")) | not)] | .[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
-          else
-            gh issue create --repo "$REPO" \
-              --title "Notifications down: пайплайн уведомлений нездоров ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
-              --label "notifications-down" \
-              --body "$BODY"
-          fi
 
   # «Снаружи зелено, а у пользователей ошибки»: пробы GitHub-раннеров живут
   # вне РФ и не видят RU-mobile проблемы. Спайк client-beacon событий при
@@ -379,8 +333,7 @@ jobs:
           echo "WATCHDOG_RESULT=${RESULT:-unknown}" >> "$GITHUB_ENV"
           # Флап внешней пробы (issue #736): с VPS сайт отвечал, ремедиация
           # ничего не делала — до сервера не достучался только GitHub-раннер.
-          # Инцидент и алерт остаются, но формулировка честная, а в теле —
-          # маркер, по которому escalate-incidents.ts такой цикл не считает.
+          # Алерт остаётся, но формулировка честная.
           if [ "${RESULT:-}" = "healthy" ] && grep -q 'nothing to fix' /tmp/report.txt; then
             echo "PROBE_FLAP=true" >> "$GITHUB_ENV"
           else
@@ -428,111 +381,3 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${TEXT}" \
             -o /dev/null || true
-
-      - name: Ensure site-down label exists
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh label create "site-down" \
-            --repo "$REPO" \
-            --color "b60205" \
-            --description "Автоматически создан Site Watchdog при недоступности сайта" \
-            2>/dev/null || true
-
-      - name: Open or update site-down issue
-        if: needs.probe.outputs.mode != 'force-remediate'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PROBE_DETAIL: ${{ needs.probe.outputs.detail }}
-          RECOVERED: ${{ steps.recheck.outputs.recovered }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          REPORT=$(head -c 55000 /tmp/report.txt)
-          if [ "$PROBE_FLAP" = "true" ]; then
-            OUTCOME="ℹ️ С VPS сайт отвечал, ремедиация ничего не меняла (\`${WATCHDOG_RESULT}\`) — до сервера не достучалась только внешняя проба GitHub-раннера (флап пути, см. docs/incidents/2026-09-03-site-down-probe-flaps.md). В эскалацию root-cause такой цикл не считается."
-          elif [ "$RECOVERED" = "true" ]; then
-            OUTCOME="✅ Авто-восстановление сработало (\`${WATCHDOG_RESULT}\`)."
-          else
-            OUTCOME="🚨 Авто-восстановление НЕ помогло (\`${WATCHDOG_RESULT}\`) — нужно ручное вмешательство (например, \`timeweb-manage.yml → server-reboot\`)."
-          fi
-
-          BODY="## Сайт был недоступен"$'\n\n'
-          BODY+="**Внешняя проверка:** ${PROBE_DETAIL}"$'\n\n'
-          BODY+="${OUTCOME}"$'\n\n'
-          BODY+="[Лог run]($RUN_URL)"$'\n\n'
-          BODY+="<details><summary>Диагностика и ремедиация</summary>"$'\n\n'
-          BODY+='```'$'\n'"${REPORT}"$'\n''```'$'\n\n'"</details>"$'\n\n'
-          BODY+="> Создан автоматически Site Watchdog."
-          if [ "$PROBE_FLAP" = "true" ]; then
-            # Маркер читает scripts/lib/incident-escalation.ts (PROBE_FLAP_MARKER).
-            BODY+=$'\n\n'"<!-- watchdog:probe-flap -->"
-          fi
-
-          # Тот же паттерн, что у notifications-down выше: root-cause issue
-          # несёт лейбл site-down для дедупа эскалации, но не является живым
-          # инцидентом — исключаем её из поиска issue для комментария.
-          EXISTING=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number,labels \
-            --jq '[.[] | select((.labels | map(.name) | index("root-cause")) | not)] | .[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
-          else
-            gh issue create --repo "$REPO" \
-              --title "Site down: delovoy-park.ru недоступен ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
-              --label "site-down" \
-              --body "$BODY"
-          fi
-
-  recover:
-    name: Close site-down issues on recovery
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    needs: probe
-    if: needs.probe.outputs.healthy == 'true' && needs.probe.outputs.mode != 'force-remediate'
-    steps:
-      - name: Close open site-down issues (if any)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
-        run: |
-          # root-cause issues НЕ закрываем: они несут инцидент-лейбл для дедупа
-          # эскалации, но живут циклом бэклога (фикс → PR → мерж), а не циклом
-          # «упало-поднялось». Watchdog, закрывавший их через минуты после
-          # создания, и был причиной 6 подряд дублей root-cause (ADR 2026-08-20).
-          ISSUES=$(gh issue list --repo "$REPO" --label "site-down" --state open --json number,labels \
-            --jq '.[] | select((.labels | map(.name) | index("root-cause")) | not) | .number')
-          [ -z "$ISSUES" ] && { echo "No open site-down issues — nothing to do"; exit 0; }
-
-          for ISSUE in $ISSUES; do
-            gh issue close "$ISSUE" --repo "$REPO" \
-              --comment "Сайт снова доступен (внешняя проверка прошла). Закрыто автоматически Site Watchdog."
-          done
-
-          if [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-              -d "chat_id=${CHAT_ID}" \
-              -d "parse_mode=HTML" \
-              --data-urlencode "text=✅ <b>Site Watchdog:</b> delovoy-park.ru снова доступен." \
-              -o /dev/null || true
-          fi
-
-      - name: Close notifications-down issues when pipeline recovered
-        if: needs.probe.outputs.notif_ok == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          # root-cause не закрываем — см. комментарий у site-down выше.
-          ISSUES=$(gh issue list --repo "$REPO" --label "notifications-down" --state open --json number,labels \
-            --jq '.[] | select((.labels | map(.name) | index("root-cause")) | not) | .number')
-          [ -z "$ISSUES" ] && { echo "No open notifications-down issues"; exit 0; }
-          for ISSUE in $ISSUES; do
-            gh issue close "$ISSUE" --repo "$REPO" \
-              --comment "Пайплайн уведомлений снова здоров (/api/notifications/health → 200). Закрыто автоматически Site Watchdog."
-          done

@@ -3,8 +3,8 @@
 # живёт отдельно в /var/log/delovoy-park/ (delovoy-park.conf → access_log).
 # Ставится apply-nginx-vhost.sh в /etc/logrotate.d/delovoy-nginx-perf.
 #
-# rotate 7 — ровно окно 7-дневного baseline в scripts/analyze-perf.ts;
-# больше не нужно, диск (48 GB NVMe) с большим запасом даже без rotate.
+# rotate 7 — неделя истории для ручного разбора p95/5xx; диск (48 GB NVMe)
+# с большим запасом.
 /var/log/delovoy-park/nginx-perf.log {
     daily
     rotate 7

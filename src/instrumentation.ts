@@ -42,8 +42,8 @@ export async function register() {
  * https://nextjs.org/docs/app/building-your-application/configuring/instrumentation#onrequesterror-function
  *
  * Записывает SystemEvent с digest/route/стеком (обрезан до 2000 символов) —
- * без этого Error-to-Fix (scripts/analyze-errors.ts) видел только текст
- * сообщения, без возможности воспроизвести баг в тесте (issue #576).
+ * без этого в логе был бы только текст сообщения, без возможности
+ * воспроизвести баг в тесте (issue #576).
  * Никаких PII: заголовки запроса (могут нести cookie/токены) и тело
  * запроса в metadata не попадают вообще — только path/method из аргументов
  * Next.js, ничего сверх этого не читаем.

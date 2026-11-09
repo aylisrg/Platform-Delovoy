@@ -1,47 +1,21 @@
 version: 2
-# Группы (ADR 2026-08-20-owner-out-of-github): вместо россыпи одиночных PR —
-# одна недельная пачка minor+patch на экосистему. Имена групп попадают в имя
-# ветки (dependabot/npm_and_yarn/npm-minor-patch-…) — по ним свипер
-# issue-queue-merge.yml мержит групповые PR сам при зелёном CI
-# (DEPENDABOT_AUTOMERGE_GROUPS в scripts/lib/issue-queue.ts; менять имя группы —
-# синхронно с той константой). Majors остаются одиночными PR — их
-# dependabot-automerge.yml конвертирует в задачи очереди на настоящее ревью.
-#
-# Расписание — ночь понедельника: мерж пачки по зелёному CI уезжает ночным
-# деплоем, не занимая трафик-часы.
+# Минимальный режим: раз в месяц по одному групповому PR на экосистему,
+# только minor+patch. Мажоры не предлагаются вообще — их обновляем руками,
+# отдельной задачей с ревью. Мержит человек после зелёного CI.
+# Security-алерты Dependabot (настройки репозитория) работают независимо от
+# этого файла.
 updates:
-  - package-ecosystem: "github-actions"
-    # "/" покрывает .github/workflows; composite actions лежат отдельно.
-    directories:
-      - "/"
-      - "/.github/actions/*"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "01:00"
-      timezone: "Europe/Moscow"
-    labels:
-      - "dependencies"
-      - "ci"
-    commit-message:
-      prefix: "chore(ci)"
-    groups:
-      actions-all:
-        patterns:
-          - "*"
-
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "01:00"
       timezone: "Europe/Moscow"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     labels:
       - "dependencies"
     commit-message:
-      prefix: "chore"
+      prefix: "chore(deps)"
     groups:
       npm-minor-patch:
         patterns:
@@ -50,21 +24,30 @@ updates:
           - "minor"
           - "patch"
     ignore:
-      # Keep next-auth on beta track — we're using v5 beta intentionally
-      - dependency-name: "next-auth"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # Prisma major upgrades need manual review
-      - dependency-name: "prisma"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@prisma/client"
-        update-types: ["version-update:semver-major"]
-      # TypeScript 7 (нативный Go-компилятор): typescript-eslint его не
-      # поддерживает (eslint-config-next → typescript-eslint падает при загрузке
-      # конфига, апстрим typescript-eslint#10940). Снять, когда typescript-eslint
-      # объявит поддержку TS ≥7 — задача #757.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      # nodemailer 9: peer-диапазон next-auth@5.0.0-beta.32 — "^7.0.7 || ^8.0.5".
-      # Снять, когда next-auth поднимет потолок — задача #758.
-      - dependency-name: "nodemailer"
+
+  - package-ecosystem: "github-actions"
+    # "/" покрывает .github/workflows; composite actions лежат отдельно.
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "monthly"
+      time: "01:00"
+      timezone: "Europe/Moscow"
+    open-pull-requests-limit: 1
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]

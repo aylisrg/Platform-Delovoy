@@ -3,6 +3,9 @@
   "version": "2.28.0",
   "description": "Platform Delovoy — business park management system",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:full": "./scripts/dev-start.sh",
@@ -11,6 +14,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.bot.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -18,18 +22,15 @@
     "e2e:ui": "playwright test --ui",
     "e2e:update-snapshots": "playwright test visual-regression.spec.ts --update-snapshots",
     "build:e2e": "next build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
-    "agents:eval": "npx tsx eval/runner.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "bash scripts/pre-migration-backup.sh \"${MIGRATION_TAG:-$npm_package_version}\" && prisma migrate deploy",
-    "db:push": "prisma db push",
     "db:seed": "npx tsx scripts/seed.ts",
     "setup:metrika": "node --env-file=.env --import tsx/esm scripts/setup-metrika-goals.ts",
     "setup:metrika-advanced": "node --env-file=.env --import tsx/esm scripts/setup-metrika-advanced.ts",
     "test:direct": "node --env-file=.env --import tsx/esm scripts/test-direct-api.ts",
     "setup:direct": "node --env-file=.env --import tsx/esm scripts/setup-direct-campaigns.ts",
     "clear-test-inventory": "npx tsx scripts/clear-test-inventory.ts",
-    "analyze-errors": "tsx scripts/analyze-errors.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"
   },
@@ -39,9 +40,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@prisma/client": "^6.19.3",
-    "@twa-dev/sdk": "^8.0.2",
-    "@types/bcryptjs": "^3.0.0",
-    "@types/nodemailer": "^6.4.0",
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
     "framer-motion": "^14.3.0",
@@ -50,6 +48,7 @@
     "https-proxy-agent": "^9.1.0",
     "ioredis": "^6.0.0",
     "isomorphic-dompurify": "4.6.0",
+    "jose": "^6.2.2",
     "next": "16.4.3",
     "next-auth": "^5.0.0-beta.32",
     "nodemailer": "^7.0.7",
@@ -57,7 +56,7 @@
     "qrcode": "^1.5.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "resend": "^6.35.0",
+    "tsx": "^4.23.15",
     "undici": "^8.10.2",
     "web-push": "3.6.7",
     "zod": "^4.6.7"
@@ -67,8 +66,8 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.8",
-    "@types/node": "^26.6.5",
+    "@types/node": "^22.20.5",
+    "@types/nodemailer": "^6.4.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19.3.0",
@@ -78,10 +77,7 @@
     "eslint-config-next": "16.4.3",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4",
-    "tsx": "^4.23.15",
     "typescript": "^6",
-    "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^5.0.5",
-    "xlsx": "^0.18.5"
+    "vitest": "^5.0.5"
   }
 }

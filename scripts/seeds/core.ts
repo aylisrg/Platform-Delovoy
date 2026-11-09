@@ -312,8 +312,7 @@ export async function seedCore(prisma: PrismaClient): Promise<void> {
   // Прайс с настенных лайтбоксов — scripts/lib/cafe-menu.ts.
   // У MenuItem нет уникального ограничения. Создаём только если name+moduleSlug
   // ещё не существует. Существующие записи НЕ обновляем — менеджер кафе мог
-  // подкрутить цены и описания через UI. Разовая синхронизация цен с прайсом
-  // на уже наполненной БД — scripts/update-cafe-menu.ts.
+  // подкрутить цены и описания через UI.
   let menuCreated = 0;
   for (const item of CAFE_MENU) {
     const existing = await prisma.menuItem.findFirst({

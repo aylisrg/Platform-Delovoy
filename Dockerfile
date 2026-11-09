@@ -30,8 +30,13 @@ ENV BUILD_TIME=$BUILD_TIME
 
 RUN npm run build
 
-# Clean up build artifacts and caches to reduce final image size
-RUN rm -rf .next/cache .next/turbo /root/.npm
+# Clean up build artifacts and caches; drop devDependencies (vitest, eslint,
+# playwright, typescript…) — runtime needs only prod deps: prisma CLI for
+# migrations, tsx for the bot and seed scripts. The standalone bundle above
+# already carries its own traced node_modules.
+RUN rm -rf .next/cache .next/turbo && \
+    npm prune --omit=dev --no-audit --no-fund && \
+    rm -rf /root/.npm
 
 # Stage 2: Minimal production runner
 FROM node:22-alpine AS runner
@@ -49,29 +54,29 @@ ENV BUILD_GIT_SHA=$GIT_SHA
 ARG BUILD_TIME="unknown"
 ENV BUILD_TIME=$BUILD_TIME
 
+# --chown на каждом COPY вместо финального `chown -R`: отдельный chown-слой
+# дублировал все файлы образа и примерно удваивал его размер.
 # Copy standalone Next.js output (includes all runtime deps)
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
+COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone ./
+COPY --chown=nextjs:nodejs --from=builder /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs --from=builder /app/public ./public
+COPY --chown=nextjs:nodejs --from=builder /app/prisma ./prisma
 
-# Copy all node_modules for prisma CLI, tsx, and seed script
-COPY --from=builder /app/node_modules ./node_modules
+# Production node_modules (pruned) for prisma CLI, tsx, bot and seed scripts
+COPY --chown=nextjs:nodejs --from=builder /app/node_modules ./node_modules
 
-# Copy seed script
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/content/legal ./content/legal
+# Seed and deploy-time scripts
+COPY --chown=nextjs:nodejs --from=builder /app/scripts ./scripts
+COPY --chown=nextjs:nodejs --from=builder /app/content/legal ./content/legal
 
 # Copy bot sources + shared TS so the same image can run the Telegram bot
 # via `npx tsx bot/index.ts` (see docker-compose `bot` service). bot/* imports
 # from ../src/lib/* through the @/ TS path alias, so we need src + tsconfig.
-COPY --from=builder /app/bot ./bot
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --chown=nextjs:nodejs --from=builder /app/bot ./bot
+COPY --chown=nextjs:nodejs --from=builder /app/src ./src
+COPY --chown=nextjs:nodejs --from=builder /app/tsconfig.json ./tsconfig.json
 
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && \
-    chown -R nextjs:nodejs /app
+COPY --chown=nextjs:nodejs --chmod=755 docker-entrypoint.sh ./
 
 EXPOSE 3000
 ENV PORT=3000

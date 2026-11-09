@@ -13,18 +13,12 @@ const redisSetMock = vi.fn();
 const redisIncrMock = vi.fn();
 const redisExpireMock = vi.fn();
 const redisDelMock = vi.fn();
-const redisLrangeMock = vi.fn();
-const redisLpushMock = vi.fn();
-const redisLtrimMock = vi.fn();
 vi.mock("@/lib/redis", () => ({
   redis: {
     set: (...args: unknown[]) => redisSetMock(...args),
     incr: (...args: unknown[]) => redisIncrMock(...args),
     expire: (...args: unknown[]) => redisExpireMock(...args),
     del: (...args: unknown[]) => redisDelMock(...args),
-    lrange: (...args: unknown[]) => redisLrangeMock(...args),
-    lpush: (...args: unknown[]) => redisLpushMock(...args),
-    ltrim: (...args: unknown[]) => redisLtrimMock(...args),
   },
   get redisAvailable() {
     return redisState.available;
@@ -36,12 +30,8 @@ vi.stubGlobal("fetch", mockFetch);
 
 import { prisma } from "@/lib/db";
 import {
-  OWNER_DECISIONS_MIN_MISSED_TICKS,
-  OWNER_DECISIONS_STALE_MINUTES,
   TELEGRAM_TRANSPORT_FLAP_STREAK,
   notificationsHealth,
-  recordSchedulerTick,
-  shouldAlertOwnerDecisionsSilence,
 } from "../health";
 
 const getMeMock = { ok: true, result: { username: "DelovoyPark_bot" } };
@@ -72,22 +62,12 @@ beforeEach(() => {
   redisExpireMock.mockResolvedValue(1);
   redisDelMock.mockReset();
   redisDelMock.mockResolvedValue(1);
-  // По умолчанию тиков планировщика нет — owner-decisions судится по часам,
-  // как до инцидента 2026-11-06; тесты тиков задают список сами.
-  redisLrangeMock.mockReset();
-  redisLrangeMock.mockResolvedValue([]);
-  redisLpushMock.mockReset();
-  redisLpushMock.mockResolvedValue(1);
-  redisLtrimMock.mockReset();
-  redisLtrimMock.mockResolvedValue("OK");
   redisState.available = true;
 
   vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
   vi.mocked(prisma.outgoingNotification.count).mockResolvedValue(0);
-  // Общий мок для cron- и owner-decisions-heartbeat (оба читают
-  // SystemEvent.findFirst, различаясь только `where.source`) — по умолчанию
-  // свежее событие, чтобы существующие тесты не знали про owner-decisions
-  // check; кто хочет протухший/отсутствующий heartbeat — переопределяет сам.
+  // Мок для cron-heartbeat (SystemEvent.findFirst) — по умолчанию свежее
+  // событие; кто хочет протухший/отсутствующий — переопределяет сам.
   vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
     id: "ev0",
     createdAt: new Date(),
@@ -355,408 +335,15 @@ describe("notificationsHealth", () => {
     });
   });
 
-  describe("owner-decisions heartbeat (ADR 2026-08-24)", () => {
-    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID unset → ok:true (не настроено — не должно шуметь)", async () => {
-      delete process.env.TELEGRAM_OWNER_CHAT_ID;
+  describe("без внешних heartbeat-ов (контур owner-decisions удалён)", () => {
+    it("нет ни одного heartbeat-события при заданном TELEGRAM_OWNER_CHAT_ID → ok:true", async () => {
       setupFetch({ getMe: getMeMock, getChat: getChatMock });
       vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
 
       const result = await notificationsHealth();
 
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.lastHeartbeatAt).toBeNull();
-    });
-
-    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID set → ok:false (контур включён, но ни разу не отчитался)", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat/);
-      expect(result.ok).toBe(false);
-    });
-
-    it("свежий heartbeat → ok:true", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - 5 * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
       expect(result.ok).toBe(true);
-    });
-
-    it("heartbeat 4 часа назад — обычная задержка cron в GitHub (инцидент 2026-09-03) → ok:true", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - 4 * 60 * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.reason).toBeUndefined();
-      expect(result.ok).toBe(true);
-    });
-
-    it("порог — 6 часов: дольше худшей замеренной дыры планировщика (261 мин)", () => {
-      expect(OWNER_DECISIONS_STALE_MINUTES).toBe(360);
-    });
-
-    it("протухший heartbeat (старше порога) → ok:false с причиной", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - (OWNER_DECISIONS_STALE_MINUTES + 30) * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.staleMin).toBeGreaterThanOrEqual(OWNER_DECISIONS_STALE_MINUTES);
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat старше 360 мин/);
-      expect(result.ok).toBe(false);
-    });
-  });
-
-  describe("owner-decisions: протухание по тикам планировщика GitHub (инцидент 2026-11-06)", () => {
-    const HOUR = 60 * 60_000;
-    const staleHeartbeat = () => ({
-      id: "hb",
-      createdAt: new Date(Date.now() - (OWNER_DECISIONS_STALE_MINUTES + 31) * 60_000),
-    });
-    /** Тики в списке Redis — новые первыми, как кладёт LPUSH. */
-    const ticksAt = (...msAgo: number[]) => msAgo.map((ago) => String(Date.now() - ago));
-
-    it("порог — 2 пропущенных тика: 0 и 1 бывают от гонки внутри пачки и одной выпавшей пачки", () => {
-      expect(OWNER_DECISIONS_MIN_MISSED_TICKS).toBe(2);
-    });
-
-    it("протух по часам, но после heartbeat не было ни одного тика → cron отстаёт, ok:true + schedulerLag", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      // Прошлая пачка: watchdog опросил health за секунды ДО свипера — тик старше heartbeat.
-      const ticks = ticksAt(7 * HOUR, 14 * HOUR);
-      redisLrangeMock.mockResolvedValue(ticks);
-
-      const result = await notificationsHealth();
-
-      expect(redisLrangeMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", 0, 9);
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.reason).toBeUndefined();
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(0);
-      expect(result.checks.ownerDecisions.schedulerLag?.lastTickAt).toBe(new Date(Number(ticks[0])).toISOString());
-      expect(result.ok).toBe(true);
-    });
-
-    it("один тик после heartbeat (выпала одна пачка свипера) → ещё не алерт", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockResolvedValue(ticksAt(1 * HOUR, 8 * HOUR));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(1);
-      expect(result.checks.ownerDecisions.schedulerLag).toBeDefined();
-    });
-
-    it("два тика после heartbeat — планировщик работал, а свипер молчал → ok:false с числом тиков", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockResolvedValue(ticksAt(5 * 60_000, 10 * 60_000, 8 * HOUR));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(2);
-      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat старше 360 мин/);
-      expect(result.ok).toBe(false);
-    });
-
-    it("обычный каденс (тик раз в 5 мин) — поведение как до инцидента: 360 мин и CRITICAL", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockResolvedValue(ticksAt(...Array.from({ length: 10 }, (_, i) => (i + 1) * 5 * 60_000)));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBe(10);
-      expect(result.ok).toBe(false);
-    });
-
-    it("watchdog сам перестал тикать (самый свежий тик старше 12 ч) — старому списку не верим: ok:false", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "hb",
-        createdAt: new Date(Date.now() - 20 * HOUR),
-      } as never);
-      // Тик был до heartbeat, после — ни одного: по счёту «0 пропущено», но список мёртвый.
-      redisLrangeMock.mockResolvedValue(ticksAt(21 * HOUR, 28 * HOUR));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBeUndefined();
-    });
-
-    it("неполный список после сброса Redis (единственный тик — уже после heartbeat) → судим по часам: ok:false", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockResolvedValue(ticksAt(1 * HOUR));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
-    });
-
-    it("тиков ещё нет (заголовок не задеплоен / Redis очищен) → судим по часам: ok:false", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockResolvedValue([]);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.schedulerTicksSinceHeartbeat).toBeUndefined();
-    });
-
-    it("Redis недоступен → fail-open к порогу по часам: ok:false, Redis не трогаем", async () => {
-      redisState.available = false;
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(redisLrangeMock).not.toHaveBeenCalled();
-    });
-
-    it("Redis упал на LRANGE → fail-open: ok:false, ошибку не пробрасываем", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(staleHeartbeat() as never);
-      redisLrangeMock.mockRejectedValue(new Error("ECONNRESET"));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat старше/);
-    });
-
-    it("свежий heartbeat — тики не читаем вовсе", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "hb",
-        createdAt: new Date(Date.now() - 5 * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.schedulerLag).toBeUndefined();
-      expect(redisLrangeMock).not.toHaveBeenCalled();
-    });
-
-    it("heartbeat ни разу не был — тики не спасают: контур не настроен, это не задержка", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
-      redisLrangeMock.mockResolvedValue(ticksAt(8 * HOUR));
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.reason).toMatch(/ни разу/);
-    });
-  });
-
-  describe("recordSchedulerTick", () => {
-    const NOW = Date.parse("2026-11-06T15:22:13.000Z");
-
-    it("пишет тик: атомарный guard SET NX PX 3 мин, потом LPUSH + LTRIM до 10 + TTL неделя", async () => {
-      await recordSchedulerTick(NOW);
-
-      expect(redisSetMock).toHaveBeenCalledWith(
-        "notifications:health:scheduler-tick-guard",
-        String(NOW),
-        "PX",
-        3 * 60_000,
-        "NX"
-      );
-
-      expect(redisLpushMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", String(NOW));
-      expect(redisLtrimMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", 0, 9);
-      expect(redisExpireMock).toHaveBeenCalledWith("notifications:health:scheduler-ticks", 7 * 24 * 60 * 60);
-    });
-
-    it("повтор того же прогона watchdog'а (guard ещё жив) — тот же тик, не пишем", async () => {
-      redisSetMock.mockResolvedValue(null);
-
-      await recordSchedulerTick(NOW);
-
-      expect(redisLpushMock).not.toHaveBeenCalled();
-    });
-
-    it("Redis недоступен — молча ничего", async () => {
-      redisState.available = false;
-
-      await expect(recordSchedulerTick(NOW)).resolves.toBeUndefined();
-      expect(redisSetMock).not.toHaveBeenCalled();
-      expect(redisLpushMock).not.toHaveBeenCalled();
-    });
-
-    it("Redis упал — ошибку не пробрасываем", async () => {
-      redisLpushMock.mockRejectedValue(new Error("ECONNRESET"));
-
-      await expect(recordSchedulerTick(NOW)).resolves.toBeUndefined();
-    });
-  });
-
-  describe("реплей реального таймлайна 2026-11-02..06 (cron GitHub пачками раз в 4–8 ч)", () => {
-    // Прогоны из GitHub Actions API: site-watchdog.yml (опрос health ≈ старт + 10 с)
-    // и issue-queue-merge.yml (heartbeat ≈ старт + 35 с). Старый порог по часам
-    // дал на этом отрезке 6 ложных CRITICAL и 503 → notifications-down.
-    const WATCHDOG_RUNS = [
-      "2026-11-02T23:40:18Z", "2026-11-03T04:01:19Z", "2026-11-03T11:49:04Z", "2026-11-03T18:40:19Z",
-      "2026-11-03T23:40:46Z", "2026-11-04T03:16:33Z", "2026-11-04T11:04:23Z", "2026-11-04T18:34:55Z",
-      "2026-11-04T23:53:51Z", "2026-11-05T04:12:30Z", "2026-11-05T12:20:07Z", "2026-11-05T20:06:06Z",
-      "2026-11-06T00:56:30Z", "2026-11-06T07:38:12Z", "2026-11-06T15:22:13Z",
-    ];
-    const SWEEPER_RUNS = [
-      "2026-11-02T16:43:57Z", "2026-11-02T23:41:12Z", "2026-11-03T04:01:25Z", "2026-11-03T11:53:27Z",
-      "2026-11-03T18:55:19Z", "2026-11-03T23:50:07Z", "2026-11-04T04:24:28Z", "2026-11-04T12:22:02Z",
-      "2026-11-04T19:56:17Z", "2026-11-05T00:42:46Z", "2026-11-05T07:25:34Z", "2026-11-05T15:40:55Z",
-      "2026-11-05T21:33:46Z", "2026-11-06T01:47:33Z", "2026-11-06T08:50:34Z",
-    ];
-
-    /** Прогоняет таймлайн; возвращает моменты опросов watchdog'а, где контур признан молчащим. */
-    async function replay(sweeperDeadAfter?: string): Promise<{ at: string; wallClockStale: boolean; ok: boolean }[]> {
-      const events = [
-        ...WATCHDOG_RUNS.map((t) => ({ at: Date.parse(t) + 10_000, kind: "watchdog" as const })),
-        ...SWEEPER_RUNS.map((t) => ({ at: Date.parse(t) + 35_000, kind: "sweeper" as const })),
-      ].sort((a, b) => a.at - b.at);
-      const deadAfter = sweeperDeadAfter ? Date.parse(sweeperDeadAfter) : Infinity;
-
-      // Список тиков уже прогрет: предыдущий прогон watchdog'а (2026-11-02 16:38,
-      // run #9698). Холодный список = откат к порогу по часам — отдельный тест выше.
-      const ticks: string[] = [String(Date.parse("2026-11-02T16:38:00Z") + 10_000)];
-      redisLrangeMock.mockImplementation(async () => [...ticks]);
-      redisLpushMock.mockImplementation(async (_key: string, value: string) => ticks.unshift(value));
-      redisLtrimMock.mockImplementation(async () => {
-        ticks.splice(10);
-        return "OK";
-      });
-      let heartbeat = new Date(SWEEPER_RUNS[0]);
-      vi.mocked(prisma.systemEvent.findFirst).mockImplementation((async (args: { where: { source: string } }) =>
-        args.where.source === "owner-decisions"
-          ? { id: "hb", createdAt: heartbeat }
-          : { id: "cron", createdAt: new Date() }) as never);
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-
-      const probes: { at: string; wallClockStale: boolean; ok: boolean }[] = [];
-      vi.useFakeTimers({ toFake: ["Date"] });
-      try {
-        for (const event of events) {
-          vi.setSystemTime(event.at);
-          if (event.kind === "sweeper") {
-            if (event.at < deadAfter) heartbeat = new Date(event.at);
-            continue;
-          }
-          const { checks } = await notificationsHealth();
-          probes.push({
-            at: new Date(event.at).toISOString(),
-            wallClockStale: checks.ownerDecisions.staleMin >= OWNER_DECISIONS_STALE_MINUTES,
-            ok: checks.ownerDecisions.ok,
-          });
-          await recordSchedulerTick(event.at);
-        }
-      } finally {
-        vi.useRealTimers();
-      }
-      return probes;
-    }
-
-    it("живой свипер: ни одного ложного «молчит», хотя по часам порог пересекался много раз", async () => {
-      const probes = await replay();
-
-      expect(probes.filter((p) => p.wallClockStale)).toHaveLength(6);
-      expect(probes.filter((p) => !p.ok)).toEqual([]);
-    });
-
-    it("свипер умер 2026-11-05 — молчание ловится на второй пропущенной пачке", async () => {
-      const probes = await replay("2026-11-05T00:00:00Z");
-
-      const firstFailure = probes.find((p) => !p.ok);
-      expect(firstFailure?.at).toBe("2026-11-05T12:20:17.000Z");
-      expect(probes.filter((p) => p.at >= "2026-11-05T12:20:17.000Z").every((p) => !p.ok)).toBe(true);
-    });
-  });
-
-  describe("shouldAlertOwnerDecisionsSilence — один CRITICAL на эпизод молчания", () => {
-    const stale = {
-      ok: false,
-      lastHeartbeatAt: "2026-09-03T04:42:18.000Z",
-      staleMin: 400,
-      reason: "heartbeat старше 360 мин",
-    };
-
-    it("контур здоров → не алертит и Redis не трогает", async () => {
-      await expect(
-        shouldAlertOwnerDecisionsSilence({ ok: true, lastHeartbeatAt: null, staleMin: 1 })
-      ).resolves.toBe(false);
-      expect(redisSetMock).not.toHaveBeenCalled();
-    });
-
-    it("первый опрос эпизода: ключ по последнему heartbeat, SET NX EX на 6 часов → true", async () => {
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
-      expect(redisSetMock).toHaveBeenCalledWith(
-        "owner-decisions:silence-alert:2026-09-03T04:42:18.000Z",
-        "1",
-        "EX",
-        6 * 60 * 60,
-        "NX"
-      );
-    });
-
-    it("тот же эпизод в окне повтора (ключ занят) → false: site-watchdog раз в 5 мин не плодит алерты", async () => {
-      redisSetMock.mockResolvedValue(null);
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(false);
-    });
-
-    it("heartbeat ни разу не был — ключ «never»", async () => {
-      await shouldAlertOwnerDecisionsSilence({
-        ok: false,
-        lastHeartbeatAt: null,
-        staleMin: 9999,
-        reason: "heartbeat ни разу не зафиксирован",
-      });
-      expect(redisSetMock).toHaveBeenCalledWith(
-        "owner-decisions:silence-alert:never",
-        "1",
-        "EX",
-        expect.any(Number),
-        "NX"
-      );
-    });
-
-    it("Redis недоступен → fail-open: алертим", async () => {
-      redisState.available = false;
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
-      expect(redisSetMock).not.toHaveBeenCalled();
-    });
-
-    it("Redis упал на SET → fail-open: алертим, ошибку не пробрасываем", async () => {
-      redisSetMock.mockRejectedValue(new Error("ECONNRESET"));
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
+      expect(result.checks).not.toHaveProperty("ownerDecisions");
     });
   });
 });

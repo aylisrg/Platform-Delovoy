@@ -351,7 +351,6 @@ export function Sidebar() {
       const stored = localStorage.getItem(PARK_STORAGE_KEY) as ParkContext | null;
       if (stored === "delovoy" || stored === "nedelovoy") setPark(stored);
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   const switchPark = useCallback((next: ParkContext) => {

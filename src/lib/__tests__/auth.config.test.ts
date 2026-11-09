@@ -128,26 +128,10 @@ describe("authConfig.authorized — /admin/* deny-пути возвращают 
   });
 });
 
-describe("authConfig.authorized — owner-decisions sweeper (Bearer-секрет, без сессии)", () => {
-  // Роут сам проверяет OWNER_DECISIONS_SECRET (checkSecret в route.ts) —
-  // authorized() не должен требовать сессию для /api/admin/owner-decisions,
-  // иначе свипер issue-queue-merge.yml получает 401 ещё до checkSecret
-  // (обнаружено расследованием молчащего heartbeat контура).
-  it("анонимный GET /api/admin/owner-decisions проходит к роуту", async () => {
-    expect(await authorized("/api/admin/owner-decisions")).toBe(true);
-  });
-
-  it("анонимный POST /api/admin/owner-decisions проходит к роуту", async () => {
-    expect(await authorized("/api/admin/owner-decisions", "POST")).toBe(true);
-  });
-
-  it("анонимный PATCH /api/admin/owner-decisions проходит к роуту", async () => {
-    expect(await authorized("/api/admin/owner-decisions", "PATCH")).toBe(true);
-  });
-
-  it("другие /api/admin/* остаются за сессией (bypass не расширился по префиксу)", async () => {
-    expect(await authorized("/api/admin/owner-decisions/other")).not.toBe(true);
-    expect(await authorized("/api/admin/users")).not.toBe(true);
+describe("authConfig.authorized — удалённый bypass owner-decisions", () => {
+  it("анонимный запрос к /api/admin/owner-decisions больше не проходит без сессии", async () => {
+    expect(await authorized("/api/admin/owner-decisions")).not.toBe(true);
+    expect(await authorized("/api/admin/owner-decisions", "POST")).not.toBe(true);
   });
 });
 

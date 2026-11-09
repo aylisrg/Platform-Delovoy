@@ -18,11 +18,12 @@ jobs:
       # (GitHub's loop-protection). That makes release-please PRs hang forever
       # because branch protection waits for lint/test/build that never run.
       # Fix: use a PAT with `repo` + `workflow` scopes stored as AUTOMATION_TOKEN
-      # (единый секрет автоматики — его же читают auto-rebase.yml и
-      # issue-queue-merge.yml; RELEASE_PLEASE_TOKEN оставлен как исторический
-      # синоним). Falls back to GITHUB_TOKEN if the secret isn't set yet — the
-      # release PR will still be created but CI must be kicked manually
-      # (close/reopen the PR or push an empty commit to its branch).
+      # (RELEASE_PLEASE_TOKEN — исторический синоним). Falls back to
+      # GITHUB_TOKEN if no PAT is set — the release PR is still created but its
+      # CI must be kicked manually.
+      #
+      # Release PR мержится руками, когда нужен релиз: мерж поднимает версию,
+      # и deploy.yml шлёт анонс «🚀 Релиз vX» (один раз на версию).
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           release-type: node

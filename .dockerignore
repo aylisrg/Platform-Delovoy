@@ -9,3 +9,10 @@ coverage
 *.md
 .DS_Store
 docker-compose.override.yml
+# не нужны для сборки образа
+e2e
+docs
+.claude
+playwright-report
+test-results
+**/*.log

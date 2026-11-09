@@ -8,10 +8,6 @@
 #   контейнера: прямой api.telegram.org и сконфигурированный транспорт
 #   (TELEGRAM_PROXY_URL/TELEGRAM_API_ROOT из env контейнера). Митигации —
 #   DEPLOYMENT.md, runbook «Telegram недоступен с VPS».
-#
-# push-триггер на не-main ветки — чтобы диагностику можно было запустить с
-# feature-ветки до мержа (workflow_dispatch доступен только после попадания
-# файла в main). Срабатывает только на изменение самого этого файла.
 name: Telegram Diagnose
 
 on:
@@ -26,16 +22,13 @@ on:
         required: false
         type: boolean
         default: true
-  push:
-    branches-ignore: [main]
-    paths: [".github/workflows/telegram-diagnose.yml"]
 
 concurrency:
   group: telegram-diagnose
   cancel-in-progress: false
 
 env:
-  # push-событие не имеет inputs — подставляем владельца.
+  # Пустой chat_id — подставляем владельца.
   TARGET_CHAT: ${{ inputs.chat_id || secrets.TELEGRAM_OWNER_CHAT_ID || '694696' }}
   SEND_TEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.send_test_message == false) && 'false' || 'true' }}
 

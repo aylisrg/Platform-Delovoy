@@ -180,9 +180,9 @@ Workflow `.github/workflows/site-watchdog.yml` каждые ~5 минут про
 `https://delovoy-park.ru` (главная + `/api/health`) с раннера GitHub.
 При недоступности: SSH на VPS → `scripts/watchdog-remediate.sh`
 (диагностика + ступенчатое восстановление: зомби-контейнеры → nginx →
-`docker restart delovoy-app` → `docker compose up -d`), Telegram-алерт с
-диагностикой и GitHub issue с label `site-down` (закрывается автоматически
-при восстановлении). Перезагрузка всего сервера — только вручную:
+`docker restart delovoy-app` → `docker compose up -d`) и Telegram-алерт с
+диагностикой. GitHub-issues watchdog не создаёт. Перезагрузка всего сервера —
+только вручную:
 `timeweb-manage.yml → server-reboot`.
 
 Ручной запуск: Actions → Site Watchdog → Run workflow
@@ -190,8 +190,7 @@ Workflow `.github/workflows/site-watchdog.yml` каждые ~5 минут про
 восстановления).
 
 Дополнительно в каждом цикле: проба `/api/notifications/health` (503 →
-Telegram-алерт + issue `notifications-down`, автозакрытие при
-восстановлении) и divergence-check — при зелёных внешних пробах спайк
+Telegram-алерт) и divergence-check — при зелёных внешних пробах спайк
 client-beacon событий (≥15 за 30 мин) даёт предупреждение «снаружи зелено,
 у клиентов ошибки» (RU-mobile деградация, разрез по `metadata.connection`).
 
@@ -328,7 +327,7 @@ GitHub → Settings → Branches → Add rule:
 4. Claude пушит ветку, создаёт PR
 5. CI проверяет автоматически (lint, test, typecheck, build)
 6. Если CI красный — Claude фиксит и пушит снова
-7. Ты ревьюишь PR (или сразу мержишь, если доверяешь)
+7. Ты ревьюишь и мержишь PR (авто-мержа нет)
 8. Merge → автодеплой на delovoy-park.ru
 9. Проверяешь сайт — готово!
 ```
@@ -464,12 +463,12 @@ ssh deploy@YOUR_VPS "zcat /opt/backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compos
 │   ├── ci.yml                  # CI: lint, test, typecheck, build (на PR)
 │   ├── deploy.yml              # CD: build → push → deploy (на push в main)
 │   ├── timeweb-provision.yml   # Создание и настройка VPS через Timeweb API
-│   └── timeweb-manage.yml      # Управление VPS (статус, DNS, firewall, бэкапы)
-├── CODEOWNERS              # Кто ревьюит что
+│   ├── timeweb-manage.yml      # Управление VPS (статус, DNS, firewall, бэкапы)
+│   └── …                       # полный список и назначение — CLAUDE.md → «Процесс»
 ├── pull_request_template.md
-└── dependabot.yml
+└── dependabot.yml          # раз в месяц, групповой minor+patch
 
-docker-compose.yml          # Для локальной разработки
+docker-compose.dev.yml      # Postgres + Redis для локальной разработки
 docker-compose.prod.yml     # Для продакшна (Timeweb VPS)
 Dockerfile                  # Multi-stage build
 docker-entrypoint.sh        # Startup: crash-loop guard → start (миграции/сид — в deploy.yml)

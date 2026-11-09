@@ -8,8 +8,6 @@
 # nginx-конфиг, которого нет в репозитории.
 #
 # Ничего не меняет ни на VPS, ни в DNS — только чтение.
-# push-триггер на не-main ветки — тот же приём, что в telegram-diagnose.yml:
-# workflow_dispatch доступен только после попадания файла в main.
 name: Infra Audit
 
 on:
@@ -24,9 +22,6 @@ on:
         description: "Глубина анализа nginx-логов, часов"
         required: false
         default: "48"
-  push:
-    branches-ignore: [main]
-    paths: [".github/workflows/infra-audit.yml"]
 
 concurrency:
   group: infra-audit

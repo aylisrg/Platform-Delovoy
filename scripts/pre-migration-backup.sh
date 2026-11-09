@@ -5,7 +5,6 @@
 #
 # Использование:
 #   npm run db:migrate:prod                 — локально (dev→prod)
-#   .github/workflows/_run-migration.yml    — в CI как отдельный job
 #
 # env:
 #   DATABASE_URL, S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY — см. backup-db.sh

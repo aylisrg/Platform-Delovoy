@@ -1,9 +1,8 @@
 /**
- * Реестр `SystemEvent.source` (issue #581, F4 аудита `2026-08-14-autonomous-
- * dev-pipeline-audit.md`). Раньше `source` был свободной строкой — имена
- * дрейфовали (`scheduler` vs `rental.scheduler`, `cron/inventory` vs
- * `cron.notifications`, точки vs слэши), что размывало группировку по source
- * в спайк-детекции (`scripts/lib/pattern-extractor.ts`).
+ * Реестр `SystemEvent.source` (issue #581). Раньше `source` был свободной
+ * строкой — имена дрейфовали (`scheduler` vs `rental.scheduler`,
+ * `cron/inventory` vs `cron.notifications`, точки vs слэши), что размывало
+ * группировку по source на дашборде мониторинга.
  *
  * Конвенция — `домен.поддомен` через точку. Значения ниже НЕ мигрируют старые
  * строки в БД (schema не трогаем) — только пишущий код закрепляет одно
@@ -15,8 +14,8 @@
  *
  * Значения, помеченные "НЕ переименовывать", читаются по точному значению
  * в другом месте кода — смена строки тихо сломала бы то место:
- *   - `client-beacon`, `rate-limit` — `scripts/lib/log-reader.ts` (WARNING_SOURCES)
- *   - `server-error` — `scripts/lib/pattern-extractor.ts` (fingerprint по digest)
+ *   - `client-beacon` — SQL в `site-watchdog.yml` (beacon-divergence) и
+ *     `deploy-error-budget.yml`
  *   - `cron.processOutgoing` — `src/modules/notifications/health.ts` (heartbeat)
  */
 export const EVENT_SOURCES = {
@@ -40,14 +39,14 @@ export const EVENT_SOURCES = {
   CRON_NOTIFICATIONS: "cron.notifications",
 
   // monitoring
-  CLIENT_BEACON: "client-beacon", // НЕ переименовывать — scripts/lib/log-reader.ts
+  CLIENT_BEACON: "client-beacon", // НЕ переименовывать — по нему фильтруют site-watchdog и deploy-error-budget
   MONITORING_ROUTING_MAP: "monitoring.routing-map",
-
-  // owner-decisions (контур решений владельца, ADR 2026-08-20)
-  OWNER_DECISIONS: "owner-decisions",
 
   // admin
   ADMIN_TELEGRAM: "admin.telegram",
+
+  // Telegram-бот (bot/, отдельный процесс)
+  BOT: "bot",
 
   // deletion (src/lib/deletion.ts)
   DELETION_GUARD: "deletion.guard",
@@ -72,11 +71,11 @@ export const EVENT_SOURCES = {
   CAFE: "cafe",
   METRIKA: "metrika",
   ANALYTICS_PRODUCT_EVENT: "analytics.product-event",
-  RATE_LIMIT: "rate-limit", // НЕ переименовывать — scripts/lib/log-reader.ts
+  RATE_LIMIT: "rate-limit",
   REVIEWS_API: "reviews-api",
   REVIEWS_PARSER: "reviews-parser", // landing-delovoy-park.ru — тот же @/lib/logger
   PROCESS: "process",
-  SERVER_ERROR: "server-error", // НЕ переименовывать — scripts/lib/pattern-extractor.ts
+  SERVER_ERROR: "server-error",
 } as const;
 
 export type EventSource = (typeof EVENT_SOURCES)[keyof typeof EVENT_SOURCES];

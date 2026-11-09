@@ -166,7 +166,7 @@ describe('deploy-state.sh record', () => {
 
 describe('workflows не зависят от PAT и repo variables', () => {
   const wf = (f: string) => readFileSync(resolve(__dirname, '../../../.github/workflows', f), 'utf8');
-  it.each(['deploy.yml', 'deploy-error-budget.yml', 'owner-digest.yml'])('%s', (f) => {
+  it.each(['deploy.yml', 'deploy-error-budget.yml'])('%s', (f) => {
     const src = wf(f);
     expect(src).not.toContain('DEPLOY_STATE_TOKEN');
     expect(src).not.toContain('actions/variables/DEPLOYED_SHA');

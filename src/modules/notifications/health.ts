@@ -1,92 +1,6 @@
 import { prisma } from "@/lib/db";
-import { EVENT_SOURCES } from "@/lib/event-sources";
 import { redis, redisAvailable } from "@/lib/redis";
 import { telegramApi, type TelegramApiResult } from "@/lib/telegram/client";
-
-/**
- * Через сколько минут без heartbeat свипера контур owner-decisions считается
- * молчащим.
- *
- * Heartbeat шлёт `issue-queue-merge.yml` по cron раз в 15 минут, но cron в GitHub
- * Actions — best-effort: под нагрузкой планировщик задерживает и пропускает
- * тики, причём для всех workflow репозитория разом. Замер по 799 прогонам
- * свипера за 2026-08-22..09-03: 41 дыра ≥40 мин, 21 ≥1 ч, 11 ≥2 ч,
- * максимум 261 мин (27–28 августа тики шли раз в 3–4 часа весь день);
- * site-watchdog (cron раз в 5 минут) в те же ночные часы молчал синхронно — значит,
- * это планировщик GitHub, а не наш workflow. Прежний порог 40 мин («2–3 тика»)
- * давал ложный CRITICAL владельцу почти каждую ночь (инцидент 2026-09-03,
- * docs/incidents/2026-09-03-owner-decisions-false-stale-alerts.md).
- *
- * 6 часов — худшая наблюдавшаяся дыра ×1.4. Реальная поломка контура
- * (секрет не задан, сайт недоступен из Actions) длится днями, пока её не
- * починят, так что обнаружение за 6 ч вместо 40 мин ничего не теряет.
- *
- * Одного порога по часам мало: с 2026-11-01 планировщик GitHub запускает все
- * cron-workflow репозитория пачками раз в 4–8 часов (дыры свипера 254–495 мин).
- * Поэтому протухший по часам heartbeat ещё сверяется с тиками планировщика,
- * которые видит сам сайт (`OWNER_DECISIONS_MIN_MISSED_TICKS`, инцидент
- * docs/incidents/2026-11-06-github-cron-degradation.md).
- */
-export const OWNER_DECISIONS_STALE_MINUTES = 6 * 60;
-
-/**
- * Сколько тиков планировщика GitHub подряд свипер должен пропустить, чтобы
- * протухший по часам heartbeat считался поломкой контура, а не задержкой cron.
- *
- * Тик — прогон `site-watchdog.yml`: его cron стоит в той же очереди
- * планировщика, что и cron свипера, а опрос этого health он помечает
- * заголовком `X-Delovoy-Probe: site-watchdog` (роут записывает тик через
- * `recordSchedulerTick()`). В обычном режиме тики идут раз в 5 минут, и за 6
- * часов их десятки, так что поведение прежнее. При деградации (2026-11) тики
- * приходят пачками раз в 4–8 часов, и watchdog пачки часто опрашивает health
- * за секунды ДО свипера той же пачки. Если считать по часам, это CRITICAL на
- * каждой пачке, хотя heartbeat придёт через полминуты.
- *
- * Считаем только прошлые тики: текущий опрос записывается после проверки.
- * 0 прошлых тиков после heartbeat означает, что свипер отработал в прошлой
- * пачке после watchdog'а. 1 означает, что он отработал раньше watchdog'а той
- * же пачки или GitHub выронил одну его пачку. 2 и больше значит, что
- * планировщик дважды запускал cron-ы, а свипер не отчитался ни разу: это
- * поломка (секрет, сайт из Actions, сам workflow).
- *
- * Подделка заголовка может только добавить тики, то есть сделать алерт
- * раньше, но не спрятать поломку. Тикам верим, только если список живой и
- * полный (`SCHEDULER_TICK_MAX_AGE_MS`; самый старый тик не новее heartbeat).
- * Иначе молчание самого watchdog'а (workflow выключен, заголовок потерян,
- * cron GitHub встал совсем) неделю прятало бы поломку за старым списком.
- * Тикам не верим (Redis недоступен, список пуст, устарел или неполон) —
- * fail-open: судим только по часам, как до инцидента.
- */
-export const OWNER_DECISIONS_MIN_MISSED_TICKS = 2;
-
-/** Заголовок, которым site-watchdog помечает свой опрос как тик планировщика. */
-export const SCHEDULER_PROBE_HEADER = "x-delovoy-probe";
-export const SCHEDULER_PROBE_VALUE = "site-watchdog";
-const SCHEDULER_TICKS_KEY = "notifications:health:scheduler-ticks";
-const SCHEDULER_TICK_GUARD_KEY = "notifications:health:scheduler-tick-guard";
-const SCHEDULER_TICKS_KEEP = 10;
-const SCHEDULER_TICKS_TTL_SECONDS = 7 * 24 * 60 * 60;
-/**
- * Повторы внутри одного прогона watchdog'а (вторая попытка через 10 с после
- * не-200) — это тот же тик, а не новый: иначе одна пачка засчитывалась бы
- * дважды и выпавшая пачка свипера сразу давала бы CRITICAL.
- */
-const SCHEDULER_TICK_MIN_SPACING_MS = 3 * 60_000;
-/**
- * Самый свежий тик старше этого — список тиков мёртвый, им не верим. 12 ч —
- * худшая дыра между пачками 2026-11 (495 мин) ×1.4, тот же запас, что у
- * `OWNER_DECISIONS_STALE_MINUTES`.
- */
-const SCHEDULER_TICK_MAX_AGE_MS = 12 * 60 * 60_000;
-
-/**
- * Как часто напоминать о продолжающемся молчании. Первый CRITICAL уходит
- * сразу при пересечении порога; пока heartbeat тот же (эпизод не кончился),
- * повтор — не чаще раза в этот интервал. Без этого каждый опрос health
- * (site-watchdog раз в 5 мин) плодил бы по алерту в личку владельца —
- * троттлинг `log.critical()` только 300 с.
- */
-const OWNER_DECISIONS_ALERT_REPEAT_SECONDS = 6 * 60 * 60;
 
 /**
  * Гистерезис транспортных флапов Telegram-проб (issue #708, 37 циклов
@@ -135,48 +49,8 @@ export type NotificationsHealthCheck = {
     ownerChat: { ok: boolean; reason?: string; transportError?: boolean };
     queue: { pending: number; failedLastHour: number; overdue?: number };
     cron: { lastRunAt: string | null; staleMin: number; ok?: boolean; reason?: string };
-    ownerDecisions: {
-      ok: boolean;
-      lastHeartbeatAt: string | null;
-      staleMin: number;
-      reason?: string;
-      /** Сколько прошлых тиков планировщика прошло после heartbeat; нет — тики неизвестны. */
-      schedulerTicksSinceHeartbeat?: number;
-      /** Heartbeat протух по часам, но тиков после него меньше порога: отстаёт cron GitHub, а не контур. */
-      schedulerLag?: { lastTickAt: string };
-    };
   };
 };
-
-/** Прошлые тики планировщика (epoch ms); null — Redis недоступен, упал или тиков ещё нет. */
-async function readSchedulerTicks(): Promise<number[] | null> {
-  if (!redisAvailable) return null;
-  try {
-    const raw = await redis.lrange(SCHEDULER_TICKS_KEY, 0, SCHEDULER_TICKS_KEEP - 1);
-    const ticks = raw.map(Number).filter((t) => Number.isFinite(t) && t > 0);
-    return ticks.length > 0 ? ticks : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Записать тик планировщика GitHub (опрос от site-watchdog). Best-effort:
- * без Redis проверка heartbeat просто откатывается к порогу по часам.
- */
-export async function recordSchedulerTick(now: number = Date.now()): Promise<void> {
-  if (!redisAvailable) return;
-  try {
-    // Атомарная дедупликация: из параллельных опросов одного прогона тик пишет один.
-    const fresh = await redis.set(SCHEDULER_TICK_GUARD_KEY, String(now), "PX", SCHEDULER_TICK_MIN_SPACING_MS, "NX");
-    if (fresh === null) return;
-    await redis.lpush(SCHEDULER_TICKS_KEY, String(now));
-    await redis.ltrim(SCHEDULER_TICKS_KEY, 0, SCHEDULER_TICKS_KEEP - 1);
-    await redis.expire(SCHEDULER_TICKS_KEY, SCHEDULER_TICKS_TTL_SECONDS);
-  } catch {
-    // best-effort: следующий опрос watchdog'а запишет тик снова
-  }
-}
 
 /** Одна повторная попытка — только после транспортного сбоя (таймаут/DNS/обрыв). */
 async function probeWithRetry<T>(
@@ -342,80 +216,6 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     // non-critical
   }
 
-  // Owner-decisions heartbeat — свипер шлёт GET ?status=decided на каждом
-  // проходе (decisions-sync), независимо от того, есть ли needs-owner PR.
-  // Без этой проверки контур может молчать неделями незамеченным: сама
-  // отправка Telegram-кнопок владельцу не проходит ни через один cron/queue
-  // check выше (инцидент 2026-08-24 — OWNER_DECISIONS_SECRET не был задан
-  // 4 дня, ни один существующий чек этого не поймал).
-  let ownerDecisionsCheck: NotificationsHealthCheck["checks"]["ownerDecisions"] = {
-    ok: true,
-    lastHeartbeatAt: null,
-    staleMin: 9999,
-  };
-  try {
-    if (!ownerChatId) {
-      // Контур осознанно ещё не настроен (TELEGRAM_OWNER_CHAT_ID не задан) —
-      // не должен шуметь до того, как его вообще включили.
-      ownerDecisionsCheck = { ok: true, lastHeartbeatAt: null, staleMin: 9999 };
-    } else {
-      const last = await prisma.systemEvent.findFirst({
-        where: { source: EVENT_SOURCES.OWNER_DECISIONS, message: "sweeper heartbeat" },
-        orderBy: { createdAt: "desc" },
-      });
-      if (last) {
-        const heartbeatAt = last.createdAt.getTime();
-        const lastHeartbeatAt = last.createdAt.toISOString();
-        const staleMin = Math.floor((Date.now() - heartbeatAt) / 60_000);
-        if (staleMin < OWNER_DECISIONS_STALE_MINUTES) {
-          ownerDecisionsCheck = { ok: true, lastHeartbeatAt, staleMin };
-        } else {
-          // Протух по часам — сверяемся с тиками планировщика GitHub
-          // (см. OWNER_DECISIONS_MIN_MISSED_TICKS).
-          const ticks = (await readSchedulerTicks()) ?? [];
-          const ticksSince = ticks.filter((t) => t > heartbeatAt).length;
-          const lastTickAt = ticks.length > 0 ? Math.max(...ticks) : 0;
-          // Список живой (watchdog недавно опрашивал) и полный (видим тики и
-          // до heartbeat — иначе после сброса Redis не знаем, сколько их было).
-          const ticksTrusted =
-            ticks.length > 0 &&
-            Date.now() - lastTickAt <= SCHEDULER_TICK_MAX_AGE_MS &&
-            Math.min(...ticks) <= heartbeatAt;
-          if (ticksTrusted && ticksSince < OWNER_DECISIONS_MIN_MISSED_TICKS) {
-            ownerDecisionsCheck = {
-              ok: true,
-              lastHeartbeatAt,
-              staleMin,
-              schedulerTicksSinceHeartbeat: ticksSince,
-              schedulerLag: { lastTickAt: new Date(lastTickAt).toISOString() },
-            };
-          } else {
-            ownerDecisionsCheck = {
-              ok: false,
-              lastHeartbeatAt,
-              staleMin,
-              reason: `heartbeat старше ${OWNER_DECISIONS_STALE_MINUTES} мин`,
-              // Число тиков — только когда их хватило для вердикта: «0 раз»
-              // от мёртвого списка вводило бы в заблуждение.
-              ...(ticksSince >= OWNER_DECISIONS_MIN_MISSED_TICKS
-                ? { schedulerTicksSinceHeartbeat: ticksSince }
-                : {}),
-            };
-          }
-        }
-      } else {
-        ownerDecisionsCheck = {
-          ok: false,
-          lastHeartbeatAt: null,
-          staleMin: 9999,
-          reason: "heartbeat ни разу не зафиксирован",
-        };
-      }
-    }
-  } catch {
-    // non-critical
-  }
-
   // Гистерезис транспортных флапов (см. TELEGRAM_TRANSPORT_FLAP_STREAK):
   // серия считается только когда ВСЕ упавшие пробы упали транспортом —
   // любая ошибка API (токен отозван, бот выгнан из чата) валит health сразу.
@@ -452,7 +252,7 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
   }
   const cronOk = cronCheck.ok !== false;
 
-  const ok = telegramOk && queueCheck.failedLastHour === 0 && ownerDecisionsCheck.ok && cronOk;
+  const ok = telegramOk && queueCheck.failedLastHour === 0 && cronOk;
 
   return {
     ok,
@@ -463,33 +263,6 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
       ownerChat: ownerChatCheck,
       queue: queueCheck,
       cron: cronCheck,
-      ownerDecisions: ownerDecisionsCheck,
     },
   };
-}
-
-/**
- * Слать ли CRITICAL о молчащем контуре именно сейчас. Один алерт на эпизод
- * молчания (ключ — последний heartbeat: новый эпизод → новый ключ → алерт
- * сразу), повтор того же эпизода — раз в OWNER_DECISIONS_ALERT_REPEAT_SECONDS.
- * Redis недоступен или упал — fail-open: лучше лишний алерт, чем потерянный
- * инцидент; шторм тогда всё равно ограничен троттлингом `log.critical()`.
- */
-export async function shouldAlertOwnerDecisionsSilence(
-  check: NotificationsHealthCheck["checks"]["ownerDecisions"]
-): Promise<boolean> {
-  if (check.ok) return false;
-  if (!redisAvailable) return true;
-  try {
-    const acquired = await redis.set(
-      `owner-decisions:silence-alert:${check.lastHeartbeatAt ?? "never"}`,
-      "1",
-      "EX",
-      OWNER_DECISIONS_ALERT_REPEAT_SECONDS,
-      "NX"
-    );
-    return acquired !== null;
-  } catch {
-    return true;
-  }
 }

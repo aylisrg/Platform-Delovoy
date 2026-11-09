@@ -1,9 +1,0 @@
-# Global owner — all files
-* @aylisrg
-
-# Critical infrastructure — require explicit review
-/prisma/ @aylisrg
-/src/lib/auth.ts @aylisrg
-/src/proxy.ts @aylisrg
-/.github/workflows/ @aylisrg
-/docker-compose.yml @aylisrg

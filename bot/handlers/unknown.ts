@@ -1,5 +1,6 @@
 import type { Bot, Context } from "grammy";
 
+import { EVENT_SOURCES, type EventSource } from "../../src/lib/event-sources";
 import { mainMenuKeyboard } from "./welcome";
 
 type BotContext = Context;
@@ -45,7 +46,7 @@ export async function handleUnknownText(
   ctx: BotContext,
   logger: (
     level: "INFO",
-    source: string,
+    source: EventSource,
     message: string,
     metadata?: Record<string, unknown>
   ) => Promise<void> | void
@@ -60,7 +61,7 @@ export async function handleUnknownText(
 
   // Fire-and-forget — never let logging failure break the user reply.
   try {
-    await logger("INFO", "bot", "unknown_input", {
+    await logger("INFO", EVENT_SOURCES.BOT, "unknown_input", {
       telegramId,
       text: truncateForLog(text),
     });
@@ -78,7 +79,7 @@ export function registerUnknownTextHandler(
   bot: Bot<BotContext>,
   logger: (
     level: "INFO",
-    source: string,
+    source: EventSource,
     message: string,
     metadata?: Record<string, unknown>
   ) => Promise<void> | void

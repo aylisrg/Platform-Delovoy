@@ -36,7 +36,6 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
       const stored = localStorage.getItem(PARK_STORAGE_KEY) as ParkContext | null;
       if (stored === "delovoy" || stored === "nedelovoy") setPark(stored);
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   useEffect(() => {

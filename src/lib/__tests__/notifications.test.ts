@@ -32,7 +32,7 @@ describe("sendAlert", () => {
   });
 
   it("с явным chatId шлёт туда, а не в TELEGRAM_ADMIN_CHAT_ID", async () => {
-    await sendAlert("CRITICAL", "owner-decisions", "инцидент", "694696");
+    await sendAlert("CRITICAL", "payments", "инцидент", "694696");
 
     const [, params] = mockTelegramApi.mock.calls[0];
     expect(params).toMatchObject({ chat_id: "694696" });
