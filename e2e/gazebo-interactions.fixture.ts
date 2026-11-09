@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { availability } from "./fixtures/gazebos/data";
 
+const PHOTO_COUNT: Record<number, number> = { 1: 11, 2: 12, 3: 8, 4: 10, 5: 18 };
+
 const errors = new WeakMap<Page, string[]>();
 const mutations = new WeakMap<Page, string[]>();
 
@@ -88,9 +90,9 @@ for (const width of [390, 1440]) {
       await page.keyboard.press("Tab");
       await expect(close).toBeFocused();
       await page.keyboard.press("End");
-      await expect(dialog.getByText("Фото 3 из 3")).toBeVisible();
+      await expect(dialog.getByText(`Фото ${PHOTO_COUNT[number]} из ${PHOTO_COUNT[number]}`)).toBeVisible();
       await page.keyboard.press("ArrowRight");
-      await expect(dialog.getByText("Фото 1 из 3")).toBeVisible();
+      await expect(dialog.getByText(`Фото 1 из ${PHOTO_COUNT[number]}`)).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(trigger).toBeFocused();
@@ -142,11 +144,11 @@ test.describe("touch interaction fixture", () => {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - 5, y: y + 100 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await expect(dialog.getByText("Фото 2 из 3")).toBeVisible();
+    await expect(dialog.getByText("Фото 2 из 11")).toBeVisible();
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - 180, y: y + 5 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await expect(dialog.getByText("Фото 3 из 3")).toBeVisible();
+    await expect(dialog.getByText("Фото 3 из 11")).toBeVisible();
     await cdp.detach();
     await dialog.getByRole("button", { name: "Закрыть фотографии" }).tap();
     await expect(dialog).not.toBeVisible();

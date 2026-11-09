@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+const PHOTO_COUNT: Record<number, number> = { 1: 11, 2: 12, 3: 8, 4: 10, 5: 18 };
+/** First card thumbnail (gazebo-photos.ts `preview[0]`). */
+const FIRST_PREVIEW: Record<number, number> = { 1: 8, 2: 9, 3: 8, 4: 8, 5: 15 };
+
 test.beforeEach(async ({ page, baseURL }) => {
   // These are local release checks: never contact analytics or payment providers.
   if (!baseURL || !["localhost", "127.0.0.1"].includes(new URL(baseURL).hostname)) {
@@ -52,14 +56,14 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 102
         await page.keyboard.press("Tab");
         await expect(close).toBeFocused();
         await page.keyboard.press("End");
-        await expect(dialog.getByText("Фото 3 из 3")).toBeVisible();
+        await expect(dialog.getByText(`Фото ${PHOTO_COUNT[number]} из ${PHOTO_COUNT[number]}`)).toBeVisible();
         await expect(dialog.getByRole("img")).toHaveJSProperty("complete", true);
         await expect(dialog.getByRole("img")).not.toHaveJSProperty("naturalWidth", 0);
         if (number === 3 && [1440, 390].includes(viewport.width)) {
           await page.screenshot({ path: `test-results/gazebos-portrait-${viewport.width}.png` });
         }
         await page.keyboard.press("ArrowRight");
-        await expect(dialog.getByText("Фото 1 из 3")).toBeVisible();
+        await expect(dialog.getByText(`Фото 1 из ${PHOTO_COUNT[number]}`)).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(dialog).not.toBeVisible();
         await expect(trigger).toBeFocused();
@@ -76,8 +80,14 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 102
         await close.click();
         await expect(dialog).not.toBeVisible();
         await expect(allPhotos).toBeFocused();
-        await card.getByRole("button", { name: `Беседка №${number}: открыть фото 1 из 3`, exact: true }).click();
-        await expect(dialog.getByText("Фото 1 из 3")).toBeVisible();
+        await card.getByRole("button", { name: new RegExp(`^Беседка №${number}: открыть фото ${FIRST_PREVIEW[number]} из ${PHOTO_COUNT[number]},`) }).click();
+        await expect(dialog.getByText(`Фото ${FIRST_PREVIEW[number]} из ${PHOTO_COUNT[number]}`)).toBeVisible();
+        // Filmstrip: every photo reachable directly, all real images load.
+        const strip = dialog.getByRole("group", { name: "Все фотографии" });
+        await expect(strip.getByRole("button")).toHaveCount(PHOTO_COUNT[number]);
+        await strip.getByRole("button").first().click();
+        await expect(dialog.getByText(`Фото 1 из ${PHOTO_COUNT[number]}`)).toBeVisible();
+        await expect(dialog.getByRole("img")).not.toHaveJSProperty("naturalWidth", 0);
         await close.click();
         await expect(dialog).not.toBeVisible();
       }
@@ -96,7 +106,7 @@ test.describe("Gazebo touch gallery", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   test("horizontal swipe changes the photo; modal close restores the page", async ({ page }) => {
     await page.goto("/gazebos");
-    await page.getByRole("button", { name: "Беседка №1: открыть фото 1 из 3", exact: true }).click();
+    await page.getByRole("button", { name: "Беседка №1: открыть фотографии", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Беседка №1", exact: true });
     const photo = dialog.getByRole("img");
     const box = await photo.boundingBox();
@@ -107,7 +117,7 @@ test.describe("Gazebo touch gallery", () => {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - 180, y: y + 5 }] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await cdp.detach();
-    await expect(dialog.getByText("Фото 2 из 3")).toBeVisible();
+    await expect(dialog.getByText("Фото 3 из 11")).toBeVisible();
     await dialog.getByRole("button", { name: "Закрыть фотографии" }).click();
     await expect(dialog).not.toBeVisible();
     expect(await page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
