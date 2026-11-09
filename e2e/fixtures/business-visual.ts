@@ -1,9 +1,22 @@
-import type { BusinessMoney, BusinessPreference, BusinessReport } from "../../src/modules/analytics/business-types";
+import type { BusinessBucket, BusinessMoney, BusinessPreference, BusinessReport } from "../../src/modules/analytics/business-types";
 
 // Fabricated UI-only data. Never seed these amounts into any database.
 const money = (receipts: number, refunds: number, adjustments: number, cash: number, card: number, online: number): BusinessMoney => ({
   receipts, refunds, adjustments, net: receipts + adjustments - refunds, cash, card, online,
 });
+
+// Splits a fabricated day between directions so the per-period table has every column filled.
+const bucket = (date: string, receipts: number, refunds: number, adjustments: number, cash: number, card: number, online: number): BusinessBucket => {
+  const share = (part: number) => money(receipts * part, refunds * part, adjustments * part, cash * part, card * part, online * part);
+  return {
+    from: date, to: date, ...money(receipts, refunds, adjustments, cash, card, online),
+    lines: {
+      gazebos: { ...share(0.5), operations: 3, completed: 2, cancelled: 1 },
+      "ps-park": { ...share(0.3), operations: 11, completed: 9, cancelled: 1 },
+      cafe: { ...share(0.2), operations: 7, completed: 6, cancelled: 0 },
+    },
+  };
+};
 
 export const populatedBusinessReport: BusinessReport = {
   period: { from: "2026-10-19", to: "2026-10-25", timezone: "Europe/Moscow", days: 7 },
@@ -15,15 +28,18 @@ export const populatedBusinessReport: BusinessReport = {
     { ...money(70000, 8000, 2000, 25000, 40000, 7000), slug: "ps-park", label: "Плей Парк", bookings: 78, completed: 66, cancelled: 9, noShows: 3, orders: 0, linkedOrders: 0, knownCustomers: 48, repeatCustomers: 21, unidentifiedOperations: 12, coverage: "Списания часов абонемента не создают новые поступления. Ручные продажи абонементов без проводки не включены." },
     { ...money(30000, 2000, 500, 11500, 12000, 7000), slug: "cafe", label: "Кафе", bookings: 0, completed: 43, cancelled: 4, noShows: 0, orders: 47, linkedOrders: 17, knownCustomers: 29, repeatCustomers: 11, unidentifiedOperations: 14, coverage: "Связанный заказ не прибавляется к оплате сессии повторно. Выданные заказы без финансовой проводки не включены." },
   ],
-  daily: [
-    { date: "2026-10-19", ...money(10000, 0, 0, 3000, 2000, 5000) },
-    { date: "2026-10-20", ...money(22000, 1000, 0, 6000, 8000, 8000) },
-    { date: "2026-10-21", ...money(8000, 12000, 500, 2500, 2000, 4000) },
-    { date: "2026-10-22", ...money(0, 0, 0, 0, 0, 0) },
-    { date: "2026-10-23", ...money(45000, 5000, 0, 15000, 20000, 10000) },
-    { date: "2026-10-24", ...money(63000, 0, 2000, 20000, 20000, 25000) },
-    { date: "2026-10-25", ...money(32000, 2000, 0, 10000, 10000, 12000) },
-  ],
+  series: {
+    granularity: "day",
+    rows: [
+      bucket("2026-10-19", 10000, 0, 0, 3000, 2000, 5000),
+      bucket("2026-10-20", 22000, 1000, 0, 6000, 8000, 8000),
+      bucket("2026-10-21", 8000, 12000, 500, 2500, 2000, 4000),
+      bucket("2026-10-22", 0, 0, 0, 0, 0, 0),
+      bucket("2026-10-23", 45000, 5000, 0, 15000, 20000, 10000),
+      bucket("2026-10-24", 63000, 0, 2000, 20000, 20000, 25000),
+      bucket("2026-10-25", 32000, 2000, 0, 10000, 10000, 12000),
+    ],
+  },
   funnel: [
     { slug: "gazebos", views: 1240, started: 176, submitted: 24, paid: 15 },
     { slug: "ps-park", views: 2310, started: 302, submitted: 78, paid: 31 },

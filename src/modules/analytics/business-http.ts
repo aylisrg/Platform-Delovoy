@@ -27,9 +27,11 @@ export async function businessHttp(request: NextRequest, action: BusinessAction,
     if (action === "report" || action === "export") {
       const parsed = businessQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams));
       if (!parsed.success) return privateResponse(apiError("VALIDATION_ERROR", "Некорректный период", 422));
-      const anchor = parsed.data.weekEnding ? new Date(new Date(`${parsed.data.weekEnding}T00:00:00+03:00`).getTime() + 86_400_000) : new Date();
-      const report = await getBusinessReport(parsed.data.period, anchor, action !== "export");
-      if (action === "export") return privateResponse(new NextResponse(businessCsv(report), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="business-analytics.csv"', "X-Content-Type-Options": "nosniff" } }));
+      const { period, from, to, weekEnding, granularity } = parsed.data;
+      const anchor = weekEnding ? new Date(new Date(`${weekEnding}T00:00:00+03:00`).getTime() + 86_400_000) : new Date();
+      const range = period === "custom" && from && to ? { from, to } : period === "custom" ? "7d" : period;
+      const report = await getBusinessReport(range, anchor, action !== "export", granularity);
+      if (action === "export") return privateResponse(new NextResponse(businessCsv(report), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="business-${report.period.from}-${report.period.to}.csv"`, "X-Content-Type-Options": "nosniff" } }));
       return privateResponse(apiResponse(report));
     }
     if (action === "preference") {

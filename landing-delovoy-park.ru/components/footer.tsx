@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
 import { PUBLIC_CONTACTS } from "@/lib/public-contacts";
 
@@ -26,14 +25,6 @@ export function Footer() {
           <p className="text-[#86868b] text-xs font-[family-name:var(--font-inter)]">
             Селятино, Московская область
           </p>
-          {/* Вход во внутренние сервисы: страница сама уводит на
-              /auth/signin с callbackUrl и возвращает обратно. */}
-          <Link
-            href="/for-team"
-            className="text-[#86868b] hover:text-[#1d1d1f] text-xs tracking-[0.12em] uppercase font-[family-name:var(--font-inter)] font-semibold transition-colors"
-          >
-            For team
-          </Link>
           <p className="text-[#86868b]/50 text-xs font-[family-name:var(--font-inter)]">
             © {new Date().getFullYear()} Деловой Парк
           </p>

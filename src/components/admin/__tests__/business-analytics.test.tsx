@@ -9,7 +9,7 @@ const report: BusinessReport = {
   period: { from: "2026-10-19", to: "2026-10-25", timezone: "Europe/Moscow", days: 7 },
   generatedAt: "2026-10-26T06:00:00Z", totals: { ...zero, receipts: 1500, refunds: 2000, net: -500, online: 1500 }, previous: zero,
   lines: [{ ...zero, slug: "gazebos", label: "Барбекю Парк", bookings: 0, completed: 0, cancelled: 0, noShows: 0, orders: 0, linkedOrders: 0, knownCustomers: 0, repeatCustomers: 0, unidentifiedOperations: 0, coverage: "Ручные предоплаты могут отсутствовать." }],
-  daily: [{ ...zero, date: "2026-10-19", receipts: 1500, refunds: 2000, net: -500 }],
+  series: { granularity: "day", rows: [{ ...zero, from: "2026-10-19", to: "2026-10-19", receipts: 1500, refunds: 2000, net: -500, lines: { gazebos: { ...zero, receipts: 1500, refunds: 2000, net: -500, operations: 2, completed: 1, cancelled: 1 }, "ps-park": { ...zero, operations: 0, completed: 0, cancelled: 0 }, cafe: { ...zero, operations: 0, completed: 0, cancelled: 0 } } }] },
   funnel: [{ slug: "gazebos", views: 0, started: 0, submitted: 0, paid: 0 }],
   quality: { excludedLedgerRows: 0, duplicateLedgerRows: 0, unknownPaymentRows: 0, warnings: ["Частичный учёт"] },
   marketing: { visits: null, adSpend: null, clicks: 0, fetchedAt: "2026-10-26T06:00:00Z", scope: "Весь сайт, включая офисы; вне бизнес-итогов." },
@@ -32,7 +32,7 @@ describe("Business analytics interface", () => {
     expect(screen.getByText("Ручные предоплаты могут отсутствовать.")).toBeTruthy();
     expect(screen.getAllByText(/-500/).length).toBeGreaterThan(0);
     expect(screen.getByText("Демонстрационные данные — исключены из всех бизнес-итогов и отчётов.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /19.10: поступления/ }).getAttribute("aria-label")).toContain("-500");
+    expect(screen.getByRole("button", { name: /19\.10\.2026: поступления/ }).getAttribute("aria-label")).toContain("-500");
   });
 
   it("passes the Telegram exact-week anchor and clears it on choosing another period", async () => {
@@ -42,6 +42,62 @@ describe("Business analytics interface", () => {
     expect(request).toHaveBeenCalledWith("/api/analytics/business?period=7d&weekEnding=2026-10-25", expect.any(Object));
     fireEvent.click(screen.getByRole("button", { name: "30 дней" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("/api/analytics/business?period=30d", expect.any(Object)));
+  });
+
+  it("offers long presets and builds a custom range report, keeping the address shareable", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-09T09:00:00Z"));
+    try {
+      render(<BusinessAnalytics apiFetch={apiFetch} />);
+      await screen.findByText("Учтённые поступления");
+      fireEvent.click(screen.getByRole("button", { name: "Год" }));
+      await waitFor(() => expect(request).toHaveBeenCalledWith("/api/analytics/business?period=365d", expect.any(Object)));
+      fireEvent.click(screen.getByRole("button", { name: "Свой период" }));
+      fireEvent.change(screen.getByLabelText("С"), { target: { value: "2025-03-01" } });
+      fireEvent.change(screen.getByLabelText("По"), { target: { value: "2026-02-28" } });
+      fireEvent.click(screen.getByRole("button", { name: "Собрать отчёт" }));
+      await waitFor(() => expect(request).toHaveBeenCalledWith("/api/analytics/business?period=custom&from=2025-03-01&to=2026-02-28", expect.any(Object)));
+      expect(window.location.search).toBe("?period=custom&from=2025-03-01&to=2026-02-28");
+      fireEvent.click(screen.getByRole("button", { name: "Прошлый год" }));
+      await waitFor(() => expect(request).toHaveBeenCalledWith("/api/analytics/business?period=custom&from=2025-01-01&to=2025-12-31", expect.any(Object)));
+      await screen.findByRole("group", { name: "Разбивка отчёта" });
+      fireEvent.click(screen.getByRole("button", { name: "Месяцы" }));
+      await waitFor(() => expect(request).toHaveBeenCalledWith("/api/analytics/business?period=custom&from=2025-01-01&to=2025-12-31&granularity=month", expect.any(Object)));
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("refuses an unfinished or over-long custom range before asking the server", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-09T09:00:00Z"));
+    try {
+      render(<BusinessAnalytics apiFetch={apiFetch} />);
+      await screen.findByText("Учтённые поступления");
+      fireEvent.click(screen.getByRole("button", { name: "Свой период" }));
+      fireEvent.change(screen.getByLabelText("С"), { target: { value: "2026-11-01" } });
+      fireEvent.change(screen.getByLabelText("По"), { target: { value: "2026-11-09" } });
+      fireEvent.click(screen.getByRole("button", { name: "Собрать отчёт" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("не позже вчера");
+      fireEvent.change(screen.getByLabelText("С"), { target: { value: "2023-01-01" } });
+      fireEvent.change(screen.getByLabelText("По"), { target: { value: "2026-11-08" } });
+      fireEvent.click(screen.getByRole("button", { name: "Собрать отчёт" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Не длиннее 731");
+      expect(request.mock.calls.some(([url]) => String(url).includes("period=custom"))).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("restores a custom range and breakdown from the link", async () => {
+    window.history.replaceState(null, "", "/admin/analytics/business?period=custom&from=2025-01-01&to=2025-06-30&granularity=week");
+    render(<BusinessAnalytics apiFetch={apiFetch} />);
+    await screen.findByText("Учтённые поступления");
+    expect(request).toHaveBeenCalledWith("/api/analytics/business?period=custom&from=2025-01-01&to=2025-06-30&granularity=week", expect.any(Object));
+  });
+
+  it("renders the per-period table whose rows add up to the totals", () => {
+    render(<BusinessReportView report={report} />);
+    const table = screen.getByRole("table", { name: /по периодам/ });
+    expect(table.textContent).toContain("19.10.2026");
+    expect(table.textContent).toContain("2 броней");
+    expect(table.textContent).toContain("Итого");
   });
 
   it("removes old financial figures when a new period is denied", async () => {

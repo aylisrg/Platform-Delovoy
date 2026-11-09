@@ -12,11 +12,11 @@ export default async function BusinessAnalyticsPage({ searchParams }: { searchPa
   const session = await auth();
   if (!session?.user?.id) {
     const raw = await searchParams;
-    const query = businessQuerySchema.safeParse({ period: raw?.period, weekEnding: raw?.weekEnding });
+    const query = businessQuerySchema.safeParse({ period: raw?.period, from: raw?.from, to: raw?.to, weekEnding: raw?.weekEnding, granularity: raw?.granularity });
     let callback = "/admin/analytics/business";
     if (query.success && (raw?.period || raw?.weekEnding)) {
       const params = new URLSearchParams({ period: query.data.period });
-      if (query.data.weekEnding) params.set("weekEnding", query.data.weekEnding);
+      for (const key of ["from", "to", "weekEnding", "granularity"] as const) if (query.data[key]) params.set(key, query.data[key]);
       callback += `?${params}`;
     }
     redirect(`/auth/signin?callbackUrl=${encodeURIComponent(callback)}`);
