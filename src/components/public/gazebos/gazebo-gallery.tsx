@@ -223,6 +223,8 @@ export function GazeboGallery({ name, gallery, priority = false }: {
                 <button type="button" key={photo.src} className={styles.filmstripItem}
                   aria-label={`Фото ${photoIndex + 1}, ${GAZEBO_PHOTO_KIND_LABEL[photo.kind]}`}
                   aria-current={photoIndex === index ? "true" : undefined}
+                  // Roving tabindex: one Tab stop for the strip, ←/→/Home/End move within it.
+                  tabIndex={photoIndex === index ? 0 : -1}
                   onClick={() => setIndex(photoIndex)}>
                   <Photo photo={photo} name={name} sizes="96px" decorative />
                 </button>

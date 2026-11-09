@@ -189,6 +189,8 @@ describe("gazebo photo gallery", () => {
     expect(modal.getByText("Фото 9 из 11")).toBeTruthy();
     expect(items[8].getAttribute("aria-current")).toBe("true");
     expect(items[1].getAttribute("aria-current")).toBeNull();
+    // Only the current thumbnail is a Tab stop, so 18 photos do not mean 18 Tab presses.
+    expect(items.filter((item) => item.tabIndex === 0)).toEqual([items[8]]);
     expect(modal.getByRole("img").getAttribute("src")).toBe("/media/gazebos/gazebo-1/photo-09.webp");
     expect(modal.getByRole("img").getAttribute("alt")).toBe("Беседка №1, внутри");
     expect(modal.getByText("внутри")).toBeTruthy();
