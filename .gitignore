@@ -4,11 +4,6 @@
 /node_modules
 /.pnp
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
 # testing
 /coverage
@@ -33,12 +28,14 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# env files — любые, кроме шаблонов *.example
+.env*
+!.env*.example
+
+# логи и дампы БД (бэкап-скрипты пишут их локально)
+*.log
+*.sql.gz
+*.dump
 
 # typescript
 *.tsbuildinfo
@@ -52,7 +49,7 @@ prisma/*.db-journal
 docker-compose.override.yml
 
 # user uploads (feedback screenshots, etc.)
-uploads/
+/uploads/
 .claude/worktrees/
 
 # Claude Code session runtime state — sessionId/pid/timestamp, rewritten by
@@ -62,7 +59,3 @@ uploads/
 
 # debug scripts (temporary local debugging, never commit)
 scripts/debug-*
-
-# agent runtime state (stored in workspace volume on Hetzner)
-.agent-state.json
-.agent-logs/

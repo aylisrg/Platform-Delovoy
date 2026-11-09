@@ -1,11 +1,4 @@
-import type {
-  Chat,
-  ChatKind,
-  ChatMessage,
-  ChatParticipant,
-  ChatParticipantRole,
-  User,
-} from "@prisma/client";
+import type { ChatKind, ChatParticipantRole } from "@prisma/client";
 
 export type { ChatKind, ChatParticipantRole };
 

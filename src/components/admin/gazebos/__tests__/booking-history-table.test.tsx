@@ -73,7 +73,7 @@ describe("GazeboBookingHistoryTable — поздний заезд NO_SHOW (#436)
   });
 
   it("клик «Заехал» шлёт POST на /checkin, а не открывает бронь в расписании", async () => {
-    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/checkin")) {
         return jsonResponse({ success: true, data: { id: "booking-1", status: "CHECKED_IN" } });
