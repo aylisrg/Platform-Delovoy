@@ -25,11 +25,14 @@ export type ManagedEvent = {
   /**
    * On until the person explicitly turns it off (path `default` in
    * `audience-rules.ts`): `true` — every staff member with access to the
-   * category, `"superadmin"` — only current SUPERADMINs (others opt in).
+   * category, `"admins"` — ADMIN and SUPERADMIN with access (MANAGER opts in),
+   * `"superadmin"` — only current SUPERADMINs (others opt in).
+   * Каталог без флага не бывает: у ADMIN/SUPERADMIN включено всё (владелец,
+   * 2026-11-09), тест держит инвариант.
    * Без строки предпочтения тумблер в Центре стоит «Вкл» с подписью «по
    * умолчанию»; явное «Выкл» сильнее (ADR 2026-11-09-staff-booking-reports-digest).
    */
-  defaultEnabled?: boolean | "superadmin";
+  defaultEnabled?: boolean | "admins" | "superadmin";
   /** Overrides the category delivery for this event (mixed categories). */
   delivery?: "in-app" | "personal";
 };
@@ -97,7 +100,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "analytics.business_weekly",
         label: "Бизнес-отчёт за неделю",
         description: "По понедельникам после 09:00 МСК: поступления, возвраты и нетто по паркам",
-        defaultEnabled: "superadmin",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -143,6 +146,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "booking.ending_soon",
         label: "Бронь скоро закончится",
         description: "За час до конца брони беседки — предложить продление",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -157,11 +161,13 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "order.placed",
         label: "Новый заказ",
         description: "Гость оформил заказ в кафе",
+        defaultEnabled: "admins",
       },
       {
         eventType: "order.cancelled",
         label: "Отмена заказа",
         description: "Заказ отменён",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -176,16 +182,19 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "contract.created",
         label: "Новый договор",
         description: "Заключён договор аренды",
+        defaultEnabled: "admins",
       },
       {
         eventType: "contract.expiring",
         label: "Договор истекает",
         description: "До окончания договора меньше 30 дней",
+        defaultEnabled: "admins",
       },
       {
         eventType: "inquiry.created",
         label: "Новая заявка",
         description: "Поступила заявка на аренду офиса",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -200,11 +209,13 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "payment.succeeded",
         label: "Успешная оплата",
         description: "Онлайн-платёж прошёл успешно",
+        defaultEnabled: "admins",
       },
       {
         eventType: "payment.refund.succeeded",
         label: "Возврат",
         description: "Возврат по платежу выполнен",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -222,6 +233,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "avito.lead.new",
         label: "Новый лид",
         description: "Сообщение или звонок с объявления Авито",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -238,6 +250,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
         eventType: "system.release",
         label: "Релизы платформы",
         description: "Одно сообщение на каждый продакшн-релиз",
+        defaultEnabled: "admins",
       },
     ],
   },
@@ -294,14 +307,14 @@ export function managedEvent(eventType: string): ManagedEvent | undefined {
 
 /** Event is on for this role while no explicit preference row exists. */
 export function isDefaultOnFor(eventType: string, role: Role): boolean {
-  const flag = managedEvent(eventType)?.defaultEnabled;
-  return flag === true || (flag === "superadmin" && role === "SUPERADMIN");
+  return defaultOnRoles(eventType).includes(role);
 }
 
 /** Roles that may get the event by default (candidate pre-filter for the resolver). */
 export function defaultOnRoles(eventType: string): Role[] {
   const flag = managedEvent(eventType)?.defaultEnabled;
   if (flag === true) return ["SUPERADMIN", "ADMIN", "MANAGER"];
+  if (flag === "admins") return ["SUPERADMIN", "ADMIN"];
   if (flag === "superadmin") return ["SUPERADMIN"];
   return [];
 }

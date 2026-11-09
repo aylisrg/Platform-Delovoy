@@ -6,6 +6,7 @@ import { processTelephonyTelegramSummaries } from "@/modules/telephony/daily-sum
 import { runNotificationHousekeeping } from "./housekeeping";
 import { processWeeklyBusinessReports } from "@/modules/analytics/business-reports";
 import { processWeeklyDigest } from "./weekly-digest";
+import { processStaffLaunchAnnouncement } from "./staff-launch-announcement";
 
 /**
  * Process all scheduled notifications.
@@ -19,6 +20,10 @@ export async function processScheduledNotifications(): Promise<void> {
     processWeeklyDigest().catch(() => {
       // No recipient ids or provider payload in logs; claims make the next run safe.
       console.error("[Scheduler] Weekly digest processing failed");
+    }),
+    processStaffLaunchAnnouncement().catch(() => {
+      // One-off staff announcement; claims make the next run safe.
+      console.error("[Scheduler] Staff launch announcement failed");
     }),
     processBookingReminders(),
     processEndingSoonReminders(),

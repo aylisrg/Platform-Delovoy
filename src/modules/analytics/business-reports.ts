@@ -24,8 +24,8 @@ type Viewer = NonNullable<Awaited<ReturnType<typeof getBusinessViewer>>>;
 
 /**
  * Subscribed = the same resolver the Notification Center uses: an explicit
- * row wins; without one the report is on for current SUPERADMINs only
- * (catalog `defaultEnabled: "superadmin"`, owner request 2026-11-09). Financial
+ * row wins; without one the report is on for current SUPERADMIN and ADMIN with
+ * analytics access (catalog `defaultEnabled: "admins"`, owner 2026-11-09). Financial
  * access is still re-checked separately by getBusinessViewer.
  */
 async function isSubscribed(userId: string): Promise<boolean> {

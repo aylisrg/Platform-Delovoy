@@ -21,7 +21,7 @@ vi.mock("../business-service", () => ({
   businessDay: (date: Date) => new Date(date.getTime() + 3 * 3_600_000).toISOString().slice(0, 10),
 }));
 // The shared staff resolver (ADR 2026-11-09): explicit row wins, otherwise on
-// for SUPERADMIN only. The policy itself is tested in audience-rules.test.ts;
+// for SUPERADMIN and ADMIN. The policy itself is tested in audience-rules.test.ts;
 // here a faithful fake reads the same mocked preference row.
 vi.mock("@/modules/notifications/audience", () => ({
   resolveStaffRouting: async (input: { userIds?: string[] }) => {
@@ -29,7 +29,8 @@ vi.mock("@/modules/notifications/audience", () => ({
     if (!input.userIds) return { recipients: (await mocks.audience()).map((userId: string) => ({ userId, paths: ["default"] })), ...empty };
     const upserted = mocks.preference.upsert.mock.calls.at(-1)?.[0]?.update?.enabled;
     const row = upserted !== undefined ? { enabled: upserted } : await mocks.preference.findUnique();
-    const on = row ? row.enabled === true : mocks.role.current === "SUPERADMIN";
+    // catalog `defaultEnabled: "admins"` (ADMIN here stands for ADMIN with analytics access)
+    const on = row ? row.enabled === true : mocks.role.current === "SUPERADMIN" || mocks.role.current === "ADMIN";
     return { recipients: on ? input.userIds.map((userId) => ({ userId, paths: [row ? "personal" : "default"] })) : [], ...empty };
   },
 }));
@@ -81,10 +82,12 @@ describe("weekly calendar and preference", () => {
     expect(weeklyReportAnchor(new Date("2026-11-08T21:00:00Z"))).toBeNull();
   });
 
-  it("is on by default for SUPERADMIN, off for others, and returns no recipient identifier", async () => {
+  it("is on by default for SUPERADMIN and ADMIN, off for others, and returns no recipient identifier", async () => {
     const preference = await getBusinessPreference("admin");
     expect(preference).toMatchObject({ enabled: true, telegramReady: true, timezone: "Europe/Moscow", lastDelivery: null });
     mocks.role.current = "ADMIN";
+    expect((await getBusinessPreference("admin")).enabled).toBe(true);
+    mocks.role.current = "MANAGER";
     expect((await getBusinessPreference("admin")).enabled).toBe(false);
     mocks.preference.findUnique.mockResolvedValue({ enabled: true });
     expect((await getBusinessPreference("admin")).enabled).toBe(true);

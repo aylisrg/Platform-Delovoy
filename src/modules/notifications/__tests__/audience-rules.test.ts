@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Role } from "@prisma/client";
-import { categoryForEvent } from "../catalog";
+import { EVENT_MODULE_CONTEXTS, MANAGED_EVENT_TYPES, categoryForEvent } from "../catalog";
 import { contextAccess, evaluateRoute, groupChatDecision, type StaffSnapshot } from "../audience-rules";
 
 function snap(partial: Partial<StaffSnapshot> & { role: Role }): StaffSnapshot {
@@ -86,15 +86,16 @@ describe("evaluateRoute — paths and the opt-out (AC-C2.1)", () => {
     expect(evaluateRoute(psAssigned, "booking.cancelled", "ps-park").receives).toBe(true);
     // ADMIN owns gazebos/ps-park by role
     expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.admin_created", "ps-park").paths).toEqual(["default"]);
-    // ending_soon stays opt-in
-    expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.ending_soon", "gazebos").receives).toBe(false);
+    // ending_soon: on for ADMIN/SUPERADMIN, opt-in for MANAGER
+    expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.ending_soon", "gazebos").receives).toBe(true);
+    expect(evaluateRoute(snap({ role: "MANAGER", grants: new Set(["gazebos"]) }), "booking.ending_soon", "gazebos").receives).toBe(false);
   });
 
-  it("«superadmin» default: weekly business report on for SUPERADMIN, opt-in for ADMIN, never for MANAGER", () => {
+  it("weekly business report: on for SUPERADMIN and ADMIN with analytics, never for MANAGER", () => {
     expect(evaluateRoute(snap({ role: "SUPERADMIN" }), "analytics.business_weekly", null)).toMatchObject({ receives: true, paths: ["default"] });
     const admin = snap({ role: "ADMIN", grants: new Set(["analytics"]) });
-    expect(evaluateRoute(admin, "analytics.business_weekly", null).receives).toBe(false);
-    expect(evaluateRoute({ ...admin, prefs: prefs({ "analytics.business_weekly": true }) }, "analytics.business_weekly", null).receives).toBe(true);
+    expect(evaluateRoute(admin, "analytics.business_weekly", null)).toMatchObject({ receives: true, paths: ["default"] });
+    expect(evaluateRoute({ ...admin, prefs: prefs({ "analytics.business_weekly": false }) }, "analytics.business_weekly", null).receives).toBe(false);
     const manager = snap({ role: "MANAGER", grants: new Set(["analytics"]), prefs: prefs({ "analytics.business_weekly": true }) });
     expect(evaluateRoute(manager, "analytics.business_weekly", null)).toMatchObject({
       receives: false, access: { ok: false, reason: "ROLE_NOT_ALLOWED" },
@@ -114,7 +115,7 @@ describe("evaluateRoute — paths and the opt-out (AC-C2.1)", () => {
   });
 
   it("Avito by role: SUPERADMIN always, MANAGER/ADMIN assigned to the lead module; «off» wins", () => {
-    expect(evaluateRoute(snap({ role: "SUPERADMIN" }), "avito.lead.new", null)).toMatchObject({ receives: true, paths: ["role_avito"] });
+    expect(evaluateRoute(snap({ role: "SUPERADMIN" }), "avito.lead.new", null)).toMatchObject({ receives: true, paths: ["default", "role_avito"] });
     const assigned = snap({ role: "MANAGER", assignments: new Set(["gazebos"]) });
     expect(evaluateRoute(assigned, "avito.lead.new", "gazebos").paths).toEqual(["role_avito"]);
     expect(evaluateRoute(assigned, "avito.lead.new", "ps-park").receives).toBe(false);
@@ -156,5 +157,41 @@ describe("groupChatDecision — legacy paths 1 and 3, unchanged", () => {
     expect(groupChatDecision({ chatEnabled: false, listRowCount: 0, moduleChatId: "-1" }).send).toBe(false);
     expect(groupChatDecision({ staffAudience: "personal", chatEnabled: true, listRowCount: 0, moduleChatId: "-1" }).send).toBe(false);
     expect(groupChatDecision({ chatEnabled: true, listRowCount: 0 })).toMatchObject({ send: false, reason: "no_chat_configured" });
+  });
+});
+
+// Owner 2026-11-09: for ADMIN and SUPERADMIN every notification is on by
+// default (wherever they have access); MANAGER keeps opt-in outside bookings.
+describe("всё включено по умолчанию у ADMIN и SUPERADMIN", () => {
+  it("SUPERADMIN без строк предпочтений получает каждый тип каталога хотя бы в одном контексте", () => {
+    const sa = snap({ role: "SUPERADMIN" });
+    for (const eventType of MANAGED_EVENT_TYPES) {
+      const contexts = EVENT_MODULE_CONTEXTS[eventType];
+      expect(contexts.some((ctx) => evaluateRoute(sa, eventType, ctx).receives), eventType).toBe(true);
+    }
+  });
+
+  it("ADMIN со всеми грантами получает всё, кроме суперадминских звонков", () => {
+    const admin = snap({ role: "ADMIN", grants: new Set(["cafe", "rental", "analytics", "avito", "monitoring"]) });
+    for (const eventType of MANAGED_EVENT_TYPES) {
+      const contexts = EVENT_MODULE_CONTEXTS[eventType];
+      const receives = contexts.some((ctx) => evaluateRoute(admin, eventType, ctx).receives);
+      expect(receives, eventType).toBe(!eventType.startsWith("telephony."));
+    }
+  });
+
+  it("ADMIN без раздела не получает его по умолчанию; явное «выкл» сильнее", () => {
+    const admin = snap({ role: "ADMIN" });
+    expect(evaluateRoute(admin, "order.placed", "cafe").receives).toBe(false);
+    expect(evaluateRoute(admin, "analytics.business_weekly", null).receives).toBe(false);
+    const cafeAdmin = snap({ role: "ADMIN", grants: new Set(["cafe"]), prefs: prefs({ "order.placed": false }) });
+    expect(evaluateRoute(cafeAdmin, "order.placed", "cafe").receives).toBe(false);
+    expect(evaluateRoute(cafeAdmin, "order.cancelled", "cafe").receives).toBe(true);
+  });
+
+  it("MANAGER вне броней — по подписке", () => {
+    const m = snap({ role: "MANAGER", grants: new Set(["cafe"]) });
+    expect(evaluateRoute(m, "order.placed", "cafe").receives).toBe(false);
+    expect(evaluateRoute(m, "system.release", null).receives).toBe(false);
   });
 });
