@@ -105,7 +105,8 @@ describe("buildExplain — статусы (AC-C1.1, AC-C1.2)", () => {
     expect(b.deliveryChannels).toEqual([{ kind: "TELEGRAM", label: "Telegram" }]);
     expect(b.contexts).toEqual([
       { moduleSlug: "gazebos", receives: true, paths: ["default", "module_list"] },
-      { moduleSlug: "ps-park", receives: true, paths: ["default"] },
+      // grant on gazebos only — Плей Парк bookings stay out (RBAC per event section)
+      { moduleSlug: "ps-park", receives: false, paths: [] },
     ]);
   });
 

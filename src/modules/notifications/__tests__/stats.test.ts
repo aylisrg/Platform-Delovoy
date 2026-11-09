@@ -336,7 +336,11 @@ describe("getNotificationStats — QA control set D", () => {
     expect(stats.groupChats).toEqual({ sent: 3, failed: 1 });
     expect(mockLogGroupBy).toHaveBeenCalledWith({
       by: ["status"],
-      where: { userId: null, eventType: { in: [...MANAGED_EVENT_TYPES] }, createdAt: { gte: new Date(NOW.getTime() - 30 * DAY) } },
+      // scheduler dedup markers (ending_soon is now a catalog type) are not chat posts
+      where: {
+        userId: null, eventType: { in: [...MANAGED_EVENT_TYPES] }, createdAt: { gte: new Date(NOW.getTime() - 30 * DAY) },
+        recipient: { notIn: ["module-channel", "scheduler"] },
+      },
       _count: { _all: true },
     });
     // not mixed into the personal numbers

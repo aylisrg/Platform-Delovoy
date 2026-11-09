@@ -81,10 +81,15 @@ export function contextAccess(
   if (category.staffAlways) return { ok: true };
 
   const sections = computeAdminSections(s.role, [...s.grants]);
-  if (category.sections.some((section) => sections.includes(section))) return { ok: true };
+  const accessModule = moduleSlug ? (MODULE_ACCESS_ALIAS[moduleSlug] ?? moduleSlug) : null;
+  // A category spanning several sections (bookings: gazebos + ps-park) is
+  // checked against the event's own section: a Плей Парк manager must not get
+  // gazebo bookings with client names and phones (ADR 2026-11-09).
+  const required: readonly string[] =
+    accessModule && (category.sections as readonly string[]).includes(accessModule) ? [accessModule] : category.sections;
+  if (required.some((section) => sections.includes(section))) return { ok: true };
   if (category.superadminAlways && s.role === "SUPERADMIN") return { ok: true };
 
-  const accessModule = moduleSlug ? (MODULE_ACCESS_ALIAS[moduleSlug] ?? moduleSlug) : null;
   if (accessModule && s.assignments.has(accessModule)) return { ok: true };
 
   // Recipient lists have always admitted every ADMIN (setRecipientUserIds rule).

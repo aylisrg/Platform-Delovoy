@@ -5,6 +5,7 @@ import { telegramApi } from "@/lib/telegram/client";
 import { escapeHtml as e } from "@/lib/telegram/escape";
 import { computeBotStatus, getBotContacts, recordBotBlocked, recordDeliveryProof } from "@/modules/telegram-link/bot-contact";
 import { classifyTelegramFailure } from "./dispatch/channels/telegram";
+import { RELEASE_EVENT_TYPE } from "./release-notify";
 import { CLIENT_TIPS, STAFF_APP_TIPS, sectionTips, type SectionTip, type Tip } from "./weekly-tips";
 
 /**
@@ -91,6 +92,8 @@ export type DigestAudience = {
   role: Role;
   /** Admin sections from `computeAdminSections` — empty for USER. */
   sections: readonly string[];
+  /** Explicitly turned off `system.release` — the explicit «off» wins here too. */
+  releasesOff?: boolean;
 };
 
 export type DigestNews = {
@@ -123,7 +126,7 @@ export function buildWeeklyDigest(audience: DigestAudience, news: DigestNews, in
   if (news.publicNews.length > 0) {
     parts.push(`📰 <b>Новости парка</b>\n${news.publicNews.slice(0, MAX_NEWS).map((n) => `• ${e(n)}`).join("\n")}`);
   }
-  if (isStaff && news.releases.length > 0) {
+  if (isStaff && !audience.releasesOff && news.releases.length > 0) {
     parts.push(`🚀 <b>Обновления платформы за неделю</b>\n${news.releases.slice(0, MAX_NEWS).map((n) => `• ${e(n)}`).join("\n")}`);
   }
 
@@ -163,7 +166,7 @@ async function loadNews(now: Date): Promise<DigestNews> {
   };
 }
 
-type Candidate = { id: string; role: Role; telegramId: string; grants: string[] };
+type Candidate = { id: string; role: Role; telegramId: string; grants: string[]; releasesOff: boolean };
 
 async function loadCandidates(weekKey: string): Promise<Candidate[]> {
   const users = await prisma.user.findMany({
@@ -172,7 +175,11 @@ async function loadCandidates(weekKey: string): Promise<Candidate[]> {
       mergedIntoUserId: null,
       notificationEventPrefs: { none: { eventType: WEEKLY_DIGEST_EVENT, enabled: false } },
     },
-    select: { id: true, role: true, telegramId: true, adminPermissions: { select: { section: true } } },
+    select: {
+      id: true, role: true, telegramId: true,
+      adminPermissions: { select: { section: true } },
+      notificationEventPrefs: { where: { eventType: RELEASE_EVENT_TYPE }, select: { enabled: true } },
+    },
     orderBy: { id: "asc" },
   });
   if (users.length === 0) return [];
@@ -190,7 +197,11 @@ async function loadCandidates(weekKey: string): Promise<Candidate[]> {
     // Только те, кто сам запустил бота и не заблокировал его: писать первым
     // Telegram всё равно не даст, а «not started» — не согласие на рассылку.
     .filter((u) => computeBotStatus(u.telegramId, contacts.get(u.telegramId!), null).state === "STARTED")
-    .map((u) => ({ id: u.id, role: u.role, telegramId: u.telegramId!, grants: u.adminPermissions.map((p) => p.section) }));
+    .map((u) => ({
+      id: u.id, role: u.role, telegramId: u.telegramId!,
+      grants: u.adminPermissions.map((p) => p.section),
+      releasesOff: u.notificationEventPrefs.some((p) => p.enabled === false),
+    }));
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -232,7 +243,7 @@ export async function processWeeklyDigest(now = new Date()): Promise<DigestRunRe
     }
 
     const sections = computeAdminSections(person.role, person.grants);
-    const text = buildWeeklyDigest({ role: person.role, sections }, news, index);
+    const text = buildWeeklyDigest({ role: person.role, sections, releasesOff: person.releasesOff }, news, index);
     const res = await telegramApi<{ message_id?: number }>("sendMessage", {
       chat_id: person.telegramId,
       text,

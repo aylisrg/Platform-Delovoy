@@ -76,6 +76,14 @@ describe("evaluateRoute — paths and the opt-out (AC-C2.1)", () => {
     });
     // no section → the default gives nothing
     expect(evaluateRoute(snap({ role: "MANAGER", grants: new Set(["cafe"]) }), "booking.created", "gazebos").receives).toBe(false);
+    // RBAC: a Плей Парк-only manager never gets gazebo bookings (client name/phone)
+    const psOnly = snap({ role: "MANAGER", grants: new Set(["ps-park"]) });
+    expect(evaluateRoute(psOnly, "booking.created", "gazebos")).toMatchObject({ receives: false, paths: [] });
+    expect(evaluateRoute(psOnly, "booking.created", "ps-park").paths).toEqual(["default"]);
+    expect(evaluateRoute({ ...psOnly, prefs: prefs({ "booking.created": true }) }, "booking.created", "gazebos").receives).toBe(false);
+    const psAssigned = snap({ role: "MANAGER", assignments: new Set(["ps-park"]) });
+    expect(evaluateRoute(psAssigned, "booking.cancelled", "gazebos").receives).toBe(false);
+    expect(evaluateRoute(psAssigned, "booking.cancelled", "ps-park").receives).toBe(true);
     // ADMIN owns gazebos/ps-park by role
     expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.admin_created", "ps-park").paths).toEqual(["default"]);
     // ending_soon stays opt-in

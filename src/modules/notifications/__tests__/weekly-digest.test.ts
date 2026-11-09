@@ -96,6 +96,12 @@ describe("buildWeeklyDigest — уровни доступа", () => {
     }
   });
 
+  it("явное «выкл» релизов скрывает их и в дайджесте", () => {
+    const text = buildWeeklyDigest({ role: "SUPERADMIN", sections: [], releasesOff: true }, news, 0);
+    expect(text).not.toContain("Обновления платформы");
+    expect(text).toContain("Новое меню кафе");
+  });
+
   it("экранирует HTML в новостях", () => {
     const text = buildWeeklyDigest({ role: "USER", sections: [] }, { publicNews: ["<b>x</b> & y"], releases: [] }, 1);
     expect(text).toContain("&lt;b&gt;x&lt;/b&gt; &amp; y");
@@ -118,9 +124,9 @@ describe("processWeeklyDigest", () => {
 
   it("шлёт тем, кто запустил бота; отписку исключает запросом; не шлёт повторно", async () => {
     mocks.users.mockResolvedValue([
-      { id: "u1", role: "USER", telegramId: "101", adminPermissions: [] },
-      { id: "u2", role: "USER", telegramId: "102", adminPermissions: [] }, // never started the bot
-      { id: "u3", role: "USER", telegramId: "103", adminPermissions: [] }, // already got this week
+      { id: "u1", role: "USER", telegramId: "101", adminPermissions: [], notificationEventPrefs: [] },
+      { id: "u2", role: "USER", telegramId: "102", adminPermissions: [], notificationEventPrefs: [] }, // never started the bot
+      { id: "u3", role: "USER", telegramId: "103", adminPermissions: [], notificationEventPrefs: [] }, // already got this week
     ]);
     mocks.contacts.mockResolvedValue(new Map([["101", started], ["103", started]]));
     mocks.logs.mockResolvedValue([{ id: digestClaimId("u3", WEEK) }]);
@@ -141,7 +147,7 @@ describe("processWeeklyDigest", () => {
   });
 
   it("гонка параллельных прогонов: занятый claim — пропуск без отправки", async () => {
-    mocks.users.mockResolvedValue([{ id: "u1", role: "USER", telegramId: "101", adminPermissions: [] }]);
+    mocks.users.mockResolvedValue([{ id: "u1", role: "USER", telegramId: "101", adminPermissions: [], notificationEventPrefs: [] }]);
     mocks.contacts.mockResolvedValue(new Map([["101", started]]));
     mocks.logCreate.mockRejectedValue(Object.assign(new Error("dup"), { code: "P2002" }));
 
@@ -152,7 +158,7 @@ describe("processWeeklyDigest", () => {
   });
 
   it("блокировка бота фиксируется, письмо не повторяется", async () => {
-    mocks.users.mockResolvedValue([{ id: "u1", role: "ADMIN", telegramId: "101", adminPermissions: [{ section: "cafe" }] }]);
+    mocks.users.mockResolvedValue([{ id: "u1", role: "ADMIN", telegramId: "101", adminPermissions: [{ section: "cafe" }], notificationEventPrefs: [] }]);
     mocks.contacts.mockResolvedValue(new Map([["101", started]]));
     mocks.telegram.mockResolvedValue({ ok: false, description: "Forbidden: bot was blocked by the user", status: 403, retryable: false, transportError: false });
 
@@ -164,7 +170,7 @@ describe("processWeeklyDigest", () => {
   });
 
   it("релизы — только завершённые анонсы последней недели", async () => {
-    mocks.users.mockResolvedValue([{ id: "a", role: "SUPERADMIN", telegramId: "101", adminPermissions: [] }]);
+    mocks.users.mockResolvedValue([{ id: "a", role: "SUPERADMIN", telegramId: "101", adminPermissions: [], notificationEventPrefs: [] }]);
     mocks.contacts.mockResolvedValue(new Map([["101", started]]));
     mocks.releases.mockResolvedValue([{ releaseNotes: "## Перенос броней\n- детали" }]);
 
