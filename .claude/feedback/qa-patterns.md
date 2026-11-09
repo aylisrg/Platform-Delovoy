@@ -175,3 +175,4 @@
 | 2026-10-25 | 2026-10-25-team-access-notifications-qa-report.md | 15 | rbac, api, typescript, tests, scope_creep |
 | unknown | pr-1157-qa-report.md | 12 | rbac, api, tests |
 | 2026-11-09 | 2026-11-09-gazebos-full-galleries.md | 4 | rbac, api, typescript, tests, scope_creep |
+| 2026-11-09 | 2026-11-09-ps-park-gallery.md | 0 | rbac, api, typescript, tests |
