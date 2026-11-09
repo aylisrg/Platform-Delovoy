@@ -67,11 +67,10 @@ test.describe("Business analytics populated visual QA", () => {
       await expect(marketing).toContainText(/12\s?840/);
       if (advertising === "available") await expect(marketing).toContainText(/21\s?450,75/);
       // Focus the refund-heavy day: verify keyboard access and negative net.
-      await page.getByRole("button", { name: /^21\.10: поступления/ }).focus();
+      await page.getByRole("button", { name: /^21\.10\.2026: поступления/ }).focus();
       await expect(page.getByRole("region", { name: "Движение денег по дням" }).locator('[aria-live="polite"]')).toContainText(/-3\s?500/);
-      await page.getByText("Точные значения по дням", { exact: true }).click();
       await page.getByText("Как устроен отчёт", { exact: true }).click();
-      await expect(page.getByRole("table", { name: "Движение денег по дням, рубли" })).toBeVisible();
+      await expect(page.getByRole("table", { name: "Движение денег и операции по периодам, рубли" })).toBeVisible();
       await capture(page, testInfo, `${advertising}-desktop-full`);
 
       await page.setViewportSize({ width: 390, height: 844 });
@@ -82,8 +81,7 @@ test.describe("Business analytics populated visual QA", () => {
       await capture(page, testInfo, `${advertising}-mobile-full`);
       await page.getByRole("region", { name: "Источники и качество данных" }).screenshot({ path: `${artifactDirectory}/${advertising}-mobile-quality.png`, animations: "disabled" });
 
-      // Start print with the disclosure panels closed, as in the default UI.
-      await page.getByText("Точные значения по дням", { exact: true }).click();
+      // Start print with the disclosure panel closed, as in the default UI.
       await page.getByText("Как устроен отчёт", { exact: true }).click();
       await page.setViewportSize({ width: 794, height: 1123 });
       await page.emulateMedia({ media: "print" });
@@ -117,7 +115,7 @@ test.describe("Business analytics populated visual QA", () => {
       console.log(`BUSINESS_PDF_QA ${JSON.stringify(printEvidence)}`);
       await writeFile(`${artifactDirectory}/${advertising}-fixture.json`, JSON.stringify(report, null, 2));
       await writeFile(`${artifactDirectory}/README.txt`, "SYNTHETIC UI QA ONLY — no production business data.\nAuthenticated seeded CI account; report/preferences responses replaced in the browser. Mutations blocked.\nIncludes positive receipts, refunds, adjustments, a negative-net day, a zero day, nonzero funnel, quality warnings, available and unavailable advertising.\nDesktop 1440px; mobile 390px. Viewport captures preserve the normal scroll shell; full screen-media captures temporarily expand only ancestor heights/overflow to expose the full report.\nPrint media 794px plus paginated A4 PDF uses unmodified production styles and loaded application fonts. Disclosures expanded on screen; closed before print to verify print CSS.\nPrint-layout JSON records the page count from the generated PDF and DOM layout checks. It is not a substitute for inspecting every PDF page, especially the funnel explanation and final quality/methodology section.\nThese artifacts do not prove production accounting, role enforcement or Telegram delivery.\n");
-      await expect(page.getByRole("table", { name: "Движение денег по дням, рубли" })).toBeVisible();
+      await expect(page.getByRole("table", { name: "Движение денег и операции по периодам, рубли" })).toBeVisible();
       expect(pdfPages).toBeGreaterThan(1);
       // This fixed seven-day fixture previously produced an eighth footer page.
       // This is not a limit on real reports or longer periods.

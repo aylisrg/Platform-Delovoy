@@ -28,7 +28,7 @@ beforeEach(() => {
   mock.auth.mockResolvedValue({ user: { id: "actor", role: "SUPERADMIN" } });
   mock.token.mockResolvedValue({ id: "actor", role: "SUPERADMIN", telegramId: "1234" });
   mock.user.mockResolvedValue({ id: "actor", role: "SUPERADMIN", mergedIntoUserId: null, adminPermissions: [] });
-  mock.report.mockResolvedValue({ totals: { net: 731.23 } });
+  mock.report.mockResolvedValue({ totals: { net: 731.23 }, period: { from: "2026-10-19", to: "2026-10-25" } });
   mock.pref.mockResolvedValue({ enabled: false }); mock.save.mockResolvedValue({ enabled: true }); mock.send.mockResolvedValue({ sent: true });
 });
 

@@ -9,7 +9,7 @@ vi.mock("../business-reports", () => ({ getBusinessPreference: mocks.pref, setBu
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.limit }));
 import { businessHttp, type BusinessAction } from "../business-http";
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.auth.mockResolvedValue({ user: { id: "actor", role: "SUPERADMIN" } }); mocks.token.mockResolvedValue({ id: "actor", role: "SUPERADMIN" }); mocks.viewer.mockResolvedValue({ id: "actor", role: "SUPERADMIN" }); mocks.limit.mockResolvedValue(null); mocks.report.mockResolvedValue({ totals: { net: 10 } }); mocks.csv.mockReturnValue("private,csv"); mocks.pref.mockResolvedValue({ enabled: false }); mocks.test.mockResolvedValue({ sent: true });
+  vi.clearAllMocks(); mocks.auth.mockResolvedValue({ user: { id: "actor", role: "SUPERADMIN" } }); mocks.token.mockResolvedValue({ id: "actor", role: "SUPERADMIN" }); mocks.viewer.mockResolvedValue({ id: "actor", role: "SUPERADMIN" }); mocks.limit.mockResolvedValue(null); mocks.report.mockResolvedValue({ totals: { net: 10 }, period: { from: "2026-10-19", to: "2026-10-25" } }); mocks.csv.mockReturnValue("private,csv"); mocks.pref.mockResolvedValue({ enabled: false }); mocks.test.mockResolvedValue({ sent: true });
 });
 const actions: BusinessAction[] = ["report", "export", "preference", "test"];
 describe.each([false, true])("financial routes miniapp=%s", mini => {
@@ -33,6 +33,19 @@ describe.each([false, true])("financial routes miniapp=%s", mini => {
     expect(res.status).toBe(422); expect(mocks.test).not.toHaveBeenCalled();
     res = await businessHttp(new NextRequest("https://example.com/api", { method: "POST", body: JSON.stringify({ requestId }) }), "test", mini);
     expect(res.status).toBe(200); expect(mocks.test).toHaveBeenCalledWith("actor", requestId);
+  });
+  it("passes a custom inclusive range and breakdown to the report and names the file by dates", async () => {
+    const res = await businessHttp(new NextRequest("https://example.com/api?period=custom&from=2025-01-01&to=2025-12-31&granularity=month"), "export", mini);
+    expect(res.status).toBe(200);
+    expect(mocks.report).toHaveBeenCalledWith({ from: "2025-01-01", to: "2025-12-31" }, expect.any(Date), false, "month");
+    expect(res.headers.get("Content-Disposition")).toContain('filename="business-2026-10-19-2026-10-25.csv"');
+  });
+  it("rejects custom ranges that are open, reversed, unfinished or too long", async () => {
+    for (const query of ["period=custom&from=2025-01-01", "period=custom&from=2025-02-01&to=2025-01-01", "period=custom&from=2020-01-01&to=2025-01-01", "period=30d&from=2025-01-01&to=2025-01-31", `period=custom&from=2025-01-01&to=2999-01-01`]) {
+      const res = await businessHttp(new NextRequest(`https://example.com/api?${query}`), "report", mini);
+      expect(res.status, query).toBe(422);
+    }
+    expect(mocks.report).not.toHaveBeenCalled();
   });
   it("rejects invalid filters and keeps export private", async () => {
     let res = await businessHttp(new NextRequest("https://example.com/api?module=rental"), "export", mini);

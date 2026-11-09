@@ -31,7 +31,7 @@ vi.mock("@/lib/db", () => ({ prisma: {
   user: { findUnique: vi.fn() }, resource: { findFirst: vi.fn(), findUnique: vi.fn() }, module: { findUnique: vi.fn() },
   offerVersion: { findFirst: vi.fn() }, financialTransaction: { create: vi.fn(), findMany: vi.fn() },
   productEvent: { create: vi.fn(), upsert: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() }, order: { findMany: vi.fn() }, paymentRefund: { findMany: vi.fn() }, auditLog: { create: vi.fn() },
-  systemEvent: { create: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn(),
+  systemEvent: { create: vi.fn() }, $executeRaw: vi.fn(), $queryRaw: vi.fn(), $transaction: vi.fn(),
 } }));
 
 import { prisma } from "@/lib/db";
@@ -166,6 +166,17 @@ beforeEach(() => {
     [...events].reverse().find(row => row.entityId === where.entityId && row.funnel === where.funnel && row.step === where.step && row.createdAt >= where.createdAt.gte) ?? null) as never);
   vi.mocked(prisma.productEvent.findMany).mockImplementation((async ({ where }: { where: { createdAt: { gte: Date; lt: Date } } }) =>
     events.filter(row => row.createdAt >= where.createdAt.gte && row.createdAt < where.createdAt.lt)) as never);
+  // Mirrors the SQL COUNT(DISTINCT "sessionKey") for visitor-day funnel steps.
+  vi.mocked(prisma.$queryRaw).mockImplementation((async (_sql: TemplateStringsArray, ...values: unknown[]) => {
+    const [start, end] = values.filter((value): value is Date => value instanceof Date);
+    const counts = new Map<string, Set<string>>();
+    for (const row of events) {
+      if (row.createdAt < start || row.createdAt >= end || !row.sessionKey || !["view", "form_started", "cart_item_added", "slot_selected"].includes(row.step)) continue;
+      const key = `${row.funnel}|${row.step === "view" ? "view" : "started"}`;
+      counts.set(key, (counts.get(key) ?? new Set()).add(row.sessionKey));
+    }
+    return [...counts].map(([key, sessions]) => ({ funnel: key.split("|")[0], stage: key.split("|")[1], visitors: sessions.size }));
+  }) as never);
   vi.mocked(prisma.payment.findMany).mockImplementation((async () => [...payments.values()]) as never);
   vi.mocked(prisma.payment.findFirst).mockImplementation((async ({ where }: { where: Record<string, unknown> }) =>
     [...payments.values()].find(row => Object.entries(where).every(([key, value]) => row[key as keyof Payment] === value)) ?? null) as never);
@@ -195,7 +206,7 @@ describe("Play Park payment → session settlement → business report", () => {
     expect(funnel(result)).toMatchObject({ submitted: 1, paid: 1 });
     expect(result.quality.unknownPaymentRows).toBe(0);
     expect(result.quality.warnings.join(" ")).not.toContain("без кассовой записи");
-    expect(result.daily.reduce((sum, day) => sum + day.net, 0)).toBe(1000);
+    expect(result.series.rows.reduce((sum, day) => sum + day.net, 0)).toBe(1000);
   });
 
   it("adds only cash/card remainder for an extended prepaid session", async () => {

@@ -18,7 +18,13 @@ describe("Business analytics server page", () => {
     const location = new URL(mocks.redirect.mock.calls[0][0], "https://delovoy-park.ru");
     expect(location.searchParams.get("callbackUrl")).toBe("/admin/analytics/business?period=7d&weekEnding=2020-11-01");
   });
-  it.each([{ weekEnding: "//evil.example" }, { period: "90d", weekEnding: "2020-11-01" }, { period: ["7d", "30d"] }])("does not reflect invalid report query values into login", async (query) => {
+  it("preserves a validated custom range and breakdown through login", async () => {
+    mocks.auth.mockResolvedValue(null);
+    await expect(Page({ searchParams: Promise.resolve({ period: "custom", from: "2025-01-01", to: "2025-12-31", granularity: "month" }) })).rejects.toThrow("redirect:");
+    const location = new URL(mocks.redirect.mock.calls[0][0], "https://delovoy-park.ru");
+    expect(location.searchParams.get("callbackUrl")).toBe("/admin/analytics/business?period=custom&from=2025-01-01&to=2025-12-31&granularity=month");
+  });
+  it.each([{ weekEnding: "//evil.example" }, { period: "90d", weekEnding: "2020-11-01" }, { period: ["7d", "30d"] }, { period: "custom", from: "2015-01-01", to: "2025-01-01" }])("does not reflect invalid report query values into login", async (query) => {
     mocks.auth.mockResolvedValue(null);
     await expect(Page({ searchParams: Promise.resolve(query) })).rejects.toThrow("redirect:");
     const location = new URL(mocks.redirect.mock.calls[0][0], "https://delovoy-park.ru");

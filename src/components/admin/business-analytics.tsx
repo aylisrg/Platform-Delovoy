@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { BusinessLine, BusinessMoney, BusinessPeriod, BusinessPreference, BusinessReport } from "@/modules/analytics/business-types";
+import { BUSINESS_MAX_RANGE_DAYS, BUSINESS_PERIODS, type BusinessBucket, type BusinessGranularity, type BusinessLine, type BusinessMoney, type BusinessPeriod, type BusinessPreference, type BusinessReport } from "@/modules/analytics/business-types";
+import { businessCalendarRanges, businessDay, rangeDays } from "@/modules/analytics/business-dates";
 
 type Fetcher = <T>(url: string, options?: RequestInit) => Promise<T>;
 type Props = { apiFetch?: Fetcher; miniApp?: boolean };
@@ -10,6 +11,28 @@ type TestResult = { sent: boolean; status?: string; message?: string };
 const money = (value: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2 }).format(value);
 const number = (value: number | null) => value === null ? "Нет данных" : value.toLocaleString("ru-RU");
 const day = (value: string) => value.slice(8, 10) + "." + value.slice(5, 7);
+const fullDay = (value: string) => `${day(value)}.${value.slice(0, 4)}`;
+const MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+/** Short axis label of a bucket: day, week start or month. */
+const bucketLabel = (bucket: Pick<BusinessBucket, "from">, granularity: BusinessGranularity) => granularity === "month" ? `${MONTHS[Number(bucket.from.slice(5, 7)) - 1]} ${bucket.from.slice(2, 4)}` : day(bucket.from);
+/** Full bucket caption for tables and tooltips. */
+const bucketTitle = (bucket: Pick<BusinessBucket, "from" | "to">, granularity: BusinessGranularity) => {
+  if (granularity === "day") return fullDay(bucket.from);
+  if (granularity === "month") { const label = `${MONTHS[Number(bucket.from.slice(5, 7)) - 1]} ${bucket.from.slice(0, 4)}`; const whole = bucket.from.endsWith("-01") && new Date(Date.parse(`${bucket.to}T00:00:00Z`) + 86_400_000).getUTCDate() === 1; return whole ? label : `${label} (${day(bucket.from)}–${day(bucket.to)})`; }
+  return `${day(bucket.from)}–${fullDay(bucket.to)}`;
+};
+const PERIOD_LABELS: Record<BusinessPeriod, string> = { "7d": "7 дней", "30d": "30 дней", "90d": "90 дней", "180d": "Полгода", "365d": "Год" };
+const GRANULARITY_LABELS: Record<BusinessGranularity, string> = { day: "Дни", week: "Недели", month: "Месяцы" };
+type Range = { from: string; to: string };
+const yesterday = () => businessDay(new Date(Date.now() - 86_400_000));
+/** Client-side mirror of the server rule; the API stays the authority. */
+function rangeError(range: Range): string | null {
+  if (!range.from || !range.to) return "Укажите обе даты.";
+  if (range.from > range.to) return "Дата начала позже даты окончания.";
+  if (range.to > yesterday()) return "Отчёт строится по завершённым дням — конец не позже вчера.";
+  if (rangeDays(range.from, range.to) > BUSINESS_MAX_RANGE_DAYS) return `Не длиннее ${BUSINESS_MAX_RANGE_DAYS} дней. Разбейте на части.`;
+  return null;
+}
 const timestamp = (value: string) => new Date(value).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2";
 const button = `rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-50 ${focus}`;
@@ -40,7 +63,11 @@ function Icon({ name, className = "h-5 w-5" }: { name: "chart" | "arrow" | "shie
 
 export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Props) {
   const base = miniApp ? "/api/webapp/business-analytics" : "/api/analytics/business";
-  const [period, setPeriod] = useState<BusinessPeriod>("7d");
+  const [period, setPeriod] = useState<BusinessPeriod | "custom">("7d");
+  const [custom, setCustom] = useState<Range | null>(null);
+  const [draft, setDraft] = useState<Range>({ from: "", to: "" });
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [granularity, setGranularity] = useState<BusinessGranularity | null>(null);
   const [weekEnding, setWeekEnding] = useState<string | null>(null);
   const [anchorReady, setAnchorReady] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -60,24 +87,56 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
   useEffect(() => {
     const params = new URL(window.location.href).searchParams;
     const initialPeriod = params.get("period");
-    if (initialPeriod === "7d" || initialPeriod === "30d" || initialPeriod === "90d") setPeriod(initialPeriod);
+    const from = params.get("from"), to = params.get("to");
+    if ((BUSINESS_PERIODS as readonly string[]).includes(initialPeriod ?? "")) setPeriod(initialPeriod as BusinessPeriod);
+    if (initialPeriod === "custom" && from && to) { setPeriod("custom"); setCustom({ from, to }); setDraft({ from, to }); }
+    const initialGranularity = params.get("granularity");
+    if (initialGranularity === "day" || initialGranularity === "week" || initialGranularity === "month") setGranularity(initialGranularity);
     setWeekEnding(params.get("weekEnding"));
     setAnchorReady(true);
   }, []);
 
+  const query = (() => {
+    const params = new URLSearchParams({ period: period === "custom" && !custom ? "7d" : period });
+    if (period === "custom" && custom) { params.set("from", custom.from); params.set("to", custom.to); }
+    if (weekEnding) params.set("weekEnding", weekEnding);
+    if (granularity) params.set("granularity", granularity);
+    return params.toString();
+  })();
+  // Shareable address: the same link reopens the same report.
   useEffect(() => {
-    if (!anchorReady) return;
+    if (!anchorReady || miniApp || (period === "custom" && !custom)) return;
+    window.history.replaceState(null, "", `${window.location.pathname}?${query}`);
+  }, [anchorReady, miniApp, query, period, custom]);
+
+  function choosePeriod(value: BusinessPeriod) { setWeekEnding(null); setGranularity(null); setPeriod(value); }
+  function openCustom() {
+    if (period === "custom") return;
+    setWeekEnding(null);
+    setDraft(report ? { from: report.period.from, to: report.period.to } : { from: "", to: "" });
+    setDraftError(null);
+    setPeriod("custom");
+  }
+  function applyRange(range: Range) {
+    const problem = rangeError(range);
+    setDraft(range); setDraftError(problem);
+    if (problem) return;
+    setWeekEnding(null); setGranularity(null); setCustom(range);
+  }
+
+  useEffect(() => {
+    if (!anchorReady || (period === "custom" && !custom)) return;
     const controller = new AbortController();
     let active = true;
     setLoading(true);
     setError(null);
     setReport(null);
-    apiFetch<BusinessReport>(`${base}?period=${period}${weekEnding ? `&weekEnding=${encodeURIComponent(weekEnding)}` : ""}`, { signal: controller.signal })
+    apiFetch<BusinessReport>(`${base}?${query}`, { signal: controller.signal })
       .then(data => { if (active) setReport(data); })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "Не удалось загрузить отчёт"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
-  }, [apiFetch, base, period, revision, weekEnding, anchorReady]);
+  }, [apiFetch, base, query, revision, anchorReady, period, custom]);
 
   const loadPreference = useCallback(async () => {
     try {
@@ -120,7 +179,7 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
   async function exportCsv() {
     setExporting(true); setActionMessage(null);
     try {
-      const response = await fetch(`${base}/export?period=${period}${weekEnding ? `&weekEnding=${encodeURIComponent(weekEnding)}` : ""}`, { cache: "no-store" });
+      const response = await fetch(`${base}/export?${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Экспорт недоступен. Проверьте доступ и повторите попытку.");
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
@@ -146,6 +205,7 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
       .business-analytics details::details-content { content-visibility: visible !important; display: block !important; }
       .business-analytics details > * { display: block !important; }
       .business-analytics svg { max-height: 240px; }
+      .business-analytics table { min-width: 0 !important; }
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }`}</style>
     <div className="flex flex-wrap items-start justify-between gap-5">
@@ -157,20 +217,32 @@ export function BusinessAnalytics({ apiFetch = webFetch, miniApp = false }: Prop
       <a href={miniApp ? "/admin/analytics/business" : "/admin/analytics"} className={`business-no-print inline-flex items-center gap-2 rounded-lg py-2 text-sm font-medium text-zinc-600 hover:text-emerald-700 ${focus}`}>{miniApp ? "Открыть в админке" : "Рекламная аналитика"}<Icon name="arrow" className="h-4 w-4" /></a>
     </div>
 
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-2.5 sm:p-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="business-no-print flex rounded-xl bg-zinc-100 p-1" role="group" aria-label="Период отчёта">
-          {(["7d", "30d", "90d"] as const).map(value => <button key={value} type="button" aria-pressed={period === value} onClick={() => { setWeekEnding(null); setPeriod(value); }} className={`rounded-lg px-3 py-2 text-sm font-medium transition ${focus} ${period === value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{parseInt(value)} дней</button>)}
+    <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-2.5 sm:p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div className="business-no-print flex max-w-full flex-wrap rounded-xl bg-zinc-100 p-1" role="group" aria-label="Период отчёта">
+            {BUSINESS_PERIODS.map(value => <button key={value} type="button" aria-pressed={period === value} onClick={() => choosePeriod(value)} className={`rounded-lg px-3 py-2 text-sm font-medium transition ${focus} ${period === value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{PERIOD_LABELS[value]}</button>)}
+            <button type="button" aria-pressed={period === "custom"} onClick={openCustom} className={`rounded-lg px-3 py-2 text-sm font-medium transition ${focus} ${period === "custom" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>Свой период</button>
+          </div>
+          <div className="px-1 text-xs leading-5 text-zinc-500">{report && <span className="block font-medium text-zinc-800">{fullDay(report.period.from)} — {fullDay(report.period.to)} · {report.period.days} дн.</span>}Завершённые дни · МСК</div>
         </div>
-        <div className="px-1 text-xs leading-5 text-zinc-500">{report && <span className="block font-medium text-zinc-800">{day(report.period.from)} — {day(report.period.to)}.{report.period.to.slice(0, 4)}</span>}Завершённые дни · МСК</div>
+        <div className="business-no-print flex flex-wrap gap-2">
+          <button type="button" className={button} onClick={() => { setRevision(v => v + 1); void loadPreference(); }} disabled={loading} aria-label="Обновить отчёт"><Icon name="refresh" /></button>
+          {!miniApp && <><button type="button" className={`${button} inline-flex items-center gap-2`} onClick={exportCsv} disabled={!report || loading || exporting}><Icon name="download" className="h-4 w-4" />CSV</button><button type="button" className={`${button} inline-flex items-center gap-2`} onClick={() => window.print()} disabled={!report || loading}><Icon name="print" className="h-4 w-4" />PDF / печать</button></>}
+        </div>
       </div>
-      <div className="business-no-print flex flex-wrap gap-2">
-        <button type="button" className={button} onClick={() => { setRevision(v => v + 1); void loadPreference(); }} disabled={loading} aria-label="Обновить отчёт"><Icon name="refresh" /></button>
-        {!miniApp && <><button type="button" className={`${button} inline-flex items-center gap-2`} onClick={exportCsv} disabled={!report || loading || exporting}><Icon name="download" className="h-4 w-4" />CSV</button><button type="button" className={`${button} inline-flex items-center gap-2`} onClick={() => window.print()} disabled={!report || loading}><Icon name="print" className="h-4 w-4" />PDF / печать</button></>}
-      </div>
+      {period === "custom" && <form noValidate className="business-no-print flex flex-wrap items-end gap-3 border-t border-zinc-100 px-1 pt-3" onSubmit={event => { event.preventDefault(); applyRange(draft); }} aria-label="Свой период">
+        <label className="text-xs text-zinc-500">С<input type="date" value={draft.from} max={draft.to || yesterday()} onChange={event => setDraft(value => ({ ...value, from: event.target.value }))} className={`mt-1 block rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 ${focus}`} /></label>
+        <label className="text-xs text-zinc-500">По<input type="date" value={draft.to} min={draft.from || undefined} max={yesterday()} onChange={event => setDraft(value => ({ ...value, to: event.target.value }))} className={`mt-1 block rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 ${focus}`} /></label>
+        <button type="submit" className={`${button} border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800`} disabled={loading}>Собрать отчёт</button>
+        <div className="flex flex-wrap gap-1.5">{businessCalendarRanges(businessDay(new Date())).map(range => <button key={range.key} type="button" onClick={() => applyRange(range)} className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${focus} ${custom?.from === range.from && custom?.to === range.to ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>{range.label}</button>)}</div>
+        {draftError && <p role="alert" className="w-full text-xs text-rose-700">{draftError}</p>}
+        {!custom && !draftError && <p className="w-full text-xs text-zinc-500">Выберите даты (до {BUSINESS_MAX_RANGE_DAYS} дней) или готовый период — отчёт соберётся из проводок за эти дни.</p>}
+      </form>}
+      {report && <div className="business-no-print flex flex-wrap items-center gap-2 border-t border-zinc-100 px-1 pt-3 text-xs text-zinc-500"><span>Разбивка:</span><div className="flex rounded-lg bg-zinc-100 p-0.5" role="group" aria-label="Разбивка отчёта">{(["day", "week", "month"] as const).map(value => <button key={value} type="button" aria-pressed={report.series.granularity === value} onClick={() => setGranularity(value)} className={`rounded-md px-2.5 py-1 font-medium transition ${focus} ${report.series.granularity === value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{GRANULARITY_LABELS[value]}</button>)}</div></div>}
     </div>
 
-    {loading ? <div role="status" aria-label="Загрузка бизнес-аналитики" className="space-y-5"><div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[1, 2, 3, 4].map(i => <div key={i} className="h-36 animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100" />)}</div><div className="h-72 animate-pulse rounded-2xl bg-zinc-100" /><span className="sr-only">Загружаем отчёт</span></div> : error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6"><h2 className="font-semibold text-rose-900">Отчёт недоступен</h2><p className="mt-2 text-sm text-rose-800">{error}</p><p className="mt-2 text-xs text-rose-700">Цифры появятся после успешной загрузки данных.</p></div> : report ? <BusinessReportView report={report} /> : null}
+    {period === "custom" && !custom ? null : loading ? <div role="status" aria-label="Загрузка бизнес-аналитики" className="space-y-5"><div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[1, 2, 3, 4].map(i => <div key={i} className="h-36 animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100" />)}</div><div className="h-72 animate-pulse rounded-2xl bg-zinc-100" /><span className="sr-only">Загружаем отчёт</span></div> : error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6"><h2 className="font-semibold text-rose-900">Отчёт недоступен</h2><p className="mt-2 text-sm text-rose-800">{error}</p><p className="mt-2 text-xs text-rose-700">Цифры появятся после успешной загрузки данных.</p></div> : report ? <BusinessReportView report={report} /> : null}
 
     {!loading && report && <section className="business-no-print overflow-hidden rounded-2xl border border-zinc-200 bg-white" aria-labelledby="business-telegram-title">
       <div className="flex flex-wrap items-start justify-between gap-5 p-5 sm:p-6">
@@ -203,7 +275,8 @@ export function BusinessReportView({ report }: { report: BusinessReport }) {
     })}</div>
     <p className="-mt-2 text-xs leading-relaxed text-zinc-500">Сводка зарегистрированных проводок. Полнота отличается по направлениям; выручка по начислению и прибыль здесь не рассчитываются.</p>
     {empty && <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">За этот период в подключённых источниках нет операций. Нулевые значения не подтверждают отсутствие продаж вне системы.</div>}
-    <DailyChart rows={report.daily} />
+    <SeriesChart series={report.series} />
+    <SeriesTable report={report} />
 
     <section aria-labelledby="business-lines-title"><SectionTitle id="business-lines-title" eyebrow="03 направления" title="Что происходит в бизнесе" description="Деньги считаются один раз. Счёт сессии и связанный заказ кафе не складываются повторно." /><div className="mt-4 grid gap-4 xl:grid-cols-3">{report.lines.map((line, index) => <LineCard key={line.slug} line={line} index={index} />)}</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><Unavailable label="Офисы" description="Демонстрационные данные — исключены из всех бизнес-итогов и отчётов." /><Unavailable label="Парковка и сауна" description="Денежные источники пока не подключены. Показатели недоступны." /></div></section>
 
@@ -215,7 +288,7 @@ export function BusinessReportView({ report }: { report: BusinessReport }) {
 
     <section className="rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-marketing-title"><div className="flex flex-wrap items-start justify-between gap-3"><SectionTitle id="business-marketing-title" eyebrow="Контекст привлечения" title="Сайт и реклама" /><a href="/admin/analytics" className={`business-no-print rounded text-xs font-medium text-emerald-700 ${focus}`}>Подробный отчёт →</a></div><p className="mt-3 text-xs leading-relaxed text-zinc-500">{report.marketing.scope}</p><div className="mt-5 grid gap-4 sm:grid-cols-3">{[{ label: "Визиты сайта", value: number(report.marketing.visits), source: "Яндекс.Метрика" }, { label: "Расход на рекламу", value: report.marketing.adSpend === null ? "Нет данных" : money(report.marketing.adSpend), source: "Яндекс.Директ" }, { label: "Клики по рекламе", value: number(report.marketing.clicks), source: "Яндекс.Директ" }].map(metric => <div key={metric.label} className="rounded-xl bg-zinc-50 p-4"><p className="text-xs text-zinc-500">{metric.label}</p><p className={`mt-2 break-words text-xl font-semibold tabular-nums ${metric.value === "Нет данных" ? "text-zinc-400" : "text-zinc-900"}`}>{metric.value}</p><p className="mt-2 text-[11px] text-zinc-400">{metric.source}</p></div>)}</div><p className="mt-4 text-xs leading-relaxed text-zinc-500">Проверка источников: {timestamp(report.marketing.fetchedAt)} МСК. «Нет данных» означает, что источник не подключён или не ответил. ROAS и стоимость покупателя недоступны без связи кампаний с платежами.</p></section>
 
-    <section className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 sm:p-6" aria-labelledby="business-quality-title"><SectionTitle id="business-quality-title" eyebrow="Доверие к цифрам" title="Источники и качество данных" /><dl className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">{[{ label: "Исключённые проводки", value: report.quality.excludedLedgerRows }, { label: "Повторные проводки", value: report.quality.duplicateLedgerRows }, { label: "Не найдена оплата", value: report.quality.unknownPaymentRows }].map(item => <div key={item.label} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3"><dt className="text-xs text-zinc-500">{item.label}</dt><dd className={`font-semibold tabular-nums ${item.value ? "text-amber-700" : "text-zinc-800"}`}>{number(item.value)}</dd></div>)}</dl><ul className="mt-4 space-y-2">{report.quality.warnings.map(warning => <li key={warning} className="flex items-start gap-2 text-xs leading-relaxed text-zinc-600"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-zinc-400" />{warning}</li>)}</ul><details className="mt-5 border-t border-zinc-200 pt-4"><summary className={`cursor-pointer rounded text-sm font-medium text-zinc-700 ${focus}`}>Как устроен отчёт</summary><div className="mt-3 grid gap-4 text-xs leading-relaxed text-zinc-500 sm:grid-cols-2"><p><strong className="font-medium text-zinc-700">Деньги.</strong> FinancialTransaction, сверка Payment и PaymentRefund. По дате проводки в МСК. Возвраты уменьшают текущий период, даже когда покупка произошла раньше. Удаление брони не удаляет финансовый факт.</p><p><strong className="font-medium text-zinc-700">Операции.</strong> Booking — дата начала обслуживания; Order — дата создания заказа. Отмена и неявка сами по себе не означают возврат денег.</p><p><strong className="font-medium text-zinc-700">Клиенты.</strong> Только связанные аккаунты с завершёнными операциями. Повтор — больше одной операции в периоде либо операция в предыдущем равном периоде; не полный пожизненный повтор. Гостевые операции показаны отдельно.</p><p><strong className="font-medium text-zinc-700">Сравнение.</strong> Предыдущие {report.period.days} завершённых дней, такая же длина окна. Сегодняшний неполный день исключён. Расчёты в рублях, часовой пояс Europe/Moscow.</p></div></details></section>
+    <section className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 sm:p-6" aria-labelledby="business-quality-title"><SectionTitle id="business-quality-title" eyebrow="Доверие к цифрам" title="Источники и качество данных" /><dl className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">{[{ label: "Исключённые проводки", value: report.quality.excludedLedgerRows }, { label: "Повторные проводки", value: report.quality.duplicateLedgerRows }, { label: "Не найдена оплата", value: report.quality.unknownPaymentRows }].map(item => <div key={item.label} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3"><dt className="text-xs text-zinc-500">{item.label}</dt><dd className={`font-semibold tabular-nums ${item.value ? "text-amber-700" : "text-zinc-800"}`}>{number(item.value)}</dd></div>)}</dl><ul className="mt-4 space-y-2">{report.quality.warnings.map(warning => <li key={warning} className="flex items-start gap-2 text-xs leading-relaxed text-zinc-600"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-zinc-400" />{warning}</li>)}</ul><details className="mt-5 border-t border-zinc-200 pt-4"><summary className={`cursor-pointer rounded text-sm font-medium text-zinc-700 ${focus}`}>Как устроен отчёт</summary><div className="mt-3 grid gap-4 text-xs leading-relaxed text-zinc-500 sm:grid-cols-2"><p><strong className="font-medium text-zinc-700">Деньги.</strong> FinancialTransaction, сверка Payment и PaymentRefund. По дате проводки в МСК. Возвраты уменьшают текущий период, даже когда покупка произошла раньше. Удаление брони не удаляет финансовый факт.</p><p><strong className="font-medium text-zinc-700">Операции.</strong> Booking — дата начала обслуживания; Order — дата создания заказа. Отмена и неявка сами по себе не означают возврат денег.</p><p><strong className="font-medium text-zinc-700">Клиенты.</strong> Только связанные аккаунты с завершёнными операциями. Повтор — больше одной операции в периоде либо операция в предыдущем равном периоде; не полный пожизненный повтор. Гостевые операции показаны отдельно.</p><p><strong className="font-medium text-zinc-700">Сравнение.</strong> Предыдущие {report.period.days} дней — окно той же длины прямо перед выбранным. Сегодняшний неполный день исключён. Расчёты в рублях, часовой пояс Europe/Moscow.</p><p><strong className="font-medium text-zinc-700">Разбивка.</strong> Недели — с понедельника, месяцы — календарные; крайние периоды обрезаны по выбранным датам. Деньги — по дате проводки, брони — по дате обслуживания, заказы — по дате создания.</p></div></details></section>
   </div>;
 }
 
@@ -228,7 +301,8 @@ function LineCard({ line, index }: { line: BusinessLine; index: number }) {
   return <article className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white"><div className="p-5"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{line.label}</h3><span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${colors[index % colors.length]}`}>{String(index + 1).padStart(2, "0")}</span></div><p className="mt-5 text-[11px] text-zinc-400">Нетто по учтённым проводкам</p><p className="mt-1 break-words text-2xl font-semibold tracking-tight tabular-nums">{money(line.net)}</p><dl className="mt-4 border-t border-zinc-100 pt-3"><DataRow label="Поступления">{money(line.receipts)}</DataRow><DataRow label="Возвраты">{money(line.refunds)}</DataRow><DataRow label="Корректировки">{money(line.adjustments)}</DataRow></dl><p className="mt-4 text-[10px] leading-relaxed text-zinc-500">Поступления и корректировки до возвратов</p><div className="mb-4 mt-2 grid grid-cols-3 gap-1 rounded-xl bg-zinc-50 p-2 text-center">{[{ label: "Наличные", value: line.cash }, { label: "Терминал", value: line.card }, { label: "Онлайн", value: line.online }].map(item => <div key={item.label} className="min-w-0"><p className="text-[9px] text-zinc-400">{item.label}</p><p className="mt-1 break-words text-[11px] font-medium tabular-nums">{money(item.value)}</p></div>)}</div><dl className="border-t border-zinc-100 pt-3"><DataRow label={line.slug === "cafe" ? "Заказы" : "Бронирования"}>{number(line.slug === "cafe" ? line.orders : line.bookings)}</DataRow><DataRow label={line.slug === "cafe" ? "Выдано" : "Завершено"}>{number(line.completed)}</DataRow><DataRow label="Отменено">{number(line.cancelled)}</DataRow>{line.slug !== "cafe" && <DataRow label="Неявки">{number(line.noShows)}</DataRow>}{line.slug === "cafe" && <DataRow label="Связаны с бронью">{number(line.linkedOrders)}</DataRow>}<DataRow label="Известные клиенты">{number(line.knownCustomers)}</DataRow><DataRow label="Из них повторные в двух периодах">{number(line.repeatCustomers)}</DataRow><DataRow label="Завершённые операции без аккаунта">{number(line.unidentifiedOperations)}</DataRow></dl></div><div className="mt-auto border-t border-amber-100 bg-amber-50/60 p-4"><p className="text-[11px] leading-relaxed text-amber-900"><strong className="font-medium">Ограничение учёта. </strong>{line.coverage}</p></div><a href={detailPath} className={`business-no-print flex items-center justify-between border-t border-zinc-100 px-5 py-3 text-xs font-medium text-zinc-600 hover:bg-zinc-50 ${focus}`}>Открыть направление<Icon name="arrow" className="h-3.5 w-3.5" /></a></article>;
 }
 
-function DailyChart({ rows }: { rows: BusinessReport["daily"] }) {
+function SeriesChart({ series }: { series: BusinessReport["series"] }) {
+  const rows = series.rows;
   const [selected, setSelected] = useState<number | null>(null);
   const [chartWidth, setChartWidth] = useState(900);
   const chartContainer = useRef<HTMLDivElement>(null);
@@ -253,15 +327,31 @@ function DailyChart({ rows }: { rows: BusinessReport["daily"] }) {
   const step = (width - left - right) / Math.max(rows.length, 1);
   const x = (index: number) => left + step * (index + 0.5);
   const active = selected !== null ? rows[selected] : null;
-  return <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-daily-title"><div className="flex flex-wrap items-start justify-between gap-4"><SectionTitle id="business-daily-title" eyebrow="Динамика" title="Движение денег по дням" /><div className="flex flex-wrap gap-3 text-[10px] text-zinc-500"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-emerald-400" />Поступления + корректировки</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-3 bg-zinc-700" />Нетто</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-rose-300" />Возвраты</span></div></div>
-    <div ref={chartContainer} className="mt-5 min-w-0"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full overflow-visible" role="img" aria-label="Поступления, возвраты и нетто по дням. Точные значения доступны в таблице ниже.">
+  const unit = { day: "дням", week: "неделям", month: "месяцам" }[series.granularity];
+  return <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-daily-title"><div className="flex flex-wrap items-start justify-between gap-4"><SectionTitle id="business-daily-title" eyebrow="Динамика" title={`Движение денег по ${unit}`} /><div className="flex flex-wrap gap-3 text-[10px] text-zinc-500"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-emerald-400" />Поступления + корректировки</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-3 bg-zinc-700" />Нетто</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-rose-300" />Возвраты</span></div></div>
+    <div ref={chartContainer} className="mt-5 min-w-0"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full overflow-visible" role="img" aria-label={`Поступления, возвраты и нетто по ${unit}. Точные значения — в таблице ниже.`}>
       {[0, 1, 2, 3].map(i => { const value = max - span * i / 3; return <g key={i}><line x1={left} x2={width - right} y1={y(value)} y2={y(value)} stroke="#f0f0f2" /><text x={left - 10} y={y(value) + 4} textAnchor="end" fontSize="11" fill="#71717a">{new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value)} ₽</text></g>; })}
       <line x1={left} x2={width - right} y1={y(0)} y2={y(0)} stroke="#d4d4d8" />
-      {rows.map((row, index) => <g key={row.date}><rect x={x(index) - step * 0.25} y={y(row.receipts + row.adjustments)} width={Math.max(step * 0.45, 1)} height={Math.max(y(0) - y(row.receipts + row.adjustments), 0)} rx="2" fill={selected === index ? "#059669" : "#6ee7b7"} />{row.refunds > 0 && <rect x={x(index) + step * 0.23} y={y(Math.min(row.refunds, max))} width={Math.max(step * 0.14, 1)} height={y(0) - y(Math.min(row.refunds, max))} rx="1" fill="#fda4af" />}{(index === 0 || index === rows.length - 1 || index % Math.max(1, Math.ceil(rows.length / 6)) === 0) && <text x={x(index)} y={height - 6} textAnchor="middle" fontSize="11" fill="#71717a">{day(row.date)}</text>}</g>)}
+      {rows.map((row, index) => <g key={row.from}><rect x={x(index) - step * 0.25} y={y(row.receipts + row.adjustments)} width={Math.max(step * 0.45, 1)} height={Math.max(y(0) - y(row.receipts + row.adjustments), 0)} rx="2" fill={selected === index ? "#059669" : "#6ee7b7"} />{row.refunds > 0 && <rect x={x(index) + step * 0.23} y={y(Math.min(row.refunds, max))} width={Math.max(step * 0.14, 1)} height={y(0) - y(Math.min(row.refunds, max))} rx="1" fill="#fda4af" />}{(index === 0 || index === rows.length - 1 || index % Math.max(1, Math.ceil(rows.length / 6)) === 0) && <text x={x(index)} y={height - 6} textAnchor="middle" fontSize="11" fill="#71717a">{bucketLabel(row, series.granularity)}</text>}</g>)}
       <polyline points={rows.map((row, index) => `${x(index)},${y(row.net)}`).join(" ")} fill="none" stroke="#3f3f46" strokeWidth="2" strokeLinejoin="round" />
-      {rows.map((row, index) => <rect key={`hit-${row.date}`} x={left + step * index} y={top} width={step} height={height - bottom - top} fill="transparent" tabIndex={0} role="button" aria-label={`${day(row.date)}: поступления ${money(row.receipts)}, корректировки ${money(row.adjustments)}, возвраты ${money(row.refunds)}, нетто ${money(row.net)}`} onMouseEnter={() => setSelected(index)} onFocus={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onBlur={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(index); } }} className="focus:outline-emerald-600" />)}
+      {rows.map((row, index) => <rect key={`hit-${row.from}`} x={left + step * index} y={top} width={step} height={height - bottom - top} fill="transparent" tabIndex={0} role="button" aria-label={`${bucketTitle(row, series.granularity)}: поступления ${money(row.receipts)}, корректировки ${money(row.adjustments)}, возвраты ${money(row.refunds)}, нетто ${money(row.net)}`} onMouseEnter={() => setSelected(index)} onFocus={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onBlur={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(index); } }} className="focus:outline-emerald-600" />)}
     </svg></div>
-    <div className="mt-3 min-h-8 text-xs leading-relaxed text-zinc-500" aria-live="polite">{active ? <span><strong className="font-medium text-zinc-700">{day(active.date)}</strong> · Поступления {money(active.receipts)} · Корректировки {money(active.adjustments)} · Возвраты {money(active.refunds)} · Нетто {money(active.net)}</span> : "Наведите на день или выберите его с клавиатуры. Возвраты показаны отдельно; линия нетто может уходить ниже нуля."}</div>
-    <details className="mt-2 border-t border-zinc-100 pt-3"><summary className={`cursor-pointer rounded text-xs font-medium text-zinc-600 ${focus}`}>Точные значения по дням</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-right text-xs tabular-nums"><caption className="sr-only">Движение денег по дням, рубли</caption><thead><tr className="border-b border-zinc-200 text-zinc-500"><th scope="col" className="py-2 text-left font-medium">Дата</th>{["Поступления", "Корректировки", "Возвраты", "Нетто"].map(label => <th key={label} scope="col" className="px-2 py-2 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.date} className="border-b border-zinc-100"><th scope="row" className="whitespace-nowrap py-2 text-left font-normal text-zinc-500">{day(row.date)}</th>{[row.receipts, row.adjustments, row.refunds, row.net].map((value, i) => <td key={i} className="whitespace-nowrap px-2 py-2">{money(value)}</td>)}</tr>)}</tbody></table></div></details>
+    <div className="mt-3 min-h-8 text-xs leading-relaxed text-zinc-500" aria-live="polite">{active ? <span><strong className="font-medium text-zinc-700">{bucketTitle(active, series.granularity)}</strong> · Поступления {money(active.receipts)} · Корректировки {money(active.adjustments)} · Возвраты {money(active.refunds)} · Нетто {money(active.net)}</span> : "Наведите на столбец или выберите его с клавиатуры. Возвраты показаны отдельно; линия нетто может уходить ниже нуля."}</div>
+  </section>;
+}
+
+/** The report itself, period by period: money and operations per direction. */
+function SeriesTable({ report }: { report: BusinessReport }) {
+  const { granularity, rows } = report.series;
+  const title = { day: "По дням", week: "По неделям", month: "По месяцам" }[granularity];
+  const operations = (slug: string) => slug === "cafe" ? "заказов" : "броней";
+  return <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6" aria-labelledby="business-series-title">
+    <SectionTitle id="business-series-title" eyebrow="Отчёт по периодам" title={title} description="Нетто по каждому направлению и число броней / заказов. Сумма строк равна итогу за весь период." />
+    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[720px] text-right text-xs tabular-nums">
+      <caption className="sr-only">Движение денег и операции по периодам, рубли</caption>
+      <thead><tr className="border-b border-zinc-200 text-zinc-500"><th scope="col" className="py-2 pr-2 text-left font-medium">Период</th>{report.lines.map(line => <th key={line.slug} scope="col" className="px-2 py-2 font-medium">{line.label}</th>)}<th scope="col" className="px-2 py-2 font-medium">Поступления</th><th scope="col" className="px-2 py-2 font-medium">Возвраты</th><th scope="col" className="py-2 pl-2 font-medium text-zinc-800">Нетто</th></tr></thead>
+      <tbody>{rows.map(row => <tr key={row.from} className="border-b border-zinc-100 align-top"><th scope="row" className="whitespace-nowrap py-2 pr-2 text-left font-normal text-zinc-600">{bucketTitle(row, granularity)}</th>{report.lines.map(({ slug }) => <td key={slug} className="whitespace-nowrap px-2 py-2">{money(row.lines[slug].net)}<span className="block text-[10px] text-zinc-400">{row.lines[slug].operations} {operations(slug)}</span></td>)}<td className="whitespace-nowrap px-2 py-2">{money(row.receipts + row.adjustments)}</td><td className="whitespace-nowrap px-2 py-2">{money(row.refunds)}</td><td className="whitespace-nowrap py-2 pl-2 font-semibold">{money(row.net)}</td></tr>)}</tbody>
+      <tfoot><tr className="font-semibold text-zinc-900"><th scope="row" className="py-2 pr-2 text-left">Итого</th>{report.lines.map(line => <td key={line.slug} className="whitespace-nowrap px-2 py-2">{money(line.net)}<span className="block text-[10px] font-normal text-zinc-400">{line.slug === "cafe" ? line.orders : line.bookings} {operations(line.slug)}</span></td>)}<td className="whitespace-nowrap px-2 py-2">{money(report.totals.receipts + report.totals.adjustments)}</td><td className="whitespace-nowrap px-2 py-2">{money(report.totals.refunds)}</td><td className="whitespace-nowrap py-2 pl-2">{money(report.totals.net)}</td></tr></tfoot>
+    </table></div>
   </section>;
 }

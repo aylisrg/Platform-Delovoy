@@ -49,7 +49,7 @@ const report: BusinessReport = {
   generatedAt: "2026-11-02T06:00:00Z",
   totals: money, previous: { ...money, net: 750 },
   lines: [{ ...money, slug: "gazebos", label: "Барбекю Парк", bookings: 2, completed: 1, cancelled: 1, noShows: 0, orders: 0, linkedOrders: 0, knownCustomers: 1, repeatCustomers: 0, unidentifiedOperations: 0, coverage: "Учёт неполный" }],
-  daily: [], funnel: [],
+  series: { granularity: "day", rows: [] }, funnel: [],
   quality: { excludedLedgerRows: 1, duplicateLedgerRows: 2, unknownPaymentRows: 0, warnings: [] },
   marketing: { visits: 77, adSpend: 999999, clicks: 33, fetchedAt: "2026-11-02T06:00:00Z", scope: "Весь сайт" },
 };
