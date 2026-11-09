@@ -101,6 +101,17 @@ test.describe("Скриншот-регрессии ключевых страни
 
   test("/gazebos — desktop", async ({ page }) => {
     await page.goto("/gazebos");
+    // Фото карточек ниже первого экрана — `loading="lazy"`, а fullPage-снимок
+    // не скроллит: успела ли картинка загрузиться, зависело от тайминга
+    // раннера (локально пусто, в CI — частично). Грузим все и ждём decode —
+    // снимок сравнивает реальные фото, а не гонку загрузки.
+    const broken = await page.evaluate(async () => {
+      const images = Array.from(document.images);
+      for (const image of images) image.loading = "eager";
+      await Promise.all(images.map((image) => image.decode().catch(() => undefined)));
+      return images.filter((image) => !image.complete || image.naturalWidth === 0).map((image) => image.alt);
+    });
+    expect(broken).toEqual([]);
     await expect(page).toHaveScreenshot("gazebos-desktop.png", {
       fullPage: true,
       animations: "disabled",

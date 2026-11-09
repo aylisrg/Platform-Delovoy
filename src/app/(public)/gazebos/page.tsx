@@ -8,6 +8,7 @@ import { BookOnlineButton, StickyBookingCta } from "@/components/public/gazebos/
 import { GazeboList, GazeboNumberLinks } from "@/components/public/gazebos/gazebo-list";
 import styles from "@/components/public/gazebos/gazebos.module.css";
 import { getGazeboWorkingHours } from "@/components/public/gazebos/gazebo-presentation";
+import { GAZEBO_INCLUDED } from "@/components/public/gazebos/gazebo-content";
 import { BookingFlow } from "@/components/public/gazebos/booking-flow";
 import { PricingSection } from "@/components/public/gazebos/pricing-section";
 import { ParkingSection } from "@/components/public/gazebos/parking-section";
@@ -36,7 +37,7 @@ const jsonLd = {
       "@type": "LocalBusiness",
       "@id": `${APP_URL}/gazebos`,
       name: "Барбекю Парк — Деловой Парк",
-      description: "Комфортные беседки с мангальной зоной до 20 человек. Онлайн-бронирование. Дрова, уголь, зона отдыха.",
+      description: "Пять отапливаемых беседок с мангалом, от 12 до 30 человек. Онлайн-бронирование. Мангал, шампуры и уголь входят в аренду.",
       url: `${APP_URL}/gazebos`,
       telephone: PUBLIC_CONTACTS.gazebos.phone,
       address: {
@@ -66,7 +67,7 @@ const jsonLd = {
           {
             "@type": "Offer",
             name: "Аренда беседки",
-            description: "Беседка с мангальной зоной до 20 человек. Дрова, уголь, зона отдыха.",
+            description: "Беседка с мангалом, от 12 до 30 человек. Мангал, решётка, шампуры и уголь входят в аренду.",
             priceCurrency: "RUB",
             priceSpecification: {
               "@type": "UnitPriceSpecification",
@@ -87,13 +88,13 @@ const jsonLd = {
 export const metadata: Metadata = {
   title: "Барбекю Парк",
   description:
-    "Барбекю Парк в бизнес-парке Деловой, Селятино. Комфортные беседки до 20 человек. Онлайн-бронирование. Мангал, дрова, зона отдыха.",
+    "Барбекю Парк в бизнес-парке Деловой, Селятино. Пять отапливаемых беседок с мангалом, от 12 до 30 человек. Фото каждой беседки и онлайн-бронирование.",
   alternates: {
     canonical: "/gazebos",
   },
   openGraph: {
     title: "Барбекю Парк — Деловой Парк",
-    description: "Барбекю Парк — беседки с мангалом до 20 человек. Селятино, Московская область. Онлайн-бронирование.",
+    description: "Барбекю Парк — беседки с мангалом от 12 до 30 человек. Селятино, Московская область. Онлайн-бронирование.",
     url: "/gazebos",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
@@ -141,6 +142,13 @@ export default async function GazebosPage() {
             <div className={styles.introActions}>
               {bookingEnabled && <BookOnlineButton source="hero" className={styles.textLink}>Забронировать онлайн →</BookOnlineButton>}
               {phoneInfo && <a href={`tel:${phoneInfo.phone}`} data-testid="hero-phone" className={styles.textLink}>{phoneInfo.displayPhone}</a>}
+            </div>
+            {/* Комплект по п. 6.6 оферты — общий для всех беседок, поэтому один раз, а не в каждой карточке. */}
+            <div className={styles.included}>
+              <h2 id="gazebos-included">В аренду любой беседки входит</h2>
+              <ul className={styles.includedList} aria-labelledby="gazebos-included">
+                {GAZEBO_INCLUDED.map((item) => <li key={item}>{item}</li>)}
+              </ul>
             </div>
           </section>
 

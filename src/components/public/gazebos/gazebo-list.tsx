@@ -5,6 +5,7 @@ import { extractPriceList } from "@/modules/gazebos/pricing";
 import { BookOnlineButton } from "./booking-cta";
 import { GazeboGallery } from "./gazebo-gallery";
 import { getGazeboAnchor, getGazeboGallery } from "./gazebo-photos";
+import { getGazeboContent } from "./gazebo-content";
 import styles from "./gazebos.module.css";
 
 type Props = {
@@ -49,7 +50,11 @@ export function GazeboList({ resources, bookingEnabled = false, minBookingHours 
         const hasHeating = /с отоплением/iu.test(resource.description ?? "");
         // The standard description repeats the capacity/heating row. Keep any
         // custom description instead of silently dropping admin-written details.
-        const standardDescription = resource.capacity != null && /^(?:Большая )?Беседка с отоплением, до \d+ человек[.]?$/iu.test(resource.description ?? "");
+        const standardDescription = resource.capacity != null
+          && /^(?:Большая )?Беседка с отоплением(?:, интернетом и ТВ)?, до \d+ человек[.]?$/iu.test(resource.description ?? "");
+        const content = gallery ? getGazeboContent(gallery.number) : undefined;
+        // An admin-written description wins over the catalog summary.
+        const summary = resource.description && !standardDescription ? resource.description : content?.summary;
 
         return (
           <article key={resource.id} id={getGazeboAnchor(resource)} className={styles.card} aria-labelledby={`title-${resource.id}`}>
@@ -59,9 +64,16 @@ export function GazeboList({ resources, bookingEnabled = false, minBookingHours 
               <div className={styles.details}>
                 {resource.capacity != null && <span>До {resource.capacity} человек</span>}
                 {hasHeating && <span>С отоплением</span>}
+                {features.map((feature) => <span key={feature}>{feature.charAt(0).toLocaleUpperCase("ru-RU") + feature.slice(1)}</span>)}
               </div>
-              {resource.description && !standardDescription && <p className={styles.description}>{resource.description}</p>}
-              {features.length > 0 && <p className={styles.features}>{features.join(" · ")}</p>}
+              {summary && <p className={styles.description}>{summary}</p>}
+              {content && content.specs.length > 0 && (
+                <dl className={styles.specs}>
+                  {content.specs.map((spec) => (
+                    <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>
+                  ))}
+                </dl>
+              )}
               <div className={styles.cardBottom}>
                 <div>
                   {fromRate !== null ? (

@@ -2,18 +2,20 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { GazeboGalleryData, GazeboPhoto } from "./gazebo-photos";
+import { GAZEBO_PHOTO_KIND_LABEL, getGazeboPhotoAlt, type GazeboGalleryData, type GazeboPhoto } from "./gazebo-photos";
 import styles from "./gazebos.module.css";
 
-function Photo({ photo, name, sizes, priority = false }: {
+function Photo({ photo, name, sizes, priority = false, decorative = false }: {
   photo: GazeboPhoto; name: string; sizes: string; priority?: boolean;
+  /** The surrounding button already names the photo; avoid announcing it twice. */
+  decorative?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <span className={styles.photoError}>Фото временно недоступно</span>;
+  if (failed) return <span className={styles.photoError}>{decorative ? "" : "Фото временно недоступно"}</span>;
   return (
     <Image
       src={photo.src}
-      alt={`${name}, фотография ${photo.number}`}
+      alt={decorative ? "" : getGazeboPhotoAlt(name, photo)}
       fill
       sizes={sizes}
       priority={priority}
@@ -39,6 +41,17 @@ export function GazeboGallery({ name, gallery, priority = false }: {
   const coverIndex = Math.max(0, gallery.photos.findIndex((photo) => photo.number === gallery.cover));
   const [index, setIndex] = useState(coverIndex);
   const [isOpen, setIsOpen] = useState(false);
+  const filmstrip = useRef<HTMLDivElement>(null);
+  const previews = gallery.preview
+    .map((number) => gallery.photos.findIndex((photo) => photo.number === number))
+    .filter((photoIndex) => photoIndex >= 0 && photoIndex !== coverIndex);
+
+  // Keep the active filmstrip thumbnail visible as the viewer moves through 10–18 photos.
+  useEffect(() => {
+    if (!isOpen) return;
+    const active = filmstrip.current?.querySelector<HTMLElement>('[aria-current="true"]');
+    active?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [index, isOpen]);
 
   const restorePage = useCallback(() => {
     if (savedOverflow.current !== null) {
@@ -142,13 +155,16 @@ export function GazeboGallery({ name, gallery, priority = false }: {
         <span className={styles.numberBadge} aria-hidden="true">№{gallery.number}</span>
       </button>
       <div className={styles.thumbnails} aria-label={`Фотографии: ${name}`}>
-        {gallery.photos.map((photo, photoIndex) => (
-          <button type="button" key={photo.src} className={styles.thumbnail}
-            aria-label={`${name}: открыть фото ${photo.number} из ${gallery.photos.length}`}
-            aria-haspopup="dialog" onClick={(event) => openPhoto(photoIndex, event.currentTarget)}>
-            <Photo key={photo.src} photo={photo} name={name} sizes="(min-width: 768px) 180px, 30vw" />
-          </button>
-        ))}
+        {previews.map((photoIndex) => {
+          const photo = gallery.photos[photoIndex];
+          return (
+            <button type="button" key={photo.src} className={styles.thumbnail}
+              aria-label={`${name}: открыть фото ${photoIndex + 1} из ${gallery.photos.length}, ${GAZEBO_PHOTO_KIND_LABEL[photo.kind]}`}
+              aria-haspopup="dialog" onClick={(event) => openPhoto(photoIndex, event.currentTarget)}>
+              <Photo key={photo.src} photo={photo} name={name} sizes="(min-width: 1280px) 140px, (min-width: 768px) 12vw, 24vw" />
+            </button>
+          );
+        })}
         <button type="button" className={styles.allPhotos} aria-haspopup="dialog"
           aria-label={`${name}: все фотографии`}
           onClick={(event) => openPhoto(coverIndex, event.currentTarget)}>
@@ -199,7 +215,22 @@ export function GazeboGallery({ name, gallery, priority = false }: {
               if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(touch.clientY - start.y)) move(dx < 0 ? 1 : -1);
             }}>
             {isOpen && <Photo key={gallery.photos[index].src} photo={gallery.photos[index]} name={name} sizes="(min-width: 1280px) 1152px, 96vw" />}
+            {isOpen && <span className={styles.photoCaption}>{GAZEBO_PHOTO_KIND_LABEL[gallery.photos[index].kind]}</span>}
           </div>
+          {isOpen && gallery.photos.length > 1 && (
+            <div ref={filmstrip} className={styles.filmstrip} role="group" aria-label="Все фотографии">
+              {gallery.photos.map((photo, photoIndex) => (
+                <button type="button" key={photo.src} className={styles.filmstripItem}
+                  aria-label={`Фото ${photoIndex + 1}, ${GAZEBO_PHOTO_KIND_LABEL[photo.kind]}`}
+                  aria-current={photoIndex === index ? "true" : undefined}
+                  // Roving tabindex: one Tab stop for the strip, ←/→/Home/End move within it.
+                  tabIndex={photoIndex === index ? 0 : -1}
+                  onClick={() => setIndex(photoIndex)}>
+                  <Photo photo={photo} name={name} sizes="96px" decorative />
+                </button>
+              ))}
+            </div>
+          )}
           <div className={styles.dialogControls}>
             <button type="button" className={styles.iconButton} aria-label="Предыдущее фото" onClick={() => move(-1)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>

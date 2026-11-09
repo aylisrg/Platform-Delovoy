@@ -28,7 +28,11 @@ describe("gazebo cards", () => {
     expect(within(cards[0]).getByText("До 14 человек")).toBeTruthy();
     expect(within(cards[0]).getByText(/от 950 ₽/)).toBeTruthy();
     expect(within(cards[0]).getByText("Минимум 5 ч")).toBeTruthy();
-    expect(within(cards[0]).getByText("интернет")).toBeTruthy();
+    expect(within(cards[0]).getByText("Интернет")).toBeTruthy();
+    // Standard admin text is replaced by the catalog copy; a custom one wins over it.
+    expect(within(cards[0]).getByText(/Многогранный павильон/)).toBeTruthy();
+    expect(within(cards[0]).getByText("Мангал")).toBeTruthy();
+    expect(within(cards[1]).queryByText(/Прямоугольный домик/)).toBeNull();
     expect(within(cards[1]).getByText("У воды")).toBeTruthy();
     expect(within(cards[1]).queryByText("С отоплением")).toBeNull();
   });
