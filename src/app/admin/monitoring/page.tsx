@@ -107,12 +107,6 @@ export default async function MonitoringPage() {
               <h2 className="font-semibold text-zinc-900">Последние события</h2>
               <div className="flex gap-4">
                 <a
-                  href="/admin/monitoring/pipelines"
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Pipeline агентов →
-                </a>
-                <a
                   href="/admin/architect/logs"
                   className="text-sm text-blue-600 hover:underline"
                 >

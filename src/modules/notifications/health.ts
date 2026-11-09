@@ -1,36 +1,6 @@
 import { prisma } from "@/lib/db";
-import { EVENT_SOURCES } from "@/lib/event-sources";
 import { redis, redisAvailable } from "@/lib/redis";
 import { telegramApi, type TelegramApiResult } from "@/lib/telegram/client";
-
-/**
- * Через сколько минут без heartbeat свипера контур owner-decisions считается
- * молчащим.
- *
- * Heartbeat шлёт `issue-queue-merge.yml` по cron раз в 15 минут, но cron в GitHub
- * Actions — best-effort: под нагрузкой планировщик задерживает и пропускает
- * тики, причём для всех workflow репозитория разом. Замер по 799 прогонам
- * свипера за 2026-08-22..09-03: 41 дыра ≥40 мин, 21 ≥1 ч, 11 ≥2 ч,
- * максимум 261 мин (27–28 августа тики шли раз в 3–4 часа весь день);
- * site-watchdog (cron раз в 5 минут) в те же ночные часы молчал синхронно — значит,
- * это планировщик GitHub, а не наш workflow. Прежний порог 40 мин («2–3 тика»)
- * давал ложный CRITICAL владельцу почти каждую ночь (инцидент 2026-09-03,
- * docs/incidents/2026-09-03-owner-decisions-false-stale-alerts.md).
- *
- * 6 часов — худшая наблюдавшаяся дыра ×1.4. Реальная поломка контура
- * (секрет не задан, сайт недоступен из Actions) длится днями, пока её не
- * починят, так что обнаружение за 6 ч вместо 40 мин ничего не теряет.
- */
-export const OWNER_DECISIONS_STALE_MINUTES = 6 * 60;
-
-/**
- * Как часто напоминать о продолжающемся молчании. Первый CRITICAL уходит
- * сразу при пересечении порога; пока heartbeat тот же (эпизод не кончился),
- * повтор — не чаще раза в этот интервал. Без этого каждый опрос health
- * (site-watchdog раз в 5 мин) плодил бы по алерту в личку владельца —
- * троттлинг `log.critical()` только 300 с.
- */
-const OWNER_DECISIONS_ALERT_REPEAT_SECONDS = 6 * 60 * 60;
 
 /**
  * Гистерезис транспортных флапов Telegram-проб (issue #708, 37 циклов
@@ -79,7 +49,6 @@ export type NotificationsHealthCheck = {
     ownerChat: { ok: boolean; reason?: string; transportError?: boolean };
     queue: { pending: number; failedLastHour: number; overdue?: number };
     cron: { lastRunAt: string | null; staleMin: number; ok?: boolean; reason?: string };
-    ownerDecisions: { ok: boolean; lastHeartbeatAt: string | null; staleMin: number; reason?: string };
   };
 };
 
@@ -247,51 +216,6 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
     // non-critical
   }
 
-  // Owner-decisions heartbeat — свипер шлёт GET ?status=decided на каждом
-  // проходе (decisions-sync), независимо от того, есть ли needs-owner PR.
-  // Без этой проверки контур может молчать неделями незамеченным: сама
-  // отправка Telegram-кнопок владельцу не проходит ни через один cron/queue
-  // check выше (инцидент 2026-08-24 — OWNER_DECISIONS_SECRET не был задан
-  // 4 дня, ни один существующий чек этого не поймал).
-  let ownerDecisionsCheck: NotificationsHealthCheck["checks"]["ownerDecisions"] = {
-    ok: true,
-    lastHeartbeatAt: null,
-    staleMin: 9999,
-  };
-  try {
-    if (!ownerChatId) {
-      // Контур осознанно ещё не настроен (TELEGRAM_OWNER_CHAT_ID не задан) —
-      // не должен шуметь до того, как его вообще включили.
-      ownerDecisionsCheck = { ok: true, lastHeartbeatAt: null, staleMin: 9999 };
-    } else {
-      const last = await prisma.systemEvent.findFirst({
-        where: { source: EVENT_SOURCES.OWNER_DECISIONS, message: "sweeper heartbeat" },
-        orderBy: { createdAt: "desc" },
-      });
-      if (last) {
-        const staleMin = Math.floor((Date.now() - last.createdAt.getTime()) / 60_000);
-        const ok = staleMin < OWNER_DECISIONS_STALE_MINUTES;
-        ownerDecisionsCheck = {
-          ok,
-          lastHeartbeatAt: last.createdAt.toISOString(),
-          staleMin,
-          ...(ok
-            ? {}
-            : { reason: `heartbeat старше ${OWNER_DECISIONS_STALE_MINUTES} мин` }),
-        };
-      } else {
-        ownerDecisionsCheck = {
-          ok: false,
-          lastHeartbeatAt: null,
-          staleMin: 9999,
-          reason: "heartbeat ни разу не зафиксирован",
-        };
-      }
-    }
-  } catch {
-    // non-critical
-  }
-
   // Гистерезис транспортных флапов (см. TELEGRAM_TRANSPORT_FLAP_STREAK):
   // серия считается только когда ВСЕ упавшие пробы упали транспортом —
   // любая ошибка API (токен отозван, бот выгнан из чата) валит health сразу.
@@ -328,7 +252,7 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
   }
   const cronOk = cronCheck.ok !== false;
 
-  const ok = telegramOk && queueCheck.failedLastHour === 0 && ownerDecisionsCheck.ok && cronOk;
+  const ok = telegramOk && queueCheck.failedLastHour === 0 && cronOk;
 
   return {
     ok,
@@ -339,33 +263,6 @@ export async function notificationsHealth(): Promise<NotificationsHealthCheck> {
       ownerChat: ownerChatCheck,
       queue: queueCheck,
       cron: cronCheck,
-      ownerDecisions: ownerDecisionsCheck,
     },
   };
-}
-
-/**
- * Слать ли CRITICAL о молчащем контуре именно сейчас. Один алерт на эпизод
- * молчания (ключ — последний heartbeat: новый эпизод → новый ключ → алерт
- * сразу), повтор того же эпизода — раз в OWNER_DECISIONS_ALERT_REPEAT_SECONDS.
- * Redis недоступен или упал — fail-open: лучше лишний алерт, чем потерянный
- * инцидент; шторм тогда всё равно ограничен троттлингом `log.critical()`.
- */
-export async function shouldAlertOwnerDecisionsSilence(
-  check: NotificationsHealthCheck["checks"]["ownerDecisions"]
-): Promise<boolean> {
-  if (check.ok) return false;
-  if (!redisAvailable) return true;
-  try {
-    const acquired = await redis.set(
-      `owner-decisions:silence-alert:${check.lastHeartbeatAt ?? "never"}`,
-      "1",
-      "EX",
-      OWNER_DECISIONS_ALERT_REPEAT_SECONDS,
-      "NX"
-    );
-    return acquired !== null;
-  } catch {
-    return true;
-  }
 }

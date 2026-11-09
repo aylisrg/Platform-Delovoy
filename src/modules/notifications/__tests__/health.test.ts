@@ -30,10 +30,8 @@ vi.stubGlobal("fetch", mockFetch);
 
 import { prisma } from "@/lib/db";
 import {
-  OWNER_DECISIONS_STALE_MINUTES,
   TELEGRAM_TRANSPORT_FLAP_STREAK,
   notificationsHealth,
-  shouldAlertOwnerDecisionsSilence,
 } from "../health";
 
 const getMeMock = { ok: true, result: { username: "DelovoyPark_bot" } };
@@ -68,10 +66,8 @@ beforeEach(() => {
 
   vi.mocked(prisma.module.findUnique).mockResolvedValue(null);
   vi.mocked(prisma.outgoingNotification.count).mockResolvedValue(0);
-  // Общий мок для cron- и owner-decisions-heartbeat (оба читают
-  // SystemEvent.findFirst, различаясь только `where.source`) — по умолчанию
-  // свежее событие, чтобы существующие тесты не знали про owner-decisions
-  // check; кто хочет протухший/отсутствующий heartbeat — переопределяет сам.
+  // Мок для cron-heartbeat (SystemEvent.findFirst) — по умолчанию свежее
+  // событие; кто хочет протухший/отсутствующий — переопределяет сам.
   vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
     id: "ev0",
     createdAt: new Date(),
@@ -339,132 +335,15 @@ describe("notificationsHealth", () => {
     });
   });
 
-  describe("owner-decisions heartbeat (ADR 2026-08-24)", () => {
-    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID unset → ok:true (не настроено — не должно шуметь)", async () => {
-      delete process.env.TELEGRAM_OWNER_CHAT_ID;
+  describe("без внешних heartbeat-ов (контур owner-decisions удалён)", () => {
+    it("нет ни одного heartbeat-события при заданном TELEGRAM_OWNER_CHAT_ID → ok:true", async () => {
       setupFetch({ getMe: getMeMock, getChat: getChatMock });
       vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
 
       const result = await notificationsHealth();
 
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.lastHeartbeatAt).toBeNull();
-    });
-
-    it("no heartbeat + TELEGRAM_OWNER_CHAT_ID set → ok:false (контур включён, но ни разу не отчитался)", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue(null);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat/);
-      expect(result.ok).toBe(false);
-    });
-
-    it("свежий heartbeat → ok:true", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - 5 * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
       expect(result.ok).toBe(true);
-    });
-
-    it("heartbeat 4 часа назад — обычная задержка cron в GitHub (инцидент 2026-09-03) → ok:true", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - 4 * 60 * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(true);
-      expect(result.checks.ownerDecisions.reason).toBeUndefined();
-      expect(result.ok).toBe(true);
-    });
-
-    it("порог — 6 часов: дольше худшей замеренной дыры планировщика (261 мин)", () => {
-      expect(OWNER_DECISIONS_STALE_MINUTES).toBe(360);
-    });
-
-    it("протухший heartbeat (старше порога) → ok:false с причиной", async () => {
-      setupFetch({ getMe: getMeMock, getChat: getChatMock });
-      vi.mocked(prisma.systemEvent.findFirst).mockResolvedValue({
-        id: "ev1",
-        createdAt: new Date(Date.now() - (OWNER_DECISIONS_STALE_MINUTES + 30) * 60_000),
-      } as never);
-
-      const result = await notificationsHealth();
-
-      expect(result.checks.ownerDecisions.ok).toBe(false);
-      expect(result.checks.ownerDecisions.staleMin).toBeGreaterThanOrEqual(OWNER_DECISIONS_STALE_MINUTES);
-      expect(result.checks.ownerDecisions.reason).toMatch(/heartbeat старше 360 мин/);
-      expect(result.ok).toBe(false);
-    });
-  });
-
-  describe("shouldAlertOwnerDecisionsSilence — один CRITICAL на эпизод молчания", () => {
-    const stale = {
-      ok: false,
-      lastHeartbeatAt: "2026-09-03T04:42:18.000Z",
-      staleMin: 400,
-      reason: "heartbeat старше 360 мин",
-    };
-
-    it("контур здоров → не алертит и Redis не трогает", async () => {
-      await expect(
-        shouldAlertOwnerDecisionsSilence({ ok: true, lastHeartbeatAt: null, staleMin: 1 })
-      ).resolves.toBe(false);
-      expect(redisSetMock).not.toHaveBeenCalled();
-    });
-
-    it("первый опрос эпизода: ключ по последнему heartbeat, SET NX EX на 6 часов → true", async () => {
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
-      expect(redisSetMock).toHaveBeenCalledWith(
-        "owner-decisions:silence-alert:2026-09-03T04:42:18.000Z",
-        "1",
-        "EX",
-        6 * 60 * 60,
-        "NX"
-      );
-    });
-
-    it("тот же эпизод в окне повтора (ключ занят) → false: site-watchdog раз в 5 мин не плодит алерты", async () => {
-      redisSetMock.mockResolvedValue(null);
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(false);
-    });
-
-    it("heartbeat ни разу не был — ключ «never»", async () => {
-      await shouldAlertOwnerDecisionsSilence({
-        ok: false,
-        lastHeartbeatAt: null,
-        staleMin: 9999,
-        reason: "heartbeat ни разу не зафиксирован",
-      });
-      expect(redisSetMock).toHaveBeenCalledWith(
-        "owner-decisions:silence-alert:never",
-        "1",
-        "EX",
-        expect.any(Number),
-        "NX"
-      );
-    });
-
-    it("Redis недоступен → fail-open: алертим", async () => {
-      redisState.available = false;
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
-      expect(redisSetMock).not.toHaveBeenCalled();
-    });
-
-    it("Redis упал на SET → fail-open: алертим, ошибку не пробрасываем", async () => {
-      redisSetMock.mockRejectedValue(new Error("ECONNRESET"));
-      await expect(shouldAlertOwnerDecisionsSilence(stale)).resolves.toBe(true);
+      expect(result.checks).not.toHaveProperty("ownerDecisions");
     });
   });
 });

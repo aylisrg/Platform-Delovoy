@@ -3,8 +3,7 @@ import { NextRequest } from "next/server";
 
 /**
  * Verify that a request comes from the Telegram bot via shared secret header.
- * Constant-time сравнение (паттерн cron/webhook-роутов): среди /api/bot/*
- * теперь есть owner-decisions — контур, управляющий мержем в прод.
+ * Constant-time сравнение (паттерн cron/webhook-роутов).
  */
 export function verifyBotRequest(request: NextRequest): boolean {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
