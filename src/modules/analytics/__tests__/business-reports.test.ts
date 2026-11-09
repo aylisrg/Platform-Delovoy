@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   contact: { findUnique: vi.fn() },
   audit: { create: vi.fn() },
   transaction: vi.fn(),
+  audience: vi.fn(),
+  role: { current: "SUPERADMIN" },
 }));
 vi.mock("@/lib/db", () => ({ prisma: { notificationEventPreference: mocks.preference, notificationLog: mocks.log, telegramBotContact: mocks.contact, auditLog: mocks.audit, $transaction: mocks.transaction } }));
 vi.mock("@/lib/telegram/client", () => ({ telegramApi: mocks.telegram }));
@@ -17,6 +19,19 @@ vi.mock("../business-access", () => ({ getBusinessViewer: mocks.user }));
 vi.mock("../business-service", () => ({
   getBusinessReport: mocks.report,
   businessDay: (date: Date) => new Date(date.getTime() + 3 * 3_600_000).toISOString().slice(0, 10),
+}));
+// The shared staff resolver (ADR 2026-11-09): explicit row wins, otherwise on
+// for SUPERADMIN only. The policy itself is tested in audience-rules.test.ts;
+// here a faithful fake reads the same mocked preference row.
+vi.mock("@/modules/notifications/audience", () => ({
+  resolveStaffRouting: async (input: { userIds?: string[] }) => {
+    const empty = { suppressed: [], groupChat: { send: false, reason: "not_applicable" } };
+    if (!input.userIds) return { recipients: (await mocks.audience()).map((userId: string) => ({ userId, paths: ["default"] })), ...empty };
+    const upserted = mocks.preference.upsert.mock.calls.at(-1)?.[0]?.update?.enabled;
+    const row = upserted !== undefined ? { enabled: upserted } : await mocks.preference.findUnique();
+    const on = row ? row.enabled === true : mocks.role.current === "SUPERADMIN";
+    return { recipients: on ? input.userIds.map((userId) => ({ userId, paths: [row ? "personal" : "default"] })) : [], ...empty };
+  },
 }));
 // Keep the real pure status policy, but avoid importing its DB writes.
 vi.mock("@/modules/telegram-link/bot-contact", async importOriginal => {
@@ -47,6 +62,8 @@ beforeEach(() => {
   mocks.user.mockResolvedValue(viewer);
   mocks.preference.findUnique.mockResolvedValue(null);
   mocks.preference.findMany.mockResolvedValue([{ userId: "admin" }]);
+  mocks.audience.mockResolvedValue(["admin"]);
+  mocks.role.current = "SUPERADMIN";
   mocks.log.findUnique.mockResolvedValue(null);
   mocks.log.findFirst.mockResolvedValue(null);
   mocks.contact.findUnique.mockResolvedValue({ startedAt: new Date("2026-10-01"), startedBackfill: false, blockedAt: null, lastContactAt: new Date("2026-10-01"), lastDeliveryOkAt: null });
@@ -64,9 +81,13 @@ describe("weekly calendar and preference", () => {
     expect(weeklyReportAnchor(new Date("2026-11-08T21:00:00Z"))).toBeNull();
   });
 
-  it("is off by default and returns no recipient identifier", async () => {
+  it("is on by default for SUPERADMIN, off for others, and returns no recipient identifier", async () => {
     const preference = await getBusinessPreference("admin");
-    expect(preference).toMatchObject({ enabled: false, telegramReady: true, timezone: "Europe/Moscow", lastDelivery: null });
+    expect(preference).toMatchObject({ enabled: true, telegramReady: true, timezone: "Europe/Moscow", lastDelivery: null });
+    mocks.role.current = "ADMIN";
+    expect((await getBusinessPreference("admin")).enabled).toBe(false);
+    mocks.preference.findUnique.mockResolvedValue({ enabled: true });
+    expect((await getBusinessPreference("admin")).enabled).toBe(true);
     expect(JSON.stringify(preference)).not.toContain(viewer.telegramId);
     expect(mocks.log.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: "admin" }) }));
   });
@@ -173,13 +194,12 @@ describe("weekly processing", () => {
     expect(await processWeeklyBusinessReports(new Date("2026-11-02T05:00:00Z"))).toEqual({ sent: 0, skipped: 0, failed: 0 });
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
     expect(await processWeeklyBusinessReports()).toEqual({ sent: 0, skipped: 0, failed: 0 });
-    expect(mocks.preference.findMany).not.toHaveBeenCalled();
+    expect(mocks.audience).not.toHaveBeenCalled();
   });
 
-  it("queries opt-in only, sends a completed week and never includes marketing office numbers", async () => {
-    mocks.preference.findUnique.mockResolvedValue({ enabled: true });
+  it("takes recipients from the shared resolver, sends a completed week and never includes marketing office numbers", async () => {
     expect(await processWeeklyBusinessReports()).toEqual({ sent: 1, skipped: 0, failed: 0 });
-    expect(mocks.preference.findMany).toHaveBeenCalledWith({ where: { eventType: BUSINESS_WEEKLY_EVENT, enabled: true }, select: { userId: true } });
+    expect(mocks.audience).toHaveBeenCalledTimes(1);
     expect(mocks.log.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ id: "business-weekly:admin:2026-11-01", recipient: "self" }) }));
     const text = mocks.telegram.mock.calls[0][1].text as string;
     expect(text).not.toContain("999999");

@@ -3,6 +3,7 @@ import type { NotificationEventPreference, NotificationGlobalPreference, UserNot
 
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 
+import { MANAGED_EVENT_TYPES } from "../catalog";
 import { buildExplain, pathLabel } from "../explain";
 import type { StaffSnapshot } from "../audience-rules";
 import type { BotStatus } from "@/modules/telegram-link/bot-contact";
@@ -65,9 +66,9 @@ const ev = (e: ReturnType<typeof explain>, type: string) => e.categories.flatMap
 const cat = (e: ReturnType<typeof explain>, key: string) => e.categories.find((c) => c.key === key)!;
 
 describe("buildExplain — статусы (AC-C1.1, AC-C1.2)", () => {
-  it("всё 12 событий каталога по категориям; без доступа — серым с причиной", () => {
+  it("все события каталога по категориям; без доступа — серым с причиной", () => {
     const e = explain({});
-    expect(e.categories.flatMap((c) => c.events)).toHaveLength(12);
+    expect(e.categories.flatMap((c) => c.events)).toHaveLength(MANAGED_EVENT_TYPES.length);
     expect(cat(e, "cafe").access).toMatchObject({ ok: false, label: "Нет доступа к разделу «Кафе»" });
     expect(ev(e, "order.placed").status).toBe("NO_ACCESS");
     expect(cat(e, "telephony").access).toMatchObject({ ok: false, label: "Только для суперадмина" });
@@ -75,17 +76,36 @@ describe("buildExplain — статусы (AC-C1.1, AC-C1.2)", () => {
 
   it("доступ без маршрута → «Не получает», тумблер редактируемый", () => {
     const e = explain({});
-    expect(ev(e, "booking.created")).toMatchObject({ status: "NOT_RECEIVING", toggle: { enabled: false, editable: true, source: "default" } });
+    expect(ev(e, "booking.ending_soon")).toMatchObject({ status: "NOT_RECEIVING", toggle: { enabled: false, editable: true, source: "default" } });
+  });
+
+  it("событие «по умолчанию» → «Получает» без строки, путь «Включено по умолчанию» (ADR 2026-11-09)", () => {
+    const e = explain({});
+    const b = ev(e, "booking.created");
+    expect(b).toMatchObject({ status: "RECEIVES", delivery: "personal", toggle: { enabled: true, editable: true, source: "default" } });
+    expect(b.paths).toEqual([{ kind: "default", label: "Включено по умолчанию", moduleSlug: null }]);
+  });
+
+  it("у звонков два канала: карточка в ленте и сообщение бота", () => {
+    const e = explain({ snapshot: snap({ role: "SUPERADMIN" }) });
+    expect(ev(e, "telephony.daily_summary")).toMatchObject({ delivery: "in-app", status: "RECEIVES" });
+    expect(ev(e, "telephony.daily_summary").deliveryChannels).toEqual([{ kind: "IN_APP", label: "Лента Mini App" }]);
+    expect(ev(e, "telephony.daily_summary_telegram")).toMatchObject({ delivery: "personal", status: "RECEIVES" });
+    expect(ev(e, "telephony.daily_summary_telegram").deliveryChannels).toEqual([{ kind: "TELEGRAM", label: "Telegram" }]);
   });
 
   it("список раздела → «Получает» с путём и каналом", () => {
     const e = explain({ snapshot: snap({ listModules: new Set(["gazebos"]) }) });
     const b = ev(e, "booking.created");
     expect(b.status).toBe("RECEIVES");
-    expect(b.paths).toEqual([{ kind: "module_list", label: "Список получателей раздела «Барбекю Парк»", moduleSlug: "gazebos" }]);
+    expect(b.paths).toEqual([
+      { kind: "default", label: "Включено по умолчанию", moduleSlug: null },
+      { kind: "module_list", label: "Список получателей раздела «Барбекю Парк»", moduleSlug: "gazebos" },
+    ]);
     expect(b.deliveryChannels).toEqual([{ kind: "TELEGRAM", label: "Telegram" }]);
     expect(b.contexts).toEqual([
-      { moduleSlug: "gazebos", receives: true, paths: ["module_list"] },
+      { moduleSlug: "gazebos", receives: true, paths: ["default", "module_list"] },
+      // grant on gazebos only — Плей Парк bookings stay out (RBAC per event section)
       { moduleSlug: "ps-park", receives: false, paths: [] },
     ]);
   });

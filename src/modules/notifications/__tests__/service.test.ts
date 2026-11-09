@@ -395,14 +395,29 @@ describe("notifyAdmin — staffAudience", () => {
     expect(telegramAdapter.send).not.toHaveBeenCalled();
   });
 
-  it("явные получатели (замена чата) его не получают, самоподписанные — получают", async () => {
+  it("список раздела сам по себе не даёт личного события: только индивидуальные пути", async () => {
     mockGazebosConfig({ telegramAdminChatId: "-100111" });
-    staff = [listed("explicit-1"), subscribed("self-1", "booking.created")];
+    // В списке, но без доступа к разделу: путь списка не считается, а
+    // «по умолчанию» требует доступа — не получает.
+    const listedNoAccess: StaffFixture = { id: "explicit-1", role: "MANAGER", grants: ["cafe"], lists: ["gazebos"] };
+    // В списке и выключил событие сам — не получает.
+    const listedOptedOut: StaffFixture = { ...listed("explicit-2"), prefs: { "booking.created": false } };
+    staff = [listedNoAccess, listedOptedOut, subscribed("self-1", "booking.created")];
 
     await notify(personalEvent);
 
     const dispatched = vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId);
     expect(dispatched).toEqual(["self-1"]);
+  });
+
+  it("по умолчанию получают все с доступом к разделу (ADR 2026-11-09)", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [listed("explicit-1"), { id: "admin-1", role: "ADMIN" }, { id: "cafe-1", role: "MANAGER", grants: ["cafe"] }];
+
+    await notify(personalEvent);
+
+    const dispatched = vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId).sort();
+    expect(dispatched).toEqual(["admin-1", "explicit-1"]);
   });
 
   it("самоподписанный, который ещё и явный получатель, всё равно получает", async () => {
@@ -451,5 +466,71 @@ describe("notifyAdmin — единый резолвер (AC-C2.1, AC-C3.1)", () 
     await notify(cancelledEvent);
 
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ userId: "sa" }));
+  });
+});
+
+// ADR 2026-11-09: all booking events reach staff personally, each toggles them.
+describe("notifyAdmin — события брони только лично (staff: direct)", () => {
+  const phoneBooking: NotificationEvent = {
+    type: "booking.admin_created",
+    moduleSlug: "gazebos",
+    entityId: "b9",
+    actor: "admin",
+    data: { resourceName: "Беседка №3", date: "2026-11-12", startTime: "12:00", endTime: "16:00", clientName: "Пётр", clientPhone: "+79990001122", bookingId: "b9" },
+  };
+
+  it("бронь по телефону: лично всем с доступом по умолчанию, без группового чата", async () => {
+    vi.stubEnv("TELEGRAM_ADMIN_CHAT_ID", "-100global");
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [{ id: "admin-1", role: "ADMIN" }, { id: "off", role: "ADMIN", prefs: { "booking.admin_created": false } }];
+
+    await notify(phoneBooking);
+
+    expect(vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId)).toEqual(["admin-1"]);
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+  });
+
+  it("личное сообщение — чистый текст с кнопкой, а не HTML и технический заголовок", async () => {
+    mockGazebosConfig({});
+    staff = [{ id: "admin-1", role: "ADMIN" }];
+
+    await notify(phoneBooking);
+
+    const payload = vi.mocked(dispatch).mock.calls[0][0].payload;
+    expect(payload.title).toBe("📞 Бронь по телефону");
+    expect(payload.title).not.toContain("[gazebos]");
+    expect(payload.body).toContain("Беседка №3");
+    expect(payload.body).not.toMatch(/<\/?(b|a)\b/);
+    expect(payload.actions).toEqual([{ label: "Открыть бронь в панели", url: expect.stringContaining("/admin/gazebos/bookings/b9") }]);
+  });
+
+  it("перенос: подписанные лично получают, staffAudience none — никто", async () => {
+    mockGazebosConfig({ telegramAdminChatId: "-100111" });
+    staff = [{ id: "admin-1", role: "ADMIN" }];
+    const moved: NotificationEvent = {
+      type: "booking.rescheduled", moduleSlug: "gazebos", entityId: "b1", actor: "client",
+      data: { resourceName: "Беседка №1", date: "2026-11-12", startTime: "12:00", endTime: "16:00" },
+    };
+
+    await notify(moved);
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ userId: "admin-1", eventType: "booking.rescheduled" }));
+    expect(vi.mocked(dispatch).mock.calls[0][0].payload.body).toContain("Перенёс клиент.");
+
+    vi.mocked(dispatch).mockClear();
+    await notify({ ...moved, staffAudience: "none" });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(telegramAdapter.send).not.toHaveBeenCalled();
+  });
+
+  it("«скоро закончится» — только по личной подписке (по умолчанию выключено)", async () => {
+    mockGazebosConfig({});
+    staff = [{ id: "admin-1", role: "ADMIN" }, { id: "admin-2", role: "ADMIN", prefs: { "booking.ending_soon": true } }];
+
+    await notify({
+      type: "booking.ending_soon", moduleSlug: "gazebos", entityId: "b1",
+      data: { resourceName: "Беседка №1", date: "2026-11-12", startTime: "12:00", endTime: "16:00", bookingId: "b1" },
+    });
+
+    expect(vi.mocked(dispatch).mock.calls.map(([arg]) => arg.userId)).toEqual(["admin-2"]);
   });
 });

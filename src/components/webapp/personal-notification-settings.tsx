@@ -18,6 +18,8 @@ interface Preferences {
   enableBooking: boolean;
   enableOrder: boolean;
   enableReminder: boolean;
+  /** Еженедельные подсказки и новости бота; старый API без поля = включено. */
+  enableWeeklyTips?: boolean;
   preferredChannel: "AUTO" | "TELEGRAM" | "EMAIL" | "VK";
 }
 
@@ -154,6 +156,14 @@ export function PersonalNotificationSettings({ embedded = false }: { embedded?: 
             checked={prefs.enableReminder}
             saving={saving}
             onChange={(v) => updatePref({ enableReminder: v })}
+          />
+          <PreferenceRow
+            icon="info"
+            label="Подсказки и новости"
+            description="Раз в неделю — полезное о парке и Mini App"
+            checked={prefs.enableWeeklyTips !== false}
+            saving={saving}
+            onChange={(v) => updatePref({ enableWeeklyTips: v })}
           />
         </Card>
       </div>

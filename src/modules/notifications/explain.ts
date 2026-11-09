@@ -49,6 +49,8 @@ export type ExplainEvent = {
   eventType: string;
   label: string;
   description: string;
+  /** Where this event lands (mixed categories: e.g. calls in-app + Telegram). */
+  delivery: "personal" | "in-app";
   status: ExplainStatus;
   toggle: { enabled: boolean; editable: boolean; source: "explicit" | "default" };
   paths: Array<{ kind: DeliveryPath; label: string; moduleSlug: string | null }>;
@@ -111,6 +113,8 @@ export function pathLabel(kind: DeliveryPath, moduleSlug: string | null): string
   switch (kind) {
     case "personal":
       return "Личная подписка";
+    case "default":
+      return "Включено по умолчанию";
     case "module_list":
       return `Список получателей раздела «${moduleLabel(moduleSlug ?? "")}»`;
     case "role_avito":
@@ -185,7 +189,7 @@ function explainEvent(
   const notes: ExplainEvent["notes"] = [];
   let deliveryChannels: ExplainEvent["deliveryChannels"] = [];
 
-  if (category.delivery === "in-app") {
+  if ((event.delivery ?? category.delivery) === "in-app") {
     deliveryChannels = [{ kind: "IN_APP", label: CHANNEL_LABELS.IN_APP }];
   } else if (receives) {
     const ordered = orderedChannels(input, pref);
@@ -221,6 +225,7 @@ function explainEvent(
     eventType: event.eventType,
     label: event.label,
     description: event.description,
+    delivery: (event.delivery ?? category.delivery) === "in-app" ? "in-app" : "personal",
     status,
     toggle: { enabled: receives, editable: anyAccess || row !== null, source: row ? "explicit" : "default" },
     paths,

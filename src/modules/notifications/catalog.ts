@@ -1,3 +1,4 @@
+import type { Role } from "@prisma/client";
 import type { AdminSection } from "@/lib/permissions";
 import type { WebAppIconName } from "@/lib/webapp/icon-names";
 
@@ -21,8 +22,16 @@ export type ManagedEvent = {
   eventType: string;
   label: string;
   description: string;
-  /** In-app summaries requested by the owner are on until explicitly disabled. */
-  defaultEnabled?: boolean;
+  /**
+   * On until the person explicitly turns it off (path `default` in
+   * `audience-rules.ts`): `true` — every staff member with access to the
+   * category, `"superadmin"` — only current SUPERADMINs (others opt in).
+   * Без строки предпочтения тумблер в Центре стоит «Вкл» с подписью «по
+   * умолчанию»; явное «Выкл» сильнее (ADR 2026-11-09-staff-booking-reports-digest).
+   */
+  defaultEnabled?: boolean | "superadmin";
+  /** Overrides the category delivery for this event (mixed categories). */
+  delivery?: "in-app" | "personal";
 };
 
 export type ManagedCategory = {
@@ -39,6 +48,8 @@ export type ManagedCategory = {
   superadminOnly?: boolean;
   /** Any current staff member has access (releases are not tied to a section). */
   staffAlways?: boolean;
+  /** Only these roles may receive the category (on top of the section rule). */
+  roles?: Role[];
   delivery?: "in-app";
   events: ManagedEvent[];
 };
@@ -47,18 +58,48 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
   {
     key: "telephony",
     label: "Звонки",
-    description: "Итоги дня в ленте Mini App",
+    description: "Итоги дня: в ленте Mini App и сообщением бота",
     icon: "bell",
     sections: ["telephony"],
     superadminAlways: true,
     superadminOnly: true,
     delivery: "in-app",
-    events: [{
-      eventType: "telephony.daily_summary",
-      label: "Ежедневная сводка звонков",
-      description: "После 09:00 МСК за предыдущий день: всего, принято и пропущено. Только в ленте Mini App.",
-      defaultEnabled: true,
-    }],
+    events: [
+      {
+        // На по умолчанию у суперадмина — ролевой путь `in_app_superadmin`
+        // (audience-rules.ts), а не общий `default`: так было с запуска.
+        eventType: "telephony.daily_summary",
+        label: "Ежедневная сводка звонков",
+        description: "После 09:00 МСК за предыдущий день: всего, принято и пропущено. Карточка в ленте Mini App.",
+      },
+      {
+        // Владелец не видел сводку, пока не открывал ленту (2026-11-09):
+        // те же три числа, без номеров и имён, личным сообщением бота.
+        eventType: "telephony.daily_summary_telegram",
+        label: "Сводка звонков в Telegram",
+        description: "Та же сводка сообщением бота в 09:00 МСК — без номеров и имён",
+        defaultEnabled: "superadmin",
+        delivery: "personal",
+      },
+    ],
+  },
+  {
+    key: "reports",
+    label: "Отчётность",
+    description: "Бизнес-итоги недели по финансовой книге",
+    icon: "receipt",
+    sections: ["analytics"],
+    superadminAlways: true,
+    // Тот же круг, что getBusinessViewer: MANAGER финансовые итоги не получает.
+    roles: ["SUPERADMIN", "ADMIN"],
+    events: [
+      {
+        eventType: "analytics.business_weekly",
+        label: "Бизнес-отчёт за неделю",
+        description: "По понедельникам после 09:00 МСК: поступления, возвраты и нетто по паркам",
+        defaultEnabled: "superadmin",
+      },
+    ],
   },
   {
     key: "bookings",
@@ -70,16 +111,38 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
     // тумблера, за которыми одна строка БД, обманывали бы пользователя
     // (ADR §4, осознанное отступление от буквы AC-5.1).
     sections: ["gazebos", "ps-park"],
+    // Все события брони идут лично каждому, у кого есть раздел, — по
+    // умолчанию «Вкл», каждый выключает лишнее сам (владелец, 2026-11-09).
+    // Групповой чат раздела работает как раньше и от этих тумблеров не зависит.
     events: [
       {
         eventType: "booking.created",
         label: "Новая бронь",
-        description: "Гость создал бронь беседки или стола",
+        description: "Гость создал бронь беседки или стола (онлайн-бронь — после оплаты)",
+        defaultEnabled: true,
+      },
+      {
+        eventType: "booking.admin_created",
+        label: "Бронь по телефону",
+        description: "Коллега принял бронь в панели — она уже подтверждена",
+        defaultEnabled: true,
+      },
+      {
+        eventType: "booking.rescheduled",
+        label: "Перенос брони",
+        description: "Изменились дата, время или беседка",
+        defaultEnabled: true,
       },
       {
         eventType: "booking.cancelled",
         label: "Отмена брони",
         description: "Бронь отменена гостем или администратором",
+        defaultEnabled: true,
+      },
+      {
+        eventType: "booking.ending_soon",
+        label: "Бронь скоро закончится",
+        description: "За час до конца брони беседки — предложить продление",
       },
     ],
   },
@@ -198,8 +261,13 @@ export const MANAGED_EVENT_TYPES = NOTIFICATION_CATALOG.flatMap((category) =>
  */
 export const EVENT_MODULE_CONTEXTS: Record<string, Array<string | null>> = {
   "telephony.daily_summary": [null],
+  "telephony.daily_summary_telegram": [null],
+  "analytics.business_weekly": [null],
   "booking.created": ["gazebos", "ps-park"],
+  "booking.admin_created": ["gazebos", "ps-park"],
+  "booking.rescheduled": ["gazebos"],
   "booking.cancelled": ["gazebos", "ps-park"],
+  "booking.ending_soon": ["gazebos"],
   "order.placed": ["cafe"],
   "order.cancelled": ["cafe"],
   "contract.created": ["rental"],
@@ -215,6 +283,28 @@ export const EVENT_MODULE_CONTEXTS: Record<string, Array<string | null>> = {
 export const MODULE_ACCESS_ALIAS: Record<string, string> = {
   "rental-inquiry": "rental",
 };
+
+export function managedEvent(eventType: string): ManagedEvent | undefined {
+  for (const category of NOTIFICATION_CATALOG) {
+    const event = category.events.find((e) => e.eventType === eventType);
+    if (event) return event;
+  }
+  return undefined;
+}
+
+/** Event is on for this role while no explicit preference row exists. */
+export function isDefaultOnFor(eventType: string, role: Role): boolean {
+  const flag = managedEvent(eventType)?.defaultEnabled;
+  return flag === true || (flag === "superadmin" && role === "SUPERADMIN");
+}
+
+/** Roles that may get the event by default (candidate pre-filter for the resolver). */
+export function defaultOnRoles(eventType: string): Role[] {
+  const flag = managedEvent(eventType)?.defaultEnabled;
+  if (flag === true) return ["SUPERADMIN", "ADMIN", "MANAGER"];
+  if (flag === "superadmin") return ["SUPERADMIN"];
+  return [];
+}
 
 export function categoryForEvent(
   eventType: string

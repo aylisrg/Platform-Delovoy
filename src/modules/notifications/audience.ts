@@ -1,8 +1,9 @@
 import type { Prisma, PrismaClient, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { MANAGED_EVENT_TYPES } from "./catalog";
+import { MANAGED_EVENT_TYPES, defaultOnRoles } from "./catalog";
 import {
   AVITO_EVENT,
+  INDIVIDUAL_PATHS,
   TELEPHONY_EVENT,
   evaluateRoute,
   groupChatDecision,
@@ -57,6 +58,18 @@ async function candidateUserIds(
   db: Db,
 ): Promise<string[]> {
   const activeStaff = { role: { in: STAFF_ROLES }, mergedIntoUserId: null };
+  const roleClauses: Prisma.UserWhereInput[] = [];
+  if (eventType === AVITO_EVENT || eventType === TELEPHONY_EVENT) roleClauses.push({ role: "SUPERADMIN" });
+  if (eventType === AVITO_EVENT && moduleSlug) {
+    roleClauses.push({
+      role: { in: ["MANAGER", "ADMIN"] as Role[] },
+      moduleAssignments: { some: { module: { slug: moduleSlug, isActive: true } } },
+    });
+  }
+  // On-by-default events: every staff member of the eligible roles is a
+  // candidate; access and explicit opt-outs are decided by evaluateRoute.
+  const defaultRoles = defaultOnRoles(eventType);
+  if (defaultRoles.length) roleClauses.push({ role: { in: defaultRoles } });
   const [prefRows, listRows, roleRows] = await Promise.all([
     db.notificationEventPreference.findMany({
       where: { eventType, user: activeStaff },
@@ -68,19 +81,8 @@ async function candidateUserIds(
           select: { userId: true },
         })
       : Promise.resolve([]),
-    eventType === AVITO_EVENT || eventType === TELEPHONY_EVENT
-      ? db.user.findMany({
-          where: {
-            ...activeStaff,
-            OR: [
-              { role: "SUPERADMIN" },
-              ...(eventType === AVITO_EVENT && moduleSlug
-                ? [{ role: { in: ["MANAGER", "ADMIN"] as Role[] }, moduleAssignments: { some: { module: { slug: moduleSlug, isActive: true } } } }]
-                : []),
-            ],
-          },
-          select: { id: true },
-        })
+    roleClauses.length
+      ? db.user.findMany({ where: { ...activeStaff, OR: roleClauses }, select: { id: true } })
       : Promise.resolve([]),
   ]);
   return [
@@ -117,7 +119,8 @@ export type StaffRouting = {
 /**
  * Who gets a staff event, and whether the module group chat does.
  * One message per person regardless of how many paths they have (AC-C1.3).
- * `staffAudience: "personal"` keeps only explicit personal subscriptions.
+ * `staffAudience: "personal"` keeps only individual paths: an explicit
+ * personal subscription or an on-by-default event (no list, no role path).
  * `withGroupChat` evaluates the legacy group-chat paths (notifyAdmin only).
  */
 export async function resolveStaffRouting(
@@ -140,7 +143,7 @@ export async function resolveStaffRouting(
   for (const snapshot of snapshots) {
     const decision = evaluateRoute(snapshot, input.eventType, input.moduleSlug);
     const paths =
-      input.staffAudience === "personal" ? decision.paths.filter((p) => p === "personal") : decision.paths;
+      input.staffAudience === "personal" ? decision.paths.filter((p) => INDIVIDUAL_PATHS.has(p)) : decision.paths;
     if (paths.length === 0) continue;
     if (decision.optedOut) suppressed.push({ userId: snapshot.id, reason: "OPTED_OUT" });
     else recipients.push({ userId: snapshot.id, paths });

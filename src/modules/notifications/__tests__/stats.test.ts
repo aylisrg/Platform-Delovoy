@@ -336,7 +336,11 @@ describe("getNotificationStats — QA control set D", () => {
     expect(stats.groupChats).toEqual({ sent: 3, failed: 1 });
     expect(mockLogGroupBy).toHaveBeenCalledWith({
       by: ["status"],
-      where: { userId: null, eventType: { in: [...MANAGED_EVENT_TYPES] }, createdAt: { gte: new Date(NOW.getTime() - 30 * DAY) } },
+      // scheduler dedup markers (ending_soon is now a catalog type) are not chat posts
+      where: {
+        userId: null, eventType: { in: [...MANAGED_EVENT_TYPES] }, createdAt: { gte: new Date(NOW.getTime() - 30 * DAY) },
+        recipient: { notIn: ["module-channel", "scheduler"] },
+      },
       _count: { _all: true },
     });
     // not mixed into the personal numbers
@@ -384,7 +388,9 @@ describe("getNotificationStats — scope and parameters", () => {
 
   it("category → only its event types; eventType narrows further; unknown combination → no query", async () => {
     await getNotificationStats({ days: 7, category: "bookings" }, NOW);
-    expect(sqlCalls("notification-stats:aggregate")[0].values).toContainEqual(["booking.created", "booking.cancelled"]);
+    expect(sqlCalls("notification-stats:aggregate")[0].values).toContainEqual([
+      "booking.created", "booking.admin_created", "booking.rescheduled", "booking.cancelled", "booking.ending_soon",
+    ]);
 
     mockQueryRaw.mockClear();
     const narrowed = await getNotificationStats({ days: 7, category: "bookings", eventType: "booking.cancelled" }, NOW);

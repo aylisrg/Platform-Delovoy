@@ -43,6 +43,8 @@ export type NotificationCenterEvent = {
   enabled: boolean;
   /** explicit — есть строка предпочтения; default — строки нет */
   source: "explicit" | "default";
+  /** in-app — карточка в ленте Mini App; personal — сообщение бота лично. */
+  delivery: "personal" | "in-app";
   /** Why it comes: «Вы в списке получателей раздела …», «По роли …», «Личная подписка». */
   caption: string | null;
   blockers: Array<{ code: string; label: string }>;
@@ -192,6 +194,7 @@ function eventCaption(event: ExplainEvent): string | null {
   if (event.paths.some((p) => p.kind === "role_avito")) return "По роли: суперадмины и назначенные на модуль";
   if (event.paths.some((p) => p.kind === "in_app_superadmin")) return "В ленте Mini App";
   if (event.paths.some((p) => p.kind === "personal")) return "Личная подписка";
+  if (event.paths.some((p) => p.kind === "default")) return "Включено по умолчанию — можно выключить";
   return null;
 }
 
@@ -235,6 +238,7 @@ export async function getNotificationCenter(
         description: event.description,
         enabled: event.toggle.enabled,
         source: event.toggle.source,
+        delivery: event.delivery,
         caption: eventCaption(event),
         blockers: event.blockers,
       }));
@@ -243,7 +247,9 @@ export async function getNotificationCenter(
         label: category.label,
         description: category.description,
         icon: category.icon as WebAppIconName,
-        delivery: category.delivery === "in-app" ? "in-app" : events.some((e) => e.enabled) ? "personal" : "group",
+        delivery: category.events.every((e) => e.delivery === "in-app")
+          ? "in-app"
+          : events.some((e) => e.enabled) ? "personal" : "group",
         events,
       };
     });

@@ -56,17 +56,56 @@ describe("contextAccess (ADR 2026-10-25 §Q7) — one rule for every path", () =
 });
 
 describe("evaluateRoute — paths and the opt-out (AC-C2.1)", () => {
-  it("explicit «on» adds the personal path; no row = no subscription", () => {
-    const m = snap({ role: "MANAGER", grants: new Set(["gazebos"]) });
-    expect(evaluateRoute(m, "booking.created", "gazebos")).toMatchObject({ receives: false, paths: [] });
-    expect(evaluateRoute({ ...m, prefs: prefs({ "booking.created": true }) }, "booking.created", "gazebos")).toMatchObject({
+  it("explicit «on» adds the personal path; no row = no subscription for an opt-in event", () => {
+    const m = snap({ role: "MANAGER", grants: new Set(["cafe"]) });
+    expect(evaluateRoute(m, "order.placed", "cafe")).toMatchObject({ receives: false, paths: [] });
+    expect(evaluateRoute({ ...m, prefs: prefs({ "order.placed": true }) }, "order.placed", "cafe")).toMatchObject({
       receives: true, paths: ["personal"],
     });
   });
 
+  // ADR 2026-11-09: booking events are on by default for everyone with the section.
+  it("on-by-default event: no row = «default»; explicit «on» = personal; explicit «off» wins", () => {
+    const m = snap({ role: "MANAGER", grants: new Set(["gazebos"]) });
+    expect(evaluateRoute(m, "booking.created", "gazebos")).toMatchObject({ receives: true, paths: ["default"] });
+    expect(evaluateRoute({ ...m, prefs: prefs({ "booking.created": true }) }, "booking.created", "gazebos")).toMatchObject({
+      receives: true, paths: ["personal"],
+    });
+    expect(evaluateRoute({ ...m, prefs: prefs({ "booking.created": false }) }, "booking.created", "gazebos")).toMatchObject({
+      receives: false, optedOut: true, paths: [],
+    });
+    // no section → the default gives nothing
+    expect(evaluateRoute(snap({ role: "MANAGER", grants: new Set(["cafe"]) }), "booking.created", "gazebos").receives).toBe(false);
+    // RBAC: a Плей Парк-only manager never gets gazebo bookings (client name/phone)
+    const psOnly = snap({ role: "MANAGER", grants: new Set(["ps-park"]) });
+    expect(evaluateRoute(psOnly, "booking.created", "gazebos")).toMatchObject({ receives: false, paths: [] });
+    expect(evaluateRoute(psOnly, "booking.created", "ps-park").paths).toEqual(["default"]);
+    expect(evaluateRoute({ ...psOnly, prefs: prefs({ "booking.created": true }) }, "booking.created", "gazebos").receives).toBe(false);
+    const psAssigned = snap({ role: "MANAGER", assignments: new Set(["ps-park"]) });
+    expect(evaluateRoute(psAssigned, "booking.cancelled", "gazebos").receives).toBe(false);
+    expect(evaluateRoute(psAssigned, "booking.cancelled", "ps-park").receives).toBe(true);
+    // ADMIN owns gazebos/ps-park by role
+    expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.admin_created", "ps-park").paths).toEqual(["default"]);
+    // ending_soon stays opt-in
+    expect(evaluateRoute(snap({ role: "ADMIN" }), "booking.ending_soon", "gazebos").receives).toBe(false);
+  });
+
+  it("«superadmin» default: weekly business report on for SUPERADMIN, opt-in for ADMIN, never for MANAGER", () => {
+    expect(evaluateRoute(snap({ role: "SUPERADMIN" }), "analytics.business_weekly", null)).toMatchObject({ receives: true, paths: ["default"] });
+    const admin = snap({ role: "ADMIN", grants: new Set(["analytics"]) });
+    expect(evaluateRoute(admin, "analytics.business_weekly", null).receives).toBe(false);
+    expect(evaluateRoute({ ...admin, prefs: prefs({ "analytics.business_weekly": true }) }, "analytics.business_weekly", null).receives).toBe(true);
+    const manager = snap({ role: "MANAGER", grants: new Set(["analytics"]), prefs: prefs({ "analytics.business_weekly": true }) });
+    expect(evaluateRoute(manager, "analytics.business_weekly", null)).toMatchObject({
+      receives: false, access: { ok: false, reason: "ROLE_NOT_ALLOWED" },
+    });
+    expect(evaluateRoute(snap({ role: "SUPERADMIN" }), "telephony.daily_summary_telegram", null).paths).toEqual(["default"]);
+    expect(evaluateRoute(snap({ role: "ADMIN", grants: new Set(["telephony"]) }), "telephony.daily_summary_telegram", null).receives).toBe(false);
+  });
+
   it("list member receives; explicit «off» beats the list", () => {
     const listed = snap({ role: "MANAGER", assignments: new Set(["gazebos"]), listModules: new Set(["gazebos"]) });
-    expect(evaluateRoute(listed, "booking.created", "gazebos")).toMatchObject({ receives: true, paths: ["module_list"] });
+    expect(evaluateRoute(listed, "booking.created", "gazebos")).toMatchObject({ receives: true, paths: ["default", "module_list"] });
     expect(evaluateRoute({ ...listed, prefs: prefs({ "booking.created": false }) }, "booking.created", "gazebos")).toMatchObject({
       receives: false, optedOut: true, paths: ["module_list"],
     });

@@ -38,6 +38,8 @@ interface CenterEvent {
   /** Effective: you actually get it (any path, no opt-out). */
   enabled: boolean;
   source: "explicit" | "default";
+  /** in-app — карточка в ленте; personal — сообщение бота (старый API: нет поля). */
+  delivery?: "personal" | "in-app";
   /** Why it comes to you («Вы в списке получателей раздела …»). */
   caption: string | null;
   blockers: Array<{ code: string; label: string }>;
@@ -196,7 +198,7 @@ export function StaffNotificationPreferences() {
         </Card>
       </div>
 
-      {data.categories.some((category) => category.delivery === "in-app") && (
+      {data.categories.some((category) => category.events.some((event) => isInApp(category, event))) && (
         <div className="px-4 mt-3">
           <Card>
             <InfoRow
@@ -252,9 +254,9 @@ export function StaffNotificationPreferences() {
             {category.description} · {deliveryHint(category)}
           </p>
 
-          {category.delivery === "in-app" && category.events.some((event) => event.eventType === "telephony.daily_summary") && (
+          {category.events.some((event) => event.eventType === "telephony.daily_summary") && (
             <p className="px-4 pb-3 text-[13px] leading-relaxed" style={{ color: "var(--tg-text)" }}>
-              Каждый день в 09:00 МСК — итоги предыдущего дня. Только в ленте приложения, без сообщений от бота.
+              Каждый день в 09:00 МСК — итоги предыдущего дня: карточка в ленте приложения и, если включено, сообщение бота.
             </p>
           )}
 
@@ -414,11 +416,19 @@ function channelSubtitle(channel: CenterChannel): string {
     : "Уведомления приходят в этот чат";
 }
 
+const NO_GROUP_CHAT_CATEGORIES = new Set(["system", "telephony", "reports"]);
+
+/** Старый API не присылал delivery у события — тогда решает категория. */
+function isInApp(category: CenterCategory, event: CenterEvent): boolean {
+  return event.delivery ? event.delivery === "in-app" : category.delivery === "in-app";
+}
+
 function deliveryHint(category: CenterCategory): string {
   if (category.delivery === "in-app") return "в ленте приложения";
   if (category.delivery === "personal") return "приходят вам лично";
-  // У «Системных» группового канала нет вовсе — обещать общий чат нельзя.
-  return category.key === "system"
+  // У «Системных», звонков и отчётности группового канала нет вовсе —
+  // обещать общий чат нельзя.
+  return NO_GROUP_CHAT_CATEGORIES.has(category.key)
     ? "вы пока не подписаны"
     : "сейчас уходят в общий чат раздела";
 }

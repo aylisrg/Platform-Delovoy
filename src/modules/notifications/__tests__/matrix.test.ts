@@ -41,7 +41,9 @@ describe("getNotificationMatrix (US-C4)", () => {
       ["b", explain("b", { "booking.created": "BLOCKED", "booking.cancelled": "NOT_RECEIVING" }, true)],
     ]));
     const m = await getNotificationMatrix({ category: "bookings" });
-    expect(m.events.map((e) => e.eventType)).toEqual(["booking.created", "booking.cancelled"]);
+    expect(m.events.map((e) => e.eventType)).toEqual([
+      "booking.created", "booking.admin_created", "booking.rescheduled", "booking.cancelled", "booking.ending_soon",
+    ]);
     expect(m.rows[1].cells["booking.created"]).toEqual({ status: "BLOCKED", reason: "Нет канала доставки", editable: true, enabled: true });
     expect(m.totals["booking.created"]).toEqual({ personalRecipients: 2, groupChatOnly: false });
     expect(m.totals["booking.cancelled"]).toEqual({ personalRecipients: 0, groupChatOnly: true });

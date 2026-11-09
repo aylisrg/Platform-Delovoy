@@ -57,6 +57,7 @@ export async function PUT(request: NextRequest) {
       enableOrder: preference.enableOrder,
       enableReminder: preference.enableReminder,
       preferredChannel: preference.preferredChannel,
+      ...(preference.enableWeeklyTips !== undefined && { enableWeeklyTips: preference.enableWeeklyTips }),
     });
   } catch (error) {
     console.error("[WebApp Preferences PUT] Error:", error);

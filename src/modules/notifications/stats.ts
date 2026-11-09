@@ -259,12 +259,16 @@ async function querySkips(scope: ItemsScope): Promise<Array<{ reason: string; co
   return groups.map((g) => ({ reason: g.reason, count: g._count._all }));
 }
 
+/** `recipient` of the scheduler's NotificationLog dedup markers (scheduler.ts). */
+export const SCHEDULER_MARKER_RECIPIENTS = ["module-channel", "scheduler"];
+
 /** Legacy group-chat journal: NotificationLog rows without a person (AC-D1.5). */
 async function queryGroupChats(types: string[], from: Date): Promise<{ sent: number; failed: number }> {
   if (types.length === 0) return { sent: 0, failed: 0 };
   const groups = await prisma.notificationLog.groupBy({
     by: ["status"],
-    where: { userId: null, eventType: { in: types }, createdAt: { gte: from } },
+    // Scheduler dedup markers (booking.ending_soon/reminder) are not chat posts.
+    where: { userId: null, eventType: { in: types }, createdAt: { gte: from }, recipient: { notIn: SCHEDULER_MARKER_RECIPIENTS } },
     _count: { _all: true },
   });
   const count = (status: string) => groups.find((g) => g.status === status)?._count._all ?? 0;

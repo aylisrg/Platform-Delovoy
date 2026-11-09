@@ -11,6 +11,8 @@ import { getModuleBotConfig } from "./module-chat-config";
 import { dispatch } from "./dispatch/dispatcher";
 import { resolveStaffRouting } from "./audience";
 import { recordSkips } from "./skips";
+import { htmlToStaffPayload } from "./staff-payload";
+import { WEEKLY_DIGEST_EVENT } from "./weekly-digest";
 
 export { getModuleBotConfig };
 
@@ -40,8 +42,8 @@ export async function notify(event: NotificationEvent): Promise<void> {
     promises.push(notifyClient(event));
   }
 
-  if (routing.admin && event.staffAudience !== "none") {
-    promises.push(notifyAdmin(event));
+  if ((routing.admin || routing.staff === "direct") && event.staffAudience !== "none") {
+    promises.push(notifyAdmin(event, routing.admin ? "admin" : "direct"));
   }
 
   await Promise.allSettled(promises);
@@ -220,6 +222,7 @@ function bookingIdForEvent(event: NotificationEvent): string | null {
 async function withAdminContext(event: NotificationEvent): Promise<Record<string, unknown>> {
   const data: Record<string, unknown> = { ...event.data };
   if (data.cancelledBy === undefined && event.actor) data.cancelledBy = event.actor;
+  if (event.type === "booking.rescheduled" && data.movedBy === undefined && event.actor) data.movedBy = event.actor;
 
   try {
     const bookingId = bookingIdForEvent(event);
@@ -287,20 +290,22 @@ async function withAdminContext(event: NotificationEvent): Promise<Record<string
  * is empty (module chat, else the global admin chat), never when
  * `Module.config.telegramAdminChatEnabled === false`.
  *
- * `event.staffAudience === "personal"` → only explicit personal subscribers,
- * no list, no group chat (`"none"` never reaches notifyAdmin at all).
+ * `event.staffAudience === "personal"` or a `staff: "direct"` route → only
+ * individual paths (personal subscription, on-by-default), no list, no group
+ * chat (`"none"` never reaches notifyAdmin at all).
  */
-async function notifyAdmin(event: NotificationEvent): Promise<void> {
+async function notifyAdmin(event: NotificationEvent, mode: "admin" | "direct" = "admin"): Promise<void> {
   try {
     const data = await withAdminContext(event);
     const message = renderAdminMessage(event.moduleSlug, event.type, data);
     if (!message) return;
 
+    const individualOnly = mode === "direct" || event.staffAudience === "personal";
     const routing = await resolveStaffRouting({
       eventType: event.type,
       moduleSlug: event.moduleSlug,
-      staffAudience: event.staffAudience === "personal" ? "personal" : undefined,
-      withGroupChat: true,
+      staffAudience: individualOnly ? "personal" : undefined,
+      withGroupChat: mode === "admin",
     });
 
     await recordSkips(
@@ -314,8 +319,7 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
     );
 
     if (routing.recipients.length > 0) {
-      const eventLabel = event.type.replace(".", " ");
-      const payload = { title: `[${event.moduleSlug}] ${eventLabel}`, body: message };
+      const payload = htmlToStaffPayload(message, "Уведомление");
       await Promise.allSettled(
         routing.recipients.map(({ userId }) =>
           dispatch({
@@ -331,7 +335,7 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
 
     const chat = routing.groupChat;
     if (!chat.send || !chat.chatId) {
-      if (chat.reason === "no_chat_configured" && routing.recipients.length === 0) {
+      if (mode === "admin" && chat.reason === "no_chat_configured" && routing.recipients.length === 0) {
         console.warn(`[Notifications] No admin chat configured for module: ${event.moduleSlug}`);
       }
       return;
@@ -359,9 +363,13 @@ async function notifyAdmin(event: NotificationEvent): Promise<void> {
  * Returns default preferences if none are set.
  */
 export async function getUserPreferences(userId: string) {
-  const preference = await prisma.notificationPreference.findUnique({
-    where: { userId },
-  });
+  const [preference, weeklyTips] = await Promise.all([
+    prisma.notificationPreference.findUnique({ where: { userId } }),
+    prisma.notificationEventPreference.findUnique({
+      where: { userId_eventType: { userId, eventType: WEEKLY_DIGEST_EVENT } },
+      select: { enabled: true },
+    }),
+  ]);
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -381,12 +389,14 @@ export async function getUserPreferences(userId: string) {
           enableOrder: preference.enableOrder,
           enableReminder: preference.enableReminder,
           preferredChannel: preference.preferredChannel,
+          enableWeeklyTips: weeklyTips?.enabled ?? true,
         }
       : {
           enableBooking: true,
           enableOrder: true,
           enableReminder: true,
           preferredChannel: "AUTO" as const,
+          enableWeeklyTips: weeklyTips?.enabled ?? true,
         },
     availableChannels,
   };
@@ -397,18 +407,30 @@ export async function getUserPreferences(userId: string) {
  */
 export async function updateUserPreferences(
   userId: string,
-  data: {
+  input: {
     enableBooking?: boolean;
     enableOrder?: boolean;
     enableReminder?: boolean;
     preferredChannel?: NotificationChannel;
+    enableWeeklyTips?: boolean;
   }
 ) {
-  return prisma.notificationPreference.upsert({
+  const { enableWeeklyTips, ...data } = input;
+  if (enableWeeklyTips !== undefined) {
+    // Своя строка на тип события, как у сотрудников: отписка от подсказок не
+    // трогает уведомления о бронях и заказах (и наоборот).
+    await prisma.notificationEventPreference.upsert({
+      where: { userId_eventType: { userId, eventType: WEEKLY_DIGEST_EVENT } },
+      create: { userId, eventType: WEEKLY_DIGEST_EVENT, enabled: enableWeeklyTips, updatedByUserId: userId, updatedVia: "miniapp" },
+      update: { enabled: enableWeeklyTips, updatedByUserId: userId, updatedVia: "miniapp" },
+    });
+  }
+  const preference = await prisma.notificationPreference.upsert({
     where: { userId },
     create: { userId, ...data },
     update: data,
   });
+  return { ...preference, enableWeeklyTips };
 }
 
 /**
