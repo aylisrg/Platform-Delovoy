@@ -86,6 +86,6 @@ MCP postgres query: SELECT date_trunc('week', created_at) as week, count(*) FROM
 
 ## См. также
 
-- `agents/SECURITY.md` — security guardrails агентов (актуально для всех MCP)
+- `docs/security-checklist.md` — security-чеклист (актуально для всех MCP)
 - [MCP официальная документация](https://modelcontextprotocol.io/docs)
 - [Список готовых серверов](https://github.com/modelcontextprotocol/servers)

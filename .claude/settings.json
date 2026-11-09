@@ -13,18 +13,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "LOCK=/tmp/platform-tests.lock; if [ -f \"$LOCK\" ] && kill -0 \"$(cat $LOCK 2>/dev/null)\" 2>/dev/null; then echo '{\"systemMessage\":\"⏳ Тесты уже выполняются — пропускаю\"}'; else echo $$ > \"$LOCK\"; cd \"$CLAUDE_PROJECT_DIR\" && npm test > /tmp/platform-tests.log 2>&1; RC=$?; rm -f \"$LOCK\"; if [ $RC -eq 0 ]; then echo '{\"systemMessage\":\"✅ Тесты прошли\"}'; else echo '{\"systemMessage\":\"❌ Тесты упали — npm test для деталей\"}'; fi; fi",
-            "timeout": 180,
-            "statusMessage": "Проверяю тесты..."
-          }
-        ]
-      }
     ]
   }
 }

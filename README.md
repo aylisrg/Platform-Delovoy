@@ -28,11 +28,11 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=flat&logo=tailwindcss&logoColor=white)
 
 - **Next.js 16** — App Router, Server Components, Route Handlers как REST API
-- **Prisma** — type-safe ORM, миграции, 16 моделей
+- **Prisma** — type-safe ORM, миграции
 - **PostgreSQL** — реляционная БД для бронирований, договоров, финансов
 - **Redis** — сессии, кэш, rate limiting
 - **NextAuth.js v5** — RBAC (SUPERADMIN / MANAGER / USER), JWT
-- **Vitest** — 180+ unit и integration тестов
+- **Vitest** — unit и integration тесты; **Playwright** — E2E
 
 ---
 
@@ -59,28 +59,47 @@ Auth  Notify  Pay   ← Общие сервисы
 
 ## Быстрый старт
 
+Нужны Node.js ≥ 22 и Docker.
+
 ```bash
-# 1. Клонировать и установить зависимости
-git clone https://github.com/aylisrg/platform-delovoy.git
-cd platform-delovoy
+# 1. Зависимости
 npm install
 
-# 2. Настроить окружение
+# 2. Окружение
 cp .env.example .env
-# Заполнить DATABASE_URL, REDIS_URL, NEXTAUTH_SECRET
+# Заполнить DATABASE_URL, REDIS_URL, AUTH_SECRET
 
-# 3. Запустить БД и Redis
-docker compose up -d
+# 3. Postgres + Redis для разработки
+npm run dev:docker            # docker compose -f docker-compose.dev.yml up -d
 
-# 4. Применить схему БД и заполнить данными
+# 4. Схема БД и справочные данные
 npx prisma migrate deploy
 npm run db:seed
 
-# 5. Запустить сервер
+# 5. Dev-сервер
 npm run dev
 ```
 
-Открыть: [http://localhost:3000](http://localhost:3000)
+Открыть: [http://localhost:3000](http://localhost:3000). Остановить БД:
+`npm run dev:stop` (данные сохранятся) или `docker compose -f docker-compose.dev.yml down -v` (с удалением).
+
+## Команды
+
+```bash
+npm run dev           # dev-сервер
+npm run lint          # ESLint
+npm run typecheck     # TypeScript: приложение + Telegram-бот
+npm test              # Vitest
+npm run e2e           # Playwright
+npm run db:migrate    # новая миграция (prisma migrate dev)
+npm run db:studio     # Prisma Studio
+```
+
+## Разработка
+
+Правила кода, модули и процесс — в [`CLAUDE.md`](./CLAUDE.md). Коротко: ветка
+`claude/*` или `feature/*` → PR → зелёный CI → мерж руками; мерж в `main`
+выкатывает прод. Деплой и инфраструктура — [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ---
 
@@ -91,25 +110,6 @@ npm run dev
 | `SUPERADMIN` | Всё: все модули, настройки, мониторинг, пользователи |
 | `MANAGER` | Только свой модуль: брони, заказы, настройки |
 | `USER` | Публичные страницы, личный кабинет |
-
----
-
-## Тесты
-
-```bash
-npm test              # Запуск тестов
-npm run test:coverage # Покрытие
-```
-
----
-
-## Дорожная карта
-
-- [x] Phase 0 — Фундамент (Next.js, Prisma, Docker, Auth, API, Мониторинг)
-- [x] Phase 1 — Барбекю Парк (бронирование, Telegram-бот, уведомления)
-- [x] Phase 2 — Плей Парк, Кафе, Парковка, личный кабинет
-- [x] Phase 3 — B2B: Аренда офисов, CRM, договоры, финансы
-- [x] Phase 4 — Дашборд архитектора (карта системы, конфиг, аналитика, логи)
 
 ---
 
