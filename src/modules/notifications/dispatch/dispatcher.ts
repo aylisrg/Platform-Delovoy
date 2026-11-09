@@ -50,13 +50,22 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
     return skip("DND", "DND active");
   }
 
-  const userChannels = await prisma.userNotificationChannel.findMany({
+  let userChannels = await prisma.userNotificationChannel.findMany({
     where: { userId: event.userId, isActive: true },
     orderBy: { priority: "asc" },
   });
-  const channel = pickChannel(userChannels, pref, (k) =>
-    Boolean(ChannelRegistry.get(k)?.isAvailable())
-  );
+  const available = (k: UserNotificationChannel["kind"]) => Boolean(ChannelRegistry.get(k)?.isAvailable());
+  let channel = pickChannel(userChannels, pref, available);
+  if (!channel) {
+    // A staff member with a linked Telegram but no channel row got nothing at
+    // all (the row was created only when they opened the Center). Provision it
+    // here — same rule as ensureManagerNotifyDefaults/ensureTelegramChannel.
+    const provisioned = await provisionStaffTelegramChannel(event.userId);
+    if (provisioned) {
+      userChannels = [...userChannels, provisioned];
+      channel = pickChannel(userChannels, pref, available);
+    }
+  }
   if (!channel) return skip("NO_CHANNEL", "no available channel");
 
   const now = new Date();
@@ -94,6 +103,41 @@ export async function dispatch(event: DispatchEvent): Promise<DispatchOutcome> {
     outgoingId: outgoing.id,
     scheduledFor,
   };
+}
+
+/**
+ * Telegram channel for a current staff member whose account has a linked
+ * `telegramId` (set only by a verified Telegram login/link) but no channel row.
+ * Never for USER (broadcast reach stays «verified channel» only), never for a
+ * merged account, and never over an explicit deactivation of that address.
+ * Best effort: any error means «no channel», as before.
+ */
+export async function provisionStaffTelegramChannel(userId: string): Promise<UserNotificationChannel | null> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, telegramId: true, mergedIntoUserId: true },
+    });
+    if (!user?.telegramId || user.role === "USER" || user.mergedIntoUserId) return null;
+    const existing = await prisma.userNotificationChannel.findFirst({
+      where: { userId, kind: "TELEGRAM", address: user.telegramId },
+    });
+    if (existing) {
+      // Deactivated by the person/admin — respect it. Active but unverified:
+      // the address is the account's own Telegram id, verify it.
+      if (!existing.isActive) return null;
+      if (existing.verifiedAt) return existing;
+      return await prisma.userNotificationChannel.update({ where: { id: existing.id }, data: { verifiedAt: new Date() } });
+    }
+    return await prisma.userNotificationChannel.create({
+      data: {
+        userId, kind: "TELEGRAM", address: user.telegramId, label: "Telegram",
+        priority: 10, isActive: true, verifiedAt: new Date(),
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**

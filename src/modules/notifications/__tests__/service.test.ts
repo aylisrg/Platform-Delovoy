@@ -522,9 +522,13 @@ describe("notifyAdmin — события брони только лично (sta
     expect(telegramAdapter.send).not.toHaveBeenCalled();
   });
 
-  it("«скоро закончится» — только по личной подписке (по умолчанию выключено)", async () => {
+  it("«скоро закончится» — у админов по умолчанию, у менеджера по подписке", async () => {
     mockGazebosConfig({});
-    staff = [{ id: "admin-1", role: "ADMIN" }, { id: "admin-2", role: "ADMIN", prefs: { "booking.ending_soon": true } }];
+    staff = [
+      { id: "admin-off", role: "ADMIN", prefs: { "booking.ending_soon": false } },
+      { id: "admin-2", role: "ADMIN" },
+      { id: "manager-1", role: "MANAGER", grants: ["gazebos"] },
+    ];
 
     await notify({
       type: "booking.ending_soon", moduleSlug: "gazebos", entityId: "b1",

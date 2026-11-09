@@ -187,7 +187,11 @@ jobs:
 
             echo ""
             echo "=== Изнутри контейнера app: прямой путь И сконфигурированный транспорт ==="
-            CONT=$(docker exec -e TG_TOKEN="$TG_TOKEN" delovoy-app node -e '
+            # Blue-green: активный слот — delovoy-app (a) или delovoy-app-b (b).
+            APP_CONT=delovoy-app
+            [ "$(cat /opt/delovoy-park/ACTIVE_SLOT 2>/dev/null)" = "b" ] && APP_CONT=delovoy-app-b
+            echo "Контейнер: $APP_CONT"
+            CONT=$(docker exec -e TG_TOKEN="$TG_TOKEN" "$APP_CONT" node -e '
               const t = process.env.TG_TOKEN;
               const proxy = process.env.TELEGRAM_PROXY_URL || "";
               const root = (process.env.TELEGRAM_API_ROOT || "").replace(/\/+$/, "");
