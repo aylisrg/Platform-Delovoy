@@ -13,8 +13,6 @@
 # собственным автооткатом на случай если edge не поднимется; rollback
 # сначала останавливает edge (иначе host-nginx не сможет забиндиться
 # обратно на занятый порт), потом восстанавливает бэкап.
-#
-# push-триггер регистрирует workflow до мержа; push-запуск = diff (read-only).
 name: Ops — Nginx vhost
 
 on:
@@ -25,13 +23,6 @@ on:
         type: choice
         options: [diff, apply, rollback]
         default: diff
-  push:
-    branches-ignore: [main]
-    paths:
-      - ".github/workflows/ops-nginx.yml"
-      - "infra/nginx/**"
-      - "scripts/apply-nginx-vhost.sh"
-      - "docker-compose.prod.yml"
 
 concurrency:
   group: ops-nginx

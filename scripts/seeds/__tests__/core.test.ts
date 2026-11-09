@@ -125,7 +125,6 @@ describe("seedCore", () => {
     expect(office101?.pricePerMonth).toBe(99999);
 
     // MenuItem: цена сохранилась — найденный existing просто пропускается.
-    // Синхронизация цен с прайсом — отдельный scripts/update-cafe-menu.ts.
     const cappuccino = fake.menuItem.__store.rows.filter(
       (r) => r.name === "Капучино",
     );

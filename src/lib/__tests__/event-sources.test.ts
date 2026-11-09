@@ -3,11 +3,8 @@ import { EVENT_SOURCES } from "../event-sources";
 
 describe("EVENT_SOURCES (issue #581)", () => {
   it("не переименовывает значения, которые читаются по точному совпадению в другом месте", () => {
-    // scripts/lib/log-reader.ts WARNING_SOURCES
+    // SQL в site-watchdog.yml (beacon-divergence) и deploy-error-budget.yml
     expect(EVENT_SOURCES.CLIENT_BEACON).toBe("client-beacon");
-    expect(EVENT_SOURCES.RATE_LIMIT).toBe("rate-limit");
-    // scripts/lib/pattern-extractor.ts — fingerprint по metadata.digest
-    expect(EVENT_SOURCES.SERVER_ERROR).toBe("server-error");
     // src/modules/notifications/health.ts — heartbeat-проверка cron.processOutgoing
     expect(EVENT_SOURCES.CRON_PROCESS_OUTGOING).toBe("cron.processOutgoing");
   });

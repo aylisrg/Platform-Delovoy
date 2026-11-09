@@ -4,9 +4,9 @@ name: Deploy — Error Budget Watch
 # невозможен — эквивалент: 15 минут после успешного деплоя сравниваем
 # ERROR/CRITICAL SystemEvent + client-beacon WARNING с тем же окном
 # непосредственно до деплоя (паттерн — job beacon-divergence в
-# site-watchdog.yml). ×3 — Telegram-алерт + issue prio:P0 с diff'ом
-# коммитов; ×5 — то же плюс авто-откат (dispatch deploy.yml с SHA
-# предыдущего успешного релиза). Решающая функция и её пороги —
+# site-watchdog.yml). ×3 — Telegram-алерт; ×5 — алерт плюс авто-откат
+# (dispatch deploy.yml с SHA предыдущего успешного релиза). GitHub-issues
+# не создаются. Решающая функция и её пороги —
 # scripts/lib/error-budget.ts, юнит-тесты покрывают baseline=0/малые
 # числа/точные границы (AC issue #578).
 #
@@ -21,7 +21,6 @@ on:
 
 permissions:
   contents: read # чтение тегов deployed/current|previous
-  issues: write
   actions: write # dispatch авто-отката
 
 concurrency:
@@ -124,17 +123,14 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
           echo "До: $BEFORE, после: $AFTER"
 
-      - name: Решение (none/alert/rollback) + issue
+      - name: Решение (none/alert/rollback)
         id: decide
         if: steps.parsed.outputs.ok == 'true'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_SHA: ${{ steps.sha.outputs.current }}
           PREVIOUS_SHA: ${{ steps.sha.outputs.previous }}
           BEFORE_COUNT: ${{ steps.parsed.outputs.before }}
           AFTER_COUNT: ${{ steps.parsed.outputs.after }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: npx tsx scripts/error-budget-watch.ts
 
       - name: Telegram — алерт при регрессии

@@ -1,8 +1,7 @@
 /**
  * Прайсинг беседок: weekday/weekend × час/день.
  *
- * Источник данных — `Resource.metadata.priceList` (заполняется
- * скриптом `scripts/update-gazebo-prices.ts`). Для ресурсов без
+ * Источник данных — `Resource.metadata.priceList`. Для ресурсов без
  * priceList используется fallback на `Resource.pricePerHour` —
  * та же цена в будни/выходные/день.
  */

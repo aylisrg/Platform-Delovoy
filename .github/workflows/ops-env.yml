@@ -7,11 +7,8 @@
 #
 # ВНИМАНИЕ: значения inputs видны всем, у кого есть доступ к Actions-логам
 # запуска (мы маскируем через add-mask, но сам факт запуска и ключ видны).
-# Настоящие креды (пароль релея) сюда НЕ передаются — их пишет напрямую
-# ops-telegram-relay.yml, генерируя на раннере.
-#
-# push-триггер на не-main ветки регистрирует workflow до мержа (паттерн
-# telegram-diagnose.yml); push-запуск — всегда сухой прогон без изменений.
+# Настоящие креды (пароль релея) через inputs не передавать — значения
+# input-ов видны в логе запуска.
 name: Ops — VPS .env
 
 on:
@@ -40,9 +37,6 @@ on:
         type: choice
         options: [none, app, bot, app-and-bot]
         default: app-and-bot
-  push:
-    branches-ignore: [main]
-    paths: [".github/workflows/ops-env.yml"]
 
 concurrency:
   group: ops-env
@@ -57,19 +51,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Валидация inputs (push = сухой прогон)
+      - name: Валидация inputs
         id: prep
         env:
-          EVENT: ${{ github.event_name }}
           KEY_CHOICE: ${{ inputs.key }}
           CUSTOM_KEY: ${{ inputs.custom_key }}
           VALUE: ${{ inputs.value }}
         run: |
-          if [ "$EVENT" != "workflow_dispatch" ]; then
-            echo "Сухой прогон (push): изменений не будет. Запускайте через workflow_dispatch."
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           KEY="$KEY_CHOICE"
           [ "$KEY" = "custom" ] && KEY="$CUSTOM_KEY"
           if ! echo "$KEY" | grep -Eq '^[A-Z][A-Z0-9_]{2,63}$'; then

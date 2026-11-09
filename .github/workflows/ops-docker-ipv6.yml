@@ -14,8 +14,6 @@
 #
 # enable рестартует docker → все контейнеры моргнут на ~30–60с. Запускать
 # не в пик. local-watchdog реагирует после 2 минут подряд — окно проходит.
-#
-# push-триггер регистрирует workflow до мержа; push-запуск = status.
 name: Ops — Docker IPv6
 
 on:
@@ -26,9 +24,6 @@ on:
         type: choice
         options: [status, enable, disable, recreate-stack]
         default: status
-  push:
-    branches-ignore: [main]
-    paths: [".github/workflows/ops-docker-ipv6.yml"]
 
 concurrency:
   group: ops-docker-ipv6
@@ -39,7 +34,7 @@ permissions:
 
 jobs:
   ipv6:
-    name: "Docker IPv6: ${{ inputs.action || 'status (push)' }}"
+    name: "Docker IPv6: ${{ inputs.action }}"
     runs-on: ubuntu-latest
     environment: production
     steps:

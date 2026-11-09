@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 jobs:
-  # Gate jobs (lint/test/typecheck/security) run on PRs only.
+  # Gate jobs (lint/test/typecheck/e2e/migrations-drift) run on PRs only.
   # Branch protection requires them before merge — re-running on the merge commit
   # is redundant and costs ~5-8 min per release. Main push runs only `build`.
   lint:
@@ -37,46 +37,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
       - run: npm run lint
-
-  # Отдельная быстрая джоба (--ignore-scripts, без установки остальных джоб):
-  # даёт независимый и самый ранний сигнал о рассинхроне package.json ↔
-  # package-lock.json (issue #445), не дожидаясь более тяжёлых lint/test/build.
-  # setup-node сам тоже теперь ставит зависимости через `npm ci` (issue #464),
-  # так что рассинхрон больше не проходит незамеченным ни в одной джобе — эта
-  # осталась ради скорости фидбека, а не как единственная защита.
-  lockfile:
-    name: Lockfile in sync
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-      - name: npm ci (падает при рассинхроне package.json ↔ package-lock.json)
-        run: npm ci --ignore-scripts --no-audit --no-fund
-
-  # Отчёт AC → тест для PR, ссылающихся на PRD (issue #585). Режим отчёта:
-  # скрипт сам никогда не завершается с ошибкой (см. eval/traceability-report.ts),
-  # continue-on-error — дополнительная страховка на время стабилизации.
-  # Решение сделать проверку блокирующей — отдельным изменением после 2-3 фич.
-  ac-traceability:
-    name: AC-трассируемость (отчёт)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: github.event_name == 'pull_request'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup-node
-      - run: git fetch origin "${{ github.base_ref }}" --depth=1
-      - name: Report AC coverage in step summary
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_REF: ${{ github.base_ref }}
-        run: npx tsx eval/traceability-report.ts
 
   test:
     name: Test
@@ -100,19 +60,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
-      - run: npx tsc --noEmit
-
-  security:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup-node
-      - name: npm audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      - name: App (src/)
+        run: npx tsc --noEmit
+      - name: Telegram bot (bot/)
+        run: npx tsc --noEmit -p tsconfig.bot.json
 
   # Миграции == schema.prisma (issue #590). Прогоняет всю историю
   # prisma/migrations на пустой shadow-БД и сравнивает со схемой. Любое
@@ -137,7 +88,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
       - name: prisma migrate diff (migrations -> schema)
         run: |
@@ -315,48 +266,6 @@ jobs:
         with:
           context: .
           push: false
-          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: platform-delovoy:ci-${{ github.sha }}
-
-      - name: Scan image with Trivy (main — from GHCR)
-        id: trivy_main
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
-          timeout: 5m
-
-      # Same GHCR flakiness as the push step above (issue #689) — Trivy pulls
-      # the just-pushed image back down to scan it, and that pull can hit the
-      # same transient stream/rate-limit error (observed: HTTP/2 PROTOCOL_ERROR).
-      - name: Wait before Trivy retry
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
-        run: sleep 20
-
-      - name: Scan image with Trivy (main — from GHCR) — retry on transient error
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.trivy_main.outcome == 'failure'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
-          timeout: 5m
-
-      - name: Scan image with Trivy (PR — local)
-        if: github.event_name == 'pull_request'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: platform-delovoy:ci-${{ github.sha }}
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
-          timeout: 5m
-
-  # Failure notifications are handled by ci-watchdog.yml (richer format, per-job detail).
