@@ -47,6 +47,10 @@ describe("approved gazebo photos", () => {
     for (const word of ["уют", "идеальн", "незабываем", "атмосфер", "комфорт", "уникальн", "лучш", "отличн", "прекрасн", "волшебн"]) {
       expect(text, word).not.toContain(word);
     }
+    // Live data owns size and rank: copy must not go stale after an admin edit.
+    for (const phrase of ["самая большая", "человек", "по периметру", "так же, как"]) {
+      expect(text, phrase).not.toContain(phrase);
+    }
   });
 
   it("matches the actual number, regardless of database order, and never guesses", () => {
