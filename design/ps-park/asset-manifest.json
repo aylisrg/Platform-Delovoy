@@ -1,0 +1,140 @@
+{
+  "source": "Google Drive «БИЗНЕС - ПАРК ДЕЛОВОЙ — фото интерьера, экстерьера», папка «Плей Парк» (Игровая_NN.webp).",
+  "notes": [
+    "photo-NN is the Drive file Игровая_NN.webp.",
+    "Optimized: 1600px long edge, WebP quality 72 (same as gazebo photos).",
+    "Legacy public/media/ps-park/IMG_43xx.jpeg are kept untouched: the home page (landing services-section) uses them."
+  ],
+  "photos": [
+    {
+      "path": "public/media/ps-park/gallery/photo-01.webp",
+      "photo": 1,
+      "drive_name": "Игровая_01.webp",
+      "source_bytes": 276142,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "3c32d6fc327f4dbe0095c0f9e320ef1d2887a72dd7c1d73c6c5beb31beba598c",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 125746,
+      "sha256": "5290c6ee367c61d8e38ced8c80751aa14da526658f3c6c670f7c451adf727304"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-02.webp",
+      "photo": 2,
+      "drive_name": "Игровая_02.webp",
+      "source_bytes": 295224,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "e47251af4f8b52c4922be2d7850dbe47514c3f8b29ec070f495fa202c69ba342",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 133058,
+      "sha256": "105347523976e4e4d8bb0cd0cf4836bd5ec855ebf3a257117061e566f4990197"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-03.webp",
+      "photo": 3,
+      "drive_name": "Игровая_03.webp",
+      "source_bytes": 241598,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "1974564387e0b1695d4533b6374cae7705649035e64372cc0600f55af4bf17a0",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 112548,
+      "sha256": "228ed97a994d3850a3c8d76d4ce3fb8810be27be07739289bfe561407d3992f3"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-04.webp",
+      "photo": 4,
+      "drive_name": "Игровая_04.webp",
+      "source_bytes": 194056,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "d90206a59aea00b99eae6bef99ce675df6650c9c4501eb9c0aceba62b81790a1",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 91292,
+      "sha256": "e3e1cb349580ae89ebd2ce5017e1c56bf5c465e8caeb37beee97831386d6e5ed"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-05.webp",
+      "photo": 5,
+      "drive_name": "Игровая_05.webp",
+      "source_bytes": 253976,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "e9925464d6a83b842be5be9dddcf76659e7cc2492fe0c405ab964cf2a9625a32",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 110424,
+      "sha256": "1c52bba0961bb4af27014892e9e868804788608c52c46b6b39dc198451ebc4a6"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-06.webp",
+      "photo": 6,
+      "drive_name": "Игровая_06.webp",
+      "source_bytes": 213044,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "e706b63923116df3b32d4da170eb033119626ddf111201e8320023dcae8c74ef",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 96172,
+      "sha256": "4f05be3355baa45c3227e18da6df18f9cc80adabeffb91abd70262a86c09a20b"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-07.webp",
+      "photo": 7,
+      "drive_name": "Игровая_07.webp",
+      "source_bytes": 188194,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "c028b6c572c9a166b47bba77b9d76e17bc9795081fd8895beed6f16ad5d4546f",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 93254,
+      "sha256": "bb93e5ef1b232cd9d3ad4b6f36a563e3b7a85cbcb9c37c39dab5a8d44889ad62"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-08.webp",
+      "photo": 8,
+      "drive_name": "Игровая_08.webp",
+      "source_bytes": 189354,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "56360da3d06a30650abb6e4b78e6d10cbfd849b388dc12a5d5e287fbcbaf99c5",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 89816,
+      "sha256": "ab8647b7173cdd15a11138d031c77632592869f3d76b2922a9406d51a5598b40"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-09.webp",
+      "photo": 9,
+      "drive_name": "Игровая_09.webp",
+      "source_bytes": 164954,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "0b4b605f3bbadabef1249adb435a0628a6d20609eb02e2232801769bc57939a9",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 59936,
+      "sha256": "793c2b359b17c7cdda5ed0225ff7f1f6f5cb336179e01ab6bbe7c664cac67781"
+    },
+    {
+      "path": "public/media/ps-park/gallery/photo-10.webp",
+      "photo": 10,
+      "drive_name": "Игровая_10.webp",
+      "source_bytes": 207506,
+      "source_width": 1920,
+      "source_height": 1282,
+      "source_sha256": "912658765be4198d80f6700aa2c0a9e0b6fccfc82d4cf8218b865442166f423c",
+      "width": 1600,
+      "height": 1068,
+      "bytes": 84234,
+      "sha256": "c16095cb2b4ff707500ec3fb6d9ffabdc9b0cdbeaff8db1b764d4cf78ae29ca4"
+    }
+  ]
+}
