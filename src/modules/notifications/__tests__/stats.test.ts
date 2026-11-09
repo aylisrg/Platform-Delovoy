@@ -384,7 +384,9 @@ describe("getNotificationStats — scope and parameters", () => {
 
   it("category → only its event types; eventType narrows further; unknown combination → no query", async () => {
     await getNotificationStats({ days: 7, category: "bookings" }, NOW);
-    expect(sqlCalls("notification-stats:aggregate")[0].values).toContainEqual(["booking.created", "booking.cancelled"]);
+    expect(sqlCalls("notification-stats:aggregate")[0].values).toContainEqual([
+      "booking.created", "booking.admin_created", "booking.rescheduled", "booking.cancelled", "booking.ending_soon",
+    ]);
 
     mockQueryRaw.mockClear();
     const narrowed = await getNotificationStats({ days: 7, category: "bookings", eventType: "booking.cancelled" }, NOW);

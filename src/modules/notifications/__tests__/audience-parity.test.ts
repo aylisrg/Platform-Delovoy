@@ -102,19 +102,22 @@ describe("AC-C1.6 parity: delivery resolver = screen", () => {
     }
   });
 
-  it("personal-only events reach exactly the explicit subscribers with access", async () => {
+  it("personal-only events reach exactly the individual subscribers (explicit or default) with access", async () => {
     staff = population("booking.created");
     const routing = await resolveStaffRouting({ eventType: "booking.created", moduleSlug: "gazebos", staffAudience: "personal" });
-    for (const r of routing.recipients) expect(r.paths).toEqual(["personal"]);
+    for (const r of routing.recipients) expect(r.paths.length).toBe(1);
+    for (const r of routing.recipients) expect(["personal", "default"]).toContain(r.paths[0]);
+    // booking.created is on by default (ADR 2026-11-09): no row counts as «on».
     const expected = staff.filter(
       (s) =>
         s.role !== "USER" &&
         !s.merged &&
-        s.prefs?.["booking.created"] === true &&
+        s.prefs?.["booking.created"] !== false &&
         (s.role === "SUPERADMIN" || s.role === "ADMIN" || (s.grants ?? []).includes("gazebos") || (s.assignments ?? []).includes("gazebos")),
     );
     expect(new Set(routing.recipients.map((r) => r.userId))).toEqual(new Set(expected.map((s) => s.id)));
-    expect(routing.suppressed).toEqual([]);
+    // Opted-out people with access are suppressed (recorded as a skip), never delivered.
+    for (const sup of routing.suppressed) expect(staff.find((s) => s.id === sup.userId)?.prefs?.["booking.created"]).toBe(false);
   });
 
   it("opted-out people with a path are reported as suppressed, never delivered", async () => {

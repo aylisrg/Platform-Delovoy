@@ -65,8 +65,13 @@ describe("getWebAppCapabilities", () => {
 describe("resolveManagedCategories", () => {
   it("SUPERADMIN видит всё, включая звонки и системные", async () => {
     expect(await keys({ id: "sa", role: "SUPERADMIN" })).toEqual([
-      "telephony", "bookings", "cafe", "rental", "payments", "avito", "system",
+      "telephony", "reports", "bookings", "cafe", "rental", "payments", "avito", "system",
     ]);
+  });
+
+  it("отчётность: ADMIN с аналитикой видит, MANAGER с тем же грантом — нет (как getBusinessViewer)", async () => {
+    expect(await keys({ id: "a", role: "ADMIN", grants: ["analytics"] })).toContain("reports");
+    expect(await keys({ id: "m", role: "MANAGER", grants: ["analytics"] })).not.toContain("reports");
   });
 
   it("системные (релизы) доступны любому сотруднику — как и реальная доставка релизов", async () => {

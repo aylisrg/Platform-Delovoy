@@ -43,6 +43,7 @@ function event(overrides: Partial<ExplainEvent> = {}): ExplainEvent {
     eventType: "booking.created",
     label: "Новая бронь",
     description: "…",
+    delivery: "personal",
     status: "NOT_RECEIVING",
     toggle: { enabled: false, editable: true, source: "default" },
     paths: [],
@@ -127,6 +128,7 @@ describe("getNotificationCenter — правда о доставке (AC-C3.1…
   it("in-app категория остаётся in-app; блокировки прокидываются", async () => {
     explainWith([category("telephony", [event({
       eventType: "telephony.daily_summary",
+      delivery: "in-app",
       toggle: { enabled: true, editable: true, source: "default" },
       paths: [{ kind: "in_app_superadmin", label: "", moduleSlug: null }],
       blockers: [{ code: "DND", label: "Не беспокоить до 18:00" }],

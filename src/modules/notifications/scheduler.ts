@@ -2,8 +2,10 @@ import { prisma } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { enqueueNotification } from "./queue";
 import { processTelephonyDailySummaries } from "@/modules/telephony/daily-summary-service";
+import { processTelephonyTelegramSummaries } from "@/modules/telephony/daily-summary-telegram";
 import { runNotificationHousekeeping } from "./housekeeping";
 import { processWeeklyBusinessReports } from "@/modules/analytics/business-reports";
+import { processWeeklyDigest } from "./weekly-digest";
 
 /**
  * Process all scheduled notifications.
@@ -14,12 +16,20 @@ export async function processScheduledNotifications(): Promise<void> {
     processWeeklyBusinessReports().catch(() => {
       console.error("[Scheduler] Business weekly report processing failed");
     }),
+    processWeeklyDigest().catch(() => {
+      // No recipient ids or provider payload in logs; claims make the next run safe.
+      console.error("[Scheduler] Weekly digest processing failed");
+    }),
     processBookingReminders(),
     processEndingSoonReminders(),
     processContractExpiryAlerts(),
     processTelephonyDailySummaries().catch(() => {
       // No provider payload/PII in logs; the next five-minute run retries.
       console.error("[Scheduler] Telephony daily summary failed; retry on next run");
+    }),
+    processTelephonyTelegramSummaries().catch(() => {
+      // Aggregates only; no claim is written before the report is complete.
+      console.error("[Scheduler] Telephony Telegram summary failed; retry on next run");
     }),
     runNotificationHousekeeping().catch((err) => {
       console.error("[Scheduler] Notification housekeeping failed:", err instanceof Error ? err.message : err);
@@ -81,23 +91,22 @@ async function processEndingSoonReminders(): Promise<void> {
         data,
       });
 
-      // Гостевые брони не имеют клиентской доставки, которая пишет SENT-лог,
-      // поэтому фиксируем здесь — иначе канал получал бы дубль на каждом запуске
-      // планировщика в пределах часового окна.
-      if (!booking.userId) {
-        await prisma.notificationLog.create({
-          data: {
-            channel: "TELEGRAM",
-            eventType: "booking.ending_soon",
-            moduleSlug: booking.moduleSlug,
-            entityId: booking.id,
-            recipient: "module-channel",
-            message: `Скоро конец: ${data.resourceName}, ${data.date} до ${data.endTime}`,
-            status: "SENT",
-            sentAt: new Date(),
-          },
-        });
-      }
+      // Маркер пишем всегда: у гостевой брони нет клиентской доставки с
+      // SENT-логом, а у клиента без канала лог будет SKIPPED — без маркера канал
+      // смены и лично подписанные сотрудники получали бы дубль на каждом
+      // запуске планировщика в пределах часового окна.
+      await prisma.notificationLog.create({
+        data: {
+          channel: "TELEGRAM",
+          eventType: "booking.ending_soon",
+          moduleSlug: booking.moduleSlug,
+          entityId: booking.id,
+          recipient: booking.userId ? "scheduler" : "module-channel",
+          message: `Скоро конец: ${data.resourceName}, ${data.date} до ${data.endTime}`,
+          status: "SENT",
+          sentAt: new Date(),
+        },
+      });
     }
   } catch (err) {
     console.error("[Scheduler] Ending-soon reminders failed:", err);

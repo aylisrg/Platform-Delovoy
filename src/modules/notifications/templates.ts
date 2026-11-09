@@ -179,6 +179,34 @@ function adminBookingCancelled(moduleSlug: "gazebos" | "ps-park"): TemplateFn {
 }
 
 /**
+ * Личные сообщения сотрудникам по событиям, которые раньше видел только канал
+ * смены (`staff: "direct"` в EVENT_ROUTING, ADR 2026-11-09). В общий чат они
+ * не идут — только тем, у кого тумблер в Центре уведомлений включён.
+ */
+function adminBookingAdminCreated(moduleSlug: "gazebos" | "ps-park"): TemplateFn {
+  const what = moduleSlug === "ps-park" ? "Сессия" : "Бронь";
+  return (d) =>
+    `📞 <b>${what} по телефону</b>\n\n${adminBookingBlock(d)}\n\n${what} уже подтверждена администратором — ничего делать не нужно.${adminBookingLink(moduleSlug, d.bookingId)}`;
+}
+
+const adminBookingRescheduled: TemplateFn = (d) => {
+  const lines = [e(d.resourceName)];
+  if (d.oldDate || d.oldStartTime) {
+    lines.push(`Было: ${e(formatSlot({ date: d.oldDate, startTime: d.oldStartTime, endTime: d.oldEndTime }))}`);
+    lines.push(`Стало: ${e(formatSlot(d))}`);
+  } else {
+    lines.push(`Новое время: ${e(formatSlot(d))}`);
+  }
+  const client = formatClient(d);
+  if (client) lines.push(`👤 ${e(client)}`);
+  const who = d.movedBy === "client" ? "Перенёс клиент." : "Перенос в панели.";
+  return `🔄 <b>Бронь перенесена</b>\n\n${lines.join("\n")}\n\n${who} Проверьте, что новое время не пересекается с подготовкой беседки.${adminBookingLink("gazebos", d.bookingId)}`;
+};
+
+const adminBookingEndingSoon: TemplateFn = (d) =>
+  `⏳ <b>Бронь закончится через час</b>\n\n${adminBookingBlock(d)}\n\nПредложите гостям продлить, если следом беседка свободна.${adminBookingLink("gazebos", d.bookingId)}`;
+
+/**
  * Онлайн-оплаты. Для брони `service.ts` подмешивает ресурс, слот и клиента
  * (по `subjectType`/`subjectId` платежа) — тогда сообщение самодостаточно и
  * заменяет «новую бронь»: беседка оплачена = подтверждена, делать ничего не надо.
@@ -224,11 +252,15 @@ const rentalInquiry: TemplateFn = (d) => {
 export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
   gazebos: {
     "booking.created": adminBookingCreated("gazebos"),
+    "booking.admin_created": adminBookingAdminCreated("gazebos"),
+    "booking.rescheduled": adminBookingRescheduled,
+    "booking.ending_soon": adminBookingEndingSoon,
     "booking.cancelled": adminBookingCancelled("gazebos"),
     ...paymentAdminTemplates("gazebos"),
   },
   "ps-park": {
     "booking.created": adminBookingCreated("ps-park"),
+    "booking.admin_created": adminBookingAdminCreated("ps-park"),
     "booking.cancelled": adminBookingCancelled("ps-park"),
     ...paymentAdminTemplates("ps-park"),
   },

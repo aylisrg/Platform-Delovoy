@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { telegramApi } from "@/lib/telegram/client";
 import { computeBotStatus } from "@/modules/telegram-link/bot-contact";
+import { resolveStaffRouting } from "@/modules/notifications/audience";
 import { getBusinessViewer } from "./business-access";
 import { businessDay, getBusinessReport } from "./business-service";
 import type { BusinessPreference, BusinessReport } from "./business-types";
@@ -20,6 +21,17 @@ export class BusinessReportError extends Error {
 
 type DeliveryResult = { sent: boolean; status: string; messageId?: number };
 type Viewer = NonNullable<Awaited<ReturnType<typeof getBusinessViewer>>>;
+
+/**
+ * Subscribed = the same resolver the Notification Center uses: an explicit
+ * row wins; without one the report is on for current SUPERADMINs only
+ * (catalog `defaultEnabled: "superadmin"`, owner request 2026-11-09). Financial
+ * access is still re-checked separately by getBusinessViewer.
+ */
+async function isSubscribed(userId: string): Promise<boolean> {
+  const routing = await resolveStaffRouting({ eventType: BUSINESS_WEEKLY_EVENT, moduleSlug: null, userIds: [userId] });
+  return routing.recipients.length > 0;
+}
 
 async function requireViewer(userId: string): Promise<Viewer> {
   const viewer = await getBusinessViewer(userId);
@@ -44,8 +56,8 @@ export function weeklyReportAnchor(now = new Date(), requireDue = true): Date | 
 
 export async function getBusinessPreference(userId: string): Promise<BusinessPreference> {
   const viewer = await requireViewer(userId);
-  const [preference, last, ready] = await Promise.all([
-    prisma.notificationEventPreference.findUnique({ where: { userId_eventType: { userId, eventType: BUSINESS_WEEKLY_EVENT } } }),
+  const [enabled, last, ready] = await Promise.all([
+    isSubscribed(userId),
     prisma.notificationLog.findFirst({
       where: { userId, eventType: { in: [BUSINESS_WEEKLY_EVENT, BUSINESS_TEST_EVENT] } },
       orderBy: { createdAt: "desc" },
@@ -54,7 +66,7 @@ export async function getBusinessPreference(userId: string): Promise<BusinessPre
     telegramReady(viewer),
   ]);
   return {
-    enabled: preference?.enabled === true,
+    enabled,
     timezone: "Europe/Moscow",
     schedule: SCHEDULE,
     telegramReady: ready,
@@ -151,8 +163,7 @@ async function deliver(userId: string, claimId: string, report: BusinessReport, 
   // Last authorization check is after aggregation and durable claim. Neither a
   // stale role nor a pre-existing subscription is authority to send numbers.
   const viewer = await getBusinessViewer(userId);
-  const preference = test ? null : await prisma.notificationEventPreference.findUnique({ where: { userId_eventType: { userId, eventType: BUSINESS_WEEKLY_EVENT } } });
-  if (!viewer || (!test && preference?.enabled !== true)) {
+  if (!viewer || (!test && !await isSubscribed(userId))) {
     await finishDelivery(claimId, userId, "SKIPPED", "ACCESS_OR_SUBSCRIPTION_REVOKED");
     return { sent: false, status: "SKIPPED" };
   }
@@ -202,11 +213,11 @@ export async function processWeeklyBusinessReports(now = new Date()): Promise<{ 
   const anchor = weeklyReportAnchor(now);
   if (!anchor || !process.env.TELEGRAM_BOT_TOKEN) return counts;
   const weekEnding = businessDay(new Date(anchor.getTime() - 1));
-  const preferences = await prisma.notificationEventPreference.findMany({ where: { eventType: BUSINESS_WEEKLY_EVENT, enabled: true }, select: { userId: true } });
+  const routing = await resolveStaffRouting({ eventType: BUSINESS_WEEKLY_EVENT, moduleSlug: null });
   let report: BusinessReport | null = null;
-  for (const preference of preferences) {
+  for (const recipient of routing.recipients) {
     try {
-      const userId = preference.userId;
+      const userId = recipient.userId;
       const claimId = `business-weekly:${userId}:${weekEnding}`;
       if (await prisma.notificationLog.findUnique({ where: { id: claimId }, select: { id: true } })) { counts.skipped++; continue; }
       const viewer = await getBusinessViewer(userId);

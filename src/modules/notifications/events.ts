@@ -6,6 +6,12 @@
 type EventRoute = {
   client: boolean;
   admin: boolean;
+  /**
+   * `direct` — staff get it only through individual paths (personal
+   * subscription / on-by-default), never the module group chat or the admin
+   * SSE: the shift channel already has its own copy (dispatchModuleChannel).
+   */
+  staff?: "direct";
   /** Which preference category controls this event for client opt-out */
   category?: "booking" | "order" | "reminder";
 };
@@ -13,18 +19,23 @@ type EventRoute = {
 export const EVENT_ROUTING: Record<string, EventRoute> = {
   // In-app inbox only: the daily scheduler never calls external dispatch.
   "telephony.daily_summary": { client: false, admin: false },
+  // Telegram copy of the same summary — dispatched by the telephony scheduler
+  // through the staff resolver, not by notify().
+  "telephony.daily_summary_telegram": { client: false, admin: false },
+  // Weekly business report — own delivery (analytics/business-reports.ts).
+  "analytics.business_weekly": { client: false, admin: false },
   // Bookings (gazebos, ps-park)
   "booking.created": { client: true, admin: true, category: "booking" },
   "booking.confirmed": { client: true, admin: false, category: "booking" },
   "booking.cancelled": { client: true, admin: true, category: "booking" },
   // Перенос даты/времени/беседки менеджером (#433). Admin-группа не участвует
   // (перенос делает сам менеджер) — только клиент и выделенный канал.
-  "booking.rescheduled": { client: true, admin: false, category: "booking" },
+  "booking.rescheduled": { client: true, admin: false, staff: "direct", category: "booking" },
   "booking.reminder": { client: true, admin: false, category: "reminder" },
   // За 1 час до ОКОНЧАНИЯ брони — предложение продлить. Клиенту (если есть
   // канал) + выделенный Telegram-канал беседок обслуживается отдельно
   // (dispatchModuleChannel), где у админа есть ссылка на продление.
-  "booking.ending_soon": { client: true, admin: false, category: "reminder" },
+  "booking.ending_soon": { client: true, admin: false, staff: "direct", category: "reminder" },
   // Канал-only событие «бронь оплачена»: ни client, ни admin через notify()
   // (оба false — notify находит роутинг, ничего не шлёт и не варнит), а
   // выделенный Telegram-канал обслуживается dispatchModuleChannel отдельно.
@@ -34,7 +45,8 @@ export const EVENT_ROUTING: Record<string, EventRoute> = {
   // это второе, параллельное событие только для канала смены, чтобы не
   // трогать client/admin-роутинг booking.confirmed (он также приходит от
   // публичных броней после ручного подтверждения, где второй пост не нужен).
-  "booking.admin_created": { client: false, admin: false },
+  // Лично сотрудникам (каталог «Бронь по телефону») — без группового чата.
+  "booking.admin_created": { client: false, admin: false, staff: "direct" },
 
   // Cafe orders
   "order.placed": { client: true, admin: true, category: "order" },

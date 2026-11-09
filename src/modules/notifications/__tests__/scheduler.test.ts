@@ -74,8 +74,10 @@ describe("processBookingReminders", () => {
         }),
       })
     );
-    // User bookings get their SENT log from the client delivery path.
-    expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+    // User bookings get their reminder SENT log from the client delivery path.
+    expect(prisma.notificationLog.create).not.toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: "booking.reminder" }),
+    });
   });
 
   it("enqueues a reminder for a guest booking and writes a SENT marker", async () => {
@@ -159,6 +161,31 @@ describe("processEndingSoonReminders", () => {
         status: "SENT",
       }),
     });
+  });
+});
+
+describe("processEndingSoonReminders — маркер для любой брони", () => {
+  it("пишет маркер и для брони клиента с аккаунтом: иначе сотрудники получали бы дубль каждые 5 минут", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([makeBooking()] as never);
+
+    await processScheduledNotifications();
+
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: "booking.ending_soon", entityId: "b1", recipient: "scheduler", status: "SENT" }),
+    });
+  });
+
+  it("не ставит повторно, если маркер уже есть", async () => {
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([makeBooking()] as never);
+    vi.mocked(prisma.notificationLog.findFirst).mockResolvedValue({ id: "l1" } as never);
+
+    await processScheduledNotifications();
+
+    expect(enqueueNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: "booking.ending_soon" }));
   });
 });
 

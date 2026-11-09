@@ -1,6 +1,6 @@
 import type { Role } from "@prisma/client";
 import { ADMIN_SECTIONS, STRICT_ACCESS_MODULES, computeAdminSections } from "@/lib/permissions";
-import { MODULE_ACCESS_ALIAS, categoryForEvent, type ManagedCategory } from "./catalog";
+import { MODULE_ACCESS_ALIAS, categoryForEvent, isDefaultOnFor, type ManagedCategory } from "./catalog";
 
 /**
  * Pure staff-notification routing rules — the single source of truth used by
@@ -23,13 +23,16 @@ export type StaffSnapshot = {
   listModules: Set<string>;
 };
 
-export type DeliveryPath = "personal" | "module_list" | "role_avito" | "in_app_superadmin";
+export type DeliveryPath = "personal" | "default" | "module_list" | "role_avito" | "in_app_superadmin";
+
+/** Individual paths — what the person controls themselves (no list, no role). */
+export const INDIVIDUAL_PATHS: ReadonlySet<DeliveryPath> = new Set(["personal", "default"]);
 
 export type AccessDecision =
   | { ok: true }
   | {
       ok: false;
-      reason: "NOT_STAFF" | "SUPERADMIN_ONLY" | "STRICT_GRANT_REQUIRED" | "NO_SECTION";
+      reason: "NOT_STAFF" | "SUPERADMIN_ONLY" | "ROLE_NOT_ALLOWED" | "STRICT_GRANT_REQUIRED" | "NO_SECTION";
       label: string;
     };
 
@@ -65,6 +68,9 @@ export function contextAccess(
   if (category.superadminOnly && s.role !== "SUPERADMIN") {
     return { ok: false, reason: "SUPERADMIN_ONLY", label: "Только для суперадмина" };
   }
+  if (category.roles && !category.roles.includes(s.role)) {
+    return { ok: false, reason: "ROLE_NOT_ALLOWED", label: "Недоступно для вашей роли" };
+  }
   if (moduleSlug && STRICT_ACCESS_MODULES.has(moduleSlug) && !s.grants.has(moduleSlug)) {
     return {
       ok: false,
@@ -90,7 +96,10 @@ export function contextAccess(
 /** Candidate paths before access checks. */
 function candidatePaths(s: StaffSnapshot, eventType: string, moduleSlug: string | null): DeliveryPath[] {
   const paths: DeliveryPath[] = [];
-  if (s.prefs.get(eventType)?.enabled === true) paths.push("personal");
+  const pref = s.prefs.get(eventType);
+  if (pref?.enabled === true) paths.push("personal");
+  // On-by-default: no row yet. An explicit row (on or off) always wins.
+  else if (!pref && isDefaultOnFor(eventType, s.role)) paths.push("default");
   // Module recipient lists only ever fed notifyAdmin events; Avito leads go
   // by role (they never reached list members), so the list path skips them.
   if (moduleSlug && eventType !== AVITO_EVENT && s.listModules.has(moduleSlug)) paths.push("module_list");

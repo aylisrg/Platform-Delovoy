@@ -55,6 +55,8 @@ export const webappPreferenceSchema = z.object({
   enableBooking: z.boolean().optional(),
   enableOrder: z.boolean().optional(),
   enableReminder: z.boolean().optional(),
+  /** Еженедельные подсказки и новости бота (system.weekly_digest). */
+  enableWeeklyTips: z.boolean().optional(),
 });
 
 export type WebappPreferenceInput = z.infer<typeof webappPreferenceSchema>;

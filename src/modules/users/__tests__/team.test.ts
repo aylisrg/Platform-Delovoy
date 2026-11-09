@@ -25,7 +25,7 @@ const NOW = new Date("2026-10-25T10:00:00Z");
 
 function ev(status: ExplainEvent["status"], extra: Partial<ExplainEvent> = {}): ExplainEvent {
   return {
-    eventType: "booking.created", label: "", description: "", status,
+    eventType: "booking.created", label: "", description: "", delivery: "personal", status,
     toggle: { enabled: status === "RECEIVES" || status === "BLOCKED", editable: status !== "NO_ACCESS", source: "default" },
     paths: [], contexts: [], deliveryChannels: [], blockers: [], notes: [], lastChange: null, ...extra,
   };
