@@ -7,6 +7,13 @@ import { listTables, getAvailability, getOnlineBookingOffer } from "@/modules/ps
 import { getPublicPhone } from "@/modules/telephony/service";
 import { DarkAvailabilityGrid } from "@/components/public/ps-park/dark-availability-grid";
 import { CyberpunkGrid } from "@/components/public/ps-park/cyberpunk-grid";
+import { PhotoGallery } from "@/components/public/photo-gallery/photo-gallery";
+import {
+  PS_PARK_GALLERY_COVER,
+  PS_PARK_GALLERY_PREVIEWS,
+  PS_PARK_PHOTOS,
+  PS_PARK_TABLE_PHOTOS,
+} from "@/components/public/ps-park/ps-park-photos";
 import { CallWidget } from "@/components/public/call-widget";
 import { YandexMap } from "@/components/ui/yandex-map";
 import { Navbar } from "@landing/components/navbar";
@@ -106,16 +113,8 @@ function serializeAvailability(availability: DayAvailability[]): DayAvailability
   }));
 }
 
-const TABLE_PHOTOS = [
-  "/media/ps-park/IMG_4358.jpeg",
-  "/media/ps-park/IMG_4362.jpeg",
-  "/media/ps-park/IMG_4366.jpeg",
-  "/media/ps-park/IMG_4368.jpeg",
-  "/media/ps-park/IMG_4369.jpeg",
-];
-
 function TableCard({ resource, index }: { resource: PSTableResource; index: number }) {
-  const photo = TABLE_PHOTOS[index % TABLE_PHOTOS.length];
+  const photo = PS_PARK_TABLE_PHOTOS[index % PS_PARK_TABLE_PHOTOS.length];
 
   return (
     <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-900/20 group">
@@ -340,6 +339,34 @@ export default async function PSParkPage() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* ── PHOTOS ── */}
+        <section id="photos" aria-labelledby="ps-photos-heading" className="max-w-6xl mx-auto px-4 pb-20">
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] md:items-start">
+            <div>
+              <h2
+                id="ps-photos-heading"
+                className="font-[family-name:var(--font-manrope)] font-bold text-white"
+                style={{ fontSize: "clamp(28px, 4vw, 40px)", letterSpacing: "-1px" }}
+              >
+                Фото
+              </h2>
+              <p className="text-zinc-500 text-sm mt-2">
+                Зал, игровые места, приставка и геймпады, вход — {PS_PARK_PHOTOS.length} фото.
+              </p>
+            </div>
+            <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 pb-4">
+              <PhotoGallery
+                name="Плей Парк"
+                photos={PS_PARK_PHOTOS}
+                cover={PS_PARK_GALLERY_COVER}
+                previews={PS_PARK_GALLERY_PREVIEWS}
+                tone="dark"
+                coverSizes="(min-width: 1152px) 690px, (min-width: 768px) 60vw, calc(100vw - 32px)"
+              />
+            </div>
+          </div>
         </section>
 
         {/* Call widget */}

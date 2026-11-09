@@ -92,6 +92,15 @@ test.describe("Скриншот-регрессии ключевых страни
       Math.random = () => 0.5;
     });
     await page.goto("/ps-park");
+    // Фото столов и галереи ниже первого экрана — `loading="lazy"`; fullPage
+    // не скроллит. Грузим все и ждём decode, как для /gazebos.
+    const broken = await page.evaluate(async () => {
+      const images = Array.from(document.images);
+      for (const image of images) image.loading = "eager";
+      await Promise.all(images.map((image) => image.decode().catch(() => undefined)));
+      return images.filter((image) => !image.complete || image.naturalWidth === 0).map((image) => image.alt);
+    });
+    expect(broken).toEqual([]);
     await expect(page).toHaveScreenshot("ps-park-desktop.png", {
       fullPage: true,
       animations: "disabled",

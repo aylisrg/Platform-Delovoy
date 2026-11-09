@@ -57,7 +57,3 @@ export function getGazeboAnchor(resource: { id: string; name: string }): string 
   const gallery = getGazeboGallery(resource.name);
   return gallery ? `gazebo-${gallery.number}` : `gazebo-resource-${resource.id}`;
 }
-
-export function getGazeboPhotoAlt(name: string, photo: GazeboPhoto): string {
-  return `${name}, ${GAZEBO_PHOTO_KIND_LABEL[photo.kind]}`;
-}
