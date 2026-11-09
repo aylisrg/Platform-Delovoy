@@ -14,6 +14,8 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/db", () => ({
   prisma: {
+    user: { findUnique: vi.fn().mockResolvedValue({ role: "SUPERADMIN" }) },
+    adminPermission: { findMany: vi.fn().mockResolvedValue([]) },
     managerTask: {
       findUnique: vi.fn(),
       update: vi.fn((args) => args),
