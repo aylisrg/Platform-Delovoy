@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { apiResponse, apiError } from "@/lib/api-response";
+import { apiResponse, apiError, apiServerError } from "@/lib/api-response";
 import { getProfile, updateName } from "@/modules/profile/service";
 import { updateNameSchema } from "@/modules/profile/validation";
 
@@ -13,8 +13,11 @@ export async function GET() {
     return apiError("UNAUTHORIZED", "Необходимо войти в аккаунт", 401);
   }
 
-  const profile = await getProfile(session.user.id);
-  return apiResponse(profile);
+  try {
+    return apiResponse(await getProfile(session.user.id));
+  } catch {
+    return apiServerError("Не удалось загрузить профиль");
+  }
 }
 
 /**

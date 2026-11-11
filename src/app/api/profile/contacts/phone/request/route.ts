@@ -1,3 +1,4 @@
+import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
 import { auth } from "@/lib/auth";
 import { apiResponse, apiError } from "@/lib/api-response";
 import { attachPhone } from "@/modules/profile/service";
@@ -30,6 +31,9 @@ export async function POST(request: Request) {
     const result = await attachPhone(session.user.id, parsed.data);
     return apiResponse(result);
   } catch (err) {
+    await recordDashboardEvent(session.user.id, "contact_link_failed", {
+      channel: "phone",
+    });
     const error = err as Error & { code?: string };
     if (error.code === "PHONE_ALREADY_ATTACHED") {
       return apiError("PHONE_ALREADY_ATTACHED", error.message, 400);

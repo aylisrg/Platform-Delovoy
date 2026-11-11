@@ -32,8 +32,12 @@ vi.mock("@/lib/redis", () => {
     redisAvailable: true,
     redis: {
       get: vi.fn(async (key: string) => store[key] ?? null),
-      set: vi.fn(async (key: string, value: string) => { store[key] = value; }),
-      del: vi.fn(async (key: string) => { delete store[key]; }),
+      set: vi.fn(async (key: string, value: string) => {
+        store[key] = value;
+      }),
+      del: vi.fn(async (key: string) => {
+        delete store[key];
+      }),
     },
   };
 });
@@ -73,7 +77,7 @@ describe("getProfile", () => {
         email: "test@test.com",
         phone: "+79001234567",
         accounts: [{ providerAccountId: "yandex-123" }],
-      }) as never
+      }) as never,
     );
 
     const profile = await getProfile("user-1");
@@ -83,11 +87,16 @@ describe("getProfile", () => {
     expect(profile.contacts.telegram).toBe("tg-123");
     expect(profile.contacts.email).toBe("test@test.com");
     expect(profile.contacts.phone).toBe("+79001234567");
-    expect(profile.contacts.yandex).toEqual({ email: "test@test.com", name: "Иван" });
+    expect(profile.contacts.yandex).toEqual({
+      email: "test@test.com",
+      name: "Иван",
+    });
   });
 
   it("returns null yandex when no yandex account", async () => {
-    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(mockUser() as never);
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+      mockUser() as never,
+    );
 
     const profile = await getProfile("user-1");
 
@@ -123,22 +132,24 @@ describe("requestEmailAttach", () => {
 
   it("sends verification email for new email", async () => {
     vi.mocked(prisma.user.findUnique)
-      .mockResolvedValueOnce({ email: null } as never)   // current user
-      .mockResolvedValueOnce(null);                        // no other owner
+      .mockResolvedValueOnce({ email: null } as never) // current user
+      .mockResolvedValueOnce(null); // no other owner
 
-    const result = await requestEmailAttach("user-1", { email: "new@test.com" });
+    const result = await requestEmailAttach("user-1", {
+      email: "new@test.com",
+    });
 
     expect(result.sent).toBe(true);
     expect(redis.set).toHaveBeenCalled();
   });
 
   it("throws EMAIL_ALREADY_ATTACHED if same email", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
-      { email: "same@test.com" } as never
-    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "same@test.com",
+    } as never);
 
     await expect(
-      requestEmailAttach("user-1", { email: "same@test.com" })
+      requestEmailAttach("user-1", { email: "same@test.com" }),
     ).rejects.toMatchObject({ code: "EMAIL_ALREADY_ATTACHED" });
   });
 
@@ -148,7 +159,7 @@ describe("requestEmailAttach", () => {
       .mockResolvedValueOnce({ id: "other-user" } as never);
 
     await expect(
-      requestEmailAttach("user-1", { email: "taken@test.com" })
+      requestEmailAttach("user-1", { email: "taken@test.com" }),
     ).rejects.toMatchObject({ code: "EMAIL_IN_USE" });
   });
 });
@@ -162,7 +173,7 @@ describe("confirmEmailAttach", () => {
     const token = "abc123token";
     // Simulate stored value in Redis
     vi.mocked(redis.get).mockResolvedValue(`${token}:test@test.com` as never);
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);  // not taken
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null); // not taken
     vi.mocked(prisma.user.update).mockResolvedValue({} as never);
 
     const result = await confirmEmailAttach("user-1", { token });
@@ -178,15 +189,17 @@ describe("confirmEmailAttach", () => {
     vi.mocked(redis.get).mockResolvedValue(null);
 
     await expect(
-      confirmEmailAttach("user-1", { token: "wrong" })
+      confirmEmailAttach("user-1", { token: "wrong" }),
     ).rejects.toMatchObject({ code: "INVALID_TOKEN" });
   });
 
   it("throws INVALID_TOKEN on token mismatch", async () => {
-    vi.mocked(redis.get).mockResolvedValue("correcttoken:test@test.com" as never);
+    vi.mocked(redis.get).mockResolvedValue(
+      "correcttoken:test@test.com" as never,
+    );
 
     await expect(
-      confirmEmailAttach("user-1", { token: "wrongtoken" })
+      confirmEmailAttach("user-1", { token: "wrongtoken" }),
     ).rejects.toMatchObject({ code: "INVALID_TOKEN" });
   });
 });
@@ -200,14 +213,16 @@ describe("requestEmailAttach – SEND_FAILED", () => {
     const { sendTransactionalEmail } = await import(
       "@/modules/notifications/channels/email"
     );
-    vi.mocked(sendTransactionalEmail).mockResolvedValueOnce({ success: false } as never);
+    vi.mocked(sendTransactionalEmail).mockResolvedValueOnce({
+      success: false,
+    } as never);
 
     vi.mocked(prisma.user.findUnique)
       .mockResolvedValueOnce({ email: null } as never)
       .mockResolvedValueOnce(null);
 
     await expect(
-      requestEmailAttach("user-1", { email: "new@test.com" })
+      requestEmailAttach("user-1", { email: "new@test.com" }),
     ).rejects.toMatchObject({ code: "SEND_FAILED" });
   });
 });
@@ -220,11 +235,13 @@ describe("confirmEmailAttach – race condition", () => {
   it("throws EMAIL_IN_USE if email taken by another user between request and confirm", async () => {
     const token = "racetoken";
     vi.mocked(redis.get).mockResolvedValue(`${token}:race@test.com` as never);
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: "other-user" } as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "other-user",
+    } as never);
 
-    await expect(
-      confirmEmailAttach("user-1", { token })
-    ).rejects.toMatchObject({ code: "EMAIL_IN_USE" });
+    await expect(confirmEmailAttach("user-1", { token })).rejects.toMatchObject(
+      { code: "EMAIL_IN_USE" },
+    );
   });
 });
 
@@ -260,12 +277,12 @@ describe("attachPhone", () => {
   });
 
   it("throws PHONE_ALREADY_ATTACHED if same phone", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
-      { phone: "+79001234567" } as never
-    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      phone: "+79001234567",
+    } as never);
 
     await expect(
-      attachPhone("user-1", { phone: "79001234567" })
+      attachPhone("user-1", { phone: "79001234567" }),
     ).rejects.toMatchObject({ code: "PHONE_ALREADY_ATTACHED" });
   });
 
@@ -275,14 +292,14 @@ describe("attachPhone", () => {
       .mockResolvedValueOnce({ id: "other" } as never);
 
     await expect(
-      attachPhone("user-1", { phone: "79001234567" })
+      attachPhone("user-1", { phone: "79001234567" }),
     ).rejects.toMatchObject({ code: "PHONE_IN_USE" });
   });
 
   it("throws VALIDATION_ERROR for invalid phone", async () => {
-    await expect(
-      attachPhone("user-1", { phone: "123" })
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(attachPhone("user-1", { phone: "123" })).rejects.toMatchObject(
+      { code: "VALIDATION_ERROR" },
+    );
   });
 });
 
@@ -293,7 +310,11 @@ describe("detachChannel", () => {
 
   it("detaches telegram when user has multiple auth methods", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
-      mockUser({ telegramId: "tg-123", email: "a@b.com", accounts: [] }) as never
+      mockUser({
+        telegramId: "tg-123",
+        email: "a@b.com",
+        accounts: [],
+      }) as never,
     );
     vi.mocked(prisma.user.update).mockResolvedValue({} as never);
     vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
@@ -312,9 +333,11 @@ describe("detachChannel", () => {
       mockUser({
         telegramId: "tg-123",
         accounts: [{ provider: "yandex" }],
-      }) as never
+      }) as never,
     );
-    vi.mocked(prisma.account.deleteMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.account.deleteMany).mockResolvedValue({
+      count: 1,
+    } as never);
     vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
 
     const result = await detachChannel("user-1", "yandex");
@@ -327,7 +350,12 @@ describe("detachChannel", () => {
 
   it("throws LAST_AUTH_METHOD when only one auth method left", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
-      mockUser({ telegramId: "tg-123", email: null, phone: null, accounts: [] }) as never
+      mockUser({
+        telegramId: "tg-123",
+        email: null,
+        phone: null,
+        accounts: [],
+      }) as never,
     );
 
     await expect(detachChannel("user-1", "telegram")).rejects.toMatchObject({
@@ -337,7 +365,12 @@ describe("detachChannel", () => {
 
   it("throws NOT_ATTACHED when channel not connected", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
-      mockUser({ telegramId: "tg-123", email: "a@b.com", phone: null, accounts: [] }) as never
+      mockUser({
+        telegramId: "tg-123",
+        email: "a@b.com",
+        phone: null,
+        accounts: [],
+      }) as never,
     );
 
     await expect(detachChannel("user-1", "phone")).rejects.toMatchObject({
@@ -347,7 +380,11 @@ describe("detachChannel", () => {
 
   it("creates audit log on successful detach", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
-      mockUser({ telegramId: "tg-123", email: "a@b.com", accounts: [] }) as never
+      mockUser({
+        telegramId: "tg-123",
+        email: "a@b.com",
+        accounts: [],
+      }) as never,
     );
     vi.mocked(prisma.user.update).mockResolvedValue({} as never);
     vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
@@ -363,5 +400,20 @@ describe("detachChannel", () => {
         metadata: { channel: "email" },
       },
     });
+  });
+});
+
+it("cannot detach email when only a password, phone and retired OAuth would remain", async () => {
+  vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue(
+    mockUser({
+      email: "a@b.com",
+      telegramId: null,
+      phone: "+79001234567",
+      passwordHash: "hash",
+      accounts: [{ provider: "yandex" }],
+    }) as never,
+  );
+  await expect(detachChannel("user-1", "email")).rejects.toMatchObject({
+    code: "LAST_AUTH_METHOD",
   });
 });

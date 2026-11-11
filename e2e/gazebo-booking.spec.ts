@@ -17,7 +17,9 @@ test.describe("Бронирование беседки", () => {
     const userId: string = me.user.id;
 
     await page.goto("/gazebos");
-    await page.locator("#booking-date").fill(futureDateInput(3));
+    // Next streaming can retain a hidden Suspense copy of this input.
+    // Interact with the visible form, as a visitor does.
+    await page.locator("#booking-date:visible").fill(futureDateInput(3));
     await page.getByRole("button", { name: "Показать доступность" }).click();
 
     // Ищем внутри виджета бронирования: тем же <h3>{name}</h3> подписаны
@@ -104,7 +106,7 @@ test.describe("Бронирование беседки", () => {
   }) => {
     await loginAs(page, "user@local", "user");
     await page.goto("/gazebos");
-    await page.locator("#booking-date").fill(futureDateInput(4));
+    await page.locator("#booking-date:visible").fill(futureDateInput(4));
     await page.getByRole("button", { name: "Показать доступность" }).click();
 
     const flow = page.getByTestId("booking-flow");

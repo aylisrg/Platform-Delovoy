@@ -23,9 +23,13 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
 
       const section = page.locator("#photos");
       await expect(section.getByRole("heading", { name: "Фото" })).toBeVisible();
-      for (const img of await page.locator("#tables img").all()) {
-        expect(decodeURIComponent((await img.getAttribute("src")) ?? "")).toContain("/media/ps-park/gallery/");
-      }
+      // Streaming can remove hidden copies between .all() and a later nth().
+      // Read the visible cards atomically and require a nonempty photo list.
+      await expect.poll(() => page.locator("#tables img:visible").evaluateAll(images =>
+        images.length > 0 && images.every(image =>
+          decodeURIComponent(image.getAttribute("src") ?? "").includes("/media/ps-park/gallery/")
+        )
+      )).toBe(true);
 
       const trigger = section.getByRole("button", { name: "Плей Парк: открыть фотографии", exact: true });
       await trigger.click();

@@ -92,11 +92,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: userId },
-            select: { role: true, sessionVersion: true },
+            select: { role: true, sessionVersion: true, name: true, email: true, image: true },
           });
           if (dbUser) {
             result.role = dbUser.role;
             result.sv = dbUser.sessionVersion;
+            result.name = dbUser.name;
+            result.email = dbUser.email;
+            result.picture = dbUser.image;
           }
           result.adminSections = await getUserAdminSections(userId);
         } catch (err) {

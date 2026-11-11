@@ -113,9 +113,9 @@ If a module is not here it does not exist.
 | `nedelovoy` | ✅ | Office rental B2B (park: НеДеловой) — thin wrapper over rental service; strict-access (SUPERADMIN needs explicit grant) |
 | `sauna` | 🟡 stub | Сауны — Module + RBAC slot + `/api/sauna/health`; full implementation deferred |
 | `clients` | ✅ | Tenant CRM; движок объединения аккаунтов `merge.ts` (клиенты и сотрудники: превью, роль и права основного, перенос истории, очередь запросов на объединение на `MergeCandidate`) — ADR `2026-10-25-team-access-notifications` |
-| `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation` |
+| `analytics` | ✅ | Aggregate metrics, balance/conversions; first-party воронки (`ProductEvent` — view/slot_selected/cart_item_added/form_started/submitted/paid по gazebos/ps-park/cafe/rental) — ADR `2026-09-16-product-event-funnel-instrumentation`; события кабинета отдельно в `funnel=dashboard`, агрегаты `/api/analytics/dashboard`, блок в `/admin/analytics` — ADR `2026-11-11-customer-dashboard` |
 | `users` | ✅ | Admin user management; «Исключить из команды» (offboarding без удаления, атомарно, с отзывом сессий `User.sessionVersion`), страница сотрудника `/admin/users/[id]`, таб «Команда» как экран ревью, объяснение блокеров удаления — ADR `2026-10-25-team-access-notifications` |
-| `profile` | ⚠️ webapp only | USER contact API (`/api/profile/*`) |
+| `profile` | ✅ | Клиентский веб-кабинет `/dashboard`: обзор, независимые предстоящие брони и история с пагинацией, состав заказов, переписка по обращениям, контакты и уведомления; `/api/profile/bookings/[id]` проверяет владельца, не выдаёт гостевые токены и использует существующие правила модулей — ADR `2026-11-11-customer-dashboard` |
 | `tasks` | ✅ | Unified kanban — internal tasks + tenant requests |
 | `subscriptions` | ✅ | PS Park prepaid-hour passes |
 | `messenger` | ✅ | In-app chat: USER↔Admin (SUPPORT/TOPIC), USER↔USER (shared-connection only), GROUP; Web Push + SSE realtime |
@@ -186,6 +186,10 @@ If a module is not here it does not exist.
 - **CI на PR** (`ci.yml`): Lint, Test, TypeScript Check (приложение + бот),
   Build Docker Image — required; E2E (Playwright) и Prisma migrations match
   schema — тоже должны быть зелёными.
+  E2E собирается на Ubuntu 24.04 и запускается в официальном Playwright noble
+  Docker-образе версии установленного `@playwright/test` (из `npm ci`), без
+  установки apt-зависимостей на runner. Host network сохраняет loopback-only
+  PostgreSQL/Redis и изолированные платёжные фикстуры; набор тестов не сокращается.
 - **Перед пушем локально:** `npm run lint`, `npm run typecheck`, `npm test`.
 - **Релизы:** release-please держит открытый release-PR (версия + CHANGELOG).
   Мержим его руками, когда хотим выпустить версию: после деплоя уходит анонс

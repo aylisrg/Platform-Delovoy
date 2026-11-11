@@ -7,6 +7,7 @@ import {
 } from "@/lib/api-response";
 import { prisma } from "@/lib/db";
 import { updatePreferenceSchema } from "@/modules/notifications/validation";
+import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
 
 /**
  * GET /api/notifications/preferences
@@ -64,7 +65,7 @@ export async function PUT(request: Request) {
     const parsed = updatePreferenceSchema.safeParse(body);
     if (!parsed.success) {
       return apiValidationError(
-        parsed.error.issues.map((i) => i.message).join(", ")
+        parsed.error.issues.map((i) => i.message).join(", "),
       );
     }
 
@@ -77,8 +78,25 @@ export async function PUT(request: Request) {
       update: parsed.data,
     });
 
+    await prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        action: "profile.notification_preferences",
+        entity: "NotificationPreference",
+        entityId: preference.id,
+      },
+    });
+    await recordDashboardEvent(
+      session.user.id,
+      "notification_settings_save_succeeded",
+    );
+
     return apiResponse(preference);
   } catch {
+    await recordDashboardEvent(
+      session.user.id,
+      "notification_settings_save_failed",
+    );
     return apiServerError();
   }
 }

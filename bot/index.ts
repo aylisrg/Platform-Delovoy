@@ -35,7 +35,8 @@ import { escapeHtml } from "../src/lib/telegram/escape";
 // test events. Fall back to the default env if staging-specific values aren't set
 // (e.g. early staging bootstrap) — but the staging compose supplies them.
 const IS_STAGING =
-  process.env.NODE_ENV === "staging" || process.env.NEXT_PUBLIC_ENV === "staging";
+  String(process.env.NODE_ENV) === "staging" ||
+  process.env.NEXT_PUBLIC_ENV === "staging";
 const BOT_TOKEN = IS_STAGING
   ? process.env.TELEGRAM_STAGING_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
   : process.env.TELEGRAM_BOT_TOKEN;

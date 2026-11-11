@@ -3,17 +3,13 @@ import { z } from "zod";
 export const updateNameSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(2, "Имя должно содержать минимум 2 символа")
-    .max(100, "Имя не должно превышать 100 символов")
-    .trim(),
+    .max(100, "Имя не должно превышать 100 символов"),
 });
 
 export const attachEmailRequestSchema = z.object({
-  email: z
-    .string()
-    .email("Некорректный email-адрес")
-    .toLowerCase()
-    .trim(),
+  email: z.string().email("Некорректный email-адрес").toLowerCase().trim(),
 });
 
 export const attachEmailConfirmSchema = z.object({
@@ -37,3 +33,38 @@ export const detachChannelSchema = z.object({
     message: "Неподдерживаемый канал",
   }),
 });
+
+export const dashboardQuerySchema = z.object({
+  section: z
+    .enum(["overview", "bookings", "orders", "feedback", "profile"])
+    .catch("overview"),
+  history: z.enum(["active", "past"]).catch("active"),
+  page: z.coerce.number().int().min(1).max(100000).catch(1),
+});
+
+export const ownBookingActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("cancel"),
+    confirmRefund: z.boolean().default(false),
+  }),
+  z.object({
+    action: z.literal("reschedule"),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .refine((value) => {
+        const d = new Date(value);
+        return (
+          Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value
+        );
+      }, "Некорректная дата"),
+    startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  }),
+  z.object({
+    action: z.literal("pay"),
+    acceptOffer: z.literal(true),
+    offerVersionSlug: z.string().min(1).max(32),
+    acceptMarketing: z.boolean().default(false),
+  }),
+]);

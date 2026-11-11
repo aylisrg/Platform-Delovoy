@@ -96,7 +96,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 102
       await firstCard.getByRole("link", { name: "Выбрать №1", exact: true }).click();
       await expect(page).toHaveURL(/#booking$/);
       await expect(page.getByTestId("booking-flow")).toBeInViewport();
-      await expect(page.locator("#booking-date")).toBeVisible();
+      await expect(page.locator("#booking-date:visible")).toBeVisible();
       await page.screenshot({ path: `test-results/gazebos-real-${viewport.width}.png`, fullPage: true });
     });
   });

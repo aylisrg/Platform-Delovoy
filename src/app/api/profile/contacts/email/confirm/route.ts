@@ -1,3 +1,4 @@
+import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
 import { auth } from "@/lib/auth";
 import { apiResponse, apiError } from "@/lib/api-response";
 import { confirmEmailAttach } from "@/modules/profile/service";
@@ -30,6 +31,9 @@ export async function POST(request: Request) {
     const result = await confirmEmailAttach(session.user.id, parsed.data);
     return apiResponse(result);
   } catch (err) {
+    await recordDashboardEvent(session.user.id, "contact_link_failed", {
+      channel: "email",
+    });
     const error = err as Error & { code?: string };
     if (error.code === "INVALID_TOKEN") {
       return apiError("INVALID_TOKEN", error.message, 400);

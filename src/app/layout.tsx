@@ -151,6 +151,7 @@ export default function RootLayout({
             k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
             (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
             ym(${YM_ID}, "init", {
+              url: (function() { var u = new URL(window.location.href); ["attachEmail", "token", "callbackUrl"].forEach(function(k) { u.searchParams.delete(k); }); return u.toString(); })(),
               clickmap: false,
               trackLinks: true,
               accurateTrackBounce: true,

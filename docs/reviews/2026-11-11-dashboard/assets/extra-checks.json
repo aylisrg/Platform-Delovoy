@@ -1,0 +1,43 @@
+[
+  {
+    "case": "telegram-failure",
+    "errorTextVisible": 0
+  },
+  {
+    "case": "profile-load-failure",
+    "contactHeadingVisible": true,
+    "nameEditButtonCount": 0
+  },
+  {
+    "case": "notification-load-failure",
+    "checkboxes": [
+      true,
+      true,
+      true
+    ],
+    "saveEnabled": true
+  },
+  {
+    "case": "valid-email-link",
+    "automaticConfirmRequests": 0,
+    "emailBefore": "audit-empty@example.invalid",
+    "tokenDisplayed": true
+  },
+  {
+    "case": "mobile-filled-top",
+    "width": {
+      "viewport": 390,
+      "document": 390,
+      "height": 4501,
+      "contactsTop": 3311
+    }
+  },
+  {
+    "case": "tablet-navbar",
+    "width": {
+      "viewport": 820,
+      "document": 820,
+      "navWidth": 571.484375
+    }
+  }
+]

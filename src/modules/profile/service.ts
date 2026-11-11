@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
+import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
 import type {
   ProfileData,
   UpdateNameInput,
@@ -56,9 +57,13 @@ export async function getProfile(userId: string): Promise<ProfileData> {
     image: user.image,
     contacts: {
       telegram: user.telegramId,
-      yandex: user.accounts.length > 0
-        ? { email: user.email ?? user.accounts[0].providerAccountId, name: user.name }
-        : null,
+      yandex:
+        user.accounts.length > 0
+          ? {
+              email: user.email ?? user.accounts[0].providerAccountId,
+              name: user.name,
+            }
+          : null,
       email: user.email,
       phone: user.phone,
     },
@@ -69,7 +74,7 @@ export async function getProfile(userId: string): Promise<ProfileData> {
 
 export async function detachChannel(
   userId: string,
-  channel: DetachableChannel
+  channel: DetachableChannel,
 ): Promise<{ detached: string }> {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
@@ -78,28 +83,26 @@ export async function detachChannel(
       email: true,
       phone: true,
       passwordHash: true,
+      vkId: true,
       accounts: {
         select: { provider: true },
       },
     },
   });
 
-  // Count active auth methods
-  let authMethodCount = 0;
-  if (user.telegramId) authMethodCount++;
-  if (user.email) authMethodCount++;
-  if (user.phone) authMethodCount++;
-  if (user.passwordHash) authMethodCount++;
-  for (const acc of user.accounts) {
-    if (acc.provider === "yandex" || acc.provider === "google") {
-      authMethodCount++;
-    }
-  }
-
-  if (authMethodCount <= 1) {
+  // Phone and retired OAuth accounts cannot be used to sign in. A password
+  // requires the email being detached, so it is not an independent fallback.
+  const canStillSignIn =
+    (channel !== "telegram" && !!user.telegramId) ||
+    (channel !== "email" && !!user.email) ||
+    !!user.vkId ||
+    user.accounts.some((account) => account.provider === "vk-id");
+  if (!canStillSignIn) {
     throw Object.assign(
-      new Error("Это единственный способ входа. Привяжите другой канал перед отвязкой."),
-      { code: "LAST_AUTH_METHOD" }
+      new Error(
+        "Это единственный способ входа. Привяжите другой канал перед отвязкой.",
+      ),
+      { code: "LAST_AUTH_METHOD" },
     );
   }
 
@@ -107,31 +110,54 @@ export async function detachChannel(
   switch (channel) {
     case "telegram":
       if (!user.telegramId) {
-        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+        throw Object.assign(
+          new Error("Этот канал не привязан к вашему аккаунту"),
+          { code: "NOT_ATTACHED" },
+        );
       }
-      await prisma.user.update({ where: { id: userId }, data: { telegramId: null } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { telegramId: null },
+      });
       break;
 
     case "email":
       if (!user.email) {
-        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+        throw Object.assign(
+          new Error("Этот канал не привязан к вашему аккаунту"),
+          { code: "NOT_ATTACHED" },
+        );
       }
-      await prisma.user.update({ where: { id: userId }, data: { email: null, emailVerified: null } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { email: null, emailVerified: null },
+      });
       break;
 
     case "phone":
       if (!user.phone) {
-        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+        throw Object.assign(
+          new Error("Этот канал не привязан к вашему аккаунту"),
+          { code: "NOT_ATTACHED" },
+        );
       }
-      await prisma.user.update({ where: { id: userId }, data: { phone: null } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { phone: null },
+      });
       break;
 
     case "yandex": {
       const yandexAccount = user.accounts.find((a) => a.provider === "yandex");
       if (!yandexAccount) {
-        throw Object.assign(new Error("Этот канал не привязан к вашему аккаунту"), { code: "NOT_ATTACHED" });
+        throw Object.assign(
+          new Error("Этот канал не привязан к вашему аккаунту"),
+          { code: "NOT_ATTACHED" },
+        );
       }
-      await prisma.account.deleteMany({ where: { userId, provider: "yandex" } });
+      await prisma.account.deleteMany({
+        where: { userId, provider: "yandex" },
+      });
       break;
     }
   }
@@ -154,12 +180,21 @@ export async function detachChannel(
 
 export async function updateName(
   userId: string,
-  input: UpdateNameInput
+  input: UpdateNameInput,
 ): Promise<{ name: string }> {
   const updated = await prisma.user.update({
     where: { id: userId },
     data: { name: input.name },
     select: { name: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "profile.name_update",
+      entity: "User",
+      entityId: userId,
+    },
   });
 
   return { name: updated.name! };
@@ -169,7 +204,7 @@ export async function updateName(
 
 export async function requestEmailAttach(
   userId: string,
-  input: AttachEmailRequestInput
+  input: AttachEmailRequestInput,
 ): Promise<AttachEmailRequestResult> {
   const normalized = input.email.toLowerCase().trim();
 
@@ -245,7 +280,7 @@ export async function requestEmailAttach(
 
 export async function confirmEmailAttach(
   userId: string,
-  input: AttachEmailConfirmInput
+  input: AttachEmailConfirmInput,
 ): Promise<AttachEmailConfirmResult> {
   const key = PROFILE_EMAIL_VERIFY_PREFIX + userId;
   const stored = await redis.get(key);
@@ -289,6 +324,18 @@ export async function confirmEmailAttach(
   // Clean up
   await redis.del(key);
 
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "profile.email_attach",
+      entity: "User",
+      entityId: userId,
+    },
+  });
+  await recordDashboardEvent(userId, "contact_link_succeeded", {
+    channel: "email",
+  });
+
   return { email: storedEmail };
 }
 
@@ -296,7 +343,7 @@ export async function confirmEmailAttach(
 
 export async function attachPhone(
   userId: string,
-  input: AttachPhoneRequestInput
+  input: AttachPhoneRequestInput,
 ): Promise<AttachPhoneConfirmResult> {
   const normalized = normalizePhone(input.phone);
   if (normalized.length < 10 || normalized.length > 15) {
@@ -332,6 +379,18 @@ export async function attachPhone(
   await prisma.user.update({
     where: { id: userId },
     data: { phone: phoneFormatted },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "profile.phone_attach",
+      entity: "User",
+      entityId: userId,
+    },
+  });
+  await recordDashboardEvent(userId, "contact_link_succeeded", {
+    channel: "phone",
   });
 
   return { phone: phoneFormatted };
