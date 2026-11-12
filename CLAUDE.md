@@ -212,6 +212,14 @@ If a module is not here it does not exist.
 Разовый ops-скрипт или workflow (правка данных на проде, диагностика
 инцидента) удаляется следующим же PR после применения — в `main` не копится.
 
+TLS: `timeweb-manage` → `ops-tls-diagnose` сравнивает публичные сертификаты
+на диске и в edge, показывает состояние certbot. `ops-tls-reload` перечитывает
+уже действующий сертификат после проверки домена, срока и `nginx -t`, затем
+проверяет HTTPS без отключения верификации. Приложение не перезапускается.
+`ops-tls-install-hook` устанавливает root-owned deploy-hook certbot
+`scripts/certbot-delovoy-edge-hook.sh`: он проверяет сертификат и конфигурацию,
+затем reload-ит публичный edge после продления, а не только host-nginx.
+
 ---
 
 ## Dev rules
