@@ -1,395 +1,452 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { Navbar } from "@landing/components/navbar";
-import { LegalFooterLinks } from "@/components/legal/legal-footer-links";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { NotificationSettings } from "@/components/public/notifications/notification-settings";
-import { ContactsCard } from "@/components/public/profile/contacts-card";
-import { TeamLink } from "@/components/public/team/team-link";
-import { VkCommunityBanner } from "@/components/auth/vk-community-banner";
-import type { BookingStatus, OrderStatus, FeedbackStatus, FeedbackType } from "@prisma/client";
 import { formatDate, formatTime } from "@/lib/format";
+import {
+  DashboardShell,
+  EmptySection,
+  Pagination,
+} from "@/components/public/dashboard/shell";
+import {
+  DashboardTracking,
+  TrackedDetails,
+} from "@/components/public/dashboard/tracking";
+import { FeedbackReply } from "@/components/public/dashboard/feedback-reply";
+import { ContactsCard } from "@/components/public/profile/contacts-card";
+import { NotificationSettings } from "@/components/public/notifications/notification-settings";
+import {
+  getDashboardBookings,
+  getDashboardOrders,
+  getDashboardFeedback,
+} from "@/modules/profile/dashboard-service";
+import { dashboardQuerySchema } from "@/modules/profile/validation";
 
 export const dynamic = "force-dynamic";
-
 export const metadata: Metadata = {
   title: "Личный кабинет",
-  description: "Ваши бронирования и заказы в бизнес-парке Деловой.",
+  description: "Ваши бронирования, заказы и обращения в Деловом Парке",
   robots: { index: false, follow: false },
 };
-
-const bookingStatusLabel: Record<BookingStatus, string> = {
-  PENDING: "Ожидает",
+const bookingLabels = {
+  PENDING: "Ожидает подтверждения",
   CONFIRMED: "Подтверждено",
+  CHECKED_IN: "Идёт сеанс",
   CANCELLED: "Отменено",
   COMPLETED: "Завершено",
-  CHECKED_IN: "Идёт сеанс",
-  NO_SHOW: "Не явился",
+  NO_SHOW: "Визит не состоялся",
 };
-
-const bookingStatusVariant: Record<BookingStatus, "warning" | "success" | "default" | "info"> = {
-  PENDING: "warning",
-  CONFIRMED: "success",
-  CANCELLED: "default",
-  COMPLETED: "info",
-  CHECKED_IN: "success",
-  NO_SHOW: "default",
-};
-
-const orderStatusLabel: Record<OrderStatus, string> = {
-  NEW: "Новый",
+const orderLabels = {
+  NEW: "Принят",
   PREPARING: "Готовится",
-  READY: "Готов",
+  READY: "Готов к выдаче",
   DELIVERED: "Доставлен",
   CANCELLED: "Отменён",
 };
-
-const orderStatusVariant: Record<OrderStatus, "warning" | "success" | "default" | "info"> = {
-  NEW: "warning",
-  PREPARING: "info",
-  READY: "success",
-  DELIVERED: "default",
-  CANCELLED: "default",
-};
-
-const feedbackStatusLabel: Record<FeedbackStatus, string> = {
-  NEW: "Новое",
+const feedbackLabels = {
+  NEW: "Получено",
   IN_PROGRESS: "В работе",
   RESOLVED: "Выполнено",
   REJECTED: "Отклонено",
 };
-
-const feedbackStatusVariant: Record<FeedbackStatus, "warning" | "success" | "default" | "info"> = {
-  NEW: "warning",
-  IN_PROGRESS: "info",
-  RESOLVED: "success",
-  REJECTED: "default",
-};
-
-const feedbackTypeLabel: Record<FeedbackType, string> = {
-  BUG: "Ошибка",
-  SUGGESTION: "Предложение",
-};
-
 const moduleLabels: Record<string, string> = {
   gazebos: "Барбекю Парк",
   "ps-park": "Плей Парк",
 };
+const money = (value: number) => `${value.toLocaleString("ru-RU")} ₽`;
 
-export default async function DashboardPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/");
-
-  const userId = session.user.id;
-
-  const vkCommunityId = process.env.VK_COMMUNITY_ID ?? null;
-  const hasVkChannel = vkCommunityId
-    ? await prisma.userNotificationChannel.findFirst({
-        where: { userId, kind: "VK" },
-        select: { id: true },
-      }).then(Boolean)
-    : false;
-
-  const [bookings, orders, feedbackItems] = await Promise.all([
-    prisma.booking.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-    prisma.order.findMany({
-      where: { userId },
-      include: { items: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-    prisma.feedbackItem.findMany({
-      where: { userId },
-      include: {
-        comments: { orderBy: { createdAt: "asc" } },
-        office: { select: { id: true, number: true, floor: true, building: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-  ]);
-
-  // Look up resource names for bookings
-  const resourceIds = [...new Set(bookings.map((b) => b.resourceId))];
-  const resources = resourceIds.length > 0
-    ? await prisma.resource.findMany({
-        where: { id: { in: resourceIds } },
-        select: { id: true, name: true },
-      })
-    : [];
-  const resourceNameMap = new Map(resources.map((r) => [r.id, r.name]));
-
+function BookingCard({
+  booking,
+}: {
+  booking: Awaited<ReturnType<typeof getDashboardBookings>>["bookings"][number];
+}) {
   return (
-    <div className="min-h-screen bg-zinc-50">
-      {hasVkChannel && vkCommunityId && (
-        <VkCommunityBanner communityId={vkCommunityId} />
-      )}
-      <Navbar />
+    <Link
+      href={`/dashboard/bookings/${booking.id}`}
+      prefetch={false}
+      className="block rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-zinc-600">
+          {moduleLabels[booking.moduleSlug] ?? "Бронирование"}
+        </p>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${booking.status === "CONFIRMED" || booking.status === "CHECKED_IN" ? "bg-emerald-50 text-emerald-800" : "bg-zinc-100 text-zinc-700"}`}
+        >
+          {bookingLabels[booking.status]}
+        </span>
+      </div>
+      <h3 className="mt-3 break-words text-lg font-semibold">{booking.resourceName}</h3>
+      <p className="mt-2 text-sm text-zinc-700">
+        {formatDate(booking.date)} · {formatTime(booking.startTime)}–
+        {formatTime(booking.endTime)} МСК
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-3">
+        <p className="text-sm text-zinc-600">
+          {booking.payment.totalDue > 0
+            ? money(booking.payment.totalDue)
+            : "Стоимость уточняется"}
+          {booking.payment.totalDue > 0 && (
+            <> · {booking.payment.shortLabel || "Без оплаты"}</>
+          )}
+        </p>
+        <span className="text-sm font-medium text-blue-700">
+          Детали и действия →
+        </span>
+      </div>
+    </Link>
+  );
+}
 
-      <header className="bg-white border-b border-zinc-200 pt-14">
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <h1 className="text-3xl font-bold text-zinc-900">Личный кабинет</h1>
-          <p className="mt-2 text-zinc-600">
-            {session.user.name ?? session.user.email ?? "Пользователь"}
-          </p>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-        {/* Bookings */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Мои бронирования</h2>
-          </CardHeader>
-          <CardContent>
-            {bookings.length === 0 ? (
-              <p className="text-sm text-zinc-400">У вас пока нет бронирований</p>
-            ) : (
-              <>
-                {/* Mobile: card layout */}
-                <div className="sm:hidden space-y-3">
-                  {bookings.map((b) => (
-                    <div key={b.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-zinc-900">
-                          {moduleLabels[b.moduleSlug] ?? b.moduleSlug}
-                        </span>
-                        <Badge variant={bookingStatusVariant[b.status]}>
-                          {bookingStatusLabel[b.status]}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-zinc-700 font-medium">
-                        {resourceNameMap.get(b.resourceId) ?? "—"}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        {formatDate(b.date)}
-                        {" · "}
-                        {formatTime(b.startTime)}
-                        {" — "}
-                        {formatTime(b.endTime)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                {/* Desktop: table */}
-                <div className="hidden sm:block overflow-x-auto">
-                  <table className="w-full text-sm min-w-[560px]">
-                    <thead>
-                      <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                        <th className="pb-3 font-medium">Модуль</th>
-                        <th className="pb-3 font-medium">Ресурс</th>
-                        <th className="pb-3 font-medium">Дата</th>
-                        <th className="pb-3 font-medium">Время</th>
-                        <th className="pb-3 font-medium">Статус</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bookings.map((b) => (
-                        <tr key={b.id} className="border-b border-zinc-50">
-                          <td className="py-3 text-zinc-600">
-                            {moduleLabels[b.moduleSlug] ?? b.moduleSlug}
-                          </td>
-                          <td className="py-3 text-zinc-900 font-medium">
-                            {resourceNameMap.get(b.resourceId) ?? "—"}
-                          </td>
-                          <td className="py-3 text-zinc-600">
-                            {formatDate(b.date)}
-                          </td>
-                          <td className="py-3 text-zinc-600">
-                            {formatTime(b.startTime)}
-                            {" — "}
-                            {formatTime(b.endTime)}
-                          </td>
-                          <td className="py-3">
-                            <Badge variant={bookingStatusVariant[b.status]}>
-                              {bookingStatusLabel[b.status]}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Orders */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Мои заказы</h2>
-          </CardHeader>
-          <CardContent>
-            {orders.length === 0 ? (
-              <p className="text-sm text-zinc-400">У вас пока нет заказов</p>
-            ) : (
-              <>
-                {/* Mobile: card layout */}
-                <div className="sm:hidden space-y-3">
-                  {orders.map((o) => (
-                    <div key={o.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-zinc-900">
-                          {Number(o.totalAmount)} ₽
-                        </span>
-                        <Badge variant={orderStatusVariant[o.status]}>
-                          {orderStatusLabel[o.status]}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-zinc-500">
-                        {formatDate(o.createdAt)}
-                        {" · "}
-                        {formatTime(o.createdAt)}
-                        {" · "}
-                        {o.items.length} позиц.
-                        {o.deliveryTo ? ` · офис ${o.deliveryTo}` : ""}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                {/* Desktop: table */}
-                <div className="hidden sm:block overflow-x-auto">
-                  <table className="w-full text-sm min-w-[560px]">
-                    <thead>
-                      <tr className="border-b border-zinc-100 text-left text-zinc-500">
-                        <th className="pb-3 font-medium">Дата</th>
-                        <th className="pb-3 font-medium">Позиций</th>
-                        <th className="pb-3 font-medium">Сумма</th>
-                        <th className="pb-3 font-medium">Доставка</th>
-                        <th className="pb-3 font-medium">Статус</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.map((o) => (
-                        <tr key={o.id} className="border-b border-zinc-50">
-                          <td className="py-3 text-zinc-600">
-                            {formatDate(o.createdAt)}{" "}
-                            {formatTime(o.createdAt)}
-                          </td>
-                          <td className="py-3 text-zinc-600">
-                            {o.items.length} шт.
-                          </td>
-                          <td className="py-3 text-zinc-900 font-medium">
-                            {Number(o.totalAmount)} ₽
-                          </td>
-                          <td className="py-3 text-zinc-600">
-                            {o.deliveryTo ?? "—"}
-                          </td>
-                          <td className="py-3">
-                            <Badge variant={orderStatusVariant[o.status]}>
-                              {orderStatusLabel[o.status]}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Feedback */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Мои обращения</h2>
-          </CardHeader>
-          <CardContent>
-            {feedbackItems.length === 0 ? (
-              <p className="text-sm text-zinc-400">У вас пока нет обращений</p>
-            ) : (
-              <div className="space-y-3">
-                {feedbackItems.map((fb) => (
-                  <div key={fb.id} className="rounded-xl border border-zinc-100 p-4 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                          fb.type === "BUG" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
-                        }`}>
-                          {feedbackTypeLabel[fb.type]}
-                        </span>
-                        {fb.isUrgent && (
-                          <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            СРОЧНО
-                          </span>
-                        )}
-                        {fb.office && (
-                          <span className="inline-block rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
-                            Корп. {fb.office.building}, эт. {fb.office.floor}, оф. {fb.office.number}
-                          </span>
-                        )}
-                      </div>
-                      <Badge variant={feedbackStatusVariant[fb.status]}>
-                        {feedbackStatusLabel[fb.status]}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-zinc-700">
-                      {fb.description.length > 150
-                        ? fb.description.slice(0, 150) + "..."
-                        : fb.description}
-                    </p>
-                    <p className="text-xs text-zinc-400">
-                      {formatDate(fb.createdAt)}
-                      {" · "}
-                      {formatTime(fb.createdAt)}
-                    </p>
-                    {fb.comments.length > 0 && (
-                      <div className="mt-2 rounded-lg bg-zinc-50 p-3">
-                        <p className="text-xs font-medium text-zinc-500 mb-1">Ответ администратора:</p>
-                        <p className="text-sm text-zinc-600">
-                          {fb.comments[fb.comments.length - 1].text}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* My Contacts */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Мои контакты</h2>
-            <p className="text-sm text-zinc-500 mt-1">
-              Привяжите дополнительные способы связи для уведомлений
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const raw = await searchParams;
+  const query = dashboardQuerySchema.parse(raw);
+  const attachEmail =
+    typeof raw.attachEmail === "string" ? raw.attachEmail : undefined;
+  const section = attachEmail ? "profile" : query.section;
+  const session = await auth();
+  if (!session?.user?.id) {
+    const target = new URLSearchParams({ section });
+    if (attachEmail && /^[a-f0-9]{64}$/.test(attachEmail))
+      target.set("attachEmail", attachEmail);
+    redirect(
+      `/auth/signin?callbackUrl=${encodeURIComponent(`/dashboard?${target}`)}`,
+    );
+  }
+  const userId = session.user.id;
+  const identity = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true },
+  });
+  let content;
+  if (section === "overview" || section === "bookings") {
+    const active = section === "overview" || query.history === "active";
+    const [{ bookings, total }, currentOrders] = await Promise.all([
+      getDashboardBookings(
+        userId,
+        active,
+        section === "overview" ? 1 : query.page,
+      ),
+      section === "overview"
+        ? prisma.order.findMany({
+            where: {
+              userId,
+              deletedAt: null,
+              status: { in: ["NEW", "PREPARING", "READY"] },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 3,
+            select: {
+              id: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+    content = (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">
+              {section === "overview" ? "Ближайшие планы" : "Мои бронирования"}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              {active
+                ? "Предстоящие визиты и текущие сеансы — по времени начала."
+                : "Завершённые, отменённые и прошедшие бронирования."}
             </p>
-          </CardHeader>
-          <CardContent>
-            <ContactsCard />
-          </CardContent>
-        </Card>
-
-        {/* Notification Settings */}
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900">Настройки уведомлений</h2>
-          </CardHeader>
-          <CardContent>
-            <NotificationSettings />
-          </CardContent>
-        </Card>
-      </main>
-
-      <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-6">
-        <div className="mx-auto flex max-w-[1200px] flex-col gap-3 text-center md:flex-row md:items-center md:justify-between md:text-left">
-          <LegalFooterLinks />
-          <TeamLink
-            role={session.user.role}
-            className="shrink-0 text-xs uppercase tracking-[0.12em] font-semibold text-[#86868b] transition-colors hover:text-[#1d1d1f]"
-          />
+          </div>
+          <Link
+            href="/gazebos"
+            className="inline-flex min-h-11 items-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white"
+          >
+            Новая бронь
+          </Link>
         </div>
-      </footer>
-    </div>
+        {section === "bookings" && (
+          <nav aria-label="Период бронирований" className="flex gap-2">
+            {[
+              ["active", "Предстоящие"],
+              ["past", "История"],
+            ].map(([key, label]) => (
+              <Link
+                key={key}
+                aria-current={query.history === key ? "page" : undefined}
+                href={`/dashboard?section=bookings&history=${key}`}
+                className={`rounded-xl px-4 py-3 text-sm ${query.history === key ? "bg-blue-50 font-medium text-blue-800" : "bg-white text-zinc-600"}`}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+        )}
+        {bookings.length ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(section === "overview" ? bookings.slice(0, 3) : bookings).map(
+              (b) => (
+                <BookingCard key={b.id} booking={b} />
+              ),
+            )}
+          </div>
+        ) : (
+          <EmptySection
+            title={
+              active
+                ? "Пока нет предстоящих визитов"
+                : "Здесь будет история ваших визитов"
+            }
+            description={
+              active
+                ? "Выберите беседку для встречи или стол в Плей Парке. Ваши брони появятся здесь."
+                : "Завершённые и отменённые брони можно будет найти в этом разделе."
+            }
+            href="/ps-park"
+            action="Выбрать время в Плей Парке"
+          />
+        )}
+        {currentOrders.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-xl font-semibold">Заказы в работе</h2>
+            {currentOrders.map((order) => (
+              <Link
+                key={order.id}
+                href="/dashboard?section=orders"
+                className="flex flex-wrap justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-5 text-sm"
+              >
+                <span>
+                  Кафе · {formatTime(order.createdAt)} ·{" "}
+                  {money(Number(order.totalAmount))}
+                </span>
+                <span className="font-medium text-blue-700">
+                  {orderLabels[order.status]} →
+                </span>
+              </Link>
+            ))}
+          </section>
+        )}
+        {section === "bookings" ? (
+          <Pagination
+            page={query.page}
+            total={total}
+            section="bookings"
+            history={query.history}
+          />
+        ) : (
+          <>
+            <Link
+              href="/dashboard?section=bookings"
+              className="inline-block py-2 text-sm font-medium text-blue-700"
+            >
+              Все бронирования и история →
+            </Link>
+            <section
+              className="grid gap-3 sm:grid-cols-3"
+              aria-label="Сервисы парка"
+            >
+              {[
+                ["/cafe", "Заказать в кафе", "Меню и доставка в офис"],
+                [
+                  "/dashboard?section=orders",
+                  "Мои заказы",
+                  "Состав и статус приготовления",
+                ],
+                [
+                  "/dashboard?section=feedback",
+                  "Связаться с парком",
+                  "Обращения и ответы сотрудников",
+                ],
+              ].map(([href, title, text]) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="rounded-2xl border border-zinc-200 bg-white p-5 hover:border-blue-400"
+                >
+                  <h3 className="font-semibold">{title} →</h3>
+                  <p className="mt-2 text-sm text-zinc-600">{text}</p>
+                </Link>
+              ))}
+            </section>
+          </>
+        )}
+      </div>
+    );
+  } else if (section === "orders") {
+    const { orders, total } = await getDashboardOrders(userId, query.page);
+    content = (
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Мои заказы</h2>
+        {orders.map((order) => (
+          <TrackedDetails
+            key={order.id}
+            title={
+              <>
+                <span className="flex flex-wrap justify-between gap-2">
+                  <span className="font-semibold">
+                    Заказ от {formatDate(order.createdAt)} ·{" "}
+                    {formatTime(order.createdAt)}
+                  </span>
+                  <span className="text-sm text-zinc-600">
+                    {orderLabels[order.status]}
+                  </span>
+                </span>
+                <span className="mt-2 block text-sm text-zinc-600">
+                  {order.items.length} поз. ·{" "}
+                  {order.items.reduce((n, item) => n + item.quantity, 0)} шт. ·{" "}
+                  {money(Number(order.totalAmount))}
+                </span>
+              </>
+            }
+          >
+            <ul className="divide-y divide-zinc-100">
+              {order.items.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex flex-wrap justify-between gap-2 py-3 text-sm"
+                >
+                  <span className="min-w-0 break-words">
+                    {item.name ?? "Позиция меню"} × {item.quantity}
+                  </span>
+                  <span>{money(Number(item.price) * item.quantity)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm text-zinc-600">
+              {order.deliveryTo
+                ? `Доставка: офис ${order.deliveryTo}`
+                : "Самовывоз"}
+            </p>
+            <p className="mt-2 text-sm text-zinc-600">
+              {order.paidAt
+                ? "Оплата онлайн подтверждена"
+                : "Онлайн-оплата не подтверждена"}
+            </p>
+            {order.comment && (
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm">
+                {order.comment}
+              </p>
+            )}
+          </TrackedDetails>
+        ))}
+        {!orders.length && (
+          <EmptySection
+            title="Заказов пока нет"
+            description="Посмотрите меню кафе — здесь появятся состав заказа и статус приготовления."
+            href="/cafe"
+            action="Открыть меню кафе"
+          />
+        )}
+        <Pagination section="orders" page={query.page} total={total} />
+      </section>
+    );
+  } else if (section === "feedback") {
+    const { items, total } = await getDashboardFeedback(userId, query.page);
+    content = (
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Мои обращения</h2>
+          <Link
+            href="/report"
+            className="rounded-xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white"
+          >
+            Новое обращение
+          </Link>
+        </div>
+        {items.map((item) => (
+          <TrackedDetails
+            feedback
+            key={item.id}
+            title={
+              <>
+                <span className="flex flex-wrap justify-between gap-2">
+                  <span className="font-medium">
+                    {item.type === "BUG"
+                      ? "Сообщение о проблеме"
+                      : "Предложение"}{" "}
+                    · {formatDate(item.createdAt)}
+                  </span>
+                  <span className="text-sm text-zinc-600">
+                    {feedbackLabels[item.status]}
+                  </span>
+                </span>
+                <span className="mt-3 line-clamp-2 block break-words text-sm text-zinc-600">
+                  {item.description}
+                </span>
+              </>
+            }
+          >
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+              {item.description}
+            </p>
+            {item.screenshotPath && (
+              <a
+                href={`/api/feedback/uploads/${encodeURIComponent(item.screenshotPath)}`}
+                className="mt-3 inline-block py-2 text-sm text-blue-700"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Открыть вложение →
+              </a>
+            )}
+            <ol className="mt-5 space-y-3" aria-label="Переписка по обращению">
+              {item.comments.map((c) => (
+                <li key={c.id} className="rounded-xl bg-zinc-50 p-4">
+                  <p className="text-xs font-medium text-zinc-600">
+                    {c.authorLabel} · {formatDate(c.createdAt)}{" "}
+                    {formatTime(c.createdAt)}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                    {c.text}
+                  </p>
+                </li>
+              ))}
+            </ol>
+            <FeedbackReply feedbackId={item.id} />
+          </TrackedDetails>
+        ))}
+        {!items.length && (
+          <EmptySection
+            title="Обращений пока нет"
+            description="Расскажите о проблеме или предложите улучшение. Ответы сотрудников появятся здесь."
+            href="/report"
+            action="Написать в парк"
+          />
+        )}
+        <Pagination section="feedback" page={query.page} total={total} />
+      </section>
+    );
+  } else {
+    content = (
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6">
+          <h2 className="text-xl font-semibold">Профиль и контакты</h2>
+          <p className="mb-6 mt-2 text-sm leading-relaxed text-zinc-600">
+            Настройте имя и контакты. Email и Telegram также помогают войти в
+            аккаунт.
+          </p>
+          <ContactsCard initialEmailToken={attachEmail} />
+        </section>
+        <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6">
+          <h2 className="mb-6 text-xl font-semibold">Уведомления</h2>
+          <NotificationSettings />
+        </section>
+      </div>
+    );
+  }
+  return (
+    <DashboardShell
+      name={identity?.name ?? null}
+      role={session.user.role}
+      section={section}
+    >
+      <DashboardTracking section={section} />
+      {content}
+    </DashboardShell>
   );
 }

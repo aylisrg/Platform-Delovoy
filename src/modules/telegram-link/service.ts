@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
 import { prisma } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { log } from "@/lib/logger";
@@ -515,6 +516,7 @@ export async function processDeepLink(
   await redis.del(tokenKey(input.token)).catch(() => {});
 
   await afterLinked(user.id, input.telegramId);
+  await recordDashboardEvent(user.id, "contact_link_succeeded", { channel: "telegram" });
 
   await prisma.auditLog.create({
     data: {

@@ -8,6 +8,7 @@ import type {
   CampaignStats,
 } from "@/modules/analytics/types";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { DashboardUsage } from "@/components/admin/dashboard-usage";
 
 type Period = "today" | "7d" | "30d";
 type SortKey = "cost" | "clicks" | "impressions" | "ctr" | "avgCpc" | "costShare";
@@ -220,6 +221,8 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {/* Customer dashboard activity is independent of ad-provider availability. */}
+      <DashboardUsage />
       {/* Cached at */}
       {overview?.cachedAt && (
         <p className="text-xs text-zinc-400 -mt-3">

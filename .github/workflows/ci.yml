@@ -111,7 +111,8 @@ jobs:
   # другой job — unit-тесты мокают DB/Redis, build только компилирует.
   e2e:
     name: E2E (Playwright)
-    runs-on: ubuntu-latest
+    # Match the Playwright noble image; do not follow ubuntu-latest OS upgrades.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.event_name == 'pull_request'
     services:
@@ -158,23 +159,29 @@ jobs:
       - name: Build (standalone + static assets)
         run: npm run build:e2e
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Install Playwright browser (chromium)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright OS deps (browser cached)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+      # Browser + OS libraries are already installed in the official image.
+      # No apt mirror dependency on each run; npm ci pins the matching version.
+      - name: Pull matching Playwright image
+        run: |
+          playwright_version="$(node -p 'require("@playwright/test/package.json").version')"
+          playwright_image="mcr.microsoft.com/playwright:v${playwright_version}-noble"
+          docker pull "$playwright_image"
+          echo "PLAYWRIGHT_IMAGE=$playwright_image" >> "$GITHUB_ENV"
 
       - name: Run E2E tests
-        run: npm run e2e
+        # Host networking preserves loopback-only DB/Redis and payment fixtures.
+        # Same paths and UID keep annotations and uploaded diagnostics usable.
+        run: |
+          docker run --rm --init --ipc=host --network=host \
+            --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            --workdir "$GITHUB_WORKSPACE" \
+            --env HOME=/tmp --env HOSTNAME=127.0.0.1 \
+            --env CI --env GITHUB_ACTIONS --env GITHUB_WORKSPACE \
+            --env DATABASE_URL --env REDIS_URL \
+            --env NEXTAUTH_URL --env NEXTAUTH_SECRET --env AUTH_SECRET \
+            --env DEV_OVERLAY \
+            "$PLAYWRIGHT_IMAGE" npm run e2e
 
       - name: Upload Playwright report
         if: always()

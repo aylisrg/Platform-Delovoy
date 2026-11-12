@@ -1,162 +1,202 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 
 type Channel = "AUTO" | "TELEGRAM" | "EMAIL";
-
-const channelLabels: Record<Channel, string> = {
-  AUTO: "Автоматически",
-  TELEGRAM: "Telegram",
-  EMAIL: "Email",
-};
-
 interface Preference {
   preferredChannel: Channel;
   enableBooking: boolean;
   enableOrder: boolean;
   enableReminder: boolean;
 }
-
+const labels: Record<Channel, string> = {
+  AUTO: "Автоматически",
+  TELEGRAM: "Telegram",
+  EMAIL: "Email",
+};
 export function NotificationSettings() {
-  const [preference, setPreference] = useState<Preference>({
-    preferredChannel: "AUTO",
-    enableBooking: true,
-    enableOrder: true,
-    enableReminder: true,
-  });
-  const [availableChannels, setAvailableChannels] = useState<Channel[]>([]);
+  const id = useId();
+  const [preference, setPreference] = useState<Preference | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/notifications/preferences")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          setPreference(data.data.preference);
-          setAvailableChannels(data.data.availableChannels);
-        }
+  const load = useCallback(() => {
+    return fetch("/api/notifications/preferences")
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.success)
+          throw new Error(
+            result.error?.message ?? "Не удалось загрузить настройки",
+          );
+        return result.data;
       })
-      .catch(() => {})
+      .then((data) => {
+        setPreference(data.preference);
+        setChannels(data.availableChannels);
+      })
+      .catch((err) =>
+        setLoadError(
+          err instanceof TypeError
+            ? "Нет связи с сервером. Попробуйте ещё раз."
+            : err instanceof Error
+              ? err.message
+              : "Не удалось загрузить настройки",
+        ),
+      )
       .finally(() => setLoading(false));
   }, []);
-
-  async function handleSave() {
-    setSaving(true);
-    setSaved(false);
-    try {
-      const res = await fetch("/api/notifications/preferences", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(preference),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
+  useEffect(() => {
+    void load();
+  }, [load]);
+  if (loading)
+    return (
+      <p role="status" className="text-sm text-zinc-600">
+        Загружаем настройки…
+      </p>
+    );
+  if (loadError || !preference)
     return (
       <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-10 animate-pulse rounded-lg bg-zinc-100" />
-        ))}
+        <p role="alert" className="text-sm text-red-700">
+          {loadError || "Настройки недоступны"}
+        </p>
+        <button
+          className="min-h-11 rounded-xl border border-zinc-300 px-4 text-sm"
+          onClick={() => {
+            setLoading(true);
+            setLoadError("");
+            void load();
+          }}
+        >
+          Повторить загрузку настроек
+        </button>
       </div>
     );
-  }
-
   return (
-    <div className="space-y-6">
-      {/* Channel selection */}
+    <form
+      className="space-y-6"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (saving) return;
+        setSaving(true);
+        setError("");
+        setSaved(false);
+        try {
+          const response = await fetch("/api/notifications/preferences", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(preference),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success)
+            throw new Error(
+              result.error?.message ?? "Не удалось сохранить настройки",
+            );
+          setPreference(result.data);
+          setSaved(true);
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Нет связи с сервером. Попробуйте ещё раз.",
+          );
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
       <div>
-        <label className="block text-sm font-medium text-zinc-700 mb-2">
-          Канал уведомлений
+        <label
+          htmlFor={`${id}-channel`}
+          className="mb-2 block text-sm font-medium"
+        >
+          Куда отправлять уведомления
         </label>
         <select
+          id={`${id}-channel`}
+          disabled={saving}
           value={preference.preferredChannel}
-          onChange={(e) =>
-            setPreference((p) => ({
-              ...p,
-              preferredChannel: e.target.value as Channel,
-            }))
-          }
-          className="w-full max-w-xs rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          onChange={(event) => {
+            setPreference({
+              ...preference,
+              preferredChannel: event.target.value as Channel,
+            });
+            setSaved(false);
+          }}
+          className="w-full min-w-0 rounded-xl border border-zinc-300 bg-white px-3 py-3 text-sm focus-visible:outline-blue-600"
         >
-          <option value="AUTO">
-            Автоматически (по способу регистрации)
-          </option>
-          {availableChannels.map((ch) => (
-            <option key={ch} value={ch}>
-              {channelLabels[ch]}
+          <option value="AUTO">Выбирать автоматически</option>
+          {channels.map((channel) => (
+            <option key={channel} value={channel}>
+              {labels[channel]}
             </option>
           ))}
+          {preference.preferredChannel !== "AUTO" &&
+            !channels.includes(preference.preferredChannel) && (
+              <option value={preference.preferredChannel} disabled>
+                {labels[preference.preferredChannel]} — контакт недоступен
+              </option>
+            )}
         </select>
-        {availableChannels.length > 0 && (
-          <p className="mt-1.5 text-xs text-zinc-400">
-            Доступные каналы: {availableChannels.map((c) => channelLabels[c]).join(", ")}
-          </p>
-        )}
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+          {channels.length
+            ? `Доступны: ${channels.map((c) => labels[c]).join(", ")}. При автоматическом выборе используем доступный контакт.`
+            : "Добавьте email или Telegram в профиле, чтобы получать уведомления."}
+        </p>
       </div>
-
-      {/* Category toggles */}
-      <div>
-        <label className="block text-sm font-medium text-zinc-700 mb-3">
-          Категории уведомлений
-        </label>
-        <div className="space-y-2">
-          {[
-            { key: "enableBooking" as const, label: "Бронирования", desc: "Подтверждения и отмены бронирований Барбекю Парк и Плей Парк" },
-            { key: "enableOrder" as const, label: "Заказы", desc: "Статус заказов в кафе (готовится, готов, доставлен)" },
-            { key: "enableReminder" as const, label: "Напоминания", desc: "Напоминания за 1 час до бронирования" },
-          ].map((item) => (
-            <label
-              key={item.key}
-              className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-colors ${
-                preference[item.key]
-                  ? "border-blue-200 bg-blue-50"
-                  : "border-zinc-200 bg-white"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={preference[item.key]}
-                onChange={(e) =>
-                  setPreference((p) => ({ ...p, [item.key]: e.target.checked }))
-                }
-                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <span className="text-sm font-medium text-zinc-900">
-                  {item.label}
-                </span>
-                <p className="text-xs text-zinc-500">{item.desc}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Save button */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+      <fieldset disabled={saving} className="space-y-3">
+        <legend className="mb-3 text-sm font-medium">О чём сообщать</legend>
+        {(
+          [
+            ["enableBooking", "Бронирования", "Подтверждения и отмены визитов"],
+            ["enableOrder", "Заказы кафе", "Приготовление и доставка заказов"],
+            ["enableReminder", "Напоминания", "За час до начала бронирования"],
+          ] as const
+        ).map(([key, label, description]) => (
+          <label
+            key={key}
+            className="flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 p-4"
+          >
+            <input
+              type="checkbox"
+              checked={preference[key]}
+              onChange={(event) => {
+                setPreference({ ...preference, [key]: event.target.checked });
+                setSaved(false);
+              }}
+              className="mt-1 h-4 w-4 shrink-0 accent-blue-700"
+            />
+            <span>
+              <span className="block text-sm font-medium">{label}</span>
+              <span className="mt-1 block text-sm text-zinc-600">
+                {description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      {error && (
+        <p
+          role="alert"
+          className="rounded-xl bg-red-50 p-3 text-sm text-red-800"
         >
-          {saving ? "Сохранение..." : "Сохранить"}
-        </button>
-        {saved && (
-          <span className="text-sm text-green-600">Сохранено</span>
-        )}
-      </div>
-    </div>
+          {error}
+        </p>
+      )}
+      {saved && (
+        <p role="status" className="text-sm text-emerald-800">
+          Настройки сохранены
+        </p>
+      )}
+      <button
+        disabled={saving}
+        className="min-h-11 rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white disabled:opacity-50"
+      >
+        {saving ? "Сохраняем…" : "Сохранить настройки"}
+      </button>
+    </form>
   );
 }

@@ -4,8 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import type { ManagedBookingView } from "@/modules/booking/manage";
 import { buildCancellationSummary } from "@/modules/booking/cancellation-summary";
-import { OfferAcceptance, type SummaryLine } from "@/components/public/offer-acceptance";
+import {
+  OfferAcceptance,
+  type SummaryLine,
+} from "@/components/public/offer-acceptance";
 import { formatDate } from "@/lib/format";
+import { trackDashboard } from "@/components/public/dashboard/tracking";
 
 /**
  * Управление бронью без регистрации (ТЗ §8).
@@ -17,7 +21,7 @@ import { formatDate } from "@/lib/format";
  */
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "Ожидает оплаты",
+  PENDING: "Ожидает подтверждения",
   CONFIRMED: "Подтверждено",
   CHECKED_IN: "Вы на месте",
   COMPLETED: "Завершено",
@@ -30,9 +34,15 @@ const fmtRub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 export function ManageBooking({
   token,
   initial,
+  endpoint,
+  canCancel = true,
+  allowPaymentRetry = false,
 }: {
-  token: string;
+  token?: string;
   initial: ManagedBookingView;
+  endpoint?: string;
+  canCancel?: boolean;
+  allowPaymentRetry?: boolean;
 }) {
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -43,14 +53,21 @@ export function ManageBooking({
   const [newDate, setNewDate] = useState(initial.date);
   const [newStart, setNewStart] = useState(initial.startTime);
   const [newEnd, setNewEnd] = useState(initial.endTime);
+  const [penaltyAmount, setPenaltyAmount] = useState(0);
 
   const summary = buildCancellationSummary();
+  const Heading = endpoint ? "h2" : "h1";
 
   async function call(body: Record<string, unknown>) {
+    if (busy) return null;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/booking/${token}`, {
+      if (endpoint)
+        trackDashboard("booking_action_started", {
+          action: body.action as "cancel" | "reschedule" | "pay",
+        });
+      const res = await fetch(endpoint ?? `/api/booking/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -70,10 +87,16 @@ export function ManageBooking({
   }
 
   async function cancel() {
-    const data = await call({ action: "cancel", confirmRefund: confirmingCancel });
+    const data = await call({
+      action: "cancel",
+      confirmRefund: confirmingCancel,
+    });
     if (!data) return;
     if (data.confirmationRequired) {
       setConfirmingCancel(true);
+      setPenaltyAmount(Number(data.penaltyAmount ?? 0));
+      if (data.refund)
+        setView((current) => ({ ...current, refund: data.refund }));
       return;
     }
     setCancelled(true);
@@ -104,13 +127,23 @@ export function ManageBooking({
     if (data?.confirmationUrl) {
       window.location.href = data.confirmationUrl as string;
     } else if (data) {
-      setError("Онлайн-оплата сейчас недоступна. Мы свяжемся с вами для подтверждения.");
+      setError(
+        "Онлайн-оплата сейчас недоступна. Мы свяжемся с вами для подтверждения.",
+      );
     }
   }
 
   const orderLines: SummaryLine[] = [
-    { label: `${view.resourceName} · ${formatDate(view.date + "T00:00:00")}`, value: "", muted: true },
-    { label: `Время ${view.startTime}–${view.endTime}`, value: "", muted: true },
+    {
+      label: `${view.resourceName} · ${formatDate(view.date + "T00:00:00")}`,
+      value: "",
+      muted: true,
+    },
+    {
+      label: `Время ${view.startTime}–${view.endTime}`,
+      value: "",
+      muted: true,
+    },
     ...view.items.map((item) => ({
       label: `${item.name} × ${item.quantity}`,
       value: fmtRub(item.price * item.quantity),
@@ -121,9 +154,9 @@ export function ManageBooking({
     return (
       <div className="rounded-2xl border border-black/[0.08] p-8 text-center">
         <div className="text-4xl">✓</div>
-        <h1 className="mt-4 font-[family-name:var(--font-manrope)] text-xl font-semibold text-[#1d1d1f]">
+        <Heading className="mt-4 font-[family-name:var(--font-manrope)] text-xl font-semibold text-[#1d1d1f]">
           Бронирование {view.number} отменено
-        </h1>
+        </Heading>
         {view.refund.paidAmount > 0 && (
           <p className="mt-3 text-sm leading-relaxed text-[#5a5a5f]">
             {view.refund.refundAmount > 0
@@ -144,11 +177,15 @@ export function ManageBooking({
   return (
     <div className="space-y-6">
       <header>
-        <p className="text-xs uppercase tracking-wide text-[#86868b]">Бронирование</p>
-        <h1 className="mt-1 font-[family-name:var(--font-manrope)] text-2xl font-semibold tracking-tight text-[#1d1d1f]">
+        <p className="text-xs uppercase tracking-wide text-[#86868b]">
+          Бронирование
+        </p>
+        <Heading className="mt-1 font-[family-name:var(--font-manrope)] text-2xl font-semibold tracking-tight text-[#1d1d1f]">
           {view.number}
-        </h1>
-        <p className="mt-2 text-sm text-[#5a5a5f]">{STATUS_LABEL[view.status] ?? view.status}</p>
+        </Heading>
+        <p className="mt-2 text-sm text-[#5a5a5f]">
+          {STATUS_LABEL[view.status] ?? view.status}
+        </p>
       </header>
 
       <div className="rounded-2xl border border-black/[0.08] p-5">
@@ -169,17 +206,23 @@ export function ManageBooking({
               <dt className="text-[#86868b]">
                 {item.name} × {item.quantity}
               </dt>
-              <dd className="font-medium text-[#1d1d1f]">{fmtRub(item.price * item.quantity)}</dd>
+              <dd className="font-medium text-[#1d1d1f]">
+                {fmtRub(item.price * item.quantity)}
+              </dd>
             </div>
           ))}
           <div className="flex justify-between gap-4 border-t border-black/[0.06] pt-2">
             <dt className="font-semibold text-[#1d1d1f]">Итого</dt>
-            <dd className="font-bold text-[#1d1d1f]">{fmtRub(view.totalPrice)}</dd>
+            <dd className="font-bold text-[#1d1d1f]">
+              {fmtRub(view.totalPrice)}
+            </dd>
           </div>
           {view.paidAmount > 0 && (
             <div className="flex justify-between gap-4">
               <dt className="text-[#86868b]">Оплачено онлайн</dt>
-              <dd className="font-medium text-[#16A34A]">{fmtRub(view.paidAmount)}</dd>
+              <dd className="font-medium text-[#16A34A]">
+                {fmtRub(view.paidAmount)}
+              </dd>
             </div>
           )}
         </dl>
@@ -199,7 +242,10 @@ export function ManageBooking({
       </div>
 
       {error && (
-        <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p
+          role="alert"
+          className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error}
         </p>
       )}
@@ -211,7 +257,8 @@ export function ManageBooking({
             Подтвердите и оплатите бронирование
           </h2>
           <p className="mt-1 mb-4 text-sm text-[#5a5a5f]">
-            Бронь оформлена для вас — ознакомьтесь с условиями и оплатите, чтобы она вступила в силу.
+            Бронь оформлена для вас — ознакомьтесь с условиями и оплатите, чтобы
+            она вступила в силу.
           </p>
           <OfferAcceptance
             lines={orderLines}
@@ -223,141 +270,186 @@ export function ManageBooking({
       )}
 
       {/* Незавершённая оплата уже акцептованной брони */}
-      {!view.acceptanceRequired && view.paymentUrl && view.status === "PENDING" && (
-        <a
-          href={view.paymentUrl}
-          className="block rounded-full bg-[#16A34A] px-6 py-3 text-center text-sm font-medium text-white"
-        >
-          Продолжить оплату — {fmtRub(view.totalPrice)}
-        </a>
-      )}
+      {!view.acceptanceRequired &&
+        view.paymentUrl &&
+        view.status === "PENDING" && (
+          <a
+            href={view.paymentUrl}
+            className="block rounded-full bg-[#16A34A] px-6 py-3 text-center text-sm font-medium text-white"
+          >
+            Продолжить оплату — {fmtRub(view.totalPrice)}
+          </a>
+        )}
 
       {/* Перенос */}
-      {view.reschedule.allowed ? (
-        <section className="rounded-2xl border border-black/[0.08] p-5">
-          <h2 className="font-[family-name:var(--font-manrope)] text-base font-semibold text-[#1d1d1f]">
-            Перенести на другую дату
-          </h2>
-          <p className="mt-1 text-sm text-[#5a5a5f]">{summary.lines[1]}</p>
-          {rescheduleOpen ? (
-            <div className="mt-4 space-y-3">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs text-[#86868b]">Дата</span>
-                  <input
-                    type="date"
-                    value={newDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={(e) => setNewDate(e.target.value)}
-                    className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs text-[#86868b]">Начало</span>
-                  <input
-                    type="time"
-                    step={3600}
-                    value={newStart}
-                    onChange={(e) => setNewStart(e.target.value)}
-                    className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs text-[#86868b]">Окончание</span>
-                  <input
-                    type="time"
-                    step={3600}
-                    value={newEnd}
-                    onChange={(e) => setNewEnd(e.target.value)}
-                    className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
-                  />
-                </label>
+      {canCancel &&
+        (view.reschedule.allowed ? (
+          <section className="rounded-2xl border border-black/[0.08] p-5">
+            <h2 className="font-[family-name:var(--font-manrope)] text-base font-semibold text-[#1d1d1f]">
+              Перенести на другую дату
+            </h2>
+            <p className="mt-1 text-sm text-[#5a5a5f]">{summary.lines[1]}</p>
+            {rescheduleOpen ? (
+              <div className="mt-4 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs text-[#86868b]">
+                      Дата
+                    </span>
+                    <input
+                      type="date"
+                      value={newDate}
+                      min={new Date().toISOString().split("T")[0]}
+                      onChange={(e) => setNewDate(e.target.value)}
+                      className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs text-[#86868b]">
+                      Начало
+                    </span>
+                    <input
+                      type="time"
+                      step={3600}
+                      value={newStart}
+                      onChange={(e) => setNewStart(e.target.value)}
+                      className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs text-[#86868b]">
+                      Окончание
+                    </span>
+                    <input
+                      type="time"
+                      step={3600}
+                      value={newEnd}
+                      onChange={(e) => setNewEnd(e.target.value)}
+                      className="w-full rounded-xl border border-black/[0.08] px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRescheduleOpen(false)}
+                    className="rounded-full bg-[#1d1d1f]/[0.06] px-5 py-2.5 text-sm font-medium text-[#1d1d1f]"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reschedule}
+                    disabled={busy}
+                    className="rounded-full bg-[#0071e3] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {busy ? "Переносим…" : "Перенести"}
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRescheduleOpen(false)}
-                  className="rounded-full bg-[#1d1d1f]/[0.06] px-5 py-2.5 text-sm font-medium text-[#1d1d1f]"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="button"
-                  onClick={reschedule}
-                  disabled={busy}
-                  className="rounded-full bg-[#0071e3] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {busy ? "Переносим…" : "Перенести"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setRescheduleOpen(true)}
-              className="mt-4 rounded-full bg-[#1d1d1f]/[0.06] px-5 py-2.5 text-sm font-medium text-[#1d1d1f]"
-            >
-              Выбрать другую дату
-            </button>
-          )}
-        </section>
-      ) : (
-        <p className="text-sm text-[#86868b]">{view.reschedule.reason}</p>
-      )}
+            ) : (
+              <button
+                type="button"
+                onClick={() => setRescheduleOpen(true)}
+                className="mt-4 rounded-full bg-[#1d1d1f]/[0.06] px-5 py-2.5 text-sm font-medium text-[#1d1d1f]"
+              >
+                Выбрать другую дату
+              </button>
+            )}
+          </section>
+        ) : (
+          <p className="text-sm text-[#86868b]">{view.reschedule.reason}</p>
+        ))}
+
+      {allowPaymentRetry &&
+        !view.acceptanceRequired &&
+        !view.paymentUrl &&
+        view.status === "PENDING" && (
+          <button
+            disabled={busy}
+            onClick={() =>
+              payWithAcceptance({
+                acceptMarketing: false,
+                offerVersionSlug: view.offer?.slug ?? "current",
+              })
+            }
+            className="min-h-11 rounded-xl bg-blue-700 px-5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Получить ссылку на оплату
+          </button>
+        )}
 
       {/* Отмена — всегда доступна, без объяснения причин */}
-      <section className="rounded-2xl border border-black/[0.08] p-5">
-        <h2 className="font-[family-name:var(--font-manrope)] text-base font-semibold text-[#1d1d1f]">
-          Отменить бронирование
-        </h2>
+      {canCancel && (
+        <section className="rounded-2xl border border-black/[0.08] p-5">
+          <h2 className="font-[family-name:var(--font-manrope)] text-base font-semibold text-[#1d1d1f]">
+            Отменить бронирование
+          </h2>
 
-        <div className="mt-3 space-y-1.5 text-sm text-[#5a5a5f]">
-          {view.refund.paidAmount > 0 ? (
-            <>
-              <p>
-                Оплачено {fmtRub(view.refund.paidAmount)} · к возврату{" "}
-                <strong className="text-[#1d1d1f]">{fmtRub(view.refund.refundAmount)}</strong>
-              </p>
-              {view.refund.deductions.map((deduction) => (
-                <p key={deduction.label} className="text-[#86868b]">
-                  Удерживается {fmtRub(deduction.amount)} — {deduction.label.toLowerCase()}
+          <div className="mt-3 space-y-1.5 text-sm text-[#5a5a5f]">
+            {view.refund.paidAmount > 0 ? (
+              <>
+                <p>
+                  Оплачено {fmtRub(view.refund.paidAmount)} · к возврату{" "}
+                  <strong className="text-[#1d1d1f]">
+                    {fmtRub(view.refund.refundAmount)}
+                  </strong>
                 </p>
-              ))}
-              {view.refund.deductions.length === 0 && (
-                <p className="text-[#86868b]">Удержаний нет — вернём всю сумму.</p>
-              )}
-            </>
-          ) : (
-            <p>Оплата по брони не проходила — удерживать нечего.</p>
-          )}
-          <p className="text-[#86868b]">
-            Подробно — в{" "}
-            <Link
-              href={summary.detailsHref}
-              target="_blank"
-              rel="noopener"
-              className="text-[#0071e3] underline underline-offset-2"
-            >
-              {summary.detailsLabel}
-            </Link>
-            .
-          </p>
-        </div>
+                {view.refund.deductions.map((deduction) => (
+                  <p key={deduction.label} className="text-[#86868b]">
+                    Удерживается {fmtRub(deduction.amount)} —{" "}
+                    {deduction.label.toLowerCase()}
+                  </p>
+                ))}
+                {view.refund.deductions.length === 0 && (
+                  <p className="text-[#86868b]">
+                    Удержаний нет — вернём всю сумму.
+                  </p>
+                )}
+              </>
+            ) : view.paidAmount > 0 ? (
+              <p>
+                По брони получено {fmtRub(view.paidAmount)} на месте. Возврат
+                этой оплаты уточните у администратора; возможные условия отмены
+                покажем перед подтверждением.
+              </p>
+            ) : (
+              <p>
+                Онлайн-оплата по брони не зафиксирована. Если при отмене
+                действует штраф, покажем его до подтверждения.
+              </p>
+            )}
+            <p className="text-[#86868b]">
+              Подробно — в{" "}
+              <Link
+                href={summary.detailsHref}
+                target="_blank"
+                rel="noopener"
+                className="text-[#0071e3] underline underline-offset-2"
+              >
+                {summary.detailsLabel}
+              </Link>
+              .
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={cancel}
-          disabled={busy}
-          data-testid="cancel-booking"
-          className="mt-4 rounded-full border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
-        >
-          {busy
-            ? "Отменяем…"
-            : confirmingCancel
-              ? `Подтвердить отмену — к возврату ${fmtRub(view.refund.refundAmount)}`
-              : "Отменить бронирование"}
-        </button>
-      </section>
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={busy}
+            data-testid="cancel-booking"
+            className="mt-4 rounded-full border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+          >
+            {busy
+              ? "Отменяем…"
+              : confirmingCancel
+                ? penaltyAmount > 0 && view.refund.paidAmount === 0
+                  ? `Подтвердить отмену — штраф ${fmtRub(penaltyAmount)}`
+                  : `Подтвердить отмену — к возврату ${fmtRub(view.refund.refundAmount)}`
+                : "Отменить бронирование"}
+          </button>
+        </section>
+      )}
     </div>
   );
 }

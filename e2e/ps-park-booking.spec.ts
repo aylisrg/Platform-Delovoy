@@ -10,10 +10,15 @@ test("Плей Парк: без активации гостю не создаё�
   const before = await prisma.booking.count({ where: { moduleSlug: "ps-park" } });
   await page.goto("/ps-park");
   const booking = page.locator("#booking");
-  const bookingDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const dateInput = booking.locator('input[type="date"]:visible');
+  // The park's current date uses Moscow time. UTC tomorrow can already be
+  // selected after 21:00 UTC, so derive a different date from the actual form.
+  const nextDate = new Date(`${await dateInput.inputValue()}T12:00:00Z`);
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+  const bookingDate = nextDate.toISOString().slice(0, 10);
   await Promise.all([
     page.waitForResponse((response) => response.url().includes(`/api/ps-park/availability?date=${bookingDate}`)),
-    booking.locator('input[type="date"]').fill(bookingDate),
+    dateInput.fill(bookingDate),
   ]);
   await booking.getByRole("button", { name: /^\d{2}:\d{2}$/, disabled: false }).first().click();
   await expect(booking.getByText("Онлайн-бронирование временно недоступно.")).toBeVisible();

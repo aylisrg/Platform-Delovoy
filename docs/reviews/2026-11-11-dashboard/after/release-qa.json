@@ -1,0 +1,41 @@
+{
+  "checkedAt": "2026-11-11T15:53:51.642452+00:00",
+  "scope": "local release candidate; synthetic data only",
+  "checks": {
+    "lint": {
+      "passed": true,
+      "errors": 0,
+      "warnings": 74
+    },
+    "typecheck": {
+      "passed": true,
+      "application": true,
+      "bot": true
+    },
+    "vitest": {
+      "passed": true,
+      "files": 449,
+      "tests": 5810
+    },
+    "productionDashboardE2E": {
+      "passed": true,
+      "tests": 5,
+      "browser": "/usr/bin/chromium",
+      "database": "delovoy_dashboard_audit"
+    },
+    "productionBuild": {
+      "passed": true
+    }
+  },
+  "productionBeforeRelease": {
+    "deployedSha": "fe95d82f94cd95b588a7a22f7ed0b04053872be7",
+    "health": "healthy",
+    "anonymousAnalyticsStatus": 401,
+    "serverReadOnlyDiagnosticRun": "https://github.com/aylisrg/Platform-Delovoy/actions/runs/43052477013"
+  },
+  "limits": [
+    "No production behavioral baseline was available.",
+    "QA confirms functionality, not conversion uplift.",
+    "GitHub CI and production rollout must be checked separately."
+  ]
+}

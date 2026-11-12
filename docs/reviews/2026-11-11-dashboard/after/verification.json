@@ -1,0 +1,95 @@
+[
+  {
+    "case": "active-bookings-not-lost",
+    "visible": 2
+  },
+  {
+    "case": "history-page-1",
+    "cards": 10
+  },
+  {
+    "case": "history-page-2",
+    "cards": 9
+  },
+  {
+    "case": "order-quantity-and-details",
+    "text": "Мои заказы\nЗаказ от 11-11-2026 · 17:54\nГотовится\n2 поз. · 5 шт. · 1 450 ₽\nСвернуть ↑\nКофе × 3\n450 ₽\nОбед × 2\n1 000 ₽\n\nДоставка: офис 203\n\nОнлайн-оплата не подтверждена\n\nСтраница 1 из 1 · Всего 1"
+  },
+  {
+    "case": "feedback-reply-saved",
+    "count": 1
+  },
+  {
+    "case": "name-saved-and-header-refreshed",
+    "name": "Анна После Исправлений"
+  },
+  {
+    "case": "name-mobile-width",
+    "width": {
+      "viewport": 320,
+      "document": 320
+    }
+  },
+  {
+    "case": "notification-save-persisted",
+    "enableBooking": false
+  },
+  {
+    "case": "booking-cancel-persisted",
+    "status": "CANCELLED"
+  },
+  {
+    "case": "valid-email-link-persisted",
+    "email": "confirmed-audit@example.invalid",
+    "url": "http://localhost:3000/dashboard?section=profile"
+  },
+  {
+    "case": "first-party-events-in-database",
+    "events": [
+      {
+        "event": "booking_action_failed",
+        "count": 1
+      },
+      {
+        "event": "booking_action_started",
+        "count": 1
+      },
+      {
+        "event": "booking_action_succeeded",
+        "count": 1
+      },
+      {
+        "event": "booking_details_open",
+        "count": 2
+      },
+      {
+        "event": "contact_link_succeeded",
+        "count": 1
+      },
+      {
+        "event": "dashboard_section_view",
+        "count": 9
+      },
+      {
+        "event": "dashboard_view",
+        "count": 6
+      },
+      {
+        "event": "feedback_open",
+        "count": 1
+      },
+      {
+        "event": "feedback_reply_succeeded",
+        "count": 1
+      },
+      {
+        "event": "notification_settings_save_succeeded",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "case": "browser-errors",
+    "errors": []
+  }
+]
