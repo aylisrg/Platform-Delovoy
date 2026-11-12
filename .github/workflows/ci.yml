@@ -51,6 +51,8 @@ jobs:
         run: bash scripts/__tests__/deploy-backup.test.sh
       - name: Cron upsert test (#1074)
         run: bash scripts/__tests__/cron-upsert.test.sh
+      - name: TLS edge deploy-hook safety gates
+        run: bash scripts/__tests__/certbot-edge-hook.test.sh
 
   typecheck:
     name: TypeScript Check

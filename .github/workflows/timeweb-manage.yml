@@ -21,6 +21,9 @@ on:
           - ops-memory-relief      # Удалить зомби-контейнеры compose run, включить swap 2G
           - ops-diagnose           # Полная диагностика: OOM-события, рестарты контейнеров, cron, TZ
           - ops-net-diagnose       # Сетевой слой: кто слушает 80/443, nginx, firewall, curl по слоям (read-only)
+          - ops-tls-diagnose       # Публичный сертификат на диске/в edge и состояние certbot (read-only)
+          - ops-tls-reload         # Перечитать уже действующий сертификат в edge после nginx -t
+          - ops-tls-install-hook   # Установить deploy-hook certbot для перечитывания edge после продления
           - ops-bind-secondary-ip  # Вернуть на eth0 доп. IPv4, пропавший из DHCP-аренды (runtime, с авто-откатом)
           - ops-persist-secondary-ip # Закрепить доп. IPv4 в netplan, чтобы пережил ребут (с авто-откатом)
           - disk-cleanup          # Удалить неиспользуемые Docker-образы (освободить место)
@@ -173,6 +176,83 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"action": "start"}' \
             "${{ env.TIMEWEB_API }}/api/v1/servers/$SID/action" | jq '.'
+
+      - name: Checkout TLS deploy-hook
+        if: inputs.action == 'ops-tls-install-hook'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Deliver TLS deploy-hook
+        if: inputs.action == 'ops-tls-install-hook'
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: scripts/certbot-delovoy-edge-hook.sh
+          target: /opt/delovoy-park/
+          overwrite: true
+
+      - name: Install and verify TLS deploy-hook
+        if: inputs.action == 'ops-tls-install-hook'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 3m
+          script: |
+            set -eu
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            SOURCE=/opt/delovoy-park/scripts/certbot-delovoy-edge-hook.sh
+            TARGET=/etc/letsencrypt/renewal-hooks/deploy/50-delovoy-edge-reload
+            sh -n "$SOURCE"
+            $SUDO install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
+            if $SUDO test -f "$TARGET" && ! $SUDO cmp -s "$SOURCE" "$TARGET"; then
+              $SUDO install -d -m 0700 /etc/letsencrypt/renewal-hooks-backups
+              $SUDO cp -p "$TARGET" "/etc/letsencrypt/renewal-hooks-backups/50-delovoy-edge-reload.$(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            $SUDO install -o root -g root -m 0755 "$SOURCE" "$TARGET"
+            $SUDO env RENEWED_LINEAGE=/etc/letsencrypt/live/delovoy-park.ru "$TARGET"
+            curl -fsS --max-time 20 https://delovoy-park.ru/api/health
+            echo
+            $SUDO stat -c '%U %a %n' "$TARGET"
+
+      - name: TLS certificate diagnosis and guarded edge reload (via SSH)
+        if: inputs.action == 'ops-tls-diagnose' || inputs.action == 'ops-tls-reload'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 3m
+          script: |
+            set -eu
+            SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
+            CERT=/etc/letsencrypt/live/delovoy-park.ru/fullchain.pem
+            echo "=== On-disk public certificate ==="
+            $SUDO openssl x509 -in "$CERT" -noout -subject -issuer -serial -dates -ext subjectAltName
+            echo "=== Served public certificate ==="
+            echo | timeout 15 openssl s_client -connect 127.0.0.1:443 -servername delovoy-park.ru 2>/dev/null | openssl x509 -noout -serial -dates
+            echo "=== Certbot timer ==="
+            systemctl is-active certbot.timer || true
+            systemctl list-timers certbot.timer --no-pager || true
+            echo "=== Recent certbot service log ==="
+            $SUDO journalctl -u certbot.service -n 30 --no-pager || true
+            echo "=== Renewal plugins (no credentials) ==="
+            $SUDO grep -E '^(authenticator|installer|webroot_path|server|renew_hook|deploy_hook|post_hook) *=' /etc/letsencrypt/renewal/delovoy-park.ru.conf || true
+            echo "=== Renewal hook filenames ==="
+            $SUDO find /etc/letsencrypt/renewal-hooks -maxdepth 2 -type f -printf '%P\n' 2>/dev/null || true
+            if [ "${{ inputs.action }}" != "ops-tls-reload" ]; then exit 0; fi
+            # Fail closed: never reload an expired or wrong-host certificate.
+            $SUDO openssl x509 -in "$CERT" -noout -checkhost delovoy-park.ru
+            $SUDO openssl x509 -in "$CERT" -noout -checkend 86400
+            docker exec delovoy-edge nginx -t
+            docker exec delovoy-edge nginx -s reload
+            sleep 2
+            echo "=== Strict HTTPS check (certificate verification enabled) ==="
+            curl -fsS --max-time 20 https://delovoy-park.ru/api/health
+            echo
+            echo | timeout 15 openssl s_client -connect 127.0.0.1:443 -servername delovoy-park.ru 2>/dev/null | openssl x509 -noout -serial -dates
 
       - name: Server Logs (via SSH)
         if: inputs.action == 'server-logs'
