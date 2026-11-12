@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.0.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.28.0...v3.0.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* таблица OwnerDecision удаляется миграцией.
+
+### Features
+
+* **analytics:** бизнес-отчёт за любой период до 2 лет с разбивкой; FOR TEAM убран с лендинга ([#1198](https://github.com/aylisrg/Platform-Delovoy/issues/1198)) ([fe95d82](https://github.com/aylisrg/Platform-Delovoy/commit/fe95d82f94cd95b588a7a22f7ed0b04053872be7))
+* **gazebos:** полные фотосерии беседок и описание каждой ([#1190](https://github.com/aylisrg/Platform-Delovoy/issues/1190)) ([0482e2b](https://github.com/aylisrg/Platform-Delovoy/commit/0482e2ba7ae97351f01be62877fea8fe91ff2e9a))
+* **notifications:** брони лично каждому, отчётность по умолчанию, еженедельные подсказки бота ([#1191](https://github.com/aylisrg/Platform-Delovoy/issues/1191)) ([2ad10c4](https://github.com/aylisrg/Platform-Delovoy/commit/2ad10c42c5125c319fd34afc4d6637e9bc20706b))
+* **ps-park:** prepaid self-service booking and approved offer ([#1176](https://github.com/aylisrg/Platform-Delovoy/issues/1176)) ([f84e332](https://github.com/aylisrg/Platform-Delovoy/commit/f84e3328271d2b350882a2522fac801897e453a5))
+* **ps-park:** фотогалерея Плей Парка — 10 новых снимков ([#1192](https://github.com/aylisrg/Platform-Delovoy/issues/1192)) ([a06e74c](https://github.com/aylisrg/Platform-Delovoy/commit/a06e74c7032684f6fcd2b9692833d7e88fe77500))
+
+
+### Bug Fixes
+
+* **gazebos:** remove complimentary pizza promotion ([#1171](https://github.com/aylisrg/Platform-Delovoy/issues/1171)) ([d6865e0](https://github.com/aylisrg/Platform-Delovoy/commit/d6865e0f4b3c7fe625f47ceb7e558850ae4e2f4d))
+* **notifications:** owner-decisions heartbeat stale only after missed GitHub scheduler ticks ([#1188](https://github.com/aylisrg/Platform-Delovoy/issues/1188)) ([de4fedc](https://github.com/aylisrg/Platform-Delovoy/commit/de4fedca5dd723c7e9264bd9b61b61fa682684da))
+* **notifications:** уведомления сотрудникам не доходили — канал Telegram, всё включено админам, анонс команде ([#1197](https://github.com/aylisrg/Platform-Delovoy/issues/1197)) ([75631a8](https://github.com/aylisrg/Platform-Delovoy/commit/75631a8e4db4da6ebe0aefc9965bc51d94d05e34))
+* **ops:** reload TLS edge after certificate renewal ([#1200](https://github.com/aylisrg/Platform-Delovoy/issues/1200)) ([375ffbc](https://github.com/aylisrg/Platform-Delovoy/commit/375ffbc007abe1d05a78ed87a23ab638d8d99075))
+* **profile:** rebuild customer dashboard and resolve review findings ([#1199](https://github.com/aylisrg/Platform-Delovoy/issues/1199)) ([6713396](https://github.com/aylisrg/Platform-Delovoy/commit/6713396abc486f6f5d78739161f28754622a3952))
+
+
+### Miscellaneous Chores
+
+* процесс разработки — необходимый минимум (CI, workflow-ы, зависимости, правила) ([#1193](https://github.com/aylisrg/Platform-Delovoy/issues/1193)) ([8e0908a](https://github.com/aylisrg/Platform-Delovoy/commit/8e0908a51f73a5b0fc5ec926311cab22fdc0fb26))
+
 ## [2.28.0](https://github.com/aylisrg/Platform-Delovoy/compare/v2.27.2...v2.28.0) (2026-10-31)
 
 
