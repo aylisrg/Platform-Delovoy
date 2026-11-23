@@ -43,6 +43,7 @@ export const dashboardQuerySchema = z.object({
 });
 
 export const ownBookingActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("resume_payment") }),
   z.object({
     action: z.literal("cancel"),
     confirmRefund: z.boolean().default(false),

@@ -73,7 +73,7 @@ const clientBookingReminder: TemplateFn = (d) =>
   `Через час начинается ваша бронь\n\n${slotLines(d)}\n\nЖдём вас!`;
 
 const clientBookingEndingSoon: TemplateFn = (d) =>
-  `Ваша бронь закончится через час, в ${e(d.endTime)}\n\n${e(d.resourceName)} · ${e(formatEventDate(d.date))}\n\nХотите остаться подольше? Позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone} — продлим, если время свободно.`;
+  `Ваша бронь закончится ${d.moduleSlug === "ps-park" ? "скоро" : "через час"}, в ${e(d.endTime)}\n\n${e(d.resourceName)} · ${e(formatEventDate(d.date))}\n\nХотите остаться подольше? Позвоните: ${getPublicContact(String(d.moduleSlug ?? "")).displayPhone} — продлим, если время свободно.`;
 
 // Единые шаблоны онлайн-оплат (ЮKassa) — одинаковы для всех модулей,
 // подмешиваются в каждый модульный блок ниже. Описание платежа — это же
@@ -84,10 +84,10 @@ function paymentClientTemplates(moduleSlug: string): Record<string, TemplateFn> 
   // абонемент) — повторить ту же оплату нельзя, только оформить заново. Счёт
   // по брони PS Park при этом остаётся, его можно оплатить ещё раз.
   const afterCancel = (d: TemplateData) => {
-    if (moduleSlug === "ps-park" && d.subjectType === "BOOKING") {
+    if (moduleSlug === "ps-park" && d.subjectType === "BOOKING" && d.paymentPurpose !== "reservation") {
       return `Счёт можно оплатить ещё раз или на месте. Вопросы: ${getPublicContact(moduleSlug).displayPhone}.`;
     }
-    const what = moduleSlug === "gazebos" ? "бронь " : moduleSlug === "cafe" ? "заказ " : "";
+    const what = moduleSlug === "cafe" ? "заказ " : d.subjectType === "BOOKING" || moduleSlug === "gazebos" ? "бронь " : "";
     return `Чтобы попробовать снова, оформите ${what}заново. Вопросы: ${getPublicContact(moduleSlug).displayPhone}.`;
   };
   return {
@@ -118,7 +118,9 @@ export const clientTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.created": clientBookingCreated,
     "booking.confirmed": clientBookingConfirmed,
     "booking.cancelled": clientBookingCancelled,
+    "booking.rescheduled": clientBookingRescheduled,
     "booking.reminder": clientBookingReminder,
+    "booking.ending_soon": clientBookingEndingSoon,
     ...paymentClientTemplates("ps-park"),
   },
   cafe: {
@@ -200,11 +202,15 @@ const adminBookingRescheduled: TemplateFn = (d) => {
   const client = formatClient(d);
   if (client) lines.push(`👤 ${e(client)}`);
   const who = d.movedBy === "client" ? "Перенёс клиент." : "Перенос в панели.";
-  return `🔄 <b>Бронь перенесена</b>\n\n${lines.join("\n")}\n\n${who} Проверьте, что новое время не пересекается с подготовкой беседки.${adminBookingLink("gazebos", d.bookingId)}`;
+  const playPark = d.moduleSlug === "ps-park";
+  const action = playPark ? "Проверьте готовность игрового стола к новому времени." : "Проверьте, что новое время не пересекается с подготовкой беседки.";
+  return `🔄 <b>Бронь перенесена</b>\n\n${lines.join("\n")}\n\n${who} ${action}${adminBookingLink(playPark ? "ps-park" : "gazebos", d.bookingId)}`;
 };
 
 const adminBookingEndingSoon: TemplateFn = (d) =>
-  `⏳ <b>Бронь закончится через час</b>\n\n${adminBookingBlock(d)}\n\nПредложите гостям продлить, если следом беседка свободна.${adminBookingLink("gazebos", d.bookingId)}`;
+  d.moduleSlug === "ps-park"
+    ? `⏳ <b>Сессия скоро закончится</b>\n\n${adminBookingBlock(d)}\n\nПредложите продление, если стол свободен.${adminBookingLink("ps-park", d.bookingId)}`
+    : `⏳ <b>Бронь закончится через час</b>\n\n${adminBookingBlock(d)}\n\nПредложите гостям продлить, если следом беседка свободна.${adminBookingLink("gazebos", d.bookingId)}`;
 
 /**
  * Онлайн-оплаты. Для брони `service.ts` подмешивает ресурс, слот и клиента
@@ -226,6 +232,9 @@ function paymentAdminTemplates(moduleSlug: string): Record<string, TemplateFn> {
         return `✅ <b>Бронь оплачена онлайн: ${e(d.amount)} ₽</b>\n\n${adminBookingBlock(d)}\n\nБронь подтверждена — ничего делать не нужно.${link}`;
       }
       if (isBooking && moduleSlug === "ps-park") {
+        if (d.paymentPurpose === "reservation") {
+          return `✅ <b>Бронь оплачена онлайн: ${e(d.amount)} ₽</b>\n\n${adminBookingBlock(d)}\n\nБронь подтверждена — ждём гостей.${link}`;
+        }
         return `💳 <b>Онлайн-оплата сессии: ${e(d.amount)} ₽</b>\n\n${adminBookingBlock(d)}${link}`;
       }
       return `💳 <b>Онлайн-оплата: ${e(d.amount)} ₽</b>\n\n${e(humanizeDates(d.description))}`;
@@ -262,6 +271,8 @@ export const adminTemplates: Record<string, Record<string, TemplateFn>> = {
     "booking.created": adminBookingCreated("ps-park"),
     "booking.admin_created": adminBookingAdminCreated("ps-park"),
     "booking.cancelled": adminBookingCancelled("ps-park"),
+    "booking.rescheduled": adminBookingRescheduled,
+    "booking.ending_soon": adminBookingEndingSoon,
     ...paymentAdminTemplates("ps-park"),
   },
   cafe: {
@@ -311,5 +322,5 @@ export function renderAdminMessage(
 ): string | null {
   const template = adminTemplates[moduleSlug]?.[eventType];
   if (!template) return null;
-  return template(data);
+  return template({ ...data, moduleSlug });
 }

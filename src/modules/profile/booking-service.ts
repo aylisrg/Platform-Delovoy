@@ -13,7 +13,7 @@ import {
   createBookingPayment,
   rescheduleBookingByClient,
 } from "@/modules/gazebos/service";
-import { cancelBooking as cancelPSBooking } from "@/modules/ps-park/service";
+import { cancelBooking as cancelPSBooking, createReservationPayment } from "@/modules/ps-park/service";
 import { isPSParkReservation } from "@/modules/booking/payment-flow";
 import { ownBookingActionSchema } from "./validation";
 
@@ -48,7 +48,9 @@ export async function getOwnBooking(userId: string, id: string) {
   ]);
   const summary = getBookingPaymentSummary(booking);
   const metadata = booking.metadata as Record<string, unknown> | null;
+  const reservation = isPSParkReservation(booking);
   const canPay =
+    (booking.moduleSlug === "gazebos" || (reservation && !!booking.acceptedOfferAt)) &&
     booking.status === "PENDING" &&
     booking.startTime > new Date() &&
     summary.paid === 0 &&
@@ -70,7 +72,7 @@ export async function getOwnBooking(userId: string, id: string) {
     canPay,
     canCancel:
       ["PENDING", "CONFIRMED"].includes(booking.status) &&
-      !isPSParkReservation(booking),
+      !reservation,
     view: {
       ...view,
       guestName: null,
@@ -96,6 +98,20 @@ export async function actOnOwnBooking(
       "Действие недоступно для этой брони",
       409,
     );
+  if (input.action === "resume_payment") {
+    const summary = getBookingPaymentSummary(booking);
+    if (!isPSParkReservation(booking) || booking.status !== "PENDING" ||
+        booking.startTime <= new Date() || summary.paid > 0 ||
+        summary.outstanding <= 0) {
+      throw new BookingManageError("PAYMENT_UNAVAILABLE", "Оплата по этой брони недоступна", 409);
+    }
+    const result = await createReservationPayment(booking);
+    if (!result.payment.confirmationUrl) {
+      throw new BookingManageError("PAYMENT_UNAVAILABLE", "Ссылка на оплату пока недоступна. Попробуйте ещё раз", 503);
+    }
+    await logAudit(userId, "booking.customer_payment_link", "Booking", id);
+    return { confirmationUrl: result.payment.confirmationUrl };
+  }
   if (input.action === "cancel") {
     if (booking.moduleSlug === "gazebos") {
       const refund = computeRefund(booking);

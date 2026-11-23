@@ -125,15 +125,15 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
     await log.error(EVENT_SOURCES.PAYMENTS, "Оплата Плей Парка поступила после отмены — требуется сверка и перенос", {
       bookingId: booking.id, paymentId: payment.id,
     });
-    return;
   }
   const resource = await prisma.resource.findUnique({
     where: { id: booking.resourceId },
     select: { name: true, googleCalendarId: true },
   });
   const times = bookingTimeStrings(booking);
+  const psReservation = isPSParkReservation(payment);
 
-  if ((booking.moduleSlug === "gazebos" || isPSParkReservation(payment)) && booking.status === "CONFIRMED") {
+  if ((booking.moduleSlug === "gazebos" || psReservation) && booking.status === "CONFIRMED") {
     // Календарь — best-effort, как в ручном подтверждении.
     if (booking.moduleSlug === "gazebos" && resource?.googleCalendarId && !booking.googleEventId) {
       const user = booking.userId
@@ -183,11 +183,10 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
     }
   }
 
-  // Письмо-подтверждение с номером редакции оферты и ссылкой на управление
-  // бронью (ТЗ §7). Этот шаблон и ссылка управления предназначены для gazebos.
-  if (booking.moduleSlug === "gazebos") {
+  if (booking.moduleSlug === "gazebos" || (psReservation && booking.status === "CONFIRMED")) {
     try {
-      await sendBookingReceipt(payment, booking, resource?.name ?? "Беседка", times);
+      const moduleSlug = psReservation ? "ps-park" : "gazebos";
+      await sendBookingReceipt(payment, booking, resource?.name ?? (psReservation ? "Игровой стол" : "Беседка"), times, moduleSlug);
     } catch (err) {
       // Деньги приняты, бронь подтверждена — несостоявшееся письмо это
       // инцидент, а не повод ронять обработку платежа.
@@ -218,6 +217,7 @@ export async function afterBookingPaymentSucceeded(payment: Payment): Promise<vo
         maximumFractionDigits: 2,
       }),
       bookingId: booking.id,
+      ...(psReservation && { paymentPurpose: "reservation", bookingStatus: booking.status }),
     },
   });
 }
@@ -239,7 +239,8 @@ async function sendBookingReceipt(
   payment: Payment,
   booking: { id: string; metadata: unknown; offerVersionId: string | null },
   resourceName: string,
-  times: { date: string; startTime: string; endTime: string }
+  times: { date: string; startTime: string; endTime: string },
+  moduleSlug: "gazebos" | "ps-park"
 ): Promise<void> {
   const to = payment.customerEmail;
   if (!to) return;
@@ -261,23 +262,31 @@ async function sendBookingReceipt(
     return;
   }
 
-  const manageToken = manageTokenFor(booking.id);
-  const items = (metadata.items ?? []) as { name?: string; quantity?: number; price?: string | number }[];
-  const basePrice = Number(metadata.basePrice ?? 0);
+  const playPark = moduleSlug === "ps-park";
+  const manageToken = playPark ? null : manageTokenFor(booking.id);
+  const items = (metadata.items ?? []) as { name?: string; skuName?: string; quantity?: number; price?: string | number; priceAtBooking?: string | number }[];
+  const basePrice = Number(metadata.basePrice ?? payment.amount);
   const total = Number(metadata.totalPrice ?? payment.amount);
-  const summary = buildCancellationSummary();
+  const summary = playPark ? {
+    title: "Перенос и вопросы по оплате",
+    lines: [
+      "Администратор поможет перенести неиспользованное время на том же столе с сохранением длительности и тарифа.",
+      "Вопросы об оплате, ошибочных списаниях и неоказанных услугах рассматривает администратор.",
+    ],
+  } : buildCancellationSummary();
 
   const data: BookingReceiptData = {
+    moduleSlug,
     bookingNumber: bookingNumber(booking.id),
     resourceName,
     date: times.date,
     startTime: times.startTime,
     endTime: times.endTime,
     lines: [
-      { label: `Аренда беседки «${resourceName}»`, amount: basePrice },
+      { label: `Аренда ${playPark ? "игрового стола" : "беседки"} «${resourceName}»`, amount: basePrice },
       ...items.map((item) => ({
-        label: `${item.name ?? "Позиция"} × ${Number(item.quantity ?? 0)}`,
-        amount: Number(item.price ?? 0) * Number(item.quantity ?? 0),
+        label: `${item.skuName ?? item.name ?? "Позиция"} × ${Number(item.quantity ?? 0)}`,
+        amount: Number(item.priceAtBooking ?? item.price ?? 0) * Number(item.quantity ?? 0),
       })),
     ],
     total,
@@ -292,7 +301,7 @@ async function sendBookingReceipt(
 
   const result = await sendTransactionalEmail({
     to,
-    subject: `Бронирование ${data.bookingNumber} оплачено — Барбекю Парк`,
+    subject: `Бронирование ${data.bookingNumber} оплачено — ${playPark ? "Плей Парк" : "Барбекю Парк"}`,
     html: bookingReceiptHtml(data),
     text: bookingReceiptText(data),
   });
@@ -321,6 +330,20 @@ export async function onBookingPaymentCanceled(tx: Tx, payment: Payment): Promis
       data: { status: "CANCELLED", cancelReason: UNPAID_CANCEL_REASON },
     });
   }
+}
+
+/** После возврата предоплата больше не покрывает стоимость активной сессии. */
+export async function onPSParkReservationRefunded(tx: Tx, bookingId: string, amount: number): Promise<void> {
+  await tx.$executeRaw`SELECT 1 FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
+  const booking = await tx.booking.findUnique({ where: { id: bookingId } });
+  if (!booking || !isPSParkReservation(booking)) return;
+
+  const metadata = (booking.metadata as BookingMetadata | null) ?? {};
+  const onlinePaidAmount = Math.max(0, Number(metadata.onlinePaidAmount ?? 0) - amount);
+  await tx.booking.update({
+    where: { id: bookingId },
+    data: { metadata: { ...metadata, onlinePaidAmount: onlinePaidAmount.toFixed(2) } as Prisma.InputJsonValue },
+  });
 }
 
 export async function afterBookingPaymentCanceled(payment: Payment): Promise<void> {

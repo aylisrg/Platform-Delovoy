@@ -15,6 +15,7 @@ export function PSBooking({
   total,
   paid,
   canCancel,
+  canPay,
   paymentUrl,
 }: {
   id: string;
@@ -26,6 +27,7 @@ export function PSBooking({
   total: number;
   paid: number;
   canCancel: boolean;
+  canPay: boolean;
   paymentUrl: string | null;
 }) {
   const router = useRouter();
@@ -59,6 +61,35 @@ export function PSBooking({
         >
           Продолжить оплату
         </a>
+      )}
+      {canPay && !paymentUrl && (
+        <button
+          disabled={busy}
+          className="inline-flex min-h-11 items-center rounded-xl bg-blue-700 px-4 text-sm font-medium text-white disabled:opacity-50"
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            trackDashboard("booking_action_started", { action: "pay" });
+            try {
+              const response = await fetch(`/api/profile/bookings/${id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "resume_payment" }),
+              });
+              const result = await response.json();
+              if (!response.ok || !result.data?.confirmationUrl) {
+                throw new Error(result.error?.message ?? "Не удалось получить ссылку на оплату");
+              }
+              window.location.assign(result.data.confirmationUrl);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Нет связи с сервером");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Получаем ссылку…" : "Продолжить оплату"}
+        </button>
       )}
       {error && (
         <p role="alert" className="text-sm text-red-700">

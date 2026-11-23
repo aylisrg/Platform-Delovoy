@@ -20,7 +20,7 @@ vi.mock("@/modules/gazebos/service", () => ({
   createBookingPayment: vi.fn(),
   rescheduleBookingByClient: vi.fn(),
 }));
-vi.mock("@/modules/ps-park/service", () => ({ cancelBooking: vi.fn() }));
+vi.mock("@/modules/ps-park/service", () => ({ cancelBooking: vi.fn(), createReservationPayment: vi.fn() }));
 vi.mock("@/modules/booking/offer", async () => ({
   ...(await vi.importActual<typeof import("@/modules/booking/offer")>(
     "@/modules/booking/offer",
@@ -37,6 +37,7 @@ import {
   rescheduleBookingByClient,
 } from "@/modules/gazebos/service";
 import { buildAcceptance } from "@/modules/booking/offer";
+import { createReservationPayment } from "@/modules/ps-park/service";
 import { getOwnBooking, actOnOwnBooking } from "../booking-service";
 const context = { ip: "127.0.0.1", userAgent: "test" };
 const booking = {
@@ -202,6 +203,31 @@ describe("customer booking access and actions", () => {
       metadata: { paymentPurpose: "reservation" },
     } as never);
     expect((await getOwnBooking("owner", "b1")).canCancel).toBe(false);
+  });
+
+  it("lets the owner resume Play Park checkout without replacing the accepted offer", async () => {
+    const reservation = {
+      ...booking, moduleSlug: "ps-park", acceptedOfferAt: new Date(),
+      metadata: { ...booking.metadata, paymentPurpose: "reservation" },
+    };
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue(reservation as never);
+    vi.mocked(createReservationPayment).mockResolvedValue({
+      id: "b1", payment: { id: "p1", confirmationUrl: "https://pay.example/p1" },
+    });
+
+    expect((await getOwnBooking("owner", "b1")).canPay).toBe(true);
+    expect(await actOnOwnBooking("owner", "b1", { action: "resume_payment" }, context))
+      .toEqual({ confirmationUrl: "https://pay.example/p1" });
+    expect(createReservationPayment).toHaveBeenCalledWith(reservation);
+    expect(buildAcceptance).not.toHaveBeenCalled();
+  });
+
+  it("does not create a checkout for a legacy Play Park request", async () => {
+    vi.mocked(prisma.booking.findFirst).mockResolvedValue({ ...booking, moduleSlug: "ps-park" } as never);
+    expect((await getOwnBooking("owner", "b1")).canPay).toBe(false);
+    await expect(actOnOwnBooking("owner", "b1", { action: "resume_payment" }, context))
+      .rejects.toMatchObject({ code: "PAYMENT_UNAVAILABLE" });
+    expect(createReservationPayment).not.toHaveBeenCalled();
   });
 });
 

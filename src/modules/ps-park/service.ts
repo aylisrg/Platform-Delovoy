@@ -38,7 +38,7 @@ import { createOnlinePayment, getBookingPaymentSummaries } from "@/modules/payme
 import { PaymentError } from "@/modules/payments/types";
 import { isYooKassaConfigured } from "@/lib/yookassa/client";
 import { buildReceipt, ReceiptContactError, ReceiptVatCodeError } from "@/lib/yookassa/receipts";
-import { isPSParkReservation } from "@/modules/booking/payment-flow";
+import { isHiddenFromStaff, isPSParkReservation } from "@/modules/booking/payment-flow";
 import { buildAcceptance, getCurrentVersion, DOCUMENT_KEYS, type AcceptanceRecord } from "@/modules/booking/offer";
 import type { CreatePSCheckoutInput } from "./validation";
 import type { BookingPaymentStatus } from "@/modules/payments/types";
@@ -120,7 +120,7 @@ async function getSlotRoundingMinutes(): Promise<number> {
  * Порог (минут) для визуального алерта «сессия скоро закончится» в карточке
  * активной сессии — был захардкожен `<= 10` (#434).
  */
-async function getSessionAlertMinutes(): Promise<number> {
+export async function getSessionAlertMinutes(): Promise<number> {
   const moduleRecord = await prisma.module.findUnique({ where: { slug: MODULE_SLUG } });
   const config = moduleRecord?.config as Record<string, unknown> | null;
   const val = config?.sessionAlertMinutes;
@@ -277,16 +277,26 @@ export async function createPrepaidBooking(
   if (metadata.checkoutFingerprint !== fingerprint || metadata.paymentPurpose !== "reservation") {
     throw new PSBookingError("CHECKOUT_CHANGED", "Параметры бронирования изменились. Выберите время заново.");
   }
-  if (!["PENDING", "CONFIRMED"].includes(booking.status)) {
+  return createReservationPayment(booking);
+}
+
+/** Продолжает исходную оплату по сохранённому тарифу, тем же ключом ЮKassa. */
+export async function createReservationPayment(booking: Booking) {
+  if (!isPSParkReservation(booking) || booking.deletedAt ||
+      !["PENDING", "CONFIRMED"].includes(booking.status) ||
+      (booking.status === "PENDING" && booking.startTime <= new Date())) {
     throw new PSBookingError("PAYMENT_CANCELED", "Бронирование больше недоступно. Выберите время заново.");
   }
   if (!booking.acceptedOfferAt) throw new PSBookingError("OFFER_REQUIRED", "Не сохранено согласие с условиями");
+  const metadata = booking.metadata as Record<string, unknown> | null;
+  const email = typeof metadata?.email === "string" ? metadata.email : null;
+  const amount = Number(metadata?.totalPrice);
   const payment = await createOnlinePayment({
     subjectType: "BOOKING", subjectId: booking.id, moduleSlug: MODULE_SLUG,
-    amount: Number(metadata.totalPrice),
+    amount,
     description: "Бронирование Плей Парка",
-    userId: booking.userId, customerEmail: String(metadata.email), customerPhone: booking.clientPhone,
-    receiptItems: [{ description: "Бронирование Плей Парка", amount: Number(metadata.totalPrice), paymentMode: "full_prepayment" }],
+    userId: booking.userId, customerEmail: email, customerPhone: booking.clientPhone,
+    receiptItems: [{ description: "Бронирование Плей Парка", amount, paymentMode: "full_prepayment" }],
     returnUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/payments/{paymentId}`,
     idempotenceKey: createHash("sha256").update(`ps-reservation:${booking.id}`).digest("hex"),
     metadata: { bookingId: booking.id, paymentPurpose: "reservation" },
@@ -1002,6 +1012,7 @@ export async function updateBookingStatus(
     entityId: id,
     userId: booking.userId ?? undefined,
     actor: "admin",
+    ...(status === "CANCELLED" && isHiddenFromStaff(booking.metadata) && { staffAudience: "none" as const }),
     data: { resourceName: resource?.name || "", date: dateStr, startTime: startStr, endTime: endStr },
   });
 
@@ -1799,8 +1810,8 @@ export async function extendBooking(bookingId: string, managerId: string) {
   });
 
   if (!booking) throw new PSBookingError("BOOKING_NOT_FOUND", "Бронирование не найдено");
-  if (booking.status !== "CONFIRMED") {
-    throw new PSBookingError("INVALID_STATUS", "Продлить можно только подтверждённое бронирование");
+  if (booking.status !== "CONFIRMED" && booking.status !== "CHECKED_IN") {
+    throw new PSBookingError("INVALID_STATUS", "Продлить можно только подтверждённое бронирование или активную сессию");
   }
 
   const { openHour, closeHour } = await getOpenCloseHours();
@@ -1839,8 +1850,17 @@ export async function extendBooking(bookingId: string, managerId: string) {
       throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
     }
 
-    return writeBookingSnapshot(tx, booking, { endTime: newEndTime, managerId });
+    return tx.booking.update({
+      where: {
+        id: booking.id, deletedAt: null, updatedAt: booking.updatedAt,
+        status: booking.status, startTime: booking.startTime, endTime: booking.endTime,
+      },
+      data: { endTime: newEndTime, managerId },
+    });
   }).catch(async (err) => {
+    if ((err as { code?: string }).code === "P2025") {
+      throw new PSBookingError("BOOKING_CHANGED", "Бронь уже изменена. Обновите страницу");
+    }
     if (await handleOverlapBackstop(err, MODULE_SLUG, booking.resourceId)) {
       throw new PSBookingError("BOOKING_CONFLICT", "Следующий час занят другим бронированием");
     }
@@ -2506,12 +2526,16 @@ export type SessionDetailPaymentMethod =
   | "CARD"
   | "MIXED"
   | "SUBSCRIPTION"
+  | "ONLINE"
+  | "AWAITING"
   | "FREE";
 
 export type SessionDetailDTO = {
   session: {
     id: string;
     status: BookingStatus;
+    awaitsOnlinePayment: boolean;
+    canReschedule: boolean;
     date: string;
     startTime: string;
     endTime: string;
@@ -2618,13 +2642,20 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
 
   const billedHoursVal = Number(billMeta.billedHours ?? 0);
   const durationMinVal = Number(billMeta.durationMin ?? 0);
-  const totalBillVal = Number(billMeta.totalBill ?? 0);
+  const totalBillVal = Number(billMeta.totalBill ?? meta?.totalPrice ?? 0);
 
   const cash = Number(booking.cashAmount ?? 0);
   const card = Number(booking.cardAmount ?? 0);
 
   const onlineSummary = paymentSummaries.get(id);
   const onlineAmount = onlineSummary ? Number(onlineSummary.amount) : 0;
+  const awaitsOnlinePayment = isPSParkReservation(booking) && booking.status === "PENDING";
+  const canReschedule = isPSParkReservation(booking) &&
+    ["CONFIRMED", "CANCELLED", "NO_SHOW"].includes(booking.status) &&
+    !meta?.checkedInAt && !meta?.lateCheckedInAt &&
+    onlineSummary?.status === "PAID" && Number(onlineSummary.refundedAmount) === 0 &&
+    Number(meta?.reservationDurationMinutes) * 60_000 === booking.endTime.getTime() - booking.startTime.getTime() &&
+    Number(meta?.reservationItemsTotal) === Number(meta?.itemsTotal ?? 0);
   // Показываем онлайн-блок при любом значимом статусе, включая AWAITING
   // (у ожидающего платежа amount = 0 — гейт по сумме его бы скрыл). FAILED
   // (все платежи истекли/отменены) и отсутствие платежей не показываем.
@@ -2635,12 +2666,16 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
   else if (cash > 0 && card > 0) method = "MIXED";
   else if (cash > 0) method = "CASH";
   else if (card > 0) method = "CARD";
+  else if (onlineAmount > 0) method = "ONLINE";
+  else if (awaitsOnlinePayment || onlineSummary?.status === "AWAITING") method = "AWAITING";
   else method = "FREE";
 
   return {
     session: {
       id: booking.id,
       status: booking.status,
+      awaitsOnlinePayment,
+      canReschedule,
       date: booking.date.toISOString().split("T")[0],
       startTime: booking.startTime.toISOString(),
       endTime: booking.endTime.toISOString(),
@@ -2658,7 +2693,7 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
         userId: user?.id ?? null,
         name: user?.name ?? booking.clientName ?? null,
         phone: user?.phone ?? booking.clientPhone ?? null,
-        email: user?.email ?? null,
+        email: typeof meta?.email === "string" ? meta.email : user?.email ?? null,
       },
     },
     orders: orders.map((o) => ({
@@ -2675,7 +2710,7 @@ export async function getSessionDetail(id: string): Promise<SessionDetailDTO | n
     })),
     payment: {
       method,
-      totalAmount: financialTx ? Number(financialTx.totalAmount) : 0,
+      totalAmount: financialTx ? Number(financialTx.totalAmount) : onlineAmount,
       cashAmount: cash,
       cardAmount: card,
       discount: discountMeta

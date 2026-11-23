@@ -58,29 +58,26 @@ export async function PATCH(request: NextRequest) {
       return apiValidationError(parsed.error.issues[0].message);
     }
 
-    const moduleRecord = await prisma.module.findUnique({
-      where: { slug: MODULE_SLUG },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM "Module" WHERE slug = ${MODULE_SLUG} FOR UPDATE`;
+      const moduleRecord = await tx.module.findUnique({ where: { slug: MODULE_SLUG } });
+      if (!moduleRecord) return null;
+
+      const currentConfig = (moduleRecord.config as Record<string, unknown>) ?? {};
+      const newConfig = { ...currentConfig, ...parsed.data };
+      const savedModule = await tx.module.update({ where: { slug: MODULE_SLUG }, data: { config: newConfig } });
+      await tx.auditLog.create({
+        data: {
+          userId: session!.user.id,
+          action: "module.settings.update",
+          entity: "Module",
+          entityId: savedModule.id,
+          metadata: JSON.parse(JSON.stringify({ before: currentConfig, after: newConfig })),
+        },
+      });
+      return savedModule;
     });
-    if (!moduleRecord) return apiNotFound("Модуль не найден");
-
-    const currentConfig = (moduleRecord.config as Record<string, unknown>) ?? {};
-    const newConfig = { ...currentConfig, ...parsed.data };
-
-    const updated = await prisma.module.update({
-      where: { slug: MODULE_SLUG },
-      data: { config: newConfig },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        userId: session!.user.id,
-        action: "module.settings.update",
-        entity: "Module",
-        entityId: updated.id,
-        metadata: JSON.parse(JSON.stringify({ before: currentConfig, after: newConfig })),
-      },
-    });
-
+    if (!updated) return apiNotFound("Модуль не найден");
     return apiResponse(updated.config);
   } catch {
     return apiServerError();

@@ -5,8 +5,6 @@ import type { ActiveSession } from "@/modules/ps-park/types";
 import { ActiveSessionCard } from "./active-session-card";
 import { playSessionEndingAlert } from "@/lib/sound";
 
-const SESSION_ALERT_THRESHOLD_MINUTES = 10;
-
 type ActiveSessionsPanelProps = {
   initialSessions: ActiveSession[];
 };
@@ -15,37 +13,22 @@ export function ActiveSessionsPanel({
   initialSessions,
 }: ActiveSessionsPanelProps) {
   const [sessions, setSessions] = useState(initialSessions);
-  // Track which bookings have already triggered the 10-min alert
   const alertedRef = useRef<Set<string>>(new Set());
 
   const checkSessionAlerts = useCallback((sessionList: ActiveSession[]) => {
     const now = Date.now();
 
     for (const session of sessionList) {
-      if (alertedRef.current.has(session.bookingId)) continue;
+      const alertKey = `${session.bookingId}:${session.endTime}`;
+      if (alertedRef.current.has(alertKey)) continue;
 
       const endMs = new Date(session.endTime).getTime();
-      const remaining = Math.round((endMs - now) / 60_000);
+      const remaining = Math.ceil((endMs - now) / 60_000);
 
-      if (remaining > 0 && remaining <= SESSION_ALERT_THRESHOLD_MINUTES) {
-        alertedRef.current.add(session.bookingId);
+      if (remaining > 0 && remaining <= session.alertMinutes) {
+        alertedRef.current.add(alertKey);
 
-        // Sound alert in admin browser
         playSessionEndingAlert();
-
-        // Telegram alert to admin chat
-        fetch("/api/ps-park/session-ending-alert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingId: session.bookingId,
-            resourceName: session.resourceName,
-            clientName: session.clientName,
-            remainingMinutes: remaining,
-          }),
-        }).catch(() => {
-          // Non-critical — don't break the UI if Telegram fails
-        });
       }
     }
   }, []);

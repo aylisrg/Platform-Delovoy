@@ -5,7 +5,7 @@
  */
 
 import { formatEventDate } from "./text-format";
-import { getPublicContact, PUBLIC_CONTACTS } from "@/lib/public-contacts";
+import { getPublicContact } from "@/lib/public-contacts";
 
 type TemplateData = Record<string, unknown>;
 
@@ -186,6 +186,7 @@ export function bookingConfirmationText(data: TemplateData): string {
 // ─── Booking: оплачено (подтверждение бронирования, ТЗ §7) ───────────────────
 
 export type BookingReceiptData = {
+  moduleSlug?: "gazebos" | "ps-park";
   bookingNumber: string;
   resourceName: string;
   date: string;
@@ -218,6 +219,23 @@ function money(amount: number): string {
   return `${amount.toLocaleString("ru-RU")} ₽`;
 }
 
+function bookingReceiptDetails(data: BookingReceiptData) {
+  const moduleSlug = data.moduleSlug ?? "gazebos";
+  const playPark = moduleSlug === "ps-park";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+  const offerUrl = `${appUrl}${playPark ? "/ps-park/oferta/" : "/oferta/v/"}${encodeURIComponent(data.offerSlug)}`;
+  return {
+    moduleSlug,
+    phone: getPublicContact(moduleSlug),
+    resourceLabel: playPark ? "Игровой стол" : "Беседка",
+    confirmation: playPark ? "Договор заключён, игровой стол за вами. Ждём вас!" : "Договор заключён, беседка за вами. Ждём вас!",
+    contactAction: playPark ? "Для переноса или вопросов по оплате свяжитесь с администратором" : "Отменить или перенести бронь можно по телефону",
+    offerUrl,
+    termsUrl: playPark ? offerUrl : `${offerUrl}#p-7`,
+    termsLabel: playPark ? "разделах 3 и 4 оферты" : "п. 7 оферты",
+  };
+}
+
 /**
  * Подтверждение бронирования после успешной оплаты.
  *
@@ -226,9 +244,8 @@ function money(amount: number): string {
  * на условиях этой (п. 13.3 оферты, ТЗ §7).
  */
 export function bookingReceiptHtml(data: BookingReceiptData): string {
-  const phone = PUBLIC_CONTACTS.gazebos;
-  const accent = moduleAccent("gazebos");
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+  const { moduleSlug, phone, resourceLabel, confirmation, contactAction, offerUrl, termsUrl, termsLabel } = bookingReceiptDetails(data);
+  const accent = moduleAccent(moduleSlug);
 
   const itemRows = data.lines
     .map(
@@ -251,13 +268,13 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
       Бронирование ${escapeEmailHtml(data.bookingNumber)} оплачено
     </h2>
     <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
-      Договор заключён, беседка за вами. Ждём вас!
+      ${confirmation}
     </p>
 
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
       <tbody>
         ${infoRow("Номер брони", escapeEmailHtml(data.bookingNumber))}
-        ${infoRow("Беседка", escapeEmailHtml(data.resourceName))}
+        ${infoRow(resourceLabel, escapeEmailHtml(data.resourceName))}
         ${infoRow("Дата", escapeEmailHtml(data.date))}
         ${infoRow("Время", `${escapeEmailHtml(data.startTime)} — ${escapeEmailHtml(data.endTime)}`)}
       </tbody>
@@ -280,7 +297,7 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
       По этой ссылке можно перенести или отменить бронь без звонка оператору.
     </p>`
         : `<p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
-      Отменить или перенести бронь можно по телефону <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>.
+      ${contactAction} <a href="tel:${phone.phone}" style="color:${accent};">${phone.displayPhone}</a>.
     </p>`
     }
 
@@ -288,13 +305,13 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
       <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#1d1d1f;">${escapeEmailHtml(data.cancellationTitle)}</p>
       ${cancellation}
       <p style="margin:8px 0 0;font-size:13px;color:#1d1d1f;line-height:1.6;">
-        Подробно — в <a href="${appUrl}/oferta/v/${escapeEmailHtml(data.offerSlug)}#p-7" style="color:${accent};">п. 7 оферты</a>.
+        Подробно — в <a href="${termsUrl}" style="color:${accent};">${termsLabel}</a>.
       </p>
     </div>
 
     <p style="margin:20px 0 0;font-size:13px;color:#86868b;line-height:1.6;">
       Договор заключён на условиях
-      <a href="${appUrl}/oferta/v/${escapeEmailHtml(data.offerSlug)}" style="color:${accent};">редакции № ${data.offerNumber} публичной оферты</a>.
+      <a href="${offerUrl}" style="color:${accent};">редакции № ${data.offerNumber} публичной оферты</a>.
       Кассовый чек придёт отдельным письмом не позднее следующего рабочего дня.
     </p>
 
@@ -307,21 +324,20 @@ export function bookingReceiptHtml(data: BookingReceiptData): string {
   `;
 
   return emailLayout(content, {
-    moduleSlug: "gazebos",
+    moduleSlug,
     accentColor: accent,
     title: `Бронирование ${data.bookingNumber} оплачено`,
   });
 }
 
 export function bookingReceiptText(data: BookingReceiptData): string {
-  const phone = PUBLIC_CONTACTS.gazebos;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://delovoy-park.ru";
+  const { phone, resourceLabel, contactAction, offerUrl, termsUrl } = bookingReceiptDetails(data);
   const lines = data.lines.map((l) => `  ${l.label} — ${money(l.amount)}`).join("\n");
 
   return [
     `Бронирование ${data.bookingNumber} оплачено`,
     "",
-    `Беседка: ${data.resourceName}`,
+    `${resourceLabel}: ${data.resourceName}`,
     `Дата: ${data.date}`,
     `Время: ${data.startTime} — ${data.endTime}`,
     "",
@@ -330,12 +346,12 @@ export function bookingReceiptText(data: BookingReceiptData): string {
     "",
     data.cancellationTitle,
     ...data.cancellationLines,
-    `Подробно — ${appUrl}/oferta/v/${data.offerSlug}#p-7`,
+    `Подробно — ${termsUrl}`,
     "",
     data.manageUrl
       ? `Управление бронированием: ${data.manageUrl}`
-      : `Отменить или перенести бронь можно по телефону ${phone.displayPhone}`,
-    `Договор заключён на условиях редакции № ${data.offerNumber} публичной оферты: ${appUrl}/oferta/v/${data.offerSlug}`,
+      : `${contactAction} ${phone.displayPhone}`,
+    `Договор заключён на условиях редакции № ${data.offerNumber} публичной оферты: ${offerUrl}`,
     "",
     PARK_ADDRESS,
     `Телефон: ${phone.displayPhone}`,
@@ -411,11 +427,11 @@ export function bookingEndingSoonHtml(data: TemplateData): string {
       Ваша бронь скоро заканчивается
     </h2>
     <p style="margin:0 0 24px;font-size:14px;color:#86868b;line-height:1.6;">
-      Через 1 час завершается ваше бронирование. Хотите продлить отдых?
+      ${data.moduleSlug === "ps-park" ? "Игровая сессия скоро заканчивается. Хотите продолжить игру?" : "Через 1 час завершается ваше бронирование. Хотите продлить отдых?"}
     </p>
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f5f7;border-radius:12px;padding:16px 20px;">
       <tbody>
-        ${infoRow("Объект", String(data.resourceName || ""))}
+        ${infoRow("Объект", escapeEmailHtml(String(data.resourceName || "")))}
         ${infoRow("Дата", String(data.date || ""))}
         ${infoRow("Окончание", String(data.endTime || ""))}
       </tbody>
@@ -429,7 +445,8 @@ export function bookingEndingSoonHtml(data: TemplateData): string {
 
 export function bookingEndingSoonText(data: TemplateData): string {
   const phone = getPublicContact(String(data.moduleSlug ?? "rental"));
-  return `Ваша бронь заканчивается через 1 час (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: ${phone.displayPhone}.`;
+  const timing = data.moduleSlug === "ps-park" ? "скоро" : "через 1 час";
+  return `Ваша бронь заканчивается ${timing} (в ${data.endTime}).\n\n${data.resourceName}\nДата: ${data.date}\n\nХотите продлить? Позвоните нам: ${phone.displayPhone}.`;
 }
 
 // ─── Order: Placed ────────────────────────────────────────────────────────────
@@ -609,6 +626,24 @@ export function renderEmailTemplate(
         html: bookingCancellationHtml(d),
         text: bookingCancellationText(d),
       };
+
+    case "booking.rescheduled": {
+      const title = "Бронирование перенесено";
+      const resource = String(data.resourceName ?? "");
+      const oldSlot = `${formatEventDate(data.oldDate)} · ${data.oldStartTime}–${data.oldEndTime} МСК`;
+      const newSlot = `${formatEventDate(data.date)} · ${data.startTime}–${data.endTime} МСК`;
+      const phone = getPublicContact(moduleSlug);
+      return {
+        subject: title,
+        text: `${title}\n\n${resource}\nБыло: ${oldSlot}\nСтало: ${newSlot}\nТелефон: ${phone.displayPhone}`,
+        html: emailLayout(`
+          <h2>${title}</h2>
+          <p>${escapeEmailHtml(resource)}</p>
+          <p>Было: ${escapeEmailHtml(oldSlot)}<br>Стало: ${escapeEmailHtml(newSlot)}</p>
+          <p>Вопросы по брони: <a href="tel:${phone.phone}">${phone.displayPhone}</a></p>
+        `, { moduleSlug, accentColor: moduleAccent(moduleSlug), title }),
+      };
+    }
 
     case "booking.reminder":
       return {

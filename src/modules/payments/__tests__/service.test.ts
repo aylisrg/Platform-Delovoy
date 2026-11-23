@@ -76,6 +76,7 @@ vi.mock("@/lib/db", () => ({
     resource: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
     productEvent: { create: vi.fn(), findFirst: vi.fn() },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const { prisma: p } = await import("@/lib/db");
       return fn(p);
@@ -90,6 +91,7 @@ import {
   createOnlinePayment,
   syncPaymentByProviderId,
   refundPayment,
+  finalizeRefund,
   autoRefundOnCancellation,
   getBookingPaymentSummaries,
   getBookingPaymentDetail,
@@ -612,6 +614,24 @@ describe("syncPaymentByProviderId (вебхук с re-fetch)", () => {
 });
 
 describe("refundPayment", () => {
+  it("возврат предоплаты Плей Парка уменьшает остаток оплаченных денег ровно один раз", async () => {
+    vi.mocked(prisma.paymentRefund.updateMany).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    vi.mocked(prisma.paymentRefund.findUniqueOrThrow).mockResolvedValue({ id: "refund-1", amount: 1500, paymentId: "pay1" } as never);
+    vi.mocked(prisma.payment.findUniqueOrThrow).mockResolvedValue(paymentRow({
+      moduleSlug: "ps-park", status: "SUCCEEDED", metadata: { paymentPurpose: "reservation" },
+    }));
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue({
+      moduleSlug: "ps-park", metadata: { paymentPurpose: "reservation", onlinePaidAmount: "1800.00", totalPrice: "1500.00" },
+    } as never);
+
+    await finalizeRefund("refund-1");
+    await finalizeRefund("refund-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledExactlyOnceWith({
+      where: { id: "book1" },
+      data: { metadata: { paymentPurpose: "reservation", onlinePaidAmount: "300.00", totalPrice: "1500.00" } },
+    });
+  });
   it("возврат разрешён только для оплаченного платежа", async () => {
     vi.mocked(prisma.payment.findUnique).mockResolvedValue(paymentRow({ status: "PENDING" }));
     await expect(

@@ -1,7 +1,8 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACTIVE_BOOKING_STATUSES } from "./state-machine";
 import type { BookingMetadata } from "./types";
+import { isPSParkReservation } from "./payment-flow";
 
 /**
  * Приём оплаты до завершения брони (#511).
@@ -67,6 +68,9 @@ export async function recordPrepayment(input: RecordPrepaymentInput) {
   if (!booking) {
     throw new BookingPrepaymentError("BOOKING_NOT_FOUND", "Бронирование не найдено");
   }
+  if (booking.status === "PENDING" && isPSParkReservation(booking)) {
+    throw new BookingPrepaymentError("PAYMENT_PENDING", "По этой брони ожидается предоплата через ЮKassa");
+  }
 
   // У закрытой брони приём оплаты — это не предоплата, а правка задним
   // числом: она разъехалась бы с уже проведённым чекаутом и сломала бы
@@ -94,7 +98,7 @@ export async function recordPrepayment(input: RecordPrepaymentInput) {
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.booking.update({
-      where: { id: bookingId },
+      where: { id: bookingId, deletedAt: null, status: booking.status, updatedAt: booking.updatedAt },
       data: {
         metadata: {
           ...meta,
@@ -142,5 +146,10 @@ export async function recordPrepayment(input: RecordPrepaymentInput) {
     });
 
     return updated;
+  }).catch((error) => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      throw new BookingPrepaymentError("BOOKING_CHANGED", "Бронь изменилась. Обновите страницу и проверьте оплату");
+    }
+    throw error;
   });
 }

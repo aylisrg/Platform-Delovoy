@@ -152,6 +152,14 @@ describe("recordPrepayment", () => {
     await expect(recordPrepayment(input)).rejects.toMatchObject({ code: "BOOKING_CLOSED" });
   });
 
+  it("не принимает деньги в кассу, пока веб-бронь Плей Парка ждёт предоплату", async () => {
+    mp.booking.findFirst.mockResolvedValue(makeBooking({
+      moduleSlug: "ps-park", status: "PENDING", metadata: { paymentPurpose: "reservation" },
+    }));
+    await expect(recordPrepayment({ ...input, moduleSlug: "ps-park" })).rejects.toMatchObject({ code: "PAYMENT_PENDING" });
+    expect(mp.$transaction).not.toHaveBeenCalled();
+  });
+
   it("отдаёт понятную ошибку, если брони нет", async () => {
     mp.booking.findFirst.mockResolvedValue(null);
 

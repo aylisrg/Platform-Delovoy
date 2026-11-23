@@ -10,8 +10,8 @@ import type { Page } from "@playwright/test";
  * CI/E2E, so it flips to email-primary) — Playwright's auto-retrying
  * locator handles that transition without an explicit wait.
  */
-export async function loginAs(page: Page, email: string, password: string): Promise<void> {
-  await page.goto("/auth/signin");
+export async function loginAs(page: Page, email: string, password: string, appOrigin = ""): Promise<void> {
+  await page.goto(`${appOrigin}/auth/signin`);
   await page.getByRole("button", { name: "Войти по Email" }).click();
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(password);

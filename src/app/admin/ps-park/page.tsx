@@ -81,6 +81,9 @@ export default async function PSParkManagerPage() {
       where: {
         moduleSlug: "ps-park",
         status: "PENDING",
+        deletedAt: null,
+        // Публичные брони с акцептом ждут ЮKassa, остальные — сотрудника.
+        acceptedOfferAt: null,
       },
       include: { user: { select: { name: true, email: true, phone: true } } },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
@@ -91,16 +94,17 @@ export default async function PSParkManagerPage() {
       where: {
         moduleSlug: "ps-park",
         status: { in: ["COMPLETED", "CANCELLED"] },
+        deletedAt: null,
       },
       include: { user: { select: { name: true, email: true, phone: true } } },
       orderBy: [{ date: "desc" }, { startTime: "desc" }],
       take: 20,
     }),
     prisma.booking.count({
-      where: { moduleSlug: "ps-park", date: today, status: { in: ACTIVE_BOOKING_STATUSES } },
+      where: { moduleSlug: "ps-park", date: today, status: { in: ACTIVE_BOOKING_STATUSES }, deletedAt: null },
     }),
     prisma.booking.count({
-      where: { moduleSlug: "ps-park", status: "PENDING" },
+      where: { moduleSlug: "ps-park", status: "PENDING", acceptedOfferAt: null, deletedAt: null },
     }),
   ]);
 

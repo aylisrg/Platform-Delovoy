@@ -133,7 +133,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
       {
         eventType: "booking.rescheduled",
         label: "Перенос брони",
-        description: "Изменились дата, время или беседка",
+        description: "Изменились дата, время или ресурс брони",
         defaultEnabled: true,
       },
       {
@@ -145,7 +145,7 @@ export const NOTIFICATION_CATALOG: ManagedCategory[] = [
       {
         eventType: "booking.ending_soon",
         label: "Бронь скоро закончится",
-        description: "За час до конца брони беседки — предложить продление",
+        description: "До окончания брони или игровой сессии — предложить продление",
         defaultEnabled: "admins",
       },
     ],
@@ -278,9 +278,9 @@ export const EVENT_MODULE_CONTEXTS: Record<string, Array<string | null>> = {
   "analytics.business_weekly": [null],
   "booking.created": ["gazebos", "ps-park"],
   "booking.admin_created": ["gazebos", "ps-park"],
-  "booking.rescheduled": ["gazebos"],
+  "booking.rescheduled": ["gazebos", "ps-park"],
   "booking.cancelled": ["gazebos", "ps-park"],
-  "booking.ending_soon": ["gazebos"],
+  "booking.ending_soon": ["gazebos", "ps-park"],
   "order.placed": ["cafe"],
   "order.cancelled": ["cafe"],
   "contract.created": ["rental"],

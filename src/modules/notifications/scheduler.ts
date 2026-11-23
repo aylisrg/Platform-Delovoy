@@ -7,6 +7,7 @@ import { runNotificationHousekeeping } from "./housekeeping";
 import { processWeeklyBusinessReports } from "@/modules/analytics/business-reports";
 import { processWeeklyDigest } from "./weekly-digest";
 import { processStaffLaunchAnnouncement } from "./staff-launch-announcement";
+import { getSessionAlertMinutes } from "@/modules/ps-park/service";
 
 /**
  * Process all scheduled notifications.
@@ -43,10 +44,8 @@ export async function processScheduledNotifications(): Promise<void> {
 }
 
 /**
- * За 1 час до ОКОНЧАНИЯ брони беседки — предложение продлить. Клиенту (если у
- * него есть канал) уходит уведомление, а в выделенный Telegram-канал беседок —
- * сообщение с контактом клиента и ссылкой на продление (dispatchModuleChannel).
- * Идемпотентно: NotificationLog по (entityId, "booking.ending_soon").
+ * Предложение продлить бронь клиенту и смене. Беседки предупреждаем за час,
+ * сессии Плей Парка — по настройке, с учётом пятиминутного интервала cron.
  */
 async function processEndingSoonReminders(): Promise<void> {
   const now = new Date();
@@ -55,15 +54,25 @@ async function processEndingSoonReminders(): Promise<void> {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
-        moduleSlug: "gazebos",
+        moduleSlug: { in: ["gazebos", "ps-park"] },
+        deletedAt: null,
         status: { in: ["CONFIRMED", "CHECKED_IN"] },
         endTime: { gte: now, lte: oneHourFromNow },
       },
     });
 
+    const psAlertMinutes = bookings.some((booking) => booking.moduleSlug === "ps-park")
+      ? await getSessionAlertMinutes()
+      : 0;
     for (const booking of bookings) {
+      const playPark = booking.moduleSlug === "ps-park";
+      if (playPark && (booking.startTime > now || booking.endTime <= now ||
+          booking.endTime.getTime() - now.getTime() > Math.max(psAlertMinutes, 5) * 60_000)) continue;
+      // Новое время окончания (после продления или переноса) — новый алерт.
+      const markerId = playPark ? `ps-park:ending:${booking.id}:${booking.endTime.toISOString()}` : null;
       const alreadySent = await prisma.notificationLog.findFirst({
         where: {
+          ...(markerId && { id: markerId }),
           entityId: booking.id,
           eventType: "booking.ending_soon",
           status: "SENT",
@@ -77,7 +86,7 @@ async function processEndingSoonReminders(): Promise<void> {
       });
 
       const data = {
-        resourceName: resource?.name || "Беседка",
+        resourceName: resource?.name || (playPark ? "Игровой стол" : "Беседка"),
         date: booking.date.toLocaleDateString("ru-RU"),
         // ISO-дата для deep-link в расписание админки (?date=YYYY-MM-DD).
         dateISO: booking.date.toISOString().split("T")[0],
@@ -88,6 +97,24 @@ async function processEndingSoonReminders(): Promise<void> {
         bookingId: booking.id,
       };
 
+      const marker = {
+        channel: "TELEGRAM",
+        eventType: "booking.ending_soon",
+        moduleSlug: booking.moduleSlug,
+        entityId: booking.id,
+        recipient: booking.userId || playPark ? "scheduler" : "module-channel",
+        message: `Скоро конец: ${data.resourceName}, ${data.date} до ${data.endTime}`,
+        status: "SENT",
+        sentAt: now,
+      } as const;
+      if (markerId) {
+        const claim = await prisma.notificationLog.createMany({
+          data: { id: markerId, ...marker },
+          skipDuplicates: true,
+        });
+        if (!claim.count) continue;
+      }
+
       enqueueNotification({
         type: "booking.ending_soon",
         moduleSlug: booking.moduleSlug,
@@ -95,23 +122,13 @@ async function processEndingSoonReminders(): Promise<void> {
         userId: booking.userId ?? undefined,
         data,
       });
+      if (markerId) continue;
 
       // Маркер пишем всегда: у гостевой брони нет клиентской доставки с
       // SENT-логом, а у клиента без канала лог будет SKIPPED — без маркера канал
       // смены и лично подписанные сотрудники получали бы дубль на каждом
       // запуске планировщика в пределах часового окна.
-      await prisma.notificationLog.create({
-        data: {
-          channel: "TELEGRAM",
-          eventType: "booking.ending_soon",
-          moduleSlug: booking.moduleSlug,
-          entityId: booking.id,
-          recipient: booking.userId ? "scheduler" : "module-channel",
-          message: `Скоро конец: ${data.resourceName}, ${data.date} до ${data.endTime}`,
-          status: "SENT",
-          sentAt: new Date(),
-        },
-      });
+      await prisma.notificationLog.create({ data: marker });
     }
   } catch (err) {
     console.error("[Scheduler] Ending-soon reminders failed:", err);
@@ -130,6 +147,7 @@ async function processBookingReminders(): Promise<void> {
     const bookings = await prisma.booking.findMany({
       where: {
         status: "CONFIRMED",
+        deletedAt: null,
         startTime: { gte: now, lte: oneHourFromNow },
       },
       include: {

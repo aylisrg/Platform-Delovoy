@@ -1,11 +1,16 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { parseMoscowDateTime } from "@/lib/format";
+import { formatTime, parseMoscowDateTime } from "@/lib/format";
+import { log } from "@/lib/logger";
+import { EVENT_SOURCES } from "@/lib/event-sources";
 import { lockSlot, handleOverlapBackstop } from "@/modules/booking/slot-lock";
 import { ACTIVE_BOOKING_STATUSES } from "@/modules/booking/state-machine";
 import { isPSParkReservation } from "@/modules/booking/payment-flow";
 import { saleBookingItems } from "@/modules/inventory/service";
 import type { BookingItemSnapshot } from "@/modules/inventory/types";
+import { enqueueNotification } from "@/modules/notifications/queue";
+import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
+import { renderEmailTemplate } from "@/modules/notifications/email-templates";
 import { PSBookingError, getOpenCloseHours } from "./service";
 import type { ReschedulePSReservationInput } from "./validation";
 
@@ -22,7 +27,7 @@ export async function reschedulePaidReservation(id: string, actorId: string, inp
   const start = parseMoscowDateTime(input.date, input.startTime);
   const startHour = Number(input.startTime.slice(0, 2)) + Number(input.startTime.slice(3)) / 60;
 
-  return prisma.$transaction(async (tx) => {
+  const { updated, previous, guestEmail } = await prisma.$transaction(async (tx) => {
     await lockSlot(tx, "ps-park", initial.resourceId, date);
     // Serialize against payment/cancellation metadata writes and concurrent moves.
     await tx.$executeRaw`SELECT 1 FROM "Booking" WHERE id = ${id} FOR UPDATE`;
@@ -37,7 +42,7 @@ export async function reschedulePaidReservation(id: string, actorId: string, inp
         subjectType: "BOOKING", subjectId: id, moduleSlug: "ps-park", status: "SUCCEEDED", refundedAmount: 0,
         metadata: { path: ["paymentPurpose"], equals: "reservation" },
         refunds: { none: { status: { in: ["pending", "succeeded"] } } },
-      }, select: { amount: true },
+      }, select: { amount: true, customerEmail: true },
     });
     if (!paid || Number(paid.amount) !== Number(metadata.totalPrice)) {
       throw new PSBookingError("PAYMENT_REQUIRED", "Нет подтверждённой предоплаты для переноса");
@@ -52,7 +57,9 @@ export async function reschedulePaidReservation(id: string, actorId: string, inp
     if (start <= new Date() || duration <= 0 || startHour < openHour || startHour + duration / 3_600_000 > closeHour) {
       throw new PSBookingError("INVALID_BOOKING_TIME", "Выберите будущее время в пределах часов работы; длительность сохраняется");
     }
-    if (booking.status === "CONFIRMED" && booking.startTime.getTime() === start.getTime()) return booking;
+    if (booking.status === "CONFIRMED" && booking.startTime.getTime() === start.getTime()) {
+      return { updated: booking, previous: null, guestEmail: null };
+    }
     if (booking.startTime.getTime() !== new Date(input.expectedStartTime).getTime()) {
       throw new PSBookingError("BOOKING_CHANGED", "Бронь уже изменена. Обновите страницу");
     }
@@ -76,11 +83,47 @@ export async function reschedulePaidReservation(id: string, actorId: string, inp
       userId: actorId, action: "booking.reschedule", entity: "Booking", entityId: id,
       metadata: { moduleSlug: "ps-park", from, to: { date: input.date, startTime: start.toISOString(), endTime: end.toISOString() }, paymentPreserved: true },
     } });
-    return updated;
+    return {
+      updated,
+      previous: booking,
+      guestEmail: booking.userId ? null : paid.customerEmail ?? (typeof metadata.email === "string" ? metadata.email : null),
+    };
   }).catch(async (error) => {
     if (await handleOverlapBackstop(error, "ps-park", initial.resourceId)) {
       throw new PSBookingError("BOOKING_CONFLICT", "Это время уже занято");
     }
     throw error;
   });
+  if (!previous) return updated;
+
+  const data = {
+    bookingId: id,
+    resourceName: resource.name,
+    date: input.date,
+    startTime: formatTime(updated.startTime),
+    endTime: formatTime(updated.endTime),
+    oldDate: previous.date.toISOString().slice(0, 10),
+    oldStartTime: formatTime(previous.startTime),
+    oldEndTime: formatTime(previous.endTime),
+    clientName: previous.clientName ?? undefined,
+    movedBy: "admin",
+  };
+  enqueueNotification({
+    type: "booking.rescheduled",
+    moduleSlug: "ps-park",
+    entityId: id,
+    userId: previous.userId ?? undefined,
+    actor: "admin",
+    data,
+  });
+  if (guestEmail) {
+    const email = renderEmailTemplate("ps-park", "booking.rescheduled", data);
+    if (email) {
+      const result = await sendTransactionalEmail({ to: guestEmail, ...email }).catch(() => null);
+      if (!result?.success) {
+        await log.warn(EVENT_SOURCES.NOTIFICATIONS, "Не отправлено письмо о переносе", { bookingId: id });
+      }
+    }
+  }
+  return updated;
 }
