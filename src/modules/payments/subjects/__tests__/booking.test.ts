@@ -200,7 +200,7 @@ describe("afterBookingPaymentSucceeded — письмо-подтверждени
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
-  it("не шлёт письмо по броням ps-park — у них своя оферта", async () => {
+  it("не шлёт письмо после оплаты счёта за игровую сессию", async () => {
     vi.mocked(prisma.booking.findUnique).mockResolvedValue(
       booking({ moduleSlug: "ps-park", status: "CHECKED_IN", offerVersionId: "ov-1" }) as never
     );
@@ -210,6 +210,46 @@ describe("afterBookingPaymentSucceeded — письмо-подтверждени
     );
 
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("шлёт гостю письмо после предоплаты с игровым столом и офертой Плей Парка", async () => {
+    vi.mocked(prisma.resource.findUnique).mockResolvedValue({ name: "Игровой стол №4" } as never);
+    vi.mocked(prisma.offerVersion.findUnique).mockResolvedValue({ slug: "v2", number: 2 } as never);
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue(booking({
+      moduleSlug: "ps-park", userId: null, offerVersionId: "ps-offer-v2",
+      metadata: {
+        paymentPurpose: "reservation", paymentFlow: "online", totalPrice: "1500",
+        basePrice: "1400", items: [{ skuName: "Напиток", quantity: 2, priceAtBooking: 50 }],
+      },
+    }) as never);
+    await afterBookingPaymentSucceeded(payment({
+      moduleSlug: "ps-park", userId: null, customerEmail: "guest@example.com",
+      metadata: { paymentPurpose: "reservation" },
+    }));
+
+    expect(mockSendEmail).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      to: "guest@example.com", subject: expect.stringContaining("Плей Парк"),
+      text: expect.stringContaining("https://delovoy-park.ru/ps-park/oferta/v2"),
+    }));
+    const { html, text } = mockSendEmail.mock.calls[0][0];
+    expect(html).toContain("Игровой стол №4");
+    expect(text).toContain("Напиток × 2 — 100 ₽");
+    expect(text).toContain("+7 (985) 244-46-24");
+    expect(html).not.toContain("/booking/");
+    expect(enqueueNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: "booking.created", staffAudience: "personal", data: expect.objectContaining({ paid: true }),
+    }));
+  });
+
+  it("сообщает смене о поздней предоплате без подтверждения отменённого слота", async () => {
+    vi.mocked(prisma.booking.findUnique).mockResolvedValue(booking({ moduleSlug: "ps-park", status: "CANCELLED" }) as never);
+    await afterBookingPaymentSucceeded(payment({
+      moduleSlug: "ps-park", customerEmail: "guest@example.com", metadata: { paymentPurpose: "reservation" },
+    }));
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(enqueueNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      type: "booking.paid", data: expect.objectContaining({ bookingStatus: "CANCELLED", paymentPurpose: "reservation" }),
+    }));
   });
 
   it("не шлёт письмо без привязки к редакции — его главный груз в ней", async () => {

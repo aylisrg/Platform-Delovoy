@@ -4,6 +4,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { startPSParkProvider, type ProviderRecord } from "./helpers/ps-park-provider";
 import { paidE2EEnvironment, reservePSParkPort, startPSParkTestServer } from "./helpers/ps-park-test-server";
+import { loginAs } from "./helpers/auth";
 
 // Real Next routes + native Prisma + PostgreSQL. Only the external provider is fake.
 // Existing PR CI supplies the database, migrations, seed and standalone build.
@@ -113,6 +114,26 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     expect(ledger).toHaveLength(1);
     expect(Number(ledger[0].totalAmount)).toBe(1000);
   }
+
+  test("суперадмин переключает онлайн-бронь из настроек, сохраняя ручную работу и действующую оферту", async ({ page }) => {
+    await loginAs(page, "admin@local", "admin", app.origin);
+    await page.goto(`${app.origin}/admin/ps-park/settings`);
+    const toggle = page.getByRole("heading", { name: "Бронирование с сайта" }).locator("..");
+    await expect(toggle.getByRole("link", { name: "Действующая оферта, редакция № 2" })).toHaveAttribute("href", "/ps-park/oferta/v2");
+
+    await toggle.getByRole("button", { name: "Отключить", exact: true }).click();
+    await expect(toggle.getByRole("status")).toHaveText("Онлайн-бронь отключена");
+    await expect.poll(async () =>
+      (await (await page.request.get(`${app.origin}/ps-park`)).text()).includes('data-online-booking="disabled"')
+    ).toBe(true);
+    await expect(page.getByRole("link", { name: "Расписание" })).toBeVisible();
+
+    await toggle.getByRole("button", { name: "Включить", exact: true }).click();
+    await expect(toggle.getByRole("status")).toHaveText("Онлайн-бронь включена");
+    await expect.poll(async () =>
+      (await (await page.request.get(`${app.origin}/ps-park`)).text()).includes('data-online-booking="enabled"')
+    ).toBe(true);
+  });
 
   test("AC-paid: public form → provider → webhook → confirmed; duplicate success credits once", async ({ page }) => {
     const data = await input();

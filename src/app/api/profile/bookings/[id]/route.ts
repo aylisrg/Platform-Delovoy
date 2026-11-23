@@ -18,6 +18,7 @@ import { BookingError } from "@/modules/gazebos/service";
 import { PSBookingError } from "@/modules/ps-park/service";
 import { OfferError } from "@/modules/booking/offer";
 import { recordDashboardEvent } from "@/modules/analytics/dashboard-events";
+import { PaymentError } from "@/modules/payments/types";
 
 function respondError(error: unknown) {
   if (error instanceof BookingManageError)
@@ -25,7 +26,8 @@ function respondError(error: unknown) {
   if (
     error instanceof BookingError ||
     error instanceof PSBookingError ||
-    error instanceof OfferError
+    error instanceof OfferError ||
+    error instanceof PaymentError
   )
     return apiError(error.code, error.message, 409);
   return apiServerError();
@@ -55,6 +57,7 @@ export async function POST(
   );
   if (!parsed.success)
     return apiValidationError("Проверьте параметры действия");
+  const action = parsed.data.action === "resume_payment" ? "pay" : parsed.data.action;
   try {
     const data = await actOnOwnBooking(
       session.user.id,
@@ -67,12 +70,12 @@ export async function POST(
     );
     if (!("confirmationRequired" in data))
       await recordDashboardEvent(session.user.id, "booking_action_succeeded", {
-        action: parsed.data.action,
+        action,
       });
     return apiResponse(data);
   } catch (error) {
     await recordDashboardEvent(session.user.id, "booking_action_failed", {
-      action: parsed.data.action,
+      action,
     });
     return respondError(error);
   }

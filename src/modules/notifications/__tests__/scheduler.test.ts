@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db", () => ({
   prisma: {
     booking: { findMany: vi.fn() },
-    notificationLog: { findFirst: vi.fn(), create: vi.fn() },
+    notificationLog: { findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn() },
     resource: { findUnique: vi.fn() },
     rentalContract: { findMany: vi.fn() },
     outgoingNotification: { findFirst: vi.fn() },
@@ -12,6 +12,9 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("../queue", () => ({
   enqueueNotification: vi.fn(),
+}));
+vi.mock("@/modules/ps-park/service", () => ({
+  getSessionAlertMinutes: vi.fn().mockResolvedValue(12),
 }));
 vi.mock("@/modules/telephony/daily-summary-service", () => ({
   processTelephonyDailySummaries: vi.fn().mockResolvedValue({ created: 0, skipped: 0 }),
@@ -122,6 +125,31 @@ describe("processBookingReminders", () => {
 });
 
 describe("processEndingSoonReminders", () => {
+  it("alerts Play Park at the configured threshold and claims each end time once", async () => {
+    const now = Date.now();
+    const endTime = new Date(now + 9 * 60_000);
+    const session = makeBooking({ moduleSlug: "ps-park", startTime: new Date(now - 3_600_000), endTime });
+    const later = { ...session, id: "later", endTime: new Date(now + 15 * 60_000) };
+    vi.mocked(prisma.booking.findMany)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([session, later] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([session, later] as never);
+    vi.mocked(prisma.notificationLog.createMany).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+
+    await processScheduledNotifications();
+    await processScheduledNotifications();
+
+    expect(prisma.notificationLog.createMany).toHaveBeenCalledTimes(2);
+    expect(prisma.notificationLog.createMany).toHaveBeenCalledWith({
+      data: expect.objectContaining({ id: `ps-park:ending:b1:${endTime.toISOString()}` }),
+      skipDuplicates: true,
+    });
+    const alerts = vi.mocked(enqueueNotification).mock.calls.filter(([event]) => event.type === "booking.ending_soon");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0][0]).toMatchObject({ moduleSlug: "ps-park", entityId: "b1" });
+  });
+
   it("enqueues booking.ending_soon for a gazebo booking ending within the hour", async () => {
     vi.mocked(prisma.booking.findMany)
       .mockResolvedValueOnce([] as never) // start-time reminders — none

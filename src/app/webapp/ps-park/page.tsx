@@ -62,6 +62,9 @@ export default function PSParkListPage() {
         <p className="text-[14px] mt-0.5" style={{ color: "var(--tg-hint)" }}>
           PlayStation, настолки, кикер
         </p>
+        <a href="/ps-park#booking" target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-11 items-center text-sm font-medium underline" style={{ color: "var(--tg-link)" }}>
+          Бронирование с онлайн-оплатой
+        </a>
       </div>
 
       {/* Resources */}

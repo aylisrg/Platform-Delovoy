@@ -77,10 +77,11 @@ export default async function OwnBookingPage({
             start={view.startTime}
             end={view.endTime}
             resource={view.resourceName}
-            status={labels[view.status]}
+            status={view.status === "PENDING" && data.canPay ? "Ожидает оплаты" : labels[view.status]}
             total={payment.totalDue}
             paid={payment.paid}
             canCancel={data.canCancel}
+            canPay={data.canPay}
             paymentUrl={view.paymentUrl}
           />
         )}

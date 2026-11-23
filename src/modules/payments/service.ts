@@ -473,6 +473,7 @@ async function markSucceeded(paymentId: string, remote: YooPayment, reservation 
       // клиента): «оплачена беседка» должно читаться без панели.
       subjectType: applied.subjectType,
       subjectId: applied.subjectId,
+      ...(isPSParkReservation(applied) && { paymentPurpose: "reservation" }),
     },
   });
 
@@ -520,6 +521,7 @@ async function markCanceled(paymentId: string, reason: string): Promise<void> {
       // Что будет с предметом оплаты, зависит от его типа: бронь беседки,
       // заказ и абонемент отменяются вместе с платежом, счёт PS Park — нет.
       subjectType: applied.subjectType,
+      ...(isPSParkReservation(applied) && { paymentPurpose: "reservation" }),
     },
   });
 
@@ -672,6 +674,10 @@ export async function finalizeRefund(refundId: string): Promise<void> {
         status: fullyRefunded ? "REFUNDED" : "PARTIALLY_REFUNDED",
       },
     });
+    if (payment.subjectType === "BOOKING" && isPSParkReservation(payment)) {
+      const { onPSParkReservationRefunded } = await import("./subjects/booking");
+      await onPSParkReservationRefunded(tx, payment.subjectId, decimalToNumber(refund.amount));
+    }
 
     // Леджер: возвраты со знаком минус — SUM(totalAmount) остаётся честной выручкой.
     await tx.financialTransaction.create({

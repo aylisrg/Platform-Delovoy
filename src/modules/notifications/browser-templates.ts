@@ -40,6 +40,10 @@ const templates: Record<string, Record<string, BrowserTemplateFn>> = {
   "ps-park": {
     "booking.created": bookingCreated("Плей Парк"),
     "booking.cancelled": bookingCancelled("Плей Парк"),
+    "payment.succeeded": (d) => ({
+      title: d.paymentPurpose === "reservation" ? "Плей Парк: бронь оплачена" : "Плей Парк: онлайн-оплата сессии",
+      body: `${humanizeDates(d.description)} · ${d.amount} ₽`,
+    }),
   },
   cafe: {
     "order.placed": (d) => ({

@@ -117,7 +117,9 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
     // частями (несколько платежей), поэтому каждое событие — это принятый
     // онлайн-платёж, а не факт полной оплаты сессии.
     "booking.paid": (d) =>
-      `💳 <b>Онлайн-оплата сессии</b>\n\n${bookingBlock(d)}${amountLine(d)}${adminLink("ps-park", d)}`,
+      d.bookingStatus === "CANCELLED" || d.bookingStatus === "NO_SHOW"
+        ? `⚠️ <b>Оплата по отменённой брони</b>\n\n${bookingBlock(d)}${amountLine(d)}\n\nСвяжитесь с гостем для сверки оплаты и переноса.${adminLink("ps-park", d)}`
+        : `💳 <b>${d.paymentPurpose === "reservation" ? "Бронь оплачена онлайн" : "Онлайн-оплата сессии"}</b>\n\n${bookingBlock(d)}${amountLine(d)}${adminLink("ps-park", d)}`,
     "booking.admin_created": (d) =>
       `📞 <b>Сессия по телефону</b>\n\n${bookingBlock(d, { withPhone: true })}\n\nСессия уже подтверждена администратором.${adminLink("ps-park", d)}`,
     "booking.cancelled": (d) =>
@@ -126,6 +128,10 @@ const channelTemplates: Record<string, Record<string, TemplateFn>> = {
         : `❌ <b>Сессия отменена</b>\n\n${bookingBlock(d)}\n\nСтол снова свободен.${adminLink("ps-park", d)}`,
     "booking.completed": (d) =>
       `🏁 <b>Сессия завершена</b>\n\n${bookingBlock(d)}${adminLink("ps-park", d)}`,
+    "booking.rescheduled": (d) =>
+      `🔄 <b>Сессия перенесена</b>\n\n${rescheduleBlock(d)}${adminLink("ps-park", d)}`,
+    "booking.ending_soon": (d) =>
+      `⏳ <b>Сессия скоро закончится</b>\n\n${bookingBlock(d)}\n\nПредложите продление, если стол свободен.${adminLink("ps-park", d)}`,
     "booking.reminder": (d) =>
       `⏰ <b>Через час начинается сессия</b>\n\n${bookingBlock(d)}\n\nПроверьте, что стол свободен и готов.`,
   },

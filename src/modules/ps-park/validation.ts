@@ -108,6 +108,8 @@ export const PS_PARK_CHANNEL_EVENT_TYPES = [
   "booking.cancelled",
   "booking.completed",
   "booking.reminder",
+  "booking.rescheduled",
+  "booking.ending_soon",
 ] as const;
 
 export type PSParkChannelEventType = (typeof PS_PARK_CHANNEL_EVENT_TYPES)[number];
@@ -121,6 +123,8 @@ export const PS_PARK_CHANNEL_EVENTS: {
   { type: "booking.cancelled", label: "Сессия отменена" },
   { type: "booking.completed", label: "Сессия завершена" },
   { type: "booking.reminder", label: "Напоминание (за 1 час)" },
+  { type: "booking.rescheduled", label: "Сессия перенесена" },
+  { type: "booking.ending_soon", label: "Сессия скоро закончится" },
 ];
 
 export const moduleSettingsSchema = z.object({
@@ -140,6 +144,11 @@ export const moduleSettingsSchema = z.object({
     .array(z.enum(PS_PARK_CHANNEL_EVENT_TYPES))
     .optional(),
 });
+
+export const onlineBookingSettingsSchema = z.discriminatedUnion("enabled", [
+  z.object({ enabled: z.literal(false) }),
+  z.object({ enabled: z.literal(true), offerHash: z.string().regex(/^[a-f0-9]{64}$/) }),
+]);
 
 /** Тест-сообщение в канал: chatId для проверки значения до сохранения. */
 export const channelTestMessageSchema = z.object({

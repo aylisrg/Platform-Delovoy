@@ -58,6 +58,7 @@ export function BookingDetailCard({
   const hours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
 
   const isPending = booking.status === "PENDING";
+  const awaitsOnlinePayment = isPending && meta?.paymentPurpose === "reservation";
   const isCheckedIn = booking.status === "CHECKED_IN";
   // #436: роуты /checkin и /no-show существовали, но ни одна кнопка их не
   // вызывала — статус CHECKED_IN был недостижим вручную.
@@ -304,8 +305,10 @@ export function BookingDetailCard({
           startTime={start}
           paymentState={payment.state}
           disabled={actionLoading || loadingBill}
+          awaitsOnlinePayment={awaitsOnlinePayment}
           onSelect={handleStatusSelect}
         />
+        {awaitsOnlinePayment && <p className="mt-1 text-xs text-zinc-600">Ожидается предоплата через ЮKassa.</p>}
       </div>
 
       {/* Body */}
@@ -441,7 +444,7 @@ export function BookingDetailCard({
         >
           {historyOpen ? "Скрыть историю" : "История"}
         </Button>
-        {isPending && (
+        {isPending && !awaitsOnlinePayment && (
           <Button
             size="sm"
             onClick={() => handleInlineStatus("CONFIRMED")}

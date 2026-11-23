@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { hasRole, hasAdminSectionAccess } from "@/lib/permissions";
 import { getSessionDetail } from "@/modules/ps-park/service";
 import { BookingPaymentBadge } from "@/components/admin/payments/booking-payment-badge";
+import { RescheduleBookingButton } from "@/components/admin/ps-park/reschedule-booking-button";
 import {
   formatDate as formatDateUnified,
   formatTime as formatTimeUnified,
@@ -26,6 +27,8 @@ const PAYMENT_LABEL: Record<string, string> = {
   CARD: "Безналичными",
   MIXED: "Смешанная (нал. + безнал.)",
   SUBSCRIPTION: "Абонемент",
+  ONLINE: "Онлайн",
+  AWAITING: "Ожидает оплаты",
   FREE: "Бесплатно",
 };
 
@@ -34,6 +37,8 @@ const PAYMENT_COLOR: Record<string, string> = {
   CARD: "bg-blue-100 text-blue-700",
   MIXED: "bg-purple-100 text-purple-700",
   SUBSCRIPTION: "bg-amber-100 text-amber-700",
+  ONLINE: "bg-emerald-100 text-emerald-700",
+  AWAITING: "bg-amber-100 text-amber-700",
   FREE: "bg-zinc-100 text-zinc-600",
 };
 
@@ -109,9 +114,10 @@ export default async function SessionDetailPage({
           </p>
         </div>
         <span className="inline-block rounded-full px-3 py-1 text-xs font-medium bg-zinc-100 text-zinc-700">
-          {STATUS_LABEL[sess.status] ?? sess.status}
+          {sess.awaitsOnlinePayment ? "Ожидает онлайн-оплаты" : STATUS_LABEL[sess.status] ?? sess.status}
         </span>
       </div>
+      {sess.canReschedule && <RescheduleBookingButton bookingId={sess.id} />}
 
       <section className="rounded-xl border border-zinc-200 bg-white p-6">
         <h2 className="text-base font-semibold text-zinc-900 mb-3">Гость</h2>

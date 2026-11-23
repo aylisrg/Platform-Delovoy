@@ -208,6 +208,7 @@ async function showPSList(ctx: BotContext, edit = false) {
     }
 
     const keyboard = new InlineKeyboard();
+    keyboard.url("💳 Бронирование с онлайн-оплатой", "https://delovoy-park.ru/ps-park#booking").row();
     for (const resource of data.data) {
       const price = resource.pricePerHour ? `${Number(resource.pricePerHour)}₽/ч` : "";
       const capacity = resource.capacity ? `${resource.capacity} чел` : "";

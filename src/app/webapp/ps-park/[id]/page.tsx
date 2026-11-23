@@ -66,7 +66,8 @@ export default function PSParkBookingPage() {
       );
       const data = await res.json();
       if (!data.success) return [];
-      return data.data.slots || data.data || [];
+      const slots = (data.data?.[0]?.slots ?? []) as { startTime: string; isAvailable: boolean }[];
+      return slots.map((slot) => ({ time: slot.startTime, available: slot.isAvailable }));
     },
     [params.id]
   );
@@ -126,8 +127,8 @@ export default function PSParkBookingPage() {
   if (step === "success") {
     return (
       <SuccessScreen
-        title="Забронировано!"
-        subtitle={resource.name}
+        title="Заявка отправлена"
+        subtitle={`${resource.name} · ожидает подтверждения администратора`}
         details={[
           { label: "Дата", value: selectedDate },
           { label: "Время", value: `${selectedStart} — ${selectedEnd}` },

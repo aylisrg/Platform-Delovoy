@@ -9,6 +9,7 @@ describe("isHiddenFromStaff", () => {
 
   it("бронь с сайта после оплаты — персонал её видел («оплачена»)", () => {
     expect(isHiddenFromStaff({ paymentFlow: "online", onlinePaidAmount: "4000.00" })).toBe(false);
+    expect(isHiddenFromStaff({ paymentFlow: "online", paymentId: "paid-then-refunded", onlinePaidAmount: "0.00" })).toBe(false);
   });
 
   it("брони без флага (бот, телефон, созданные до флага) персонал видел всегда", () => {

@@ -1036,6 +1036,18 @@ describe("getActiveSessions", () => {
 // ===== extendBooking =====
 
 describe("extendBooking", () => {
+  it("продлевает сессию после заезда с проверкой исходного статуса и времени", async () => {
+    const booking = mockBooking({ status: "CHECKED_IN", endTime: new Date(`${FUTURE_DATE}T13:00:00`) });
+    vi.mocked(prisma.booking.findFirst).mockResolvedValueOnce(booking as never).mockResolvedValueOnce(null);
+    vi.mocked(prisma.booking.update).mockResolvedValue(booking as never);
+
+    await extendBooking("booking-1", "manager-1");
+
+    expect(prisma.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: "CHECKED_IN", endTime: booking.endTime }),
+      data: expect.objectContaining({ endTime: new Date(`${FUTURE_DATE}T14:00:00`) }),
+    }));
+  });
   it("extends booking endTime by 1 hour when next slot is free", async () => {
     vi.mocked(prisma.booking.findFirst)
       .mockResolvedValueOnce(

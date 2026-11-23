@@ -9,11 +9,17 @@ vi.mock("../service", () => ({
   getOpenCloseHours: vi.fn().mockResolvedValue({ openHour: 8, closeHour: 23 }),
   PSBookingError: class extends Error { constructor(public code: string, message: string) { super(message); } },
 }));
-vi.mock("@/lib/logger", () => ({ log: { error: vi.fn() } }));
+vi.mock("@/lib/logger", () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock("@/modules/inventory/service", () => ({ saleBookingItems: vi.fn() }));
+vi.mock("@/modules/notifications/queue", () => ({ enqueueNotification: vi.fn() }));
+vi.mock("@/modules/notifications/channels/email", () => ({
+  sendTransactionalEmail: vi.fn().mockResolvedValue({ success: true }),
+}));
 import { prisma } from "@/lib/db";
 import { saleBookingItems } from "@/modules/inventory/service";
 import { reschedulePaidReservation } from "../reschedule";
+import { enqueueNotification } from "@/modules/notifications/queue";
+import { sendTransactionalEmail } from "@/modules/notifications/channels/email";
 
 let row: Booking;
 const input = { date: "2030-06-12", startTime: "12:00", expectedStartTime: "2030-06-10T07:00:00.000Z" };
@@ -43,6 +49,8 @@ describe("Перенос оплаченной Play Park reservation", () => {
     expect(prisma.booking.update).not.toHaveBeenCalled();
   });
   it("сохраняет цену, оплату и длительность при смене тарифа; второй запрос — no-op", async () => {
+    row.userId = null;
+    vi.mocked(prisma.payment.findFirst).mockResolvedValue({ amount: 1000, customerEmail: "guest@example.test" } as never);
     const updated = await reschedulePaidReservation(row.id, "manager-1", input);
     expect(updated.startTime.toISOString()).toBe("2030-06-12T09:00:00.000Z");
     expect(updated.endTime.toISOString()).toBe("2030-06-12T11:00:00.000Z");
@@ -50,6 +58,13 @@ describe("Перенос оплаченной Play Park reservation", () => {
     await reschedulePaidReservation(row.id, "manager-1", input);
     expect(prisma.booking.update).toHaveBeenCalledTimes(1);
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(enqueueNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      type: "booking.rescheduled", moduleSlug: "ps-park",
+      data: expect.objectContaining({ oldStartTime: "10:00", startTime: "12:00", endTime: "14:00" }),
+    }));
+    expect(sendTransactionalEmail).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      to: "guest@example.test", text: expect.stringContaining("12:00–14:00 МСК"),
+    }));
     expect(saleBookingItems).not.toHaveBeenCalled();
   });
   it("не переносит чужой модуль/менеджерский session bill", async () => {

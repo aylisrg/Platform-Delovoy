@@ -20,5 +20,5 @@ export function isPSParkReservation(value: { moduleSlug: string; metadata: unkno
  */
 export function isHiddenFromStaff(metadata: unknown): boolean {
   const meta = (metadata as BookingMetadata | null) ?? {};
-  return meta.paymentFlow === "online" && !(Number(meta.onlinePaidAmount ?? 0) > 0);
+  return meta.paymentFlow === "online" && !meta.paymentId && !(Number(meta.onlinePaidAmount ?? 0) > 0);
 }

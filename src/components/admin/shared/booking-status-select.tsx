@@ -20,6 +20,7 @@ type Props = {
   /** Роль текущего пользователя — определяет, какие переходы вообще возможны. */
   actorRole?: ActorRole;
   disabled?: boolean;
+  awaitsOnlinePayment?: boolean;
   onSelect: (value: StatusSelectValue) => void;
 };
 
@@ -52,6 +53,7 @@ export function BookingStatusSelect({
   paymentState,
   actorRole = "MANAGER",
   disabled = false,
+  awaitsOnlinePayment = false,
   onSelect,
 }: Props) {
   const now = new Date();
@@ -59,6 +61,7 @@ export function BookingStatusSelect({
   /** null — переход разрешён; строка — почему нет. */
   function blockedReason(target: BookingStatus): string | null {
     if (target === currentStatus) return null;
+    if (awaitsOnlinePayment && target === "CONFIRMED") return "подтвердится после оплаты";
     try {
       assertValidTransition({
         currentStatus,
@@ -78,7 +81,9 @@ export function BookingStatusSelect({
   }
 
   const paidBlocked =
-    paymentState === "PAID"
+    awaitsOnlinePayment
+      ? "ожидается онлайн-оплата"
+      : paymentState === "PAID"
       ? "уже оплачено"
       : paymentState === "PENALTY_HELD"
         ? "удержан штраф"
