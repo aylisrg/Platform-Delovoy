@@ -82,7 +82,7 @@ describe("authorized(): платёжный контур", () => {
   });
 
   it("остальные /api/cron/* без crontab-записи остаются закрытыми", async () => {
-    await expectAnon401(await authorize("GET", "/api/cron/process-recurring"));
+    await expectAnon401(await authorize("GET", "/api/cron/no-show"));
     await expectAnon401(await authorize("GET", "/api/cron/process-outgoing-x"));
   });
 
