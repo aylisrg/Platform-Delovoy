@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: {} }));
+vi.mock("@/lib/db", () => ({ prisma: {
+  user: { findUnique: vi.fn().mockResolvedValue({ role: "SUPERADMIN" }) },
+  adminPermission: { findMany: vi.fn().mockResolvedValue([]) },
+} }));
 vi.mock("@/modules/cafe/service", () => ({ listOrders: vi.fn() }));
 
 import { GET } from "../route";

@@ -249,13 +249,21 @@ export function getGrantableSections(role: Role): GrantableSections {
  * Get all admin sections a user has access to (see computeAdminSections).
  */
 export async function getUserAdminSections(userId: string): Promise<string[]> {
+  return (await getUserAdminAccess(userId)).sections;
+}
+
+/** Current role and section grants from the same lookup, never from a JWT. */
+export async function getUserAdminAccess(userId: string): Promise<{
+  role: Role | null;
+  sections: string[];
+}> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
 
-  if (!user) return [];
-  if (user.role === "USER") return [];
+  if (!user) return { role: null, sections: [] };
+  if (user.role === "USER") return { role: user.role, sections: [] };
 
   const permissions = await prisma.adminPermission.findMany({
     where:
@@ -265,7 +273,10 @@ export async function getUserAdminSections(userId: string): Promise<string[]> {
     select: { section: true },
   });
 
-  return computeAdminSections(user.role, permissions.map((p) => p.section));
+  return {
+    role: user.role,
+    sections: computeAdminSections(user.role, permissions.map((p) => p.section)),
+  };
 }
 
 /**
