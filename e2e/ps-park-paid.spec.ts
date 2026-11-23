@@ -139,21 +139,23 @@ test.describe("Play Park paid checkout against real PostgreSQL", () => {
     const data = await input();
     // No API interception: browser and server both execute production code.
     await page.goto(`${app.origin}/ps-park`);
-    await expect(page.locator("section#booking")).toHaveAttribute("data-online-booking", "enabled");
-    await expect(page.locator("section#booking")).toHaveAttribute("data-online-offer", "v2");
+    // Next streaming can retain a hidden copy of a rendered section.
+    const checkout = page.locator("section#booking:visible");
+    await expect(checkout).toHaveAttribute("data-online-booking", "enabled");
+    await expect(checkout).toHaveAttribute("data-online-offer", "v2");
     await Promise.all([
       page.waitForResponse(response => response.url().includes(`/api/ps-park/availability?date=${future}`)),
-      page.locator('#booking input[type="date"]').fill(future),
+      checkout.locator('input[type="date"]:visible').fill(future),
     ]);
-    const resource = page.getByRole("heading", { name: data.resourceId, exact: true }).locator("../..");
+    const resource = checkout.getByRole("heading", { name: data.resourceId, exact: true }).locator("../..");
     await resource.getByRole("button", { name: "16:00", exact: true }).click();
     await resource.getByRole("button", { name: "17:00", exact: true }).click();
-    await page.getByLabel("Имя", { exact: true }).fill(data.guestName);
-    await page.getByLabel("Телефон", { exact: true }).fill(data.guestPhone);
-    await page.getByLabel("Email для чека", { exact: true }).fill(data.email);
-    await page.getByRole("checkbox").check();
+    await checkout.getByLabel("Имя", { exact: true }).fill(data.guestName);
+    await checkout.getByLabel("Телефон", { exact: true }).fill(data.guestPhone);
+    await checkout.getByLabel("Email для чека", { exact: true }).fill(data.email);
+    await checkout.getByRole("checkbox").check();
     const created = page.waitForResponse(response => response.url().endsWith("/api/ps-park/book") && response.request().method() === "POST");
-    await page.getByRole("button", { name: "Оплатить", exact: true }).click();
+    await checkout.getByRole("button", { name: "Оплатить", exact: true }).click();
     const response = await created;
     expect(response.status()).toBe(201);
     // The production form redirects immediately. Chromium may evict the POST
